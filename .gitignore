@@ -1,0 +1,7 @@
+# Ignore everything by default
+/*
+
+# Allow nim files
+!argumint.nimble
+!/src/argumint/lexer.nim
+
