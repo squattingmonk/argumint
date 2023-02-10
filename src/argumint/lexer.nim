@@ -487,26 +487,3 @@ when isMainModule:
         token(tkLongOption, "drifting"),
         token(tkBracketClose)]
       check getTokens("<x> <y> [--moored | --drifting]") == expected
-
-  #
-  #
-  #
-  #
-  #
-  #
-  # suite "Custom args":
-  #   setup:
-  #     let spec = newFileStream(stdin)
-  #
-  #   teardown:
-  #     spec.close
-  #
-  #   test "Custom args parsed":
-  #     try:
-  #       for token in spec.getTokens:
-  #         echo token
-  #     except SpecificationDefect as e:
-  #       echo e.msg
-  #     except:
-  #       fail()
-  #     check(true)
