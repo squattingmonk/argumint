@@ -3,17 +3,10 @@ import std/[macros, macrocache, os, options, pegs, sequtils, sugar, strformat, s
 import ./argumint/[backend, fsm, parser, validators]
 
 type
-  ValueArg[T: not seq] = ref object of Arg
-    value: Option[T]
-    default: T
-    validator: Validator[T]
-
-  ValuesArg[T: not seq] = ref object of Arg
+  ValueArg[T: not seq, multi: static bool] = ref object of Arg
     value: Option[seq[T]]
     default: seq[T]
     validator: Validator[T]
-
-  ValuedArg[T] = ValueArg[T] or ValuesArg[T]
 
   FlagOp[T] = tuple[op: string, arg: T]
 
@@ -106,7 +99,7 @@ proc genHelp(spec: Spec, command: string): string =
 # Parsing methods
 # ------------------------------------------------------------------------------
 
-proc parseImpl[T](self: ValuedArg[T], value: string, variant: string) =
+proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string) =
   ## Converts a string `value` into a `T` and validates it is an appropriate
   ## value for `self`. Raises a `ParseError` if `value` cannot be converted to a
   ## `T` or a `ValidationError` if the value does not pass `self`'s validator.
@@ -116,13 +109,19 @@ proc parseImpl[T](self: ValuedArg[T], value: string, variant: string) =
     let tmp: T = value
     if not self.validator.isNil:
       self.validator.validate(tmp)
-    when self is ValueArg:
-      self.value = some(tmp)
-    else:
+    when multi:
+      # NOTE: appending via `self.value = some(self.value.get & @[tmp])`
+      # corrupts earlier elements under ORC when `self` is a generic ref
+      # object carrying a `static bool` param (as `ValueArg` does) -- copying
+      # to a local var first avoids the miscompilation.
       if self.value.isSome:
-          self.value = some(self.value.get & @[tmp])
+        var s = self.value.get
+        s.add(tmp)
+        self.value = some(s)
       else:
         self.value = some(@[tmp])
+    else:
+      self.value = some(@[tmp])
   except ValidationError as e:
     raise newException(ValidationError, fmt"for {self.name(variant)}, {e.msg}")
   except ValueError:
@@ -158,10 +157,10 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
   ## version if you want to write your own converter to parse a string into a
   ## `T`.
-  method parse*(self: ValueArg[T], value: string, variant = "") =
+  method parse*(self: ValueArg[T, false], value: string, variant = "") =
     self.parseImpl(value, variant)
 
-  method parse*(self: ValuesArg[T], value: string, variant = "") =
+  method parse*(self: ValueArg[T, true], value: string, variant = "") =
     self.parseImpl(value, variant)
 
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
@@ -202,14 +201,14 @@ method parse*(self: HelpArg, command: string, spec: Spec, variant = "") =
 # Convenience functions that allow easy unpacking of values from args.
 # ------------------------------------------------------------------------------
 
-converter toT*[T](arg: ValueArg[T]): T =
-  ## Converts a `ValueArg[T]` to a `T`, substituting a default value if no value
-  ## was set by the user.
-  arg.value.get(otherwise = arg.default)
-
-converter toSeqT*[T](arg: ValuesArg[T]): seq[T] =
-  ## Converts a `ValuesArg[T]` to a `seq[T]`, substituting a default value if
+converter toT*[T](arg: ValueArg[T, false]): T =
+  ## Converts a `ValueArg[T, false]` to a `T`, substituting a default value if
   ## no value was set by the user.
+  arg.value.get(otherwise = arg.default)[0]
+
+converter toSeqT*[T](arg: ValueArg[T, true]): seq[T] =
+  ## Converts a `ValueArg[T, true]` to a `seq[T]`, substituting a default
+  ## value if no value was set by the user.
   arg.value.get(otherwise = arg.default)
 
 converter toT*[T](arg: FlagArg[T]): T =
@@ -283,7 +282,7 @@ proc newSpec(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T] =
+proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, false] =
   ## Creates a positional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
@@ -295,12 +294,9 @@ proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arg
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
 
-proc args*[string](variants: string, default: seq[string] = @[], help = "", group = "Arguments", validator: Validator[string] = nil): ValuesArg[string] =
-  ValuesArg[string](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
-
-proc args*[T: not seq](variants: string, default: seq[T], help = "", group = "Arguments", validator: Validator[T] = nil): ValuesArg[T] =
+proc arg*[T: not seq](variants: string, default: seq[T], help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
@@ -312,11 +308,11 @@ proc args*[T: not seq](variants: string, default: seq[T], help = "", group = "Ar
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValuesArg[T](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
 
 
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T] =
+proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -329,9 +325,9 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: seq[T], help = "", group = "Options", validator: Validator[T] = nil): ValuesArg[T] =
+proc opt*[T: not seq](variants: string, default: seq[T], help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -344,7 +340,7 @@ proc opt*[T: not seq](variants: string, default: seq[T], help = "", group = "Opt
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValuesArg[T](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
 
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
@@ -479,7 +475,7 @@ proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", args: seq[string]
 when isMainModule:
   let
     spec = (
-      src: args("<src>", default = @["foo"], help = "The source file(s) to copy"),
+      src: arg("<src>", default = @["foo"], help = "The source file(s) to copy"),
       dest: arg("<dest>", help = "The destination to copy to"),
       recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
       help: help()

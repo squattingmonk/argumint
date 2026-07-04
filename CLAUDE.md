@@ -71,22 +71,44 @@ navigating the code:
    `pc.matches: OrderedTable[Arg, seq[Match]]`, which is then fed back into
    each `Arg`'s `parse` method (see below) to actually convert/store values.
 
-4. **Value conversion** (`src/argumint.nim`, top): `ValueArg[T]` /
-   `ValuesArg[T]` / `FlagArg[T]` are generic ref objects holding a parsed
-   `Option[T]`/`Option[seq[T]]`/`T`. `defineArg[T]` is a template that
-   generates a `method parse` for a given `T` by calling `parseImpl`, which
-   converts the raw string via an implicit `converter` (`toInt`, `toFloat`,
-   `toBool`, `toChar`; strings pass through) and then runs the arg's
-   `Validator[T]` (`validators.nim`) if present. Flags are special: they
-   don't take user converters — instead `defineArg[T](typeName, flagHandler)`
-   registers per-type flag operations (e.g. `=`, `+=`, `-=` for `int`) via the
-   `defineFlagOps` macro, stored in the `flagOps` `CacheTable` and looked up by
-   `getFlagOps` at spec-construction time to validate that a flag variant's
-   requested op (parsed out of the variant string itself, e.g.
-   `--verbose+=2`) is actually supported for that type.
-   Converters for `ValueArg`/`ValuesArg` return the field's value as `T`/
-   `seq[T]` transparently at use-sites via the `toT`/`toSeqT` converters —
-   code reads `spec.dest` rather than `spec.dest.value`.
+4. **Value conversion** (`src/argumint.nim`, top): `ValueArg[T: not seq,
+   multi: static bool]` / `FlagArg[T]` are generic ref objects holding a
+   parsed `Option[seq[T]]`/`T`. A single `ValueArg` type backs both scalar
+   args (instantiated as `ValueArg[T, false]`, storing its value as a
+   1-element seq) and multi-value args (instantiated as `ValueArg[T, true]`,
+   appending on each match). Both `arg*` and `opt*` are overloaded on the
+   `default` parameter's type to pick the arity: `default: T` (with a `= ""`
+   fallback) selects the scalar overload, `default: seq[T]` (no fallback, so
+   a seq default must always be given explicitly) selects the multi-value
+   one — there's no separate `args*` proc. Because `multi` is a `static
+   bool`, `ValueArg[T, false]` and `ValueArg[T, true]` are distinct
+   concrete types to the compiler, so `toT`/`toSeqT` (see below) can be
+   overloaded per-arity without ambiguity — you still can't accidentally use
+   a scalar arg in a seq context or vice versa.
+   `defineArg[T]` is a template that generates a `method parse` for a given
+   `T` (both arities) by calling `parseImpl`, which converts the raw string
+   via an implicit `converter` (`toInt`, `toFloat`, `toBool`, `toChar`;
+   strings pass through) and then runs the arg's `Validator[T]`
+   (`validators.nim`) if present — validation always happens against the
+   scalar element type, never `seq[T]`, since it runs before the value is
+   stored/appended. Flags are special: they don't take user converters —
+   instead `defineArg[T](typeName, flagHandler)` registers per-type flag
+   operations (e.g. `=`, `+=`, `-=` for `int`) via the `defineFlagOps` macro,
+   stored in the `flagOps` `CacheTable` and looked up by `getFlagOps` at
+   spec-construction time to validate that a flag variant's requested op
+   (parsed out of the variant string itself, e.g. `--verbose+=2`) is actually
+   supported for that type.
+   Converters `toT*[T](arg: ValueArg[T, false]): T` and
+   `toSeqT*[T](arg: ValueArg[T, true]): seq[T]` return the field's value
+   transparently at use-sites — code reads `spec.dest` rather than
+   `spec.dest.value`.
+   **Gotcha**: appending to `self.value` (a `ValueArg[T, true]`'s
+   `Option[seq[T]]`) via `self.value = some(self.value.get & @[tmp])` silently
+   corrupts earlier elements under ORC — this only manifests once the object
+   type carries an extra `static bool` param alongside `T`. `parseImpl` works
+   around it by copying `self.value.get` into a local `var` and calling
+   `.add` before reassigning; don't revert to the inline `get(...) & @[...]`
+   form.
 
 5. **Subcommands**: `command*` builds a `CommandArg` wrapping its own nested
    `Spec` (built via `newSpec` from a nested arg tuple), optionally binding a
