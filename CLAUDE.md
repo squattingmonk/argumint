@@ -137,11 +137,14 @@ navigating the code:
   name) — two distinct `Arg`s must not share a first variant, or the
   `MatchTable`/state dedup logic in `fsm.nim`/`backend.nim` will conflate
   them.
-- A `help()`/`MessageArg` is only reachable if the `usage` string mentions
-  it explicitly (e.g. as its own `\n--help` alternative line), even though
-  it's always registered in `spec.options` so it tokenizes fine. `[options]`
-  (`tkAnyOption` in `parser.nim`'s `atom()`) does *not* pull it in either —
-  it explicitly filters out `MessageArg`s. This only matters when you pass
-  an explicit `usage` to `arg`/`command`; the auto-generated usage built by
-  `newSpec` (when `usage` is left blank) already appends a `(-h | --help)`
-  line for you.
+- `newSpec` guarantees every `MessageArg` (e.g. one created by `help()`) is
+  reachable: after building the FSM, it calls `backend.referencedArgs` to
+  collect every `Arg` actually referenced by a matcher, and appends a
+  `\n(variant | ...)` line (rebuilding the FSM once more) for any
+  `MessageArg` not in that set. This runs regardless of whether `usage` was
+  auto-generated or passed in explicitly, so you never need to remember to
+  mention `--help` yourself — but if you *do* mention it (even just one of
+  several variants), it's left alone rather than duplicated. Note `[options]`
+  (`tkAnyOption` in `parser.nim`'s `atom()`) still never pulls a
+  `MessageArg` in — it explicitly filters them out — so `[options]` alone
+  does not count as "reachable".

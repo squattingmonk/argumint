@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, pegs, sequtils, strformat, strutils, sugar, tables]
+import std/[algorithm, hashes, pegs, sequtils, sets, strformat, strutils, sugar, tables]
 
 
 type
@@ -173,6 +173,26 @@ iterator terminals*(s: State): State =
   s.terminals(states)
   for state in states:
     yield state
+
+proc collectArgs(s: State, args: var HashSet[Arg], visited = newTable[State, bool]()) =
+  if visited.hasKeyOrPut(s, true):
+    return
+  for tr in s.transitions:
+    case tr.matcher.kind
+    of Argument: args.incl tr.matcher.arg
+    of Option: args.incl tr.matcher.opt
+    of Options:
+      for opt in tr.matcher.opts:
+        args.incl opt
+    of Command: args.incl tr.matcher.cmd
+    of Shortcut: discard
+    tr.next.collectArgs(args, visited)
+
+proc referencedArgs*(s: State): HashSet[Arg] =
+  ## Returns every `Arg` referenced by a matcher reachable from `s`. Used to
+  ## detect whether a declared arg (e.g. one created by `help()`) is actually
+  ## reachable via the usage grammar, so it can be added automatically if not.
+  s.collectArgs(result)
 
 proc sortTransitions(s: State, visited = newTable[State, bool]()) =
   ## Recursively sorts all transitions for `s` by their matchers' priorities.

@@ -1,4 +1,4 @@
-import std/[macros, macrocache, os, options, pegs, sequtils, sugar, strformat, strutils, tables]
+import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables]
 
 import ./argumint/[backend, dot, fsm, parser, validators]
 
@@ -257,7 +257,11 @@ proc addArgs(self: Spec, spec: tuple) =
 
 proc newSpec(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
   ## Creates a new spec from a spec tuple, generating a usage pattern if one was
-  ## not passed manually. An FSM is then constructed.
+  ## not passed manually. An FSM is then constructed. Any MessageArg (e.g. one
+  ## created by `help()`) that ends up unreachable through the usage string --
+  ## whether auto-generated or passed in manually -- is appended as its own
+  ## alternative line, so declaring `help()` always makes `--help` reachable
+  ## without the caller needing to remember to mention it explicitly.
   result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
   if result.usage.len == 0:
@@ -270,13 +274,16 @@ proc newSpec(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
       let args = result.args.filterIt(it.kind == Positional).mapIt(it.name).join(" ")
       result.usage.addSep("\n")
       result.usage.add fmt"{options}{args}"
-
-    if result.options.len > 0:
-      for arg in result.args.filterIt(it of MessageArg):
-        let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
-        result.usage.addSep("\n")
-        result.usage.add fmt"{variants}"
   result.fsm = result.genFsm()
+
+  let reachable = result.fsm.referencedArgs()
+  let missing = result.args.filterIt(it of MessageArg and it notin reachable)
+  if missing.len > 0:
+    for arg in missing:
+      let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
+      result.usage.addSep("\n")
+      result.usage.add variants
+    result.fsm = result.genFsm()
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -509,7 +516,7 @@ when isMainModule:
     )
 
     ship = (
-      move: command("move", move, handler = cmdMove, usage = "<name> <x> <y> [--speed=<speed>]\n--help", help = "Move a ship to a point"),
+      move: command("move", move, handler = cmdMove, usage = "<name> <x> <y> [--speed=<speed>]", help = "Move a ship to a point"),
       help: help()
     )
 
@@ -524,7 +531,7 @@ when isMainModule:
 
     spec = (
       ship: command("ship", ship, help = "Ship commands"),
-      mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]\n--help", help = "Mine commands"),
+      mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]", help = "Mine commands"),
       help: help()
     )
 
