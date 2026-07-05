@@ -1,0 +1,9 @@
+# Compiled binaries
+/argumint
+/src/argumint.out
+/src/argumint/validators
+
+# Nim build artifacts
+nimcache/
+*.exe
+*.pdb
