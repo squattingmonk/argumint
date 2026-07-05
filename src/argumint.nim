@@ -1,6 +1,6 @@
 import std/[macros, macrocache, os, options, pegs, sequtils, sugar, strformat, strutils, tables]
 
-import ./argumint/[backend, fsm, parser, validators]
+import ./argumint/[backend, dot, fsm, parser, validators]
 
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
@@ -450,14 +450,6 @@ defineArg char:
 
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   try:
-    # echo ""
-    # echo "Parsing..."
-    # echo spec.fsm.dot
-    # for cmdName, cmd in spec.commands:
-    #   echo cmdName
-    #   echo cmd.spec.fsm.dot
-    # echo spec.commands.keys.toSeq
-    # echo spec.genHelp(command)
     spec.parseSpec(args, command)
   except ParseError as e:
     quit("Parsing error: {e.msg}".fmt)
@@ -469,6 +461,20 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extra
 proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   try:
     newSpec(spec, usage, prolog, epilog).parse(args, command)
+  except SpecDefect as e:
+    quit(fmt"Error constructing spec: {e.msg}")
+
+proc dot*(spec: Spec): string =
+  ## Renders `spec`'s FSM as a Graphviz dot graph, useful for debugging or
+  ## visualizing how a usage string is parsed. For a subcommand, use
+  ## `cmdArg.spec.dot`.
+  spec.fsm.dot
+
+proc dot*(spec: tuple, usage = "", prolog = "", epilog = ""): string =
+  ## Compiles `spec` and renders its FSM as a Graphviz dot graph. See
+  ## `dot(Spec)` for details.
+  try:
+    newSpec(spec, usage, prolog, epilog).dot
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
