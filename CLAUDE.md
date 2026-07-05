@@ -137,14 +137,26 @@ navigating the code:
   name) — two distinct `Arg`s must not share a first variant, or the
   `MatchTable`/state dedup logic in `fsm.nim`/`backend.nim` will conflate
   them.
-- `newSpec` guarantees every `MessageArg` (e.g. one created by `help()`) is
-  reachable: after building the FSM, it calls `backend.referencedArgs` to
-  collect every `Arg` actually referenced by a matcher, and appends a
-  `\n(variant | ...)` line (rebuilding the FSM once more) for any
-  `MessageArg` not in that set. This runs regardless of whether `usage` was
-  auto-generated or passed in explicitly, so you never need to remember to
-  mention `--help` yourself — but if you *do* mention it (even just one of
-  several variants), it's left alone rather than duplicated. Note `[options]`
-  (`tkAnyOption` in `parser.nim`'s `atom()`) still never pulls a
-  `MessageArg` in — it explicitly filters them out — so `[options]` alone
-  does not count as "reachable".
+- `newSpec` builds the FSM first, then calls `autoFillUsage` to patch any
+  gaps: it uses `backend.referencedArgs` to collect every `Arg` actually
+  referenced by a matcher, then appends usage lines for whatever isn't
+  reachable and rebuilds the FSM once more if anything changed. This runs
+  regardless of whether `usage` was left blank or passed in explicitly, and
+  the fill-in rule differs by category:
+  - **Commands** and **`MessageArg`s** (e.g. `help()`) are filled in
+    per-arg — each missing one gets its own appended line — since each is
+    independently optional to mention. Mentioning one variant of a
+    multi-variant arg counts as reachable; it won't be duplicated.
+  - **Positional args** are all-or-nothing: only auto-appended (as one
+    joined `<a> <b>` line, in declaration order) when *none* of them are
+    reachable yet. A partially-specified sequence (some mentioned, some
+    not) is left alone — there's no safe way to guess where the missing
+    one belongs.
+  - **Options** (`opt`/`flag`, non-`MessageArg`) aren't their own usage
+    line; `[options]` (`tkAnyOption` in `parser.nim`'s `atom()`) — which
+    itself never pulls in a `MessageArg`, by design — rides along as a
+    prefix on whatever command/positional line gets auto-appended above.
+    If nothing else gets appended (e.g. a spec with only options, no
+    commands or positional args) but some option is still unreachable, a
+    standalone `[options]` line is added as a fallback. Weaving `[options]`
+    into an arbitrary hand-written line that's missing it is not attempted.

@@ -255,35 +255,54 @@ proc addArgs(self: Spec, spec: tuple) =
     else:
       raise newException(SpecDefect, fmt"Error: all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
 
+proc autoFillUsage(spec: Spec) =
+  ## Appends a usage line for any declared command or MessageArg (e.g. one
+  ## created by `help()`) that ends up unreachable, and for positional args
+  ## or a `[options]` catch-all when the *entire* category is unreachable --
+  ## so callers only need to hand-write the parts of the grammar they want
+  ## to customize. Rebuilds the FSM if anything was appended. This can't
+  ## safely fill in a *partially*-mentioned positional-arg sequence (which
+  ## one is missing, and where would it go?), nor weave `[options]` into an
+  ## arbitrary hand-written line that's missing it -- only the case where
+  ## nothing else was generated falls back to a standalone `[options]` line.
+  let usageLenBefore = spec.usage.len
+  let reachable = spec.fsm.referencedArgs()
+  let optionsUnreachable = spec.options.values.toSeq.deduplicate
+    .anyIt(not (it of MessageArg) and it notin reachable)
+  let prefix = if optionsUnreachable: "[options] " else: ""
+  var prefixUsed = false
+
+  for arg in spec.args.filterIt(it.kind == Command and it notin reachable):
+    let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
+    spec.usage.addSep("\n")
+    spec.usage.add prefix & variants
+    prefixUsed = prefixUsed or optionsUnreachable
+
+  let positionals = spec.args.filterIt(it.kind == Positional)
+  if positionals.len > 0 and positionals.allIt(it notin reachable):
+    spec.usage.addSep("\n")
+    spec.usage.add prefix & positionals.mapIt(it.name).join(" ")
+    prefixUsed = prefixUsed or optionsUnreachable
+
+  for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
+    let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
+    spec.usage.addSep("\n")
+    spec.usage.add variants
+
+  if optionsUnreachable and not prefixUsed:
+    spec.usage.addSep("\n")
+    spec.usage.add "[options]"
+
+  if spec.usage.len > usageLenBefore:
+    spec.fsm = spec.genFsm()
+
 proc newSpec(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
-  ## Creates a new spec from a spec tuple, generating a usage pattern if one was
-  ## not passed manually. An FSM is then constructed. Any MessageArg (e.g. one
-  ## created by `help()`) that ends up unreachable through the usage string --
-  ## whether auto-generated or passed in manually -- is appended as its own
-  ## alternative line, so declaring `help()` always makes `--help` reachable
-  ## without the caller needing to remember to mention it explicitly.
+  ## Creates a new spec from a spec tuple and builds its FSM. See
+  ## `autoFillUsage` for how gaps in `usage` are auto-filled.
   result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
-  if result.usage.len == 0:
-    let options = if result.options.values.toSeq.deduplicate.filterIt(not (it of MessageArg)).len > 0: "[options] " else: ""
-    for cmd in result.commands.keys:
-      result.usage.addSep("\n")
-      result.usage.add fmt"{options}{cmd}"
-
-    if result.arguments.len > 0:
-      let args = result.args.filterIt(it.kind == Positional).mapIt(it.name).join(" ")
-      result.usage.addSep("\n")
-      result.usage.add fmt"{options}{args}"
   result.fsm = result.genFsm()
-
-  let reachable = result.fsm.referencedArgs()
-  let missing = result.args.filterIt(it of MessageArg and it notin reachable)
-  if missing.len > 0:
-    for arg in missing:
-      let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
-      result.usage.addSep("\n")
-      result.usage.add variants
-    result.fsm = result.genFsm()
+  result.autoFillUsage()
 
 # ------------------------------------------------------------------------------
 # Arg constructors
