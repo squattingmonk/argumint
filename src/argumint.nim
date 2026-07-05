@@ -473,65 +473,66 @@ proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", args: seq[string]
     quit(fmt"Error constructing spec: {e.msg}")
 
 when isMainModule:
+  # let
+  #   spec = (
+  #     src: arg("<src>", default = @["foo"], help = "The source file(s) to copy"),
+  #     dest: arg("<dest>", help = "The destination to copy to"),
+  #     recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
+  #     help: help()
+  #   )
+  #
+  # spec.parse(usage = "[-r] <src>... <dest>\n--help")
+  # for file in spec.src:
+  #   echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"
+
+  proc cmdMove(spec: tuple) =
+    echo fmt"Moving ship {spec.name} to ({spec.x}, {spec.y}) at {spec.speed} knots"
+
   let
-    spec = (
-      src: arg("<src>", default = @["foo"], help = "The source file(s) to copy"),
-      dest: arg("<dest>", help = "The destination to copy to"),
-      recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
+    coords = (
+      x: arg("<x>", default = 0, help = "x grid reference"),
+      y: arg("<y>", default = 0, help = "y grid reference"),
+    )
+
+    move = (
+      name: arg("<name>", help = "The name of the ship to move"),
+      x: coords.x,
+      y: coords.y,
+      speed: opt("--speed=<speed>", default = 10, validator = range(1..100), help = "Speed in knots"),
       help: help()
     )
 
-  spec.parse(usage = "[-r] <src>... <dest>\n--help")
-  for file in spec.src:
-    echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"
-  # proc cmdMove(spec: tuple) =
-  #   echo fmt"Moving ship {spec.name} to ({spec.x}, {spec.y}) at {spec.speed} knots"
+    ship = (
+      move: command("move", move, handler = cmdMove, usage = "<name> <x> <y> [--speed=<speed>]\n--help", help = "Move a ship to a point"),
+      help: help()
+    )
+
+    mine = (
+      action: arg("<action>", help = "Action to perform", validator = choice(["set", "remove"])),
+      x: coords.x,
+      y: coords.y,
+      moored: flag("--moored", help = "Moored (anchored) mine"),
+      drifting: flag("--drifting", help = "Drifting mine"),
+      help: help()
+    )
+
+    spec = (
+      ship: command("ship", ship, help = "Ship commands"),
+      mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]\n--help", help = "Mine commands"),
+      help: help()
+    )
+
+  # echo ""
+  # echo "Listing usage..."
+  # echo spec.ship.spec.usage
   #
-  # let
-  #   coords = (
-  #     x: arg("<x>", default = 0, help = "x grid reference"),
-  #     y: arg("<y>", default = 0, help = "y grid reference"),
-  #   )
-  #
-  #   move = (
-  #     name: arg("<name>", help = "The name of the ship to move"),
-  #     x: coords.x,
-  #     y: coords.y,
-  #     speed: opt("--speed=<speed>", default = 10, validator = range(1..100), help = "Speed in knots"),
-  #     help: help()
-  #   )
-  #
-  #   ship = (
-  #     move: command("move", move, handler = cmdMove, usage = "<name> <x> <y> [--speed=<speed>]", help = "Move a ship to a point"),
-  #     help: help()
-  #   )
-  #
-  #   mine = (
-  #     action: arg("<action>", help = "Action to perform", validator = choice(["set", "remove"])),
-  #     x: coords.x,
-  #     y: coords.y,
-  #     moored: flag("--moored", help = "Moored (anchored) mine"),
-  #     drifting: flag("--drifting", help = "Drifting mine"),
-  #     help: help()
-  #   )
-  #
-  #   spec = (
-  #     ship: command("ship", ship, help = "Ship commands"),
-  #     mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]", help = "Mine commands"),
-  #     help: help()
-  #   )
-  #
-  # # echo ""
-  # # echo "Listing usage..."
-  # # echo spec.ship.spec.usage
-  # #
-  # # echo "Listing commands..."
-  # # for cmd in spec.ship.spec.commands.values:
-  # #   echo cmd.name
-  #
-  # spec.parse(prolog = "Naval Fate")
-  #
-  # echo fmt"{move.name=}"
-  # echo fmt"{move.x=}"
-  # echo fmt"{move.y=}"
-  # echo fmt"{move.speed=}"
+  # echo "Listing commands..."
+  # for cmd in spec.ship.spec.commands.values:
+  #   echo cmd.name
+
+  spec.parse(prolog = "Naval Fate")
+
+  echo fmt"{move.name=}"
+  echo fmt"{move.x=}"
+  echo fmt"{move.y=}"
+  echo fmt"{move.speed=}"

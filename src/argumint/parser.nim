@@ -132,8 +132,6 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     result.b.addShortcut(result.a)
     p.next()
 
-import ./dot
-
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
@@ -147,17 +145,4 @@ proc genFsm*(spec: Spec): State =
       p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
     result.addShortcut(s)
     e.terminal = true
-  echo result.dot(prepare)
-  # result.prepare()
-
-  #
-  # p.lex.open(p.spec.usage)
-  # defer: p.lex.close()
-  # p.tok = p.lex.next()
-  # var e: State
-  # (result, e) = p.sequence(false)
-  # if not p.peek {tkEof}:
-  #   p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
-  # e.terminal = true
-  # result.prepare()
-  # echo result.dot(prepare)
+  result.prepare()

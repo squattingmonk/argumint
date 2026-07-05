@@ -54,10 +54,11 @@ navigating the code:
    branches). `backend.prepare` (`simplify` + `sortTransitions`) collapses
    shortcut chains and orders transitions by matcher priority
    (`ord(MatcherKind)`) so, e.g., positional args aren't greedily consumed
-   ahead of options. `dot.nim` renders any FSM to Graphviz dot for
-   debugging/visualization — genFsm currently `echo`s a before/after dot
-   graph unconditionally (see commented-out `result.prepare()` call in
-   `parser.nim`; simplification is not currently wired in).
+   ahead of options. `genFsm` calls `result.prepare()` directly after
+   building the FSM from the usage string. `dot.nim` renders any FSM to
+   Graphviz dot for debugging/visualization but is not called anywhere by
+   default — wire up `spec.fsm.dot` (or `cmd.spec.fsm.dot` for a
+   subcommand) manually when debugging FSM construction.
 
 3. **Runtime matching** (`fsm.nim`): actual `os.commandLineParams()` (or
    passed-in `args`) are first tokenized into `CmdLineToken`s
@@ -136,3 +137,11 @@ navigating the code:
   name) — two distinct `Arg`s must not share a first variant, or the
   `MatchTable`/state dedup logic in `fsm.nim`/`backend.nim` will conflate
   them.
+- A `help()`/`MessageArg` is only reachable if the `usage` string mentions
+  it explicitly (e.g. as its own `\n--help` alternative line), even though
+  it's always registered in `spec.options` so it tokenizes fine. `[options]`
+  (`tkAnyOption` in `parser.nim`'s `atom()`) does *not* pull it in either —
+  it explicitly filters out `MessageArg`s. This only matters when you pass
+  an explicit `usage` to `arg`/`command`; the auto-generated usage built by
+  `newSpec` (when `usage` is left blank) already appends a `(-h | --help)`
+  line for you.
