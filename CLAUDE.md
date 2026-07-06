@@ -94,7 +94,12 @@ navigating the code:
    strings pass through) and then runs the arg's `Validator[T]`
    (`validators.nim`) if present — validation always happens against the
    scalar element type, never `seq[T]`, since it runs before the value is
-   stored/appended. Flags are special: they don't take user converters —
+   stored/appended. `defineArg[T]` also generates a `method defaultStr` per
+   arity, used by `genHelp` to render `[default: <value>]` in help text
+   (stringified via `$`; suppressed for an empty string/seq, which is the
+   sentinel for "no default given" — see `arg*`/`opt*`). The base
+   `Arg.defaultStr` (commands, flags, message args) returns `""`, so flags
+   never show a default. Flags are special: they don't take user converters —
    instead `defineArg[T](typeName, flagHandler)` registers per-type flag
    operations (e.g. `=`, `+=`, `-=` for `int`) via the `defineFlagOps` macro,
    stored in the `flagOps` `CacheTable` and looked up by `getFlagOps` at

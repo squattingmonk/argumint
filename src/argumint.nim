@@ -104,11 +104,16 @@ proc genHelp(spec: Spec, command: string): string =
     var argLines: seq[string]
     for arg in spec.groups[group]:
       let variants = arg.variants.join(", ")
-      if arg.help.len > 0:
+      let default = arg.defaultStr
+      let text =
+        if default.len == 0: arg.help
+        elif arg.help.len == 0: "[default: {default}]".fmt
+        else: "{arg.help} [default: {default}]".fmt
+      if text.len > 0:
         let prefix = "  " & variants.alignLeft(colWidth) & "  "
         let indent = ' '.repeat(prefix.len)
         let helpWidth = max(spec.width - prefix.len, 20)
-        argLines.add(prefix & arg.help.wrapWords(helpWidth, splitLongWords = false, newLine = "\n" & indent))
+        argLines.add(prefix & text.wrapWords(helpWidth, splitLongWords = false, newLine = "\n" & indent))
       else:
         argLines.add("  " & variants)
     if argLines.len > 0:
@@ -186,6 +191,21 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
 
   method parse*(self: ValueArg[T, true], value: string, variant = "") =
     self.parseImpl(value, variant)
+
+  method defaultStr*(self: ValueArg[T, false]): string =
+    ## Returns `self`'s default value stringified, or "" if it's the empty
+    ## string -- the sentinel used when no default was given (see `arg*`).
+    if self.default.len > 0 and $self.default[0] != "":
+      $self.default[0]
+    else:
+      ""
+
+  method defaultStr*(self: ValueArg[T, true]): string =
+    ## Returns `self`'s default values comma-joined, or "" if there are none.
+    if self.default.len > 0:
+      self.default.mapIt($it).join(", ")
+    else:
+      ""
 
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
   ## Defines parse methods for arguments with a value of type `T`.

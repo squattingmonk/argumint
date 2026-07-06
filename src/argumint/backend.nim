@@ -102,6 +102,14 @@ method parse*(self: Arg, value: string, variant = "") {.base.} =
 method parse*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
   raise newException(Defect, fmt"parse() is not defined for {self.name(variant)}")
 
+method defaultStr*(self: Arg): string {.base.} =
+  ## Returns `self`'s default value formatted for display in help text (e.g.
+  ## via `[default: <value>]`), or an empty string if there's nothing worth
+  ## showing. The base case (commands, flags, and message args) has no
+  ## notion of a displayable default; `ValueArg` overrides this per-type via
+  ## `defineArg`.
+  ""
+
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by
   ## priority.

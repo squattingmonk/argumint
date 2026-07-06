@@ -208,6 +208,38 @@ suite "Messages":
       check line.len <= 80
     check optionsLines[1].startsWith("                   ")
 
+  test "help text shows [default: X] for arg()/opt() but not flag()":
+    let spec = (
+      speed: opt("--speed=<speed>", default = 10, help = "Speed in knots"),
+      x: arg("<x>", default = 0, help = "x grid reference"),
+      name: arg("<name>", help = "who to greet"),
+      files: arg("<file>", default = @["a.txt", "b.txt"], help = "Files"),
+      verbose: flag("--verbose", help = "Verbose output"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "<x> <name> <file>...\n[--speed=<speed>] [--verbose]\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Speed in knots [default: 10]" in helpText
+    check "x grid reference [default: 0]" in helpText
+    check "Files [default: a.txt, b.txt]" in helpText
+    check "who to greet" in helpText
+    check "who to greet [default" notin helpText
+    check "Verbose output [default" notin helpText
+
+  test "help text shows [default: X] alone when help is empty":
+    let s = newSpec((speed: opt("--speed=<speed>", default = 5, help = ""), help: help()),
+      usage = "[--speed=<speed>]\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "  --speed=<speed>  [default: 5]" in helpText
+
   test "width is configurable and defaults to 80":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
     let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))
