@@ -483,6 +483,8 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extra
     quit("Validation error: {e.msg}".fmt)
   except HelpError as e:
     quit(e.msg, QuitSuccess)
+  except MessageError as e:
+    quit(e.msg, QuitSuccess)
 
 proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   try:

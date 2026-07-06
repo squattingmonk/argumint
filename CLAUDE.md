@@ -130,13 +130,17 @@ navigating the code:
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
   not meant to be caught), while `ParseError`/`ValidationError`/`MessageError`
-  are `CatchableError`s raised at user-input parse time and handled by
-  `argumint.parse`'s outer `try/except` (which `quit()`s with a formatted
-  message).
-- `Arg.hash`/`==` are keyed on `self.variants[0]` (the arg's first declared
-  name) — two distinct `Arg`s must not share a first variant, or the
-  `MatchTable`/state dedup logic in `fsm.nim`/`backend.nim` will conflate
-  them.
+  are `CatchableError`s raised at user-input parse time. These are caught
+  across two separate `try/except` blocks, one per `parse*` overload: the
+  `tuple`-overload's block only catches `SpecDefect` from `newSpec`, while
+  the `Spec`-overload's block catches `ParseError`/`ValidationError`/
+  `HelpError`/`MessageError` (each `quit()`s with a formatted message).
+- `Arg.hash` is keyed on `self.variants[0]` (the arg's first declared name,
+  via `name()`), but there is no custom `==` for `Arg` — equality falls back
+  to Nim's identity-based `EqRef` for ref types. A hash collision between
+  two distinct `Arg`s that happen to share a first variant is harmless: the
+  `MatchTable`/state dedup logic in `fsm.nim`/`backend.nim` still
+  disambiguates them by identity, not by name.
 - `newSpec` builds the FSM first, then calls `autoFillUsage` to patch any
   gaps: it uses `backend.referencedArgs` to collect every `Arg` actually
   referenced by a matcher, then appends usage lines for whatever isn't
