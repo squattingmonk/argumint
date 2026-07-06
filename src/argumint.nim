@@ -195,7 +195,9 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method defaultStr*(self: ValueArg[T, false]): string =
     ## Returns `self`'s default value stringified, or "" if it's still `T`'s
     ## zero value (e.g. "", 0, or false) -- the fallback used when no
-    ## default was given (see `arg*`).
+    ## default was given (see `arg*`). Requires `T` to support `default(T)`
+    ## and `==`, which nearly every type does; a `{.requiresInit.}` object
+    ## would be a rare exception that fails to compile here.
     if self.default.len > 0 and self.default[0] != default(T):
       $self.default[0]
     else:

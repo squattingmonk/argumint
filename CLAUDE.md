@@ -178,3 +178,12 @@ navigating the code:
     commands or positional args) but some option is still unreachable, a
     standalone `[options]` line is added as a fallback. Weaving `[options]`
     into an arbitrary hand-written line that's missing it is not attempted.
+- `ValueArg[T, false].defaultStr` (used for `[default: <value>]` in help
+  text) compares `self.default[0]` against `default(T)` to decide whether
+  a default is "meaningfully set" or just T's zero value. This means `T`
+  must support both `default(T)` and `==`. Nearly every type does, but a
+  `{.requiresInit.}` object (which disallows default-construction) would
+  fail to compile here if used as an `arg`/`opt` value type — not
+  considered worth guarding against, since a user reaching for such a type
+  here is unlikely, but worth knowing if `defineArg` ever fails to compile
+  for a custom `T` with an unhelpful-looking error.
