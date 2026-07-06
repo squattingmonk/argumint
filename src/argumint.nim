@@ -428,6 +428,21 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
 proc help*(variants = "-h, --help", help = "Display this help message", group = "Options"): HelpArg =
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group)
 
+proc message*(text: string, variants: string, help = "", group = "Options"): MessageArg =
+  ## Creates a flag which, when matched, displays `text` and exits
+  ## successfully instead of parsing further arguments.
+  ## - `text` is the message to display when the flag is matched.
+  ## - `variants` is a comma-separated list of names by which the flag is
+  ##   presented to the user. These must take the form `-o` or `--option`.
+  ## - `help` is a short description of the flag used in help messages.
+  ## - `group` determines how the flag is grouped in help messages.
+  MessageArg(kind: Flag, variants: variants.split(Comma), message: text, help: help, group: group)
+
+proc version*(version: string, variants = "-v, --version", help = "Display version information", group = "Options"): MessageArg =
+  ## Creates a flag which, when matched, displays `version` and exits
+  ## successfully instead of parsing further arguments.
+  message(version, variants, help, group)
+
 # ------------------------------------------------------------------------------
 # Here is where we define the datatypes supported out of the box.
 # ------------------------------------------------------------------------------
