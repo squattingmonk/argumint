@@ -1,4 +1,4 @@
-import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables]
+import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, wordwrap]
 
 import ./argumint/[backend, dot, fsm, parser, validators]
 
@@ -93,11 +93,11 @@ proc groupOrder(spec: Spec): seq[string] =
 proc genHelp(spec: Spec, command: string): string =
   let prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
-  let usage = spec.usage.formatUsage(command) & "\n"
+  let usage = spec.usage.formatUsage(command, spec.width) & "\n"
 
-  var width = 0
+  var colWidth = 0
   for arg in spec.args:
-    width = max(width, arg.variants.join(", ").len)
+    colWidth = max(colWidth, arg.variants.join(", ").len)
 
   var lines: seq[string]
   for group in spec.groupOrder:
@@ -105,7 +105,10 @@ proc genHelp(spec: Spec, command: string): string =
     for arg in spec.groups[group]:
       let variants = arg.variants.join(", ")
       if arg.help.len > 0:
-        argLines.add("  " & variants.alignLeft(width) & "  " & arg.help)
+        let prefix = "  " & variants.alignLeft(colWidth) & "  "
+        let indent = ' '.repeat(prefix.len)
+        let helpWidth = max(spec.width - prefix.len, 20)
+        argLines.add(prefix & arg.help.wrapWords(helpWidth, splitLongWords = false, newLine = "\n" & indent))
       else:
         argLines.add("  " & variants)
     if argLines.len > 0:
@@ -317,9 +320,10 @@ proc autoFillUsage(spec: Spec) =
   if spec.usage.len > usageLenBefore:
     spec.fsm = spec.genFsm()
 
-proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
+proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
-  ## `autoFillUsage` for how gaps in `usage` are auto-filled.
+  ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
+  ## column width usage/help text is wrapped at.
   ##
   ## Unlike `parse*`, this does not catch any exceptions raised during spec
   ## construction (`SpecDefect`) or -- if you go on to call
@@ -327,7 +331,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
   ## (`ParseError`/`ValidationError`/`HelpError`/`MessageError`). Use this
   ## when you need to handle those errors yourself instead of letting
   ## `parse*` print a message and `quit()`.
-  result = Spec(usage: usage, prolog: prolog, epilog: epilog)
+  result = Spec(usage: usage, prolog: prolog, epilog: epilog, width: width)
   result.addArgs(spec)
   result.fsm = result.genFsm()
   result.autoFillUsage()
@@ -468,14 +472,14 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
         Examples: '--foo=true' or '--bar+=1'""")
       raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
 
-proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
+proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", width = DefaultWidth, group = "Commands", handler: proc(spec: S) = nil): CommandArg =
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group)
-  result.spec = newSpec(spec, usage, prolog, epilog)
+  result.spec = newSpec(spec, usage, prolog, epilog, width)
   if not handler.isNil:
     result.handler = () => handler(spec)
 
-proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S, opts: O) = nil): CommandArg =
-  command(variants, spec, help, prolog, epilog, usage, group, handler = (cmdSpec: S) => handler(spec, options))
+proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", width = DefaultWidth, group = "Commands", handler: proc(spec: S, opts: O) = nil): CommandArg =
+  command(variants, spec, help, prolog, epilog, usage, width, group, handler = (cmdSpec: S) => handler(spec, options))
 
 proc help*(variants = "-h, --help", help = "Display this help message", group = "Options"): HelpArg =
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group)
@@ -553,9 +557,9 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extra
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
-proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
+proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   try:
-    newSpec(spec, usage, prolog, epilog).parse(args, command)
+    newSpec(spec, usage, prolog, epilog, width).parse(args, command)
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 

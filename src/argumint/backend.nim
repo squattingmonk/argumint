@@ -37,6 +37,7 @@ type
     options*: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
     groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
     fsm*: State ## The initial state for the FSM used for parsing
+    width*: int ## Column width to wrap usage/help text at
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has
@@ -65,27 +66,27 @@ type
     else:
       discard
 
-const UsageWrapWidth = 80
+const DefaultWidth* = 80
 
-proc formatUsage*(usage: string, command: string): string =
+proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
   ## Formats `usage` (a spec's raw usage string, one alternative per line) as
   ## a "Usage:" block, prefixing each alternative with `command`. Lines
-  ## longer than `UsageWrapWidth` are wrapped, with continuations
-  ## hanging-indented to align under the first token after `command` rather
-  ## than restarting at the left margin.
+  ## longer than `width` are wrapped, with continuations hanging-indented to
+  ## align under the first token after `command` rather than restarting at
+  ## the left margin.
   var lines = @["Usage:"]
   for line in usage.split(peg"\n!\s"):
     let prefix = "  {command} ".fmt
     let indent = ' '.repeat(prefix.len)
-    let width = max(UsageWrapWidth - prefix.len, 20)
-    lines.add prefix & line.wrapWords(width, splitLongWords = false, newLine = "\n" & indent)
+    let lineWidth = max(width - prefix.len, 20)
+    lines.add prefix & line.wrapWords(lineWidth, splitLongWords = false, newLine = "\n" & indent)
   result = lines.join("\n")
 
 proc raiseParseError*(msg: string) =
   raise newException(ParseError, msg)
 
 proc raiseParseError*(msg: string, command: string, spec: Spec) =
-  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command)}".fmt)
+  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.width)}".fmt)
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.

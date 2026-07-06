@@ -194,6 +194,37 @@ suite "Messages":
     check not lines[2].startsWith(indent & " ")
     check lines[2].strip.len > 0
 
+  test "help text for a single arg wraps at the configured width with a hanging indent":
+    let longHelp = "How fast the ship should move across the open water, measured in knots"
+    let s = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let optionsLines = helpText.splitLines.filterIt(it.startsWith("  --speed") or it.startsWith("                   "))
+    check optionsLines.len > 1
+    for line in optionsLines:
+      check line.len <= 80
+    check optionsLines[1].startsWith("                   ")
+
+  test "width is configurable and defaults to 80":
+    let longHelp = "How fast the ship should move across the open water, measured in knots"
+    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))
+    let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), width = 40)
+    check wide.width == 80
+    check narrow.width == 40
+
+    var wideText, narrowText = ""
+    try: wide.parseSpec(@["--help"], "prog")
+    except HelpError as e: wideText = e.msg
+    try: narrow.parseSpec(@["--help"], "prog")
+    except HelpError as e: narrowText = e.msg
+
+    check wideText.splitLines.allIt(it.len <= 80)
+    check narrowText.splitLines.allIt(it.len <= 40)
+    check narrowText.splitLines.len > wideText.splitLines.len
+
 suite "autoFillUsage":
   test "commands and MessageArgs are filled in individually":
     let spec = (
