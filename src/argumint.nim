@@ -77,15 +77,28 @@ converter toChar(value: string): char =
 # These functions create help messages.
 # ------------------------------------------------------------------------------
 
+const CanonicalGroups = ["Commands", "Arguments", "Options"]
+
+proc groupOrder(spec: Spec): seq[string] =
+  ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`,
+  ## `Options`, then any other (e.g. user-defined) groups in the order they
+  ## were first declared.
+  for group in CanonicalGroups:
+    if group in spec.groups:
+      result.add group
+  for group in spec.groups.keys:
+    if group notin CanonicalGroups:
+      result.add group
+
 proc genHelp(spec: Spec, command: string): string =
   let prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
   let usage = spec.usage.formatUsage(command) & "\n"
 
   var lines: seq[string]
-  for group, args in spec.groups.pairs:
+  for group in spec.groupOrder:
     var argLines: seq[string]
-    for arg in args:
+    for arg in spec.groups[group]:
       argLines.add("  " & arg.variants.join(", ") & "  " & arg.help)
     if argLines.len > 0:
       lines.add("\n{group}".fmt)

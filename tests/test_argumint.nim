@@ -1,4 +1,4 @@
-import std/[strutils, unittest]
+import std/[algorithm, sequtils, strutils, unittest]
 
 import argumint
 import argumint/backend
@@ -135,6 +135,24 @@ suite "Messages":
     except MessageError as e:
       caught = e.msg
     check caught == "myapp 1.2.3"
+
+  test "help text lists groups as Commands, Arguments, Options, then user-defined groups":
+    let spec = (
+      verbose: flag("--verbose", help = "Verbose", group = "Global Options"),
+      speed: opt("--speed=<speed>", default = 1, help = "Speed"),
+      file: arg("<file>", help = "The file"),
+      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
+      help: help(),
+    )
+    let s = newSpec(spec)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let order = @["Commands", "Arguments", "Options", "Global Options"].mapIt(helpText.find(it))
+    check order == order.sorted
+    check order.allIt(it >= 0)
 
 suite "autoFillUsage":
   test "commands and MessageArgs are filled in individually":
