@@ -14,19 +14,21 @@ registration.
 
 ## Commands
 
-- Compile/run the demo in `src/argumint.nim` (has a `when isMainModule` block
-  with a working example spec):
+- Compile/run the Naval Fate demo in `src/argumint.nim` (has a
+  `when isMainModule` block with a working example spec):
   ```
-  nim c -r src/argumint.nim -- [-r] <src> <dest>
+  nim c -r src/argumint.nim -- ship move Titanic 1 2
   ```
-- Compile the standalone unit tests in `src/argumint/validators.nim` (its
-  `when isMainModule` block uses `std/unittest`):
-  ```
-  nim c -r src/argumint/validators.nim
-  ```
-- There is no `tests/` test suite yet (only `tests/config.nims`, which adds
-  `src` to the path for anything placed there) and no `nimble test` task
-  defined in `argumint.nimble`.
+  Note: `nim c -r file -- args` may pass a spurious leading `--` through to
+  the compiled binary depending on Nim version -- if a run fails with
+  unexpected "missing option"/"unexpected arg" errors, compile first (`nim c
+  file`) then run the binary directly with the same args to rule this out.
+- Run the full test suite with `nimble test`, which compiles and runs
+  `src/argumint/validators.nim`'s embedded `std/unittest` block plus every
+  `tests/test_*.nim` file (each is its own standalone `std/unittest` suite;
+  `tests/config.nims` adds `src` to the path for anything placed there). Add
+  new tests as new `tests/test_*.nim` files -- no per-file wiring needed
+  beyond that naming convention.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code

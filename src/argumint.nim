@@ -296,9 +296,16 @@ proc autoFillUsage(spec: Spec) =
   if spec.usage.len > usageLenBefore:
     spec.fsm = spec.genFsm()
 
-proc newSpec(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
+proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = ""): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled.
+  ##
+  ## Unlike `parse*`, this does not catch any exceptions raised during spec
+  ## construction (`SpecDefect`) or -- if you go on to call
+  ## `result.parseSpec(args, command)` yourself -- during parsing
+  ## (`ParseError`/`ValidationError`/`HelpError`/`MessageError`). Use this
+  ## when you need to handle those errors yourself instead of letting
+  ## `parse*` print a message and `quit()`.
   result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
   result.fsm = result.genFsm()
@@ -397,10 +404,16 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       try:
         var arg: T = default
         if matches[2].len > 0:
-          arg = matches[2]
+          when T is string: arg = matches[2]
+          elif T is int: arg = toInt(matches[2])
+          elif T is float64: arg = toFloat(matches[2])
+          elif T is bool: arg = toBool(matches[2])
+          elif T is char: arg = toChar(matches[2])
+          else: {.error: "flags do not support values of type " & $T.}
         let op = matches[1]
         if op notin getFlagOps($T):
-          raise newException(Defect, fmt"{op.escape} is not a supported operation for {$typeOf(T)} flags")
+          let escapedOp = strutils.escape(op)
+          raise newException(Defect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
         if result.ops.hasKeyOrPut(matches[0], (op: matches[1], arg: arg)):
           raise newException(SpecDefect, fmt"duplicate variant for {matches[0]}")
@@ -408,13 +421,15 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       except ValueError as e:
         raise newException(SpecDefect, fmt"unexpected flag value for {matches[0]}: {e.msg}")
     else:
-      raise newException(SpecDefect, fmt"Cannot parse flag definition {rawName.escape}:" & """
+      let escapedRawName = strutils.escape(rawName)
+      let helpText = strutils.dedent("""
 
         Flag arg variants must be in the format '<flag>[<op><value>]', where:
           - '<flag>' is in the format '-f' or '--flag'
           - '<op>' is ':' or '=', optionally preceded by a non-word character
           - '<value>' is the value the flag represents
-        Examples: '--foo=true' or '--bar+=1'""".dedent)
+        Examples: '--foo=true' or '--bar+=1'""")
+      raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group)
