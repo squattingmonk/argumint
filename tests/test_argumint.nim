@@ -1,4 +1,4 @@
-import std/[algorithm, sequtils, strutils, unittest]
+import std/[algorithm, sequtils, strutils, tables, unittest]
 
 import argumint
 import argumint/backend
@@ -224,6 +224,14 @@ suite "Messages":
     check wideText.splitLines.allIt(it.len <= 80)
     check narrowText.splitLines.allIt(it.len <= 40)
     check narrowText.splitLines.len > wideText.splitLines.len
+
+  test "width cascades from the root spec into nested subcommand specs":
+    let move = (name: arg("<name>", help = ""), help: help())
+    let ship = (move: command("move", move, help = "Move a ship"), help: help())
+    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), width = 40)
+    check s.width == 40
+    check s.commands["ship"].spec.width == 40
+    check s.commands["ship"].spec.commands["move"].spec.width == 40
 
 suite "autoFillUsage":
   test "commands and MessageArgs are filled in individually":

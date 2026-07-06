@@ -320,10 +320,20 @@ proc autoFillUsage(spec: Spec) =
   if spec.usage.len > usageLenBefore:
     spec.fsm = spec.genFsm()
 
+proc setWidth(spec: Spec, width: int) =
+  ## Sets `width` on `spec` and cascades it into every nested subcommand's
+  ## spec too, so a single `width` given to the top-level `newSpec`/`parse*`
+  ## call applies uniformly throughout the whole command tree without
+  ## needing to be repeated at each `command()` call.
+  spec.width = width
+  for cmd in spec.commands.values:
+    cmd.spec.setWidth(width)
+
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
-  ## column width usage/help text is wrapped at.
+  ## column width usage/help text is wrapped at; it cascades to every nested
+  ## subcommand's spec (see `setWidth`).
   ##
   ## Unlike `parse*`, this does not catch any exceptions raised during spec
   ## construction (`SpecDefect`) or -- if you go on to call
@@ -331,10 +341,11 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = Default
   ## (`ParseError`/`ValidationError`/`HelpError`/`MessageError`). Use this
   ## when you need to handle those errors yourself instead of letting
   ## `parse*` print a message and `quit()`.
-  result = Spec(usage: usage, prolog: prolog, epilog: epilog, width: width)
+  result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
   result.fsm = result.genFsm()
   result.autoFillUsage()
+  result.setWidth(width)
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -472,14 +483,18 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
         Examples: '--foo=true' or '--bar+=1'""")
       raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
 
-proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", width = DefaultWidth, group = "Commands", handler: proc(spec: S) = nil): CommandArg =
+proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
+  ## `width` is deliberately not a parameter here: it cascades down from
+  ## whatever the top-level `newSpec`/`parse*` call is given (see
+  ## `setWidth`), so it only needs to be specified once regardless of how
+  ## deeply nested this command is.
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group)
-  result.spec = newSpec(spec, usage, prolog, epilog, width)
+  result.spec = newSpec(spec, usage, prolog, epilog)
   if not handler.isNil:
     result.handler = () => handler(spec)
 
-proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", width = DefaultWidth, group = "Commands", handler: proc(spec: S, opts: O) = nil): CommandArg =
-  command(variants, spec, help, prolog, epilog, usage, width, group, handler = (cmdSpec: S) => handler(spec, options))
+proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S, opts: O) = nil): CommandArg =
+  command(variants, spec, help, prolog, epilog, usage, group, handler = (cmdSpec: S) => handler(spec, options))
 
 proc help*(variants = "-h, --help", help = "Display this help message", group = "Options"): HelpArg =
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group)
