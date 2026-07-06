@@ -289,6 +289,10 @@ proc autoFillUsage(spec: Spec) =
   ## one is missing, and where would it go?), nor weave `[options]` into an
   ## arbitrary hand-written line that's missing it -- only the case where
   ## nothing else was generated falls back to a standalone `[options]` line.
+  ## All unreachable commands are joined into a single `(cmd1 | cmd2)`
+  ## alternation line (rather than one line per command) so a shared
+  ## `[options]` prefix isn't repeated for each one; MessageArgs still get
+  ## their own line each, since they never carry that prefix to begin with.
   let usageLenBefore = spec.usage.len
   let reachable = spec.fsm.referencedArgs()
   let optionsUnreachable = spec.options.values.toSeq.deduplicate
@@ -296,10 +300,12 @@ proc autoFillUsage(spec: Spec) =
   let prefix = if optionsUnreachable: "[options] " else: ""
   var prefixUsed = false
 
-  for arg in spec.args.filterIt(it.kind == Command and it notin reachable):
-    let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
+  let unreachableCommands = spec.args.filterIt(it.kind == Command and it notin reachable)
+  if unreachableCommands.len > 0:
+    let variants = unreachableCommands.mapIt(it.variants).concat
+    let combined = if variants.len > 1: "(" & variants.join(" | ") & ")" else: variants[0]
     spec.usage.addSep("\n")
-    spec.usage.add prefix & variants
+    spec.usage.add prefix & combined
     prefixUsed = prefixUsed or optionsUnreachable
 
   let positionals = spec.args.filterIt(it.kind == Positional)

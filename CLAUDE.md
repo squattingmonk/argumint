@@ -149,8 +149,12 @@ navigating the code:
   reachable and rebuilds the FSM once more if anything changed. This runs
   regardless of whether `usage` was left blank or passed in explicitly, and
   the fill-in rule differs by category:
-  - **Commands** and **`MessageArg`s** (e.g. `help()`) are filled in
-    per-arg — each missing one gets its own appended line — since each is
+  - **Commands** that are unreachable are joined into a single `(cmd1 |
+    cmd2)` alternation line (all their variants flattened into one `|`-list)
+    rather than one line per command, so a shared `[options]` prefix isn't
+    repeated for each one. **`MessageArg`s** (e.g. `help()`) are still filled
+    in per-arg — each missing one gets its own appended line — since they
+    never carry the `[options]` prefix to begin with (see below) and are
     independently optional to mention. Mentioning one variant of a
     multi-variant arg counts as reachable; it won't be duplicated.
   - **Positional args** are all-or-nothing: only auto-appended (as one

@@ -234,7 +234,7 @@ suite "Messages":
     check s.commands["ship"].spec.commands["move"].spec.width == 40
 
 suite "autoFillUsage":
-  test "commands and MessageArgs are filled in individually":
+  test "MessageArgs are filled in individually; a single unreachable command needs no parens":
     let spec = (
       ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
       mine: command("mine", (y: arg("<y>", help = "")), help = "Mine"),
@@ -245,6 +245,15 @@ suite "autoFillUsage":
     check "mine" in s.usage
     check "-h" in s.usage
     check "-v" in s.usage
+
+  test "multiple unreachable commands are consolidated into one alternation line, not one per command":
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
+      mine: command("mine", (y: arg("<y>", help = "")), help = "Mine"),
+    )
+    let s = newSpec(spec)
+    check s.usage == "[options] (ship | mine)"
 
   test "positional args are only filled in when none of them are reachable":
     let spec = (
