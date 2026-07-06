@@ -154,6 +154,26 @@ suite "Messages":
     check order == order.sorted
     check order.allIt(it >= 0)
 
+  test "help text aligns variant columns across groups and skips padding for empty help":
+    let spec = (
+      verbose: flag("--verbose", help = "", group = "Global Options"),
+      speed: opt("--speed=<speed>", default = 1, help = "Speed"),
+      file: arg("<file>", help = "The file"),
+      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
+      help: help(),
+    )
+    let s = newSpec(spec)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let width = "--speed=<speed>".len
+    check ("  " & "cmd".alignLeft(width) & "  A subcommand") in helpText
+    check ("  " & "<file>".alignLeft(width) & "  The file") in helpText
+    check ("  --speed=<speed>  Speed") in helpText
+    check "  --verbose" in helpText.splitLines
+
 suite "autoFillUsage":
   test "commands and MessageArgs are filled in individually":
     let spec = (

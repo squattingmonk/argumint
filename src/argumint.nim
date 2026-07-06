@@ -95,11 +95,19 @@ proc genHelp(spec: Spec, command: string): string =
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
   let usage = spec.usage.formatUsage(command) & "\n"
 
+  var width = 0
+  for arg in spec.args:
+    width = max(width, arg.variants.join(", ").len)
+
   var lines: seq[string]
   for group in spec.groupOrder:
     var argLines: seq[string]
     for arg in spec.groups[group]:
-      argLines.add("  " & arg.variants.join(", ") & "  " & arg.help)
+      let variants = arg.variants.join(", ")
+      if arg.help.len > 0:
+        argLines.add("  " & variants.alignLeft(width) & "  " & arg.help)
+      else:
+        argLines.add("  " & variants)
     if argLines.len > 0:
       lines.add("\n{group}".fmt)
       lines.add(argLines)
