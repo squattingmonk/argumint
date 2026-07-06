@@ -224,11 +224,27 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     check "Speed in knots [default: 10]" in helpText
-    check "x grid reference [default: 0]" in helpText
     check "Files [default: a.txt, b.txt]" in helpText
     check "who to greet" in helpText
     check "who to greet [default" notin helpText
     check "Verbose output [default" notin helpText
+
+  test "help text suppresses [default: X] when the default is T's zero value":
+    let spec = (
+      x: arg("<x>", default = 0, help = "x grid reference"),
+      speed: opt("--speed=<speed>", default = 0, help = "Speed in knots"),
+      verbose: flag[int]("--verbose", default = 0, help = "Verbosity"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "<x> [--speed=<speed>] [--verbose]\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "x grid reference [default" notin helpText
+    check "Speed in knots [default" notin helpText
+    check "Verbosity [default" notin helpText
 
   test "help text shows [default: X] alone when help is empty":
     let s = newSpec((speed: opt("--speed=<speed>", default = 5, help = ""), help: help()),

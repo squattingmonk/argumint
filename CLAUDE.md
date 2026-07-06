@@ -96,10 +96,13 @@ navigating the code:
    scalar element type, never `seq[T]`, since it runs before the value is
    stored/appended. `defineArg[T]` also generates a `method defaultStr` per
    arity, used by `genHelp` to render `[default: <value>]` in help text
-   (stringified via `$`; suppressed for an empty string/seq, which is the
-   sentinel for "no default given" — see `arg*`/`opt*`). The base
-   `Arg.defaultStr` (commands, flags, message args) returns `""`, so flags
-   never show a default. Flags are special: they don't take user converters —
+   (stringified via `$`; suppressed when the scalar default equals `T`'s
+   zero value, i.e. `default(T)` — `""` for string, `0`/`0.0` for numeric
+   types, `false` for bool — since that's the fallback used when no default
+   was given (see `arg*`/`opt*`); an empty seq is the equivalent sentinel
+   for the multi-value arity). The base `Arg.defaultStr` (commands, flags,
+   message args) returns `""`, so flags never show a default. Flags are
+   special: they don't take user converters —
    instead `defineArg[T](typeName, flagHandler)` registers per-type flag
    operations (e.g. `=`, `+=`, `-=` for `int`) via the `defineFlagOps` macro,
    stored in the `flagOps` `CacheTable` and looked up by `getFlagOps` at

@@ -193,9 +193,10 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
     self.parseImpl(value, variant)
 
   method defaultStr*(self: ValueArg[T, false]): string =
-    ## Returns `self`'s default value stringified, or "" if it's the empty
-    ## string -- the sentinel used when no default was given (see `arg*`).
-    if self.default.len > 0 and $self.default[0] != "":
+    ## Returns `self`'s default value stringified, or "" if it's still `T`'s
+    ## zero value (e.g. "", 0, or false) -- the fallback used when no
+    ## default was given (see `arg*`).
+    if self.default.len > 0 and self.default[0] != default(T):
       $self.default[0]
     else:
       ""
