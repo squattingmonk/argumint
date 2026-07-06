@@ -404,12 +404,28 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       try:
         var arg: T = default
         if matches[2].len > 0:
+          # The built-in types are converted here explicitly (rather than
+          # relying on the implicit `arg = matches[2]` conversion below) so
+          # that `flag[T]` compiles for callers outside this module: this
+          # generic proc is instantiated at its call site, and an implicit
+          # `converter string -> T` is only found there if it's visible in
+          # the *caller's* scope, not just here. Our own built-in
+          # converters are private (unlike a public `converter`, calling
+          # them by name can't silently hijack unrelated overload
+          # resolution -- e.g. a plain `"x" in someString` -- in a
+          # consumer module that doesn't import `std/strutils` itself), so
+          # we call them explicitly instead of exporting them. Any other
+          # `T` falls through to the implicit conversion, which still
+          # works for a user's own type as long as *they* define
+          # `converter toMyType(value: string): MyType` somewhere visible
+          # at their own `flag[MyType](...)` call site -- exactly the
+          # extension mechanism `defineArg` documents for `arg`/`opt`.
           when T is string: arg = matches[2]
           elif T is int: arg = toInt(matches[2])
           elif T is float64: arg = toFloat(matches[2])
           elif T is bool: arg = toBool(matches[2])
           elif T is char: arg = toChar(matches[2])
-          else: {.error: "flags do not support values of type " & $T.}
+          else: arg = matches[2]
         let op = matches[1]
         if op notin getFlagOps($T):
           let escapedOp = strutils.escape(op)

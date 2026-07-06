@@ -3,7 +3,19 @@ import std/[strutils, unittest]
 import argumint
 import argumint/backend
 import argumint/fsm
+import argumint/lexer
 import argumint/validators
+
+type Priority = enum
+  low, medium, high
+
+converter toPriority(value: string): Priority =
+  parseEnum[Priority](value)
+
+defineArg(Priority):
+  case op
+  of "=": value = arg
+  else: raise newException(SpecDefect, "priority flags only support =")
 
 suite "Positional args":
   test "parse scalar values and fall back to defaults when absent":
@@ -62,6 +74,14 @@ suite "Flags":
     let s = newSpec(spec, usage = "[--verbose]...")
     s.parseSpec(@["--verbose", "--verbose", "--verbose"], "prog")
     check spec.verbosity == 3
+
+  test "user-defined types work via the user's own converter (extensibility regression)":
+    let spec = (
+      p: flag[Priority]("--priority=high", default = low, help = ""),
+    )
+    let s = newSpec(spec, usage = "[--priority]")
+    s.parseSpec(@["--priority"], "prog")
+    check spec.p == high
 
 suite "Commands":
   test "dispatch a matched subcommand to its handler":
