@@ -121,6 +121,28 @@ suite "[options] catch-all":
     s.parseSpec(@["--verbose", "--verbose", "--verbose"], "prog")
     check spec.verbose == 3
 
+  test "the exclusion applies to options nested inside a mutually-exclusive choice group":
+    let spec = (
+      moored: flag("--moored", help = ""),
+      drifting: flag("--drifting", help = ""),
+    )
+    let usage = "[options] [--moored | --drifting]"
+
+    let s1 = newSpec(spec, usage = usage)
+    s1.parseSpec(@["--moored"], "prog")
+    check spec.moored == true
+
+    let s2 = newSpec(spec, usage = usage)
+    expect ParseError:
+      s2.parseSpec(@["--moored", "--moored"], "prog")
+
+    let s3 = newSpec(spec, usage = usage)
+    expect ParseError:
+      s3.parseSpec(@["--moored", "--drifting"], "prog")
+
+    let s4 = newSpec(spec, usage = usage)
+    s4.parseSpec(@[], "prog")
+
 suite "Commands":
   test "dispatch a matched subcommand to its handler":
     var moved = ""
