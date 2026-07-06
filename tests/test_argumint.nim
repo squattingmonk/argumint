@@ -174,6 +174,26 @@ suite "Messages":
     check ("  --speed=<speed>  Speed") in helpText
     check "  --verbose" in helpText.splitLines
 
+  test "usage lines longer than 80 columns wrap with a hanging indent":
+    let spec = (
+      a: opt("--alpha=<a>", default = "", help = ""),
+      b: opt("--bravo=<b>", default = "", help = ""),
+      c: opt("--charlie=<c>", default = "", help = ""),
+      d: opt("--delta=<d>", default = "", help = ""),
+      e: opt("--echo=<e>", default = "", help = ""),
+      f: arg("<file>", default = @["x"], help = ""),
+    )
+    let s = newSpec(spec,
+      usage = "[--alpha=<a>] [--bravo=<b>] [--charlie=<c>] [--delta=<d>] [--echo=<e>] <file>...")
+    let lines = s.usage.formatUsage("prog").splitLines
+    let indent = ' '.repeat("  prog ".len)
+    check lines.len > 2
+    check lines[1].len <= 80
+    check lines[1].startsWith("  prog ")
+    check lines[2].startsWith(indent)
+    check not lines[2].startsWith(indent & " ")
+    check lines[2].strip.len > 0
+
 suite "autoFillUsage":
   test "commands and MessageArgs are filled in individually":
     let spec = (

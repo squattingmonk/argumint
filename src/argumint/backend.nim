@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, pegs, sequtils, sets, strformat, strutils, sugar, tables]
+import std/[algorithm, hashes, pegs, sequtils, sets, strformat, strutils, sugar, tables, wordwrap]
 
 
 type
@@ -65,10 +65,20 @@ type
     else:
       discard
 
+const UsageWrapWidth = 80
+
 proc formatUsage*(usage: string, command: string): string =
+  ## Formats `usage` (a spec's raw usage string, one alternative per line) as
+  ## a "Usage:" block, prefixing each alternative with `command`. Lines
+  ## longer than `UsageWrapWidth` are wrapped, with continuations
+  ## hanging-indented to align under the first token after `command` rather
+  ## than restarting at the left margin.
   var lines = @["Usage:"]
   for line in usage.split(peg"\n!\s"):
-    lines.add fmt"  {command} {line}"
+    let prefix = "  {command} ".fmt
+    let indent = ' '.repeat(prefix.len)
+    let width = max(UsageWrapWidth - prefix.len, 20)
+    lines.add prefix & line.wrapWords(width, splitLongWords = false, newLine = "\n" & indent)
   result = lines.join("\n")
 
 proc raiseParseError*(msg: string) =
