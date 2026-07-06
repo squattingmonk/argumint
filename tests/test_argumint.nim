@@ -256,6 +256,48 @@ suite "Messages":
       helpText = e.msg
     check "  --speed=<speed>  [default: 5]" in helpText
 
+  test "help text shows a choice validator's help alongside its default in one bracket":
+    let spec = (
+      action: arg("<action>", default = "foo", help = "Action to perform",
+        validator = choice(["foo", "bar", "baz"])),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "<action>\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Action to perform [choices: foo, bar, baz; default: foo]" in helpText
+
+  test "help text shows a range validator's help without a default when default is the zero value":
+    let spec = (
+      speed: opt("--speed=<speed>", default = 0, help = "Speed", validator = range(1..100)),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "[--speed=<speed>]\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Speed [range: 1..100]" in helpText
+    check "default" notin helpText
+
+  test "help text shows a check validator's description alone, with no label":
+    let spec = (
+      amount: opt("--amount=<amount>", default = 0,
+        validator = checkIt[int](it mod 2 == 0, "must be even"), help = ""),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "[--amount=<amount>]\n--help")
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "  --amount=<amount>  [must be even]" in helpText
+
   test "width is configurable and defaults to 80":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
     let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))

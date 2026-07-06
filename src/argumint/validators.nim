@@ -1,4 +1,4 @@
-import std/[strformat, strutils, sugar]
+import std/[sequtils, strformat, strutils, sugar]
 
 type
   ValidationError* = object of CatchableError
@@ -37,6 +37,18 @@ template checkIt*[T](pred: untyped, desc = ""): Validator[T] =
   ## be shown to the user to explain the condition the value must meet to pass
   ## the check; if not supplied, the string form of `pred` will be used.
   check[T](it => pred, if desc.len > 0: desc else: astToStr(pred))
+
+proc help*[T](self: Validator[T]): string =
+  ## Returns a short description of what values `self` accepts, suitable for
+  ## display in help text (e.g. "choices: foo, bar, baz"), or "" if there's
+  ## nothing meaningful to show.
+  case self.kind
+  of vkChoice:
+    "choices: " & self.choices.mapIt($it).join(", ")
+  of vkRange:
+    fmt"range: {self.range.a}..{self.range.b}"
+  of vkCheck:
+    self.desc
 
 proc validate*[T](self: Validator[T], value: T) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a

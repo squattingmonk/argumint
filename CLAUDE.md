@@ -101,8 +101,15 @@ navigating the code:
    types, `false` for bool — since that's the fallback used when no default
    was given (see `arg*`/`opt*`); an empty seq is the equivalent sentinel
    for the multi-value arity). The base `Arg.defaultStr` (commands, flags,
-   message args) returns `""`, so flags never show a default. Flags are
-   special: they don't take user converters —
+   message args) returns `""`, so flags never show a default. `defineArg[T]`
+   likewise generates a per-arity `method validatorHelp`, which calls
+   `self.validator.help()` (`validators.nim`) when a validator is present —
+   `Validator[T].help` returns a short description per kind (`"choices: a,
+   b, c"`, `"range: a..b"`, or a `check`/`checkIt` validator's own `desc`
+   verbatim), also requiring `$` on `T`. `genHelp` combines `validatorHelp`
+   and `defaultStr` into one bracket, `;`-separated (e.g. `[choices: foo,
+   bar; default: foo]`), rather than showing them as two separate brackets.
+   Flags are special: they don't take user converters —
    instead `defineArg[T](typeName, flagHandler)` registers per-type flag
    operations (e.g. `=`, `+=`, `-=` for `int`) via the `defineFlagOps` macro,
    stored in the `flagOps` `CacheTable` and looked up by `getFlagOps` at

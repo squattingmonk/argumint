@@ -110,6 +110,14 @@ method defaultStr*(self: Arg): string {.base.} =
   ## `defineArg`.
   ""
 
+method validatorHelp*(self: Arg): string {.base.} =
+  ## Returns a short description of what values `self` accepts (e.g.
+  ## "choices: foo, bar, baz"), or an empty string if `self` has no
+  ## `Validator` or there's nothing meaningful to show. The base case
+  ## (commands, flags, and message args, none of which have validators) has
+  ## nothing to show; `ValueArg` overrides this per-type via `defineArg`.
+  ""
+
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by
   ## priority.

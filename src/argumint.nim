@@ -104,11 +104,14 @@ proc genHelp(spec: Spec, command: string): string =
     var argLines: seq[string]
     for arg in spec.groups[group]:
       let variants = arg.variants.join(", ")
-      let default = arg.defaultStr
+      var annotations: seq[string]
+      if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
+      if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
+      let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
       let text =
-        if default.len == 0: arg.help
-        elif arg.help.len == 0: "[default: {default}]".fmt
-        else: "{arg.help} [default: {default}]".fmt
+        if bracket.len == 0: arg.help
+        elif arg.help.len == 0: bracket
+        else: "{arg.help} {bracket}".fmt
       if text.len > 0:
         let prefix = "  " & variants.alignLeft(colWidth) & "  "
         let indent = ' '.repeat(prefix.len)
@@ -209,6 +212,12 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
       self.default.mapIt($it).join(", ")
     else:
       ""
+
+  method validatorHelp*(self: ValueArg[T, false]): string =
+    if self.validator.isNil: "" else: self.validator.help()
+
+  method validatorHelp*(self: ValueArg[T, true]): string =
+    if self.validator.isNil: "" else: self.validator.help()
 
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
   ## Defines parse methods for arguments with a value of type `T`.
