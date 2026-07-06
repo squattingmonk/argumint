@@ -568,7 +568,8 @@ when isMainModule:
     spec = (
       ship: command("ship", ship, help = "Ship commands"),
       mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]", help = "Mine commands"),
-      help: help()
+      help: help(),
+      version: version("Naval Fate 1.0.0")
     )
 
   # echo ""
