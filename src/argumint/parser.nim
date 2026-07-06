@@ -2,7 +2,7 @@
 ## support matching of command-line arguments and high-level validation of usage
 ## patterns.
 
-import std/[pegs, sequtils, strformat, strutils, tables]
+import std/[pegs, sequtils, sets, strformat, strutils, tables]
 
 import ./[backend, lexer]
 export lexer.SpecDefect
@@ -12,6 +12,9 @@ type
     lex: SpecLexer ## Tokenizer
     tok: SpecToken ## Lookahead token
     spec: Spec
+    explicitOptions: HashSet[Arg] ## Options explicitly mentioned anywhere in
+      ## `spec.usage`, so `[options]` can exclude them (see `atom`'s
+      ## `tkAnyOption` branch) rather than making them separately repeatable.
 
 const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption}
 
@@ -108,7 +111,8 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:
-    result.b = result.a.add(newOptsMatcher(p.spec.options.values.toSeq.deduplicate().filterIt(not (it of MessageArg))))
+    result.b = result.a.add(newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
+      .filterIt(not (it of MessageArg) and it notin p.explicitOptions)))
     result.a.addShortcut(result.b) # Make it optional
   of tkCommand:
     if token.literal notin p.spec.commands:
@@ -132,10 +136,36 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     result.b.addShortcut(result.a)
     p.next()
 
+proc collectExplicitOptions(spec: Spec): HashSet[Arg] =
+  ## Scans every line of `spec.usage` for options mentioned by name (`-o`,
+  ## `--option`, or a `-abc`-style cluster), as opposed to picked up only via
+  ## the `[options]` catch-all. Used so `[options]` can exclude options
+  ## that are handled explicitly elsewhere in the same grammar, rather than
+  ## making them independently (and repeatably) matchable through both.
+  for line in spec.usage.split(peg"\n!\s"):
+    var lex: SpecLexer
+    lex.open(line)
+    defer: lex.close()
+    while true:
+      let tok = lex.next()
+      case tok.kind
+      of tkEof:
+        break
+      of tkShortOption, tkLongOption:
+        if tok.literal in spec.options:
+          result.incl spec.options[tok.literal]
+      of tkShortOptions:
+        for c in tok.literal.substr(1):
+          let name = fmt"-{c}"
+          if name in spec.options:
+            result.incl spec.options[name]
+      else:
+        discard
+
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
-  let p = SpecParser(spec: spec)
+  let p = SpecParser(spec: spec, explicitOptions: spec.collectExplicitOptions())
   for line in spec.usage.split(peg"\n!\s"):
     p.lex.open(line)
     defer: p.lex.close()

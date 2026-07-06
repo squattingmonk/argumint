@@ -83,6 +83,44 @@ suite "Flags":
     s.parseSpec(@["--priority"], "prog")
     check spec.p == high
 
+suite "[options] catch-all":
+  test "an option mentioned explicitly can't also be matched again via [options]":
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      moored: flag("--moored", help = ""),
+    )
+    let s = newSpec(spec, usage = "[options] --verbose")
+    s.parseSpec(@["--verbose"], "prog")
+
+    let s2 = newSpec(spec, usage = "[options] --verbose")
+    expect ParseError:
+      s2.parseSpec(@["--verbose", "--verbose"], "prog")
+
+  test "an option only reachable via [options] is unaffected":
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      moored: flag("--moored", help = ""),
+    )
+    let s = newSpec(spec, usage = "[options] --verbose")
+    s.parseSpec(@["--moored", "--verbose"], "prog")
+    check spec.moored == true
+
+  test "the exclusion also applies to value-taking options (opt())":
+    let spec = (
+      speed: opt("--speed=<speed>", default = 1, help = ""),
+    )
+    let s = newSpec(spec, usage = "[options] --speed=<speed>")
+    expect ParseError:
+      s.parseSpec(@["--speed=1", "--speed=2"], "prog")
+
+  test "an explicit repeat (...) on the mentioned option still works":
+    let spec = (
+      verbose: flag[int]("--verbose", default = 0, help = ""),
+    )
+    let s = newSpec(spec, usage = "[options] --verbose...")
+    s.parseSpec(@["--verbose", "--verbose", "--verbose"], "prog")
+    check spec.verbose == 3
+
 suite "Commands":
   test "dispatch a matched subcommand to its handler":
     var moved = ""

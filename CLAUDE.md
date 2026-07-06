@@ -60,7 +60,15 @@ navigating the code:
    building the FSM from the usage string. `dot.nim` renders any FSM to
    Graphviz dot for debugging/visualization but is not called anywhere by
    default — wire up `spec.fsm.dot` (or `cmd.spec.fsm.dot` for a
-   subcommand) manually when debugging FSM construction.
+   subcommand) manually when debugging FSM construction. `genFsm` also
+   pre-scans every line of `spec.usage` (`parser.collectExplicitOptions`)
+   for options mentioned by name, so the `[options]` catch-all
+   (`tkAnyOption`) excludes them from its own `Options` matcher — e.g. in
+   `[options] --verbose`, `--verbose` can only be matched once (via its own
+   explicit atom), not once via `[options]` and again via the explicit
+   mention. Without `...` on either side, no option can be repeated
+   regardless of whether it's reached through `[options]` or written out
+   explicitly — repetition always requires an explicit `...`.
 
 3. **Runtime matching** (`fsm.nim`): actual `os.commandLineParams()` (or
    passed-in `args`) are first tokenized into `CmdLineToken`s
