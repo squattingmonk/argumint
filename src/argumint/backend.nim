@@ -140,7 +140,7 @@ proc name*(m: Matcher): string {.inline.} =
   of Shortcut: "*"
   of Command: fmt"Cmd({m.cmd.name})"
   of Argument: fmt"Arg({m.arg.name})"
-  of Option: fmt"(Opt({m.opt.name})"
+  of Option: fmt"Opt({m.opt.name})"
   of Options:
     let names = collect:
       for opt in m.opts: opt.name
