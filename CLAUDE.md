@@ -60,7 +60,9 @@ navigating the code:
    building the FSM from the usage string. `dot.nim` renders any FSM to
    Graphviz dot for debugging/visualization but is not called anywhere by
    default — wire up `spec.fsm.dot` (or `cmd.spec.fsm.dot` for a
-   subcommand) manually when debugging FSM construction. `genFsm` also
+   subcommand) manually when debugging FSM construction. `scripts/dot2png.sh`
+   renders that dot output to a viewable PNG (requires Graphviz's `dot`
+   CLI installed separately). `genFsm` also
    pre-scans every line of `spec.usage` (`parser.collectExplicitOptions`)
    for options mentioned by name, so the `[options]` catch-all
    (`tkAnyOption`) excludes them from its own `Options` matcher — e.g. in
