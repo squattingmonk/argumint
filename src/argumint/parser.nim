@@ -41,6 +41,19 @@ proc eat(p: SpecParser, kinds: set[SpecTokenKind]): SpecToken =
 
 proc atom(p: SpecParser): tuple[a: State, b: State]
 
+proc trivialArg(child: tuple[a: State, b: State]): Arg =
+  ## If `child` is nothing but a single Option or Argument matcher straight
+  ## from `a` to `b` (not repeated via `...`, not part of a larger sequence
+  ## or a bracket/`[options]` construct -- those all leave more than one
+  ## transition on `a`), returns the Arg it matches. Otherwise nil.
+  if child.a.transitions.len == 1 and child.b.transitions.len == 0:
+    let tr = child.a.transitions[0]
+    if tr.next == child.b:
+      case tr.matcher.kind
+      of Option: return tr.matcher.opt
+      of Argument: return tr.matcher.arg
+      else: discard
+
 proc choice(p: SpecParser): tuple[a: State, b: State] =
   ## Constructs a choice (e.g., `this | that`). Note `this` is still a choice.
   var children = newSeq[tuple[a: State, b: State]]()
@@ -55,8 +68,19 @@ proc choice(p: SpecParser): tuple[a: State, b: State] =
   var
     a = newState()
     b = newState()
+    seenArgs: HashSet[Arg]
 
   for child in children:
+    # A bare `-h`/`--help`-style alternative already matches every variant
+    # of its Arg (matching compares Arg identity, not the specific variant
+    # string seen), so a later alternative referencing an Arg a previous
+    # one already covers contributes nothing new -- skip wiring it in
+    # rather than leaving a functionally-redundant parallel branch behind.
+    let arg = child.trivialArg
+    if arg != nil:
+      if arg in seenArgs:
+        continue
+      seenArgs.incl arg
     a.addShortcut(child.a)
     child.b.addShortcut(b)
 

@@ -671,3 +671,49 @@ suite "autoFillUsage":
     )
     let s = newSpec(spec, usage = "")
     check s.usage == "[options] ship"
+
+suite "FSM choice deduplication":
+  test "an auto-filled (-h | --help) line collapses to a single edge, both spellings still parse":
+    let spec = (name: arg("<name>", help = ""), help: help())
+    let s = newSpec(spec, usage = "<name>")
+    check s.dot.count("Opt(-h)") == 1
+    expect HelpError:
+      s.parseSpec(@["-h"], "prog")
+    expect HelpError:
+      s.parseSpec(@["--help"], "prog")
+
+  test "an explicitly-authored duplicate choice collapses the same way":
+    let spec = (x: flag("-x, --xxx", help = ""), help: help())
+    let s = newSpec(spec, usage = "(-x | --xxx)\n--help")
+    check s.dot.count("Opt(-x)") == 1
+    s.parseSpec(@["-x"], "prog")
+    check spec.x == true
+
+    let spec2 = (x: flag("-x, --xxx", help = ""), help: help())
+    let s2 = newSpec(spec2, usage = "(-x | --xxx)\n--help")
+    s2.parseSpec(@["--xxx"], "prog")
+    check spec2.x == true
+
+  test "a choice between distinct Args is not affected":
+    let spec = (
+      ship: command("ship", (v: flag("--verbose", help = "")), help = "Ship"),
+      mine: command("mine", (v: flag("--verbose", help = "")), help = "Mine"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "(ship | mine)\n--help")
+    check s.dot.count("Cmd(ship)") == 1
+    check s.dot.count("Cmd(mine)") == 1
+    s.parseSpec(@["ship"], "prog")
+
+    let spec2 = (
+      ship: command("ship", (v: flag("--verbose", help = "")), help = "Ship"),
+      mine: command("mine", (v: flag("--verbose", help = "")), help = "Mine"),
+      help: help(),
+    )
+    let s2 = newSpec(spec2, usage = "(ship | mine)\n--help")
+    s2.parseSpec(@["mine"], "prog")
+
+  test "three or more alternatives referencing the same Arg collapse to one edge":
+    let spec = (v: flag("-a, -b, -c", help = ""), help: help())
+    let s = newSpec(spec, usage = "(-a | -b | -c)\n--help")
+    check s.dot.count("Opt(-a)") == 1
