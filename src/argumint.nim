@@ -8,7 +8,7 @@ type
     default: seq[T]
     validator: Validator[T]
 
-  FlagOp[T] = tuple[op: string, arg: T]
+  FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
   FlagArg[T] = ref object of Arg
     value: T
@@ -90,6 +90,19 @@ proc groupOrder(spec: Spec): seq[string] =
     if group notin CanonicalGroups:
       result.add group
 
+proc variantGroups(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
+  ## Groups `arg.variants` by their `variantDesc` text, preserving
+  ## declaration order (both across groups and within one). Collapses to
+  ## exactly one group (`desc` possibly `""`) whenever every variant shares
+  ## the same description -- i.e. every arg that isn't a flag with
+  ## genuinely divergent per-variant ops -- so callers that don't care
+  ## about grouping still see a single group covering all of `arg.variants`.
+  var byDesc = initOrderedTable[string, seq[string]]()
+  for v in arg.variants:
+    byDesc.mgetOrPut(arg.variantDesc(v), @[]).add v
+  for desc, names in byDesc.pairs:
+    result.add (names: names, desc: desc)
+
 proc genHelp(spec: Spec, command: string): string =
   let prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
@@ -97,45 +110,55 @@ proc genHelp(spec: Spec, command: string): string =
 
   var rawColWidth = 0
   for arg in spec.args:
-    rawColWidth = max(rawColWidth, arg.variants.join(", ").len)
+    for vg in arg.variantGroups():
+      rawColWidth = max(rawColWidth, vg.names.join(", ").len)
   let colWidth =
     if spec.maxVariantsWidth > 0: min(rawColWidth, spec.maxVariantsWidth)
     else: rawColWidth
+
+  let continuationIndent = "    " # deeper than the "  " row margin, so a wrapped
+                                   # variants continuation (or a divergent-op
+                                   # sub-row) isn't mistaken for a new arg
 
   var lines: seq[string]
   for group in spec.groupOrder:
     var argLines: seq[string]
     for arg in spec.groups[group]:
-      let variants = arg.variants.join(", ")
-      var annotations: seq[string]
-      if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
-      if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
-      let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
-      let text =
-        if bracket.len == 0: arg.help
-        elif arg.help.len == 0: bracket
-        else: "{arg.help} {bracket}".fmt
-      let variantLines = variants.wrapWords(colWidth, splitLongWords = false).splitLines
-      let continuationIndent = "    " # deeper than the "  " row margin, so a wrapped
-                                       # variants continuation isn't mistaken for a new row
-      if text.len > 0:
-        let helpWidth = max(spec.width - (2 + colWidth + 2), 20)
-        let textLines = text.wrapWords(helpWidth, splitLongWords = false).splitLines
-        for i in 0 ..< max(variantLines.len, textLines.len):
-          let v = if i < variantLines.len: variantLines[i] else: ""
-          let t = if i < textLines.len: textLines[i] else: ""
-          if t.len > 0:
-            argLines.add("  " & v.alignLeft(colWidth) & "  " & t)
-          elif i > 0:
-            argLines.add(continuationIndent & v)
+      let groups = arg.variantGroups()
+      for i, vg in groups:
+        let variants = vg.names.join(", ")
+        let margin = if i == 0: "  " else: continuationIndent
+        let text =
+          if i > 0: vg.desc
           else:
-            argLines.add("  " & v)
-      else:
-        for i, v in variantLines:
-          if i > 0:
-            argLines.add(continuationIndent & v)
-          else:
-            argLines.add("  " & v)
+            var annotations: seq[string]
+            if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
+            if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
+            if groups.len > 1 and vg.desc.len > 0: annotations.add "action: {vg.desc}".fmt
+            let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
+            if bracket.len == 0: arg.help
+            elif arg.help.len == 0: bracket
+            else: "{arg.help} {bracket}".fmt
+        let variantLines = variants.wrapWords(colWidth, splitLongWords = false).splitLines
+        if text.len > 0:
+          let helpWidth = max(spec.width - (2 + colWidth + 2), 20)
+          let textLines = text.wrapWords(helpWidth, splitLongWords = false).splitLines
+          for j in 0 ..< max(variantLines.len, textLines.len):
+            let v = if j < variantLines.len: variantLines[j] else: ""
+            let t = if j < textLines.len: textLines[j] else: ""
+            if t.len > 0:
+              let rowMargin = if j == 0: margin else: continuationIndent
+              argLines.add(rowMargin & v.alignLeft(colWidth) & "  " & t)
+            elif j > 0:
+              argLines.add(continuationIndent & v)
+            else:
+              argLines.add(margin & v)
+        else:
+          for j, v in variantLines:
+            if j > 0:
+              argLines.add(continuationIndent & v)
+            else:
+              argLines.add(margin & v)
     if argLines.len > 0:
       lines.add("\n{group}".fmt)
       lines.add(argLines)
@@ -236,14 +259,19 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method validatorHelp*(self: ValueArg[T, true]): string =
     if self.validator.isNil: "" else: self.validator.help()
 
-template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
-  ## Defines parse methods for arguments with a value of type `T`.
-  ## `flagHandler` is a code block that is executed to handle an operation on a
-  ## `FlagArg[T]` value. Without this block, a `T` cannot be used for a flag.
-  ## Within the scope of the handler, the following variables are defined:
-  ## - `value: var T`: the flag's value, which can be modified by the handler
-  ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
-  ## - `arg: T`: an argument to the operation
+template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
+  ## Shared implementation for `defineArg` and `defineFlag` below.
+  ## **Gotcha**: this is deliberately its own template rather than having
+  ## `defineArg`/`defineFlag` overload each other or call each other
+  ## directly -- two generic templates sharing a name, each forwarding an
+  ## `untyped` param down to a nested `{.inject.}` proc, corrupt each
+  ## other's hygiene in this Nim version (`op`/`arg` end up undeclared
+  ## inside `flagHandler`, even in the overload that resolves correctly).
+  ## Distinct names sidestep it. Relatedly, `variantDesc`'s own locals below
+  ## are named `vOp`/`vArg`/`vDesc`, not `op`/`arg` -- reusing those names
+  ## collides with the `{.inject.}`ed `op`/`arg` from `parse*` below, which
+  ## leak into this template's whole scope (that's the point of `inject`),
+  ## not just into `flagHandler`.
   defineFlagOps typeName:
     flagHandler
 
@@ -254,10 +282,39 @@ template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
     let name = self.name(variant)
     if not self.ops.hasKey(name):
       raise newException(SpecDefect, "$# is not a known variant for the flag $#" % [name, self.name])
-    let (op {.inject.}, arg {.inject.}) = self.ops[name]
+    let (op {.inject.}, arg {.inject.}, _) = self.ops[name]
     self.value.handleFlag(op, arg)
 
+  method variantDesc*(self: FlagArg[T], variant: string): string =
+    if not self.ops.hasKey(variant): return ""
+    let (vOp, vArg, vDesc) = self.ops[variant]
+    if vDesc.len > 0: return vDesc
+    case vOp
+    of "=": "Set to " & $vArg
+    of "+=": "Increase by " & $vArg
+    of "-=": "Decrease by " & $vArg
+    else: blankDesc
+
   defineArg typeName
+
+template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
+  ## Defines parse methods for arguments with a value of type `T`.
+  ## `flagHandler` is a code block that is executed to handle an operation on a
+  ## `FlagArg[T]` value. Without this block, a `T` cannot be used for a flag.
+  ## Within the scope of the handler, the following variables are defined:
+  ## - `value: var T`: the flag's value, which can be modified by the handler
+  ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
+  ## - `arg: T`: an argument to the operation
+  ## Blank-op (`""`) variants show no auto-generated description in help
+  ## text; use `defineFlag` to supply one.
+  defineFlagArg(typeName, "", flagHandler)
+
+template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
+  ## Same as `defineArg` above, but also registers `blankDesc` as the
+  ## auto-generated help-text description for blank-op (`""`) variants
+  ## (e.g. `"Toggle the value"`), since that behavior is type-specific and
+  ## can't be inferred from `(op, value)` alone the way `=`/`+=`/`-=` can.
+  defineFlagArg(typeName, blankDesc, flagHandler)
 
 method parse*(self: CommandArg, _: string, variant = "") =
   # echo fmt"Entering {self.name(variant)}"
@@ -475,7 +532,8 @@ macro getFlagOps(typeName: string): untyped =
     raise newException(Defect, fmt"{typeName} is not a supported type for flags")
   result = flagOps[$typeName]
 
-proc flag*[T](variants: string, default: T = false, help = "", group = "Options"): FlagArg[T] =
+proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
+    variantHelp: Table[string, string] = initTable[string, string]()): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -492,6 +550,12 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   - `<value>` is the value the flag represents
   ## - `default` is the default value of the flag if not given by the user.
   ## - `group` determines how flags are grouped in help messages.
+  ## - `variantHelp` optionally overrides the auto-generated per-variant
+  ##   description shown in help text (e.g. "Increase by 5") for specific
+  ##   variants, keyed by the bare flag name as written in `variants` (e.g.
+  ##   `"--quiet"`, not `"--quiet=0"`). Variants not present here fall back
+  ##   to the auto-generated description. Every key must match a declared
+  ##   variant, or spec construction raises `SpecDefect`.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, ops: newOrderedTable[string, FlagOp[T]]())
   for rawName in variants.split(Comma):
     var matches: array[3, string]
@@ -526,7 +590,8 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
           let escapedOp = strutils.escape(op)
           raise newException(Defect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
-        if result.ops.hasKeyOrPut(matches[0], (op: matches[1], arg: arg)):
+        let desc = variantHelp.getOrDefault(matches[0], "")
+        if result.ops.hasKeyOrPut(matches[0], (op: matches[1], arg: arg, desc: desc)):
           raise newException(SpecDefect, fmt"duplicate variant for {matches[0]}")
         result.variants.add matches[0]
       except ValueError as e:
@@ -541,6 +606,10 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
           - '<value>' is the value the flag represents
         Examples: '--foo=true' or '--bar+=1'""")
       raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
+  for key in variantHelp.keys:
+    if key notin result.ops:
+      let escapedKey = strutils.escape(key)
+      raise newException(SpecDefect, fmt"variantHelp key {escapedKey} does not match any declared variant of this flag")
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
   ## `width`/`maxVariantsWidth` are deliberately not parameters here: they
@@ -583,7 +652,7 @@ defineArg string:
   of "=": value = arg
   else: raise newException(SpecDefect, fmt"string flags only support = operations")
 
-defineArg bool:
+defineFlag bool, "Toggle the value":
   ## Handles a flag value for a bool. If `op` is blank, `arg` must be the
   ## default value of the flag, which will be inverted.
   case op
@@ -591,7 +660,7 @@ defineArg bool:
   of "=": value = arg
   else: raise newException(SpecDefect, fmt"boolean flags only support = operations")
 
-defineArg int:
+defineFlag int, "Increment by 1":
   ## Builds a flag handler for an integer. If `op` is blank, the default
   ## is to increment the value.
   case op

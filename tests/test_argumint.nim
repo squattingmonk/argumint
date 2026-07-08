@@ -17,6 +17,18 @@ defineArg(Priority):
   of "=": value = arg
   else: raise newException(SpecDefect, "priority flags only support =")
 
+type Level = enum
+  quiet, normal, loud
+
+converter toLevel(value: string): Level =
+  parseEnum[Level](value)
+
+defineFlag(Level, "Bump up one level"):
+  case op
+  of "": value = Level((ord(value) + 1) mod 3)
+  of "=": value = arg
+  else: raise newException(SpecDefect, "level flags only support = operations")
+
 suite "Positional args":
   test "parse scalar values and fall back to defaults when absent":
     let spec = (
@@ -82,6 +94,40 @@ suite "Flags":
     let s = newSpec(spec, usage = "[--priority]")
     s.parseSpec(@["--priority"], "prog")
     check spec.p == high
+
+  test "SpecDefect raised when variantHelp references an unknown variant":
+    expect SpecDefect:
+      discard flag[int]("-v, --verbose", default = 0, help = "",
+        variantHelp = {"--bogus": "nope"}.toTable)
+
+  test "custom flag types get auto-generated =/+=/-= descriptions for free":
+    let spec = (
+      p: flag[Priority]("--priority=high, --boost=medium", default = low, help = "Set priority"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try: s.parseSpec(@["--help"], "prog")
+    except HelpError as e: helpText = e.msg
+    # --priority is the primary (first-declared) group, so it keeps the
+    # shared `help` text; only the divergent --boost group shows its own
+    # auto-generated description.
+    check "Set priority" in helpText
+    check "Set to medium" in helpText
+
+  test "a custom flag type can supply blank-op wording via defineFlag":
+    let spec = (
+      lvl: flag[Level]("--set=loud, -b, --bump", default = quiet, help = "Adjust level"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try: s.parseSpec(@["--help"], "prog")
+    except HelpError as e: helpText = e.msg
+    # --set is the primary group here, so -b/--bump (the divergent
+    # blank-op group) is what shows the defineFlag-supplied blankDesc.
+    check "Adjust level" in helpText
+    check "Bump up one level" in helpText
 
 suite "[options] catch-all":
   test "an option mentioned explicitly can't also be matched again via [options]":
@@ -269,6 +315,79 @@ suite "Messages":
     check "    --dampen" in lines
     for line in lines:
       check line == line.strip(leading = false, trailing = true)
+
+  test "a flag with divergent per-variant ops groups into rows, primary row keeping the shared help":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2", default = 0, help = "Adjust verbosity"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let colWidth = "-v, --verbose".len
+    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Adjust verbosity [action: Increment by 1]") in helpText
+    check ("    " & "--quiet".alignLeft(colWidth) & "  Set to 0") in helpText
+    check ("    " & "--boost".alignLeft(colWidth) & "  Increase by 5") in helpText
+    check ("    " & "--dampen".alignLeft(colWidth) & "  Decrease by 2") in helpText
+
+  test "primary row shows [action: X] alone when arg.help is empty":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet=0", default = 0, help = ""),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "  -v, --verbose  [action: Increment by 1]" in helpText
+
+  test "variantHelp overrides the auto-generated description for a specific variant":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2", default = 0, help = "Adjust verbosity",
+        variantHelp = {"--quiet": "Reset to silent"}.toTable),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Reset to silent" in helpText
+    check "Set to 0" notin helpText
+
+  test "a bool flag's blank-op variants show \"Toggle the value\" when grouped with a divergent peer":
+    let spec = (
+      moored: flag("--docked=true, -m, --moored", default = false, help = "Ship status"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Ship status" in helpText
+    check "Toggle the value" in helpText
+
+  test "same-op variants collapse into a single ungrouped row (no divergence to disambiguate)":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose", default = 0, help = "Adjust verbosity"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "  -v, --verbose  Adjust verbosity" in helpText
+    check "Increment by 1" notin helpText
 
   test "maxVariantsWidth defaults to 30 and is configurable":
     proc mkSpec(): auto = (verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"), help: help())

@@ -124,6 +124,37 @@ navigating the code:
    spec-construction time to validate that a flag variant's requested op
    (parsed out of the variant string itself, e.g. `--verbose+=2`) is actually
    supported for that type.
+   Each variant's `(op, value)` (plus an optional user-supplied override) is
+   stored as a `FlagOp[T] = tuple[op, arg, desc]` in `FlagArg[T].ops`, keyed
+   by the bare variant name. `defineArg`/`defineFlag` also generate a
+   `method variantDesc` per type, used by `genHelp` (via the `variantGroups`
+   helper, see below) to auto-describe a flag variant when its behavior
+   diverges from its siblings: `desc` (if the user supplied one via
+   `flag*`'s `variantHelp: Table[string, string]` param) wins, else it falls
+   back to generic wording from `op`/`arg` — `"Set to {arg}"` (`=`),
+   `"Increase by {arg}"` (`+=`), `"Decrease by {arg}"` (`-=`), all
+   type-generic (just `$arg`). Blank op (`""`) has no generic wording since
+   its meaning is type-specific (toggle vs. increment vs. something else
+   entirely for a custom type) — `defineArg[T](typeName, flagHandler)`
+   leaves it as `""`, while `defineFlag[T](typeName, blankDesc,
+   flagHandler)` lets a type's author supply it (`bool`/`int` use this for
+   `"Toggle the value"`/`"Increment by 1"`; a custom type can too, the same
+   way it already opts into flag support at all).
+   **Gotcha**: `defineArg`/`defineFlag`/the private `defineFlagArg` they
+   both delegate to are three *separately-named* templates, not one
+   template overloaded three ways, even though `defineArg[T](typeName,
+   flagHandler)` and `defineFlag[T](typeName, blankDesc, flagHandler)` look
+   like they could be arity-overloads of each other. In this Nim version,
+   two generic templates that share a name and each forward an `untyped`
+   param down to a nested `{.inject.}` proc corrupt each other's hygiene —
+   `op`/`arg` end up "undeclared identifier" inside `flagHandler`, even in
+   whichever overload actually resolves. Distinct names avoid it entirely;
+   don't collapse them back into overloads of `defineArg`. Relatedly,
+   inside `defineFlagArg`, the generated `variantDesc` method destructures
+   its local `(op, arg, desc)` as `(vOp, vArg, vDesc)` — reusing the plain
+   names collides with the `{.inject.}`ed `op`/`arg` from the
+   sibling-generated `parse*` method, since `inject` makes those visible
+   across the whole template expansion, not just inside `flagHandler`.
    Converters `toT*[T](arg: ValueArg[T, false]): T` and
    `toSeqT*[T](arg: ValueArg[T, true]): seq[T]` return the field's value
    transparently at use-sites — code reads `spec.dest` rather than
@@ -141,15 +172,37 @@ navigating the code:
    `width` wraps usage lines (`formatUsage`) and each row's help/description
    text, while `maxVariantsWidth` caps the "variants" column (e.g. `-v,
    --verbose, --quiet`) so one arg with many aliases can't inflate the
-   shared column width for every other row. When a row's variants exceed
-   the cap, `genHelp` wraps them into their own `wrapWords`-wrapped lines
-   and zips them line-by-line against the (independently wrapped) help-text
-   lines, so the help text stays inline with the *first* wrapped variants
-   line rather than being pushed below all of them; variant-only
-   continuation lines (no help text alongside) get a deeper 4-space
-   `continuationIndent` rather than the normal 2-space row margin, so they
-   aren't mistaken for a new row. `0` disables the cap (unlimited width,
-   the pre-cap behavior). Neither is a parameter to
+   shared column width for every other row. `genHelp` doesn't iterate
+   `arg.variants` directly for this — it goes through `arg.variantGroups()`
+   (`argumint.nim`, near `genHelp`), which groups an arg's variants by their
+   `variantDesc` text and returns one group per distinct behavior (almost
+   always exactly one group, since most args/flags have no divergent
+   variants — see the "Flags are special" note above). `colWidth` is
+   computed from the widest single *group's* joined names, not the widest
+   whole-`Arg`'s, so a flag that splits into several rows doesn't inflate
+   the column by its full alias list. Each group becomes its own row: the
+   first group (declaration order) keeps the arg's shared `help` text and
+   uses the normal 2-space row margin — plus, only when `variantGroups().len
+   > 1` (i.e. there's actually something to contrast it against) and its own
+   `variantDesc` is non-empty, that desc is appended as `[action: ...]`,
+   reusing the same bracket slot `validatorHelp`/`defaultStr` populate for
+   `arg()`/`opt()` (always `""` for flags, so otherwise unused there) —
+   deliberately labeled `action:`, not `default:`, so it can't collide with
+   a hypothetical future `[default: <value>]` for a flag's own starting
+   `default: T` value (currently never surfaced, since `FlagArg` doesn't
+   override `defaultStr`); any
+   further group (a divergent variant) shows its own `variantDesc` text
+   instead and is indented with
+   the same 4-space `continuationIndent` used for wrap-continuation lines
+   (deliberately reused for both cases — a divergent-variant row and a
+   wrapped-variants overflow line both read as "subordinate to the row
+   above", not a new top-level row). When a row's variants exceed the cap
+   (regardless of which group it is), `genHelp` wraps them into their own
+   `wrapWords`-wrapped lines and zips them line-by-line against the
+   (independently wrapped) help-text lines, so the help text stays inline
+   with the *first* wrapped variants line rather than being pushed below
+   all of them. `0` disables the cap (unlimited width, the pre-cap
+   behavior). Neither `width` nor `maxVariantsWidth` is a parameter to
    `command*` — both cascade from the top-level `newSpec`/`parse*` call into
    every nested subcommand spec via `setWidth`, so they only need to be set
    once regardless of nesting depth.

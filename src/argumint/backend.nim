@@ -120,6 +120,14 @@ method validatorHelp*(self: Arg): string {.base.} =
   ## nothing to show; `ValueArg` overrides this per-type via `defineArg`.
   ""
 
+method variantDesc*(self: Arg, variant: string): string {.base.} =
+  ## Returns a short description of what a specific `variant` of `self`
+  ## does (e.g. "Increase by 5"), or an empty string if there's nothing to
+  ## disambiguate. The base case (everything but flags with divergent
+  ## per-variant ops) has nothing to show; `FlagArg` overrides this
+  ## per-type via `defineArg`.
+  ""
+
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by
   ## priority.
