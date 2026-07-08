@@ -234,6 +234,69 @@ suite "Messages":
     check ("  --speed=<speed>  Speed") in helpText
     check "  --verbose" in helpText.splitLines
 
+  test "variants column wraps at maxVariantsWidth with help text aligned to the first wrapped line":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 20)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let firstLine = "  " & "-v, --verbose,".alignLeft(20) & "  Adjust verbosity"
+    let lines = helpText.splitLines
+    let firstIdx = lines.find(firstLine)
+    check firstIdx >= 0
+    check lines[firstIdx + 1] == "    --quiet, --boost,"
+    check lines[firstIdx + 2] == "    --dampen"
+
+  test "variants column wraps without trailing whitespace when help text is empty":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = ""),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 20)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    let lines = helpText.splitLines
+    check "  -v, --verbose," in lines
+    check "    --quiet, --boost," in lines
+    check "    --dampen" in lines
+    for line in lines:
+      check line == line.strip(leading = false, trailing = true)
+
+  test "maxVariantsWidth defaults to 30 and is configurable":
+    proc mkSpec(): auto = (verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"), help: help())
+    let default = newSpec(mkSpec())
+    let narrow = newSpec(mkSpec(), maxVariantsWidth = 20)
+    let unlimited = newSpec(mkSpec(), maxVariantsWidth = 0)
+    check default.maxVariantsWidth == 30
+    check narrow.maxVariantsWidth == 20
+    check unlimited.maxVariantsWidth == 0
+
+    var defaultText, unlimitedText = ""
+    try: default.parseSpec(@["--help"], "prog")
+    except HelpError as e: defaultText = e.msg
+    try: unlimited.parseSpec(@["--help"], "prog")
+    except HelpError as e: unlimitedText = e.msg
+
+    check ("  " & "-v, --verbose, --quiet,".alignLeft(30) & "  Adjust verbosity") in defaultText
+    check "    --boost, --dampen" in defaultText.splitLines
+    check ("  -v, --verbose, --quiet, --boost, --dampen  Adjust verbosity") in unlimitedText
+
+  test "maxVariantsWidth cascades from the root spec into nested subcommand specs":
+    let move = (name: arg("<name>", help = ""), help: help())
+    let ship = (move: command("move", move, help = "Move a ship"), help: help())
+    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), maxVariantsWidth = 20)
+    check s.maxVariantsWidth == 20
+    check s.commands["ship"].spec.maxVariantsWidth == 20
+    check s.commands["ship"].spec.commands["move"].spec.maxVariantsWidth == 20
+
   test "usage lines longer than 80 columns wrap with a hanging indent":
     let spec = (
       a: opt("--alpha=<a>", default = "", help = ""),

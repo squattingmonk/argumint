@@ -38,6 +38,7 @@ type
     groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
     fsm*: State ## The initial state for the FSM used for parsing
     width*: int ## Column width to wrap usage/help text at
+    maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has
@@ -67,6 +68,7 @@ type
       discard
 
 const DefaultWidth* = 80
+const DefaultMaxVariantsWidth* = 30
 
 proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
   ## Formats `usage` (a spec's raw usage string, one alternative per line) as

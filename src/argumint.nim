@@ -95,9 +95,12 @@ proc genHelp(spec: Spec, command: string): string =
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
   let usage = spec.usage.formatUsage(command, spec.width) & "\n"
 
-  var colWidth = 0
+  var rawColWidth = 0
   for arg in spec.args:
-    colWidth = max(colWidth, arg.variants.join(", ").len)
+    rawColWidth = max(rawColWidth, arg.variants.join(", ").len)
+  let colWidth =
+    if spec.maxVariantsWidth > 0: min(rawColWidth, spec.maxVariantsWidth)
+    else: rawColWidth
 
   var lines: seq[string]
   for group in spec.groupOrder:
@@ -112,13 +115,27 @@ proc genHelp(spec: Spec, command: string): string =
         if bracket.len == 0: arg.help
         elif arg.help.len == 0: bracket
         else: "{arg.help} {bracket}".fmt
+      let variantLines = variants.wrapWords(colWidth, splitLongWords = false).splitLines
+      let continuationIndent = "    " # deeper than the "  " row margin, so a wrapped
+                                       # variants continuation isn't mistaken for a new row
       if text.len > 0:
-        let prefix = "  " & variants.alignLeft(colWidth) & "  "
-        let indent = ' '.repeat(prefix.len)
-        let helpWidth = max(spec.width - prefix.len, 20)
-        argLines.add(prefix & text.wrapWords(helpWidth, splitLongWords = false, newLine = "\n" & indent))
+        let helpWidth = max(spec.width - (2 + colWidth + 2), 20)
+        let textLines = text.wrapWords(helpWidth, splitLongWords = false).splitLines
+        for i in 0 ..< max(variantLines.len, textLines.len):
+          let v = if i < variantLines.len: variantLines[i] else: ""
+          let t = if i < textLines.len: textLines[i] else: ""
+          if t.len > 0:
+            argLines.add("  " & v.alignLeft(colWidth) & "  " & t)
+          elif i > 0:
+            argLines.add(continuationIndent & v)
+          else:
+            argLines.add("  " & v)
       else:
-        argLines.add("  " & variants)
+        for i, v in variantLines:
+          if i > 0:
+            argLines.add(continuationIndent & v)
+          else:
+            argLines.add("  " & v)
     if argLines.len > 0:
       lines.add("\n{group}".fmt)
       lines.add(argLines)
@@ -358,20 +375,24 @@ proc autoFillUsage(spec: Spec) =
   if spec.usage.len > usageLenBefore:
     spec.fsm = spec.genFsm()
 
-proc setWidth(spec: Spec, width: int) =
-  ## Sets `width` on `spec` and cascades it into every nested subcommand's
-  ## spec too, so a single `width` given to the top-level `newSpec`/`parse*`
-  ## call applies uniformly throughout the whole command tree without
-  ## needing to be repeated at each `command()` call.
+proc setWidth(spec: Spec, width, maxVariantsWidth: int) =
+  ## Sets `width`/`maxVariantsWidth` on `spec` and cascades them into every
+  ## nested subcommand's spec too, so values given to the top-level
+  ## `newSpec`/`parse*` call apply uniformly throughout the whole command
+  ## tree without needing to be repeated at each `command()` call.
   spec.width = width
+  spec.maxVariantsWidth = maxVariantsWidth
   for cmd in spec.commands.values:
-    cmd.spec.setWidth(width)
+    cmd.spec.setWidth(width, maxVariantsWidth)
 
-proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth): Spec =
+proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+    maxVariantsWidth = DefaultMaxVariantsWidth): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
-  ## column width usage/help text is wrapped at; it cascades to every nested
-  ## subcommand's spec (see `setWidth`).
+  ## column width usage/help text is wrapped at; `maxVariantsWidth` is the
+  ## max width of the help text's variants column before it wraps onto
+  ## additional indented lines (`0` means unlimited). Both cascade to every
+  ## nested subcommand's spec (see `setWidth`).
   ##
   ## Unlike `parse*`, this does not catch any exceptions raised during spec
   ## construction (`SpecDefect`) or -- if you go on to call
@@ -383,7 +404,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = Default
   result.addArgs(spec)
   result.fsm = result.genFsm()
   result.autoFillUsage()
-  result.setWidth(width)
+  result.setWidth(width, maxVariantsWidth)
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -522,10 +543,10 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
-  ## `width` is deliberately not a parameter here: it cascades down from
-  ## whatever the top-level `newSpec`/`parse*` call is given (see
-  ## `setWidth`), so it only needs to be specified once regardless of how
-  ## deeply nested this command is.
+  ## `width`/`maxVariantsWidth` are deliberately not parameters here: they
+  ## cascade down from whatever the top-level `newSpec`/`parse*` call is
+  ## given (see `setWidth`), so they only need to be specified once
+  ## regardless of how deeply nested this command is.
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not handler.isNil:
@@ -610,9 +631,11 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extra
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
-proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
+proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+    maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
+    command = extractFilename(getAppFilename())) =
   try:
-    newSpec(spec, usage, prolog, epilog, width).parse(args, command)
+    newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parse(args, command)
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 

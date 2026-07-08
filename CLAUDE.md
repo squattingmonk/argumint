@@ -136,6 +136,24 @@ navigating the code:
    `.add` before reassigning; don't revert to the inline `get(...) & @[...]`
    form.
 
+   `Spec.width` (default `DefaultWidth = 80`) and `Spec.maxVariantsWidth`
+   (default `DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping:
+   `width` wraps usage lines (`formatUsage`) and each row's help/description
+   text, while `maxVariantsWidth` caps the "variants" column (e.g. `-v,
+   --verbose, --quiet`) so one arg with many aliases can't inflate the
+   shared column width for every other row. When a row's variants exceed
+   the cap, `genHelp` wraps them into their own `wrapWords`-wrapped lines
+   and zips them line-by-line against the (independently wrapped) help-text
+   lines, so the help text stays inline with the *first* wrapped variants
+   line rather than being pushed below all of them; variant-only
+   continuation lines (no help text alongside) get a deeper 4-space
+   `continuationIndent` rather than the normal 2-space row margin, so they
+   aren't mistaken for a new row. `0` disables the cap (unlimited width,
+   the pre-cap behavior). Neither is a parameter to
+   `command*` — both cascade from the top-level `newSpec`/`parse*` call into
+   every nested subcommand spec via `setWidth`, so they only need to be set
+   once regardless of nesting depth.
+
 5. **Subcommands**: `command*` builds a `CommandArg` wrapping its own nested
    `Spec` (built via `newSpec` from a nested arg tuple), optionally binding a
    `handler` closure. A subcommand's FSM is spliced into the parent's FSM as
