@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[pegs, sequtils, strformat, strutils, tables]
+import std/[pegs, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -9,13 +9,17 @@ export ParseError, SpecDefect
 type
   Match = tuple[variant: string, value: string]
   MatchTable = OrderedTable[Arg, seq[Match]]
+  Complaint = tuple[kind: string, subject: string]
+    ## A failure reason, e.g. `("missing option", "-v")`. Kept structured
+    ## (rather than a pre-formatted string) so same-kind complaints can be
+    ## grouped into one message at render time -- see `parseSpec`.
 
   ParseContext = object
     depth: int            ## The depth of the current fsm path
     maxDepth: int         ## The depth of the deepest fsm path prior to the current one
     spec: Spec            ## The spec for the parsed command (used to generate usage and help messages)
     command: string       ## The command string up to the current subcommand
-    messages: seq[string] ## A list of messages indicating failure reason of the deepest fsm path
+    messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
     tokens: seq[CmdLineToken]     ## The arguments left to be parsed
     matches: MatchTable   ## A table of processed matches
 
@@ -172,8 +176,11 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       else:
         discard
       pos.inc
-    if not result:
-      pc.messages.add fmt"missing argument {m.arg.name}"
+    if not result and pc.matches.getOrDefault(m.arg).len == 0:
+      # Only report a genuinely-unmatched arg -- if this arg already matched
+      # at least once (a satisfied `<arg>...` repeat), a failed attempt at
+      # *another* repeat isn't a real deficiency worth reporting.
+      pc.messages.add ("missing argument", m.arg.name)
   of Command:
     # If the next token is a matching command token, consume it and return true.
     # Otherwise return false.
@@ -190,7 +197,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       else:
         discard
     if not result:
-      pc.messages.add fmt"missing command {m.cmd.name}"
+      pc.messages.add ("missing command", m.cmd.name)
   of Option:
     # Iterate over tokens until a matching Optional or Flag token is found,
     # consuming a matching token and returning true. If a Command token is found
@@ -216,20 +223,23 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       else:
         discard
       pos.inc
-    pc.messages.add fmt"missing option {m.opt.name}"
+    pc.messages.add ("missing option", m.opt.name)
   of Options:
     # Iterate over all the matcher's options and try to match each of them using
     # the algorithm described above. Consume a token and return true when a
     # matching Optional or Flag token is found.
     # TODO: Do not allow repeated options
-    var missing: seq[string]
     for opt in m.opts:
+      # newOptMatcher(opt).match(pc) is used purely to probe this candidate;
+      # a failed probe's own "missing option" complaint isn't meant to be
+      # user-facing on its own, so roll pc.messages back to before the probe
+      # and add our own complaint for it instead.
+      let before = pc.messages.len
       if newOptMatcher(opt).match(pc):
         result = true
-      elif not result:
-        missing.add opt.name
-    if not result:
-      pc.messages.add fmt"""missing options: {missing.join(", ")}"""
+      else:
+        pc.messages.setLen(before)
+        if not result: pc.messages.add ("missing option", opt.name)
 
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
@@ -251,13 +261,13 @@ proc walk(s: State, pc: var ParseContext): bool =
         let token = fresh.tokens[0]
         case token.kind
         of Command:
-          fresh.messages.add fmt"unexpected command {token.cmdName}"
+          fresh.messages.add ("unexpected command", token.cmdName)
         of Positional:
-          fresh.messages.add fmt"unexpected arg {token.argVal}"
+          fresh.messages.add ("unexpected argument", token.argVal)
         of Optional:
-          fresh.messages.add fmt"unexpected option {token.optName}{token.optSep}{token.optVal}"
+          fresh.messages.add ("unexpected option", fmt"{token.optName}{token.optSep}{token.optVal}")
         of Flag:
-          fresh.messages.add fmt"unexpected flag {token.flagName}"
+          fresh.messages.add ("unexpected flag", token.flagName)
 
     # a usage message to send to the parent's scope
     # echo fmt"{tr.matcher.name=}, {fresh.depth=}, {fresh.message=}, {pc.maxDepth=}"
@@ -273,9 +283,17 @@ proc parseSpec*(spec: Spec, args: seq[string], command: string) =
   ## successful and each match is parsed into its arg.
   var pc = ParseContext(spec: spec, command: command, tokens: spec.tokenizeArgs(args, command))
   if not spec.fsm.walk(pc):
+    # Group same-kind complaints (e.g. two unmatched commands) into one
+    # line joined by " | "
+    var subjectsByKind = initOrderedTable[string, seq[string]]()
+    for (kind, subject) in pc.messages:
+      if subject notin subjectsByKind.getOrDefault(kind, @[]):
+        subjectsByKind.mgetOrPut(kind, @[]).add subject
     var message: string
-    for idx, msg in pc.messages.deduplicate:
-      message.add "\n  {idx + 1}: {msg}".fmt
+    for kind, subjects in subjectsByKind.pairs:
+      let joined = subjects.join(" | ")
+      let subject = if subjects.len > 1: "({joined})".fmt else: joined
+      message.add "\n  - {kind}: {subject}".fmt
     raiseParseError(message, pc.command, pc.spec)
 
   var commands = newSeq[Arg]()

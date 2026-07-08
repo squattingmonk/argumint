@@ -220,6 +220,61 @@ suite "Errors":
     expect SpecDefect:
       discard newSpec((a: arg("<x>", help = ""), b: arg("<x>", help = "")))
 
+  test "an [options]-only flag failing doesn't produce a duplicate message":
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      add: command("add", (help: help()), help = "Add"),
+      help: help(),
+    )
+    let s = newSpec(spec)
+    var caught = ""
+    try:
+      s.parseSpec(@[], "prog")
+    except ParseError as e:
+      caught = e.msg
+    check caught.count("--verbose") == 1
+
+  test "a satisfied repeated positional isn't reported missing when a later arg is":
+    let spec = (
+      src: arg[string]("<src>", default = @[], help = ""),
+      dest: arg("<dest>", help = ""),
+    )
+    let s = newSpec(spec, usage = "<src>... <dest>")
+    var caught = ""
+    try:
+      s.parseSpec(@["a.txt"], "prog")
+    except ParseError as e:
+      caught = e.msg
+    check "missing argument: <dest>" in caught
+    check "missing argument: <src>" notin caught
+
+  test "same-kind alternatives are grouped onto one line joined by |":
+    let spec = (
+      ship: command("ship", (help: help()), help = "Ship"),
+      mine: command("mine", (help: help()), help = "Mine"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "(ship | mine)\n(-h | --help)")
+    var caught = ""
+    try:
+      s.parseSpec(@[], "prog")
+    except ParseError as e:
+      caught = e.msg
+    check "missing command: (ship | mine)" in caught
+
+  test "a single missing requirement renders without a | separator":
+    let spec = (
+      name: arg("<name>", help = ""),
+    )
+    let s = newSpec(spec, usage = "<name>")
+    var caught = ""
+    try:
+      s.parseSpec(@[], "prog")
+    except ParseError as e:
+      caught = e.msg
+    check "missing argument: <name>" in caught
+    check "|" notin caught
+
 suite "Messages":
   test "help() raises HelpError with the generated help text":
     let spec = (
