@@ -189,14 +189,23 @@ proc collectExplicitOptions(spec: Spec): HashSet[Arg] =
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
-  let p = SpecParser(spec: spec, explicitOptions: spec.collectExplicitOptions())
-  for line in spec.usage.split(peg"\n!\s"):
-    p.lex.open(line)
-    defer: p.lex.close()
-    p.tok = p.lex.next()
-    let (s, e) = p.sequence(false)
-    if not p.peek {tkEof}:
-      p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
-    result.addShortcut(s)
-    e.terminal = true
+  if spec.usage.len == 0:
+    # An empty usage string means this spec (or subcommand) takes no
+    # further input at all -- e.g. `command("status", (), ...)` -- so the
+    # root state is trivially already done. `usage.split` yields zero
+    # lines for an empty string, so the loop below would otherwise leave
+    # `result` neither terminal nor with any transitions: a dead end that
+    # can never succeed.
+    result.terminal = true
+  else:
+    let p = SpecParser(spec: spec, explicitOptions: spec.collectExplicitOptions())
+    for line in spec.usage.split(peg"\n!\s"):
+      p.lex.open(line)
+      defer: p.lex.close()
+      p.tok = p.lex.next()
+      let (s, e) = p.sequence(false)
+      if not p.peek {tkEof}:
+        p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
+      result.addShortcut(s)
+      e.terminal = true
   result.prepare()

@@ -203,6 +203,53 @@ suite "Commands":
     s.parseSpec(@["ship", "Titanic"], "prog")
     check moved == "Titanic"
 
+suite "Empty specs":
+  test "a top-level spec with zero declared args parses successfully given zero input":
+    let s = newSpec(())
+    s.parseSpec(@[], "prog")
+
+  test "two argument-less subcommands in a choice each parse correctly on their own":
+    let spec = (
+      ship: command("ship", (), help = "Ship"),
+      mine: command("mine", (), help = "Mine"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "(ship | mine)\n--help")
+    s.parseSpec(@["ship"], "prog")
+
+    let spec2 = (
+      ship: command("ship", (), help = "Ship"),
+      mine: command("mine", (), help = "Mine"),
+      help: help(),
+    )
+    let s2 = newSpec(spec2, usage = "(ship | mine)\n--help")
+    s2.parseSpec(@["mine"], "prog")
+
+  test "an argument-less subcommand nested inside another subcommand parses correctly":
+    let inner = (status: command("status", (), help = "Status"), help: help())
+    let spec = (ship: command("ship", inner, help = "Ship"), help: help())
+    let s = newSpec(spec, usage = "ship")
+    s.parseSpec(@["ship", "status"], "prog")
+
+  test "an argument-less subcommand mixed with a normal one in the same choice still parses both":
+    let spec = (
+      status: command("status", (), help = "Status"),
+      move: command("move", (x: arg("<x>", default = 0, help = "")), help = "Move"),
+      help: help(),
+    )
+    let s = newSpec(spec, usage = "(status | move)\n--help")
+    s.parseSpec(@["status"], "prog")
+
+    let moveArgs = (x: arg("<x>", default = 0, help = ""))
+    let spec2 = (
+      status: command("status", (), help = "Status"),
+      move: command("move", moveArgs, help = "Move"),
+      help: help(),
+    )
+    let s2 = newSpec(spec2, usage = "(status | move)\n--help")
+    s2.parseSpec(@["move", "5"], "prog")
+    check moveArgs.x == 5
+
 suite "Errors":
   test "raise ParseError for unrecognized options":
     let spec = (
