@@ -5,7 +5,7 @@
 # Usage:
 #  cp.py <src>... <dest>
 # """
-# ````
+# ```
 #
 # Since `<src>` greedily consumes all arguments, it is never possible for
 # `<dest>` to be supplied, so parsing always fails. Since argumint supports
@@ -19,6 +19,9 @@ import argumint
 
 let
   spec = (
+    # `[string]` must be given explicitly here: the multi-value `arg`
+    # overload takes `default: seq[T]` with no fallback value, so
+    # `default = @[]` alone gives the compiler nothing to infer `T` from.
     src: arg[string]("<src>", default = @[], help = "The source file(s) to copy"),
     dest: arg("<dest>", help = "The destination to copy to"),
     recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),

@@ -19,3 +19,8 @@ task test, "Run the test suite":
   for file in listFiles("tests"):
     if file.endsWith(".nim"):
       exec "nim c -r " & file
+
+task examples, "Compile every example":
+  for file in listFiles("examples"):
+    if file.endsWith(".nim"):
+      exec "nim c " & file

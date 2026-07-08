@@ -4,6 +4,9 @@
 /src/argumint/validators
 /tests/test_*
 !/tests/test_*.nim
+/examples/*
+!/examples/*.nim
+!/examples/*.nims
 
 # Nim build artifacts
 nimcache/
