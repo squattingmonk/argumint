@@ -112,4 +112,4 @@ let
     version: version("Naval Fate 2.0.0")
   )
 
-spec.parse(prolog = "Naval Fate")
+spec.parseOrQuit(prolog = "Naval Fate")

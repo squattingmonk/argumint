@@ -83,7 +83,8 @@ navigating the code:
    attempt, not just "invalid arguments". A successful walk populates
    `pc.matches: OrderedTable[Arg, seq[Match]]`, which is then fed back into
    each `Arg`'s `parse` method (see below) to actually convert/store values.
-   After a successful walk, `parseSpec` does one more pass entirely outside
+   After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
+   `Arg.parse` above) does one more pass entirely outside
    the FSM/backtracking machinery: for every `Arg` in `spec.args` with a
    non-empty `envName` (see below) that *wasn't* explicitly matched
    (`arg notin pc.matches`) and whose env var `existsEnv`, it calls
@@ -206,7 +207,7 @@ navigating the code:
    an `env` param naming an environment variable that can supply the
    option's value when omitted from the CLI, at a lower precedence than an
    explicit CLI value but higher than the arg's own coded `default` (see
-   the `parseSpec` env sweep, above, and the required-vs-optional gotcha,
+   the `Spec.parse` env sweep, above, and the required-vs-optional gotcha,
    below). `ValueArg`/`FlagArg` each carry an `env: string` field, and
    `defineArg`/`defineFlagArg` generate per-type `envName`/`setFromEnv`
    overrides of the `Arg` base methods (`backend.nim`) — `envName` just
@@ -280,11 +281,19 @@ navigating the code:
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
   not meant to be caught), while `ParseError`/`ValidationError`/`MessageError`
-  are `CatchableError`s raised at user-input parse time. These are caught
-  across two separate `try/except` blocks, one per `parse*` overload: the
-  `tuple`-overload's block only catches `SpecDefect` from `newSpec`, while
-  the `Spec`-overload's block catches `ParseError`/`ValidationError`/
+  are `CatchableError`s raised at user-input parse time. `parse*`
+  (`argumint.nim`, both the `Spec` and `tuple` overloads) lets all of these
+  propagate to the caller — it's `parseOrQuit*` (same two overloads) that
+  catches them, across two separate `try/except` blocks, one per overload:
+  the `tuple`-overload's block only catches `SpecDefect` from `newSpec` (then
+  delegates to the `Spec`-overload's `parseOrQuit`), while the
+  `Spec`-overload's block catches `ParseError`/`ValidationError`/
   `HelpError`/`MessageError` (each `quit()`s with a formatted message).
+  `parse*` is the recommended entry point for embedding argumint in a larger
+  program; `parseOrQuit*` is for a bare CLI `main()` that should just print
+  an error and exit. `newSpec*`/`Spec.parse` remain public for callers who
+  need the `Spec` object itself (inspecting `.usage`/`.dot`/
+  `.maxVariantsWidth`, or parsing it repeatedly).
 - `Arg.hash` is keyed on `self.variants[0]` (the arg's first declared name,
   via `name()`), but there is no custom `==` for `Arg` — equality falls back
   to Nim's identity-based `EqRef` for ref types. A hash collision between
@@ -331,7 +340,7 @@ navigating the code:
   already optional in the usage grammar (bracketed, e.g.
   `[--port=<port>]`, or reachable only via `[options]`). A *required*
   (unbracketed) option omitted from the CLI still fails FSM matching
-  (`missing option ...`) before `parseSpec`'s env sweep ever runs, even if
+  (`missing option ...`) before `Spec.parse`'s env sweep ever runs, even if
   its env var is set — this mirrors how a coded `default` on a required
   option is already dead code today (`walk()` fails first, so it's never
   reached); `env` occupies the exact same fallback slot. This is

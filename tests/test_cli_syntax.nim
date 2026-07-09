@@ -7,48 +7,48 @@ suite "Option value separators":
   test "-o=value and --output=value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s1 = newSpec(spec1)
-    s1.parseSpec(@["-o=foo"], "prog")
+    s1.parse(@["-o=foo"], "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s2 = newSpec(spec2)
-    s2.parseSpec(@["--output=foo"], "prog")
+    s2.parse(@["--output=foo"], "prog")
     check spec2.output == "foo"
 
   test "-o:value and --output:value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s1 = newSpec(spec1)
-    s1.parseSpec(@["-o:foo"], "prog")
+    s1.parse(@["-o:foo"], "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s2 = newSpec(spec2)
-    s2.parseSpec(@["--output:foo"], "prog")
+    s2.parse(@["--output:foo"], "prog")
     check spec2.output == "foo"
 
 suite "Space-separated option values":
   test "-o value and --output value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s1 = newSpec(spec1)
-    s1.parseSpec(@["-o", "foo"], "prog")
+    s1.parse(@["-o", "foo"], "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s2 = newSpec(spec2)
-    s2.parseSpec(@["--output", "foo"], "prog")
+    s2.parse(@["--output", "foo"], "prog")
     check spec2.output == "foo"
 
   test "raise ParseError when the trailing value is missing":
     let spec = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s = newSpec(spec)
     expect ParseError:
-      s.parseSpec(@["-o"], "prog")
+      s.parse(@["-o"], "prog")
 
 suite "Short option value concatenation":
   test "-ofoo sets the value with no separator":
     let spec = (output: opt("-o, --output=<value>", default = "", help = ""))
     let s = newSpec(spec)
-    s.parseSpec(@["-ofoo"], "prog")
+    s.parse(@["-ofoo"], "prog")
     check spec.output == "foo"
 
 suite "Short flag clustering":
@@ -59,7 +59,7 @@ suite "Short flag clustering":
       c: flag("-c", default = false, help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-abc"], "prog")
+    s.parse(@["-abc"], "prog")
     check spec.a == true
     check spec.b == true
     check spec.c == true
@@ -71,7 +71,7 @@ suite "Short flag clustering":
       c: flag("-c", default = false, help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-cab"], "prog")
+    s.parse(@["-cab"], "prog")
     check spec.a == true
     check spec.b == true
     check spec.c == true
@@ -84,7 +84,7 @@ suite "Folding a value option at the end of a cluster":
       o: opt("-o=<value>", default = "", help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-abo=value"], "prog")
+    s.parse(@["-abo=value"], "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -96,7 +96,7 @@ suite "Folding a value option at the end of a cluster":
       o: opt("-o=<value>", default = "", help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-abo", "value"], "prog")
+    s.parse(@["-abo", "value"], "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -108,7 +108,7 @@ suite "Folding a value option at the end of a cluster":
       o: opt("-o=<value>", default = "", help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-abovalue"], "prog")
+    s.parse(@["-abovalue"], "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -120,7 +120,7 @@ suite "Folding a value option at the end of a cluster":
       b: flag("-b", default = false, help = ""),
     )
     let s = newSpec(spec)
-    s.parseSpec(@["-aob"], "prog")
+    s.parse(@["-aob"], "prog")
     check spec.a == true
     check spec.o == "b"
     check spec.b == false
@@ -132,7 +132,7 @@ suite "-- end of options":
       files: args[string]("<file>", help = ""),
     )
     let s = newSpec(spec, usage = "[--verbose] [<file>...]")
-    s.parseSpec(@["--verbose", "--", "-x", "--verbose", "file.txt"], "prog")
+    s.parse(@["--verbose", "--", "-x", "--verbose", "file.txt"], "prog")
     check spec.verbose == true
     check spec.files == @["-x", "--verbose", "file.txt"]
 
@@ -140,17 +140,17 @@ suite "Negative number literals":
   test "a leading space disambiguates a negative int from a short option":
     let spec = (count: arg("<count>", default = 0, help = ""))
     let s = newSpec(spec, usage = "<count>")
-    s.parseSpec(@[" -1"], "prog")
+    s.parse(@[" -1"], "prog")
     check spec.count == -1
 
   test "a leading space disambiguates a negative float from a short option":
     let spec = (amount: arg("<amount>", default = 0.0, help = ""))
     let s = newSpec(spec, usage = "<amount>")
-    s.parseSpec(@[" -3.14"], "prog")
+    s.parse(@[" -3.14"], "prog")
     check spec.amount == -3.14
 
   test "a negative number without the leading space is read as an unrecognized option":
     let spec = (count: arg("<count>", default = 0, help = ""))
     let s = newSpec(spec, usage = "<count>")
     expect ParseError:
-      s.parseSpec(@["-1"], "prog")
+      s.parse(@["-1"], "prog")

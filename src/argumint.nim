@@ -2,6 +2,11 @@ import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strfor
 
 import ./argumint/[backend, dot, fsm, parser, validators]
 
+# Re-exported so `import argumint` alone is enough to catch everything
+# `parse*`/`parseOrQuit*`/`newSpec` can raise, without also reaching into
+# `argumint/backend`/`argumint/validators`/`argumint/lexer` by hand.
+export ParseError, ValidationError, HelpError, MessageError, SpecDefect
+
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
     value: Option[seq[T]]
@@ -479,12 +484,14 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = Default
   ## additional indented lines (`0` means unlimited). Both cascade to every
   ## nested subcommand's spec (see `setWidth`).
   ##
-  ## Unlike `parse*`, this does not catch any exceptions raised during spec
-  ## construction (`SpecDefect`) or -- if you go on to call
-  ## `result.parseSpec(args, command)` yourself -- during parsing
+  ## Unlike `parseOrQuit*`, this does not catch any exceptions raised during
+  ## spec construction (`SpecDefect`) or -- if you go on to call
+  ## `result.parse(args, command)` yourself -- during parsing
   ## (`ParseError`/`ValidationError`/`HelpError`/`MessageError`). Use this
   ## when you need to handle those errors yourself instead of letting
-  ## `parse*` print a message and `quit()`.
+  ## `parseOrQuit*` print a message and `quit()` (or just call `parse*`
+  ## directly on the spec tuple, which does the same `newSpec` + parse in one
+  ## step while still raising on failure).
   result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
   result.fsm = result.genFsm()
@@ -744,9 +751,12 @@ defineArg char:
 # import ./argumint/dot
 
 
-proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
+proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
+  ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
+  ## raising on failure -- intended for a bare CLI `main()`, not for
+  ## embedding in a larger program.
   try:
-    spec.parseSpec(args, command)
+    spec.parse(args, command)
   except ParseError as e:
     quit("Parsing error: {e.msg}".fmt)
   except ValidationError as e:
@@ -756,13 +766,26 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(), command = extra
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
+proc parseOrQuit*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+    maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
+    command = extractFilename(getAppFilename())) =
+  ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
+  ## raising on failure -- intended for a bare CLI `main()`, not for
+  ## embedding in a larger program.
+  try:
+    newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parseOrQuit(args, command)
+  except SpecDefect as e:
+    quit(fmt"Error constructing spec: {e.msg}")
+
 proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
     maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
-  try:
-    newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parse(args, command)
-  except SpecDefect as e:
-    quit(fmt"Error constructing spec: {e.msg}")
+  ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in
+  ## one step. Raises `SpecDefect` (malformed spec), or
+  ## `ParseError`/`ValidationError`/`HelpError`/`MessageError` (parse
+  ## failure) -- use `parseOrQuit*` if you want those to print a message and
+  ## `quit()` instead.
+  newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parse(args, command)
 
 proc dot*(spec: Spec): string =
   ## Renders `spec`'s FSM as a Graphviz dot graph, useful for debugging or
@@ -787,7 +810,7 @@ when isMainModule:
   #     help: help()
   #   )
   #
-  # spec.parse(usage = "[-r] <src>... <dest>\n--help")
+  # spec.parseOrQuit(usage = "[-r] <src>... <dest>\n--help")
   # for file in spec.src:
   #   echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"
 
@@ -837,7 +860,7 @@ when isMainModule:
   # for cmd in spec.ship.spec.commands.values:
   #   echo cmd.name
 
-  spec.parse(prolog = "Naval Fate")
+  spec.parseOrQuit(prolog = "Naval Fate")
 
   echo fmt"{move.name=}"
   echo fmt"{move.x=}"

@@ -30,5 +30,5 @@ let
     help: help()
   )
 
-spec.parse(prolog = "Start the server")
+spec.parseOrQuit(prolog = "Start the server")
 echo fmt"Serving on {spec.host}:{spec.port} with {spec.workers} workers (log level: {spec.logLevel})"

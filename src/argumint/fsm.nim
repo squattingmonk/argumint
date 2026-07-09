@@ -12,7 +12,7 @@ type
   Complaint = tuple[kind: string, subject: string]
     ## A failure reason, e.g. `("missing option", "-v")`. Kept structured
     ## (rather than a pre-formatted string) so same-kind complaints can be
-    ## grouped into one message at render time -- see `parseSpec`.
+    ## grouped into one message at render time -- see `parse`.
 
   ParseContext = object
     depth: int            ## The depth of the current fsm path
@@ -277,10 +277,14 @@ proc walk(s: State, pc: var ParseContext): bool =
       pc.messages = fresh.messages
       pc.command = fresh.command
 
-proc parseSpec*(spec: Spec, args: seq[string], command: string) =
+proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
+    command = extractFilename(getAppFilename())) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
   ## terminal state was reached and all args were consumed, the parse was
-  ## successful and each match is parsed into its arg.
+  ## successful and each match is parsed into its arg. Raises `ParseError`,
+  ## `ValidationError`, `HelpError`, or `MessageError` on failure -- use
+  ## `parseOrQuit*` (`argumint.nim`) if you want those to print a message and
+  ## `quit()` instead.
   var pc = ParseContext(spec: spec, command: command, tokens: spec.tokenizeArgs(args, command))
   if not spec.fsm.walk(pc):
     # Group same-kind complaints (e.g. two unmatched commands) into one

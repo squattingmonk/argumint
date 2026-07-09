@@ -38,4 +38,4 @@ let
     help: help()
   )
 
-spec.parse(prolog = "A tiny git-like CLI")
+spec.parseOrQuit(prolog = "A tiny git-like CLI")

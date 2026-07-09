@@ -25,6 +25,6 @@ let
     help: help()
   )
 
-spec.parse(usage = "[-r] <src>... <dest>", prolog = "Copy files around")
+spec.parseOrQuit(usage = "[-r] <src>... <dest>", prolog = "Copy files around")
 for file in spec.src:
   echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"

@@ -22,5 +22,5 @@ let
     help: help()
   )
 
-spec.parse(usage = "[-v | --verbose | --quiet | --boost | --dampen]...", prolog = "Adjustable verbosity demo")
+spec.parseOrQuit(usage = "[-v | --verbose | --quiet | --boost | --dampen]...", prolog = "Adjustable verbosity demo")
 echo fmt"Verbosity: {spec.verbosity}"
