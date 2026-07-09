@@ -52,7 +52,7 @@ proc cmdMineRemove(spec: tuple) =
 
 let
   shipNew = (
-    names: arg[string]("<name>", default = @[], help = "Name(s) of the new ship(s)"),
+    names: args[string]("<name>", help = "Name(s) of the new ship(s)"),
     help: help()
   )
 

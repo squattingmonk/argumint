@@ -89,11 +89,23 @@ navigating the code:
    parsed `Option[seq[T]]`/`T`. A single `ValueArg` type backs both scalar
    args (instantiated as `ValueArg[T, false]`, storing its value as a
    1-element seq) and multi-value args (instantiated as `ValueArg[T, true]`,
-   appending on each match). Both `arg*` and `opt*` are overloaded on the
-   `default` parameter's type to pick the arity: `default: T` (with a `= ""`
-   fallback) selects the scalar overload, `default: seq[T]` (no fallback, so
-   a seq default must always be given explicitly) selects the multi-value
-   one — there's no separate `args*` proc. Because `multi` is a `static
+   appending on each match). `arg*`/`opt*` construct the scalar arity only
+   (`default: T = ""`); the multi-value arity is built by the separate
+   `args*`/`opts*` procs (`default: seq[T] = newSeq[T]()`), *not* a second
+   `arg*`/`opt*` overload — this used to be an overload distinguished by
+   the `default` parameter's type (`default: seq[T]`, no fallback, so a
+   seq default had to be given explicitly), but a bare `@[]` default gives
+   Nim no element type to infer `T` from, forcing an explicit `arg[T](...)`
+   instantiation every time. **Gotcha**: `args*`/`opts*` are deliberately
+   separate procs, not a second same-named overload of `arg*`/`opt*` with
+   its own `= newSeq[T]()` default — prototyping that arrangement (two
+   overloads of the same generic proc name, both with defaults) made Nim
+   silently resolve the ordinary scalar call `arg("<name>", help = "...")`
+   to the *seq* overload instead, or in a variant, fail to compile at all;
+   both broke the common no-`default`-given scalar case. Distinct names
+   sidestep the overload resolution entirely, mirroring the
+   `defineArg`/`defineFlag` naming split used for the same reason (see the
+   "Flags are special" note below). Because `multi` is a `static
    bool`, `ValueArg[T, false]` and `ValueArg[T, true]` are distinct
    concrete types to the compiler, so `toT`/`toSeqT` (see below) can be
    overloaded per-arity without ambiguity — you still can't accidentally use

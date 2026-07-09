@@ -481,11 +481,14 @@ proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arg
   ##   given.
   ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
 
-proc arg*[T: not seq](variants: string, default: seq[T], help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, true] =
+proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
-  ## - `default` is the default value of the argument if not given by the user.
+  ## - `default` is the default value(s) of the argument if not given by the
+  ##   user; defaults to empty, so `args[string]("<src>", ...)` alone is
+  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
+  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -512,12 +515,15 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   given.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: seq[T], help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
   ##   may optionally include a help var (e.g., `--option=<value>`).
-  ## - `default` is the default value of the option if not given by the user.
+  ## - `default` is the default value(s) of the option if not given by the
+  ##   user; defaults to empty, so `opts[string]("--src", ...)` alone is
+  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
+  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -725,7 +731,7 @@ proc dot*(spec: tuple, usage = "", prolog = "", epilog = ""): string =
 when isMainModule:
   # let
   #   spec = (
-  #     src: arg("<src>", default = @["foo"], help = "The source file(s) to copy"),
+  #     src: args("<src>", default = @["foo"], help = "The source file(s) to copy"),
   #     dest: arg("<dest>", help = "The destination to copy to"),
   #     recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
   #     help: help()

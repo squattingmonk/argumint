@@ -9,10 +9,7 @@ import argumint
 
 let
   spec = (
-    # `[string]` must be given explicitly here: the multi-value `arg`
-    # overload takes `default: seq[T]` with no fallback value, so
-    # `default = @[]` alone gives the compiler nothing to infer `T` from.
-    src: arg[string]("<src>", default = @[], help = "The source file(s) to copy"),
+    src: args[string]("<src>", help = "The source file(s) to copy"),
     dest: arg("<dest>", help = "The destination to copy to"),
     recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
     help: help()

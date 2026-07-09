@@ -18,7 +18,7 @@ proc cmdCommit(spec: tuple) =
 
 let
   add = (
-    files: arg[string]("<file>", default = @[], help = "Files to stage"),
+    files: args[string]("<file>", help = "Files to stage"),
     help: help(),
   )
 

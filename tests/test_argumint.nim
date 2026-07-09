@@ -47,11 +47,27 @@ suite "Positional args":
 
   test "parse multiple values without corrupting earlier elements (ORC regression)":
     let spec = (
-      files: arg("<file>", default = newSeq[string](), help = ""),
+      files: args[string]("<file>", help = ""),
     )
     let s = newSpec(spec, usage = "<file>...")
     s.parseSpec(@["a", "b", "c", "d"], "prog")
     check spec.files == @["a", "b", "c", "d"]
+
+  test "args[T] with no default given defaults to empty":
+    let spec = (
+      files: args[string]("<file>", help = ""),
+    )
+    let s = newSpec(spec, usage = "[<file>...]")
+    s.parseSpec(@[], "prog")
+    check spec.files == newSeq[string]()
+
+  test "args() with a non-empty default infers T without a bracket":
+    let spec = (
+      files: args("<file>", default = @["a", "b"], help = ""),
+    )
+    let s = newSpec(spec, usage = "[<file>...]")
+    s.parseSpec(@[], "prog")
+    check spec.files == @["a", "b"]
 
 suite "Optional args":
   test "parse `--option=value` and validate it":
@@ -69,6 +85,22 @@ suite "Optional args":
     let s = newSpec(spec, usage = "[--speed=<speed>]")
     expect ValidationError:
       s.parseSpec(@["--speed=999"], "prog")
+
+  test "opts[T] with no default given defaults to empty":
+    let spec = (
+      tags: opts[string]("--tag=<tag>", help = ""),
+    )
+    let s = newSpec(spec, usage = "[--tag=<tag>]...")
+    s.parseSpec(@[], "prog")
+    check spec.tags == newSeq[string]()
+
+  test "opts() with a non-empty default infers T without a bracket":
+    let spec = (
+      tags: opts("--tag=<tag>", default = @["a", "b"], help = ""),
+    )
+    let s = newSpec(spec, usage = "[--tag=<tag>]...")
+    s.parseSpec(@[], "prog")
+    check spec.tags == @["a", "b"]
 
 suite "Flags":
   test "bool flags toggle from their default":
@@ -283,7 +315,7 @@ suite "Errors":
 
   test "a satisfied repeated positional isn't reported missing when a later arg is":
     let spec = (
-      src: arg[string]("<src>", default = @[], help = ""),
+      src: args[string]("<src>", help = ""),
       dest: arg("<dest>", help = ""),
     )
     let s = newSpec(spec, usage = "<src>... <dest>")
@@ -525,7 +557,7 @@ suite "Messages":
       c: opt("--charlie=<c>", default = "", help = ""),
       d: opt("--delta=<d>", default = "", help = ""),
       e: opt("--echo=<e>", default = "", help = ""),
-      f: arg("<file>", default = @["x"], help = ""),
+      f: args("<file>", default = @["x"], help = ""),
     )
     let s = newSpec(spec,
       usage = "[--alpha=<a>] [--bravo=<b>] [--charlie=<c>] [--delta=<d>] [--echo=<e>] <file>...")
@@ -557,7 +589,7 @@ suite "Messages":
       speed: opt("--speed=<speed>", default = 10, help = "Speed in knots"),
       x: arg("<x>", default = 0, help = "x grid reference"),
       name: arg("<name>", help = "who to greet"),
-      files: arg("<file>", default = @["a.txt", "b.txt"], help = "Files"),
+      files: args("<file>", default = @["a.txt", "b.txt"], help = "Files"),
       verbose: flag("--verbose", help = "Verbose output"),
       help: help(),
     )
