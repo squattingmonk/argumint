@@ -70,7 +70,16 @@ navigating the code:
    explicit atom), not once via `[options]` and again via the explicit
    mention. Without `...` on either side, no option can be repeated
    regardless of whether it's reached through `[options]` or written out
-   explicitly — repetition always requires an explicit `...`.
+   explicitly — repetition always requires an explicit `...`. For
+   `[options]...` specifically, that `...` governs every option reachable
+   through the catch-all uniformly (`fsm.nim`'s `Options` matcher re-tries
+   the whole `m.opts` list on each pass with no per-option memory) — so any
+   catch-all-only option, flag or multi-value opt alike, can be matched
+   more than once, not just "the group as a whole." An author who wants one
+   specific option to stay single-match while the rest of the spec still
+   uses `[options]...` mentions that option explicitly instead (without its
+   own `...`), which excludes it from `m.opts` via `collectExplicitOptions`
+   as above.
 
 3. **Runtime matching** (`fsm.nim`): actual `os.commandLineParams()` (or
    passed-in `args`) are first tokenized into `CmdLineToken`s

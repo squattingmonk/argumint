@@ -228,7 +228,13 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     # Iterate over all the matcher's options and try to match each of them using
     # the algorithm described above. Consume a token and return true when a
     # matching Optional or Flag token is found.
-    # TODO: Do not allow repeated options
+    # A repeated `[options]...` re-tries every option in `m.opts` on each
+    # pass with no memory of prior matches -- so any option reachable only
+    # through the catch-all can be matched more than once, governed purely
+    # by whether the catch-all itself carries `...`. An author who wants a
+    # specific option to stay single-match mentions it explicitly in `usage`
+    # instead (without its own `...`); `collectExplicitOptions` then excludes
+    # it from `m.opts` entirely, reverting it to the default one-shot rule.
     for opt in m.opts:
       # newOptMatcher(opt).match(pc) is used purely to probe this candidate;
       # a failed probe's own "missing option" complaint isn't meant to be

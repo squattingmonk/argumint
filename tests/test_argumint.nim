@@ -266,6 +266,34 @@ suite "[options] catch-all":
 
     spec.parse(usage = usage, args = @[], command = "prog")
 
+  test "[options]... lets a catch-all-only flag be matched more than once":
+    let spec = (verbosity: flag[int]("--verbose", default = 0, help = ""))
+    spec.parse(usage = "[options]...", args = @["--verbose", "--verbose", "--verbose"], command = "prog")
+    check spec.verbosity == 3
+
+  test "[options]... lets a catch-all-only multi-value opt accumulate":
+    let spec = (tags: opts[string]("--tag=<tag>", help = ""))
+    spec.parse(usage = "[options]...", args = @["--tag=a", "--tag=b"], command = "prog")
+    check spec.tags == @["a", "b"]
+
+  test "bare [options] (no ...) still caps a catch-all-only option at one match":
+    let spec = (verbose: flag("--verbose", help = ""))
+    expect ParseError:
+      spec.parse(usage = "[options]", args = @["--verbose", "--verbose"], command = "prog")
+
+  test "an explicitly-mentioned option stays single-match even when the rest of [options]... repeats":
+    let spec = (
+      format: opt("--format=<value>", default = "", help = ""),
+      verbose: flag[int]("--verbose", default = 0, help = ""),
+    )
+    let usage = "[options]... [--format=<value>]"
+    spec.parse(usage = usage, args = @["--verbose", "--verbose", "--format=json"], command = "prog")
+    check spec.verbose == 2
+    check spec.format == "json"
+
+    expect ParseError:
+      spec.parse(usage = usage, args = @["--format=json", "--format=yaml"], command = "prog")
+
 suite "Commands":
   test "dispatch a matched subcommand to its handler":
     var moved = ""
