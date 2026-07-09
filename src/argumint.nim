@@ -1,3 +1,5 @@
+{.experimental: "openSym".}
+
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, wordwrap]
 
 import ./argumint/[backend, dot, fsm, parser, validators]
@@ -231,7 +233,7 @@ macro defineFlagOps(typeName, body: untyped) =
     else:
       discard
 
-  flagOps[$typeName] = ops
+  flagOps[typeName.repr] = ops
 
 template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
@@ -348,6 +350,27 @@ template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: u
   ## (e.g. `"Toggle the value"`), since that behavior is type-specific and
   ## can't be inferred from `(op, value)` alone the way `=`/`+=`/`-=` can.
   defineFlagArg(typeName, blankDesc, flagHandler)
+
+template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
+  ## Registers flag support for `set[E]`. Call once per concrete enum `E`
+  ## before declaring `flag[set[E]](...)`, the same way a custom scalar flag
+  ## type opts in via `defineArg`/`defineFlag`. Each variant's value names a
+  ## single element of `E`:
+  ## - `=` sets the value to a set containing only the given element.
+  ## - `+=` includes the given element in the set (union).
+  ## - `-=` excludes the given element from the set (difference).
+  ## - `*=` keeps the given element only if it's already present, dropping
+  ##   everything else (intersection).
+  converter toSingletonSet(rawElem: string): set[elemType] =
+    {parseEnum[elemType](rawElem)}
+
+  defineArg(set[elemType]):
+    case op
+    of "=": value = arg
+    of "+=": value.incl(arg)
+    of "-=": value.excl(arg)
+    of "*=": value = value * arg
+    else: raise newException(SpecDefect, "set flags only support =, +=, -=, and *= operations")
 
 method parse*(self: CommandArg, _: string, variant = "") =
   # echo fmt"Entering {self.name(variant)}"
@@ -583,7 +606,8 @@ macro getFlagOps(typeName: string): untyped =
   result = flagOps[$typeName]
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
-    variantHelp: Table[string, string] = initTable[string, string](), env = ""): FlagArg[T] =
+    variantHelp: Table[string, string] = initTable[string, string](),
+    variantValues: Table[string, T] = initTable[string, T](), env = ""): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -606,6 +630,15 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   `"--quiet"`, not `"--quiet=0"`). Variants not present here fall back
   ##   to the auto-generated description. Every key must match a declared
   ##   variant, or spec construction raises `SpecDefect`.
+  ## - `variantValues` optionally supplies a variant's `<value>` directly as
+  ##   a typed `T`, keyed by the bare flag name (same convention as
+  ##   `variantHelp`), bypassing string parsing entirely -- useful for a `T`
+  ##   with no natural short string spelling, or to reference an existing
+  ##   Nim value (a `const`, a computed expression) rather than re-spelling
+  ##   it as text. A variant may specify a value this way or in `variants`
+  ##   (e.g. `--priority=high`), not both -- `SpecDefect` if it does. Every
+  ##   key must match a declared variant, or spec construction raises
+  ##   `SpecDefect`. `<op>` still always comes from `variants`.
   ## - `env` optionally names an environment variable that supplies this
   ##   flag's value when it isn't given on the command line (an explicit
   ##   command-line flag always wins). Since a flag has no runtime-supplied
@@ -625,7 +658,11 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
     if rawName.match(FlagVariantFormat, matches):
       try:
         var arg: T = default
-        if matches[2].len > 0:
+        if matches[0] in variantValues:
+          if matches[2].len > 0:
+            raise newException(SpecDefect, fmt"{matches[0]} has both a string value and a variantValues entry -- use only one")
+          arg = variantValues[matches[0]]
+        elif matches[2].len > 0:
           # The built-in types are converted here explicitly (rather than
           # relying on the implicit `arg = matches[2]` conversion below) so
           # that `flag[T]` compiles for callers outside this module: this
@@ -673,6 +710,10 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
     if key notin result.ops:
       let escapedKey = strutils.escape(key)
       raise newException(SpecDefect, fmt"variantHelp key {escapedKey} does not match any declared variant of this flag")
+  for key in variantValues.keys:
+    if key notin result.ops:
+      let escapedKey = strutils.escape(key)
+      raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
   ## `width`/`maxVariantsWidth` are deliberately not parameters here: they

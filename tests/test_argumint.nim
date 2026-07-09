@@ -42,6 +42,13 @@ defineArg(Speed):
   of "+=": value = Speed((ord(value) + 1) mod 3)
   else: raise newException(SpecDefect, "speed flags only support += operations")
 
+type Color = enum
+  red, green, blue
+
+defineSetFlag(Color)
+
+const warmColors = {red, green}
+
 suite "Positional args":
   test "parse scalar values and fall back to defaults when absent":
     let spec = (
@@ -133,6 +140,23 @@ suite "Flags":
       discard flag[int]("-v, --verbose", default = 0, help = "",
         variantHelp = {"--bogus": "nope"}.toTable)
 
+  test "variantValues supplies a typed value directly, bypassing string parsing":
+    let spec = (
+      p: flag[Priority]("--priority=", default = low, variantValues = {"--priority": high}.toTable, help = ""),
+    )
+    spec.parse(usage = "[--priority]", args = @["--priority"], command = "prog")
+    check spec.p == high
+
+  test "SpecDefect raised when a variant has both a string value and a variantValues entry":
+    expect SpecDefect:
+      discard flag[Priority]("--priority=high", default = low,
+        variantValues = {"--priority": high}.toTable, help = "")
+
+  test "SpecDefect raised when variantValues references an unknown variant":
+    expect SpecDefect:
+      discard flag[int]("-v, --verbose", default = 0, help = "",
+        variantValues = {"--bogus": 5}.toTable)
+
   test "custom flag types get auto-generated =/+=/-= descriptions for free":
     let spec = (
       p: flag[Priority]("--priority=high, --boost=medium", default = low, help = "Set priority"),
@@ -159,6 +183,37 @@ suite "Flags":
     # blank-op group) is what shows the defineFlag-supplied blankDesc.
     check "Adjust level" in helpText
     check "Bump up one level" in helpText
+
+suite "Set flags":
+  test "= sets the value to a singleton set, replacing any existing elements":
+    let spec = (colors: flag[set[Color]]("--red=red, --green=green", default = {blue}, help = ""))
+    spec.parse(args = @["--red"], command = "prog")
+    check spec.colors == {red}
+
+  test "+= includes the element without clearing existing ones":
+    let spec = (colors: flag[set[Color]]("--red=red, --add-green+=green", default = {}, help = ""))
+    spec.parse(usage = "[--red] [--add-green]", args = @["--red", "--add-green"], command = "prog")
+    check spec.colors == {red, green}
+
+  test "-= excludes the element":
+    let spec = (colors: flag[set[Color]]("--remove-red-=red", default = {red, green}, help = ""))
+    spec.parse(args = @["--remove-red"], command = "prog")
+    check spec.colors == {green}
+
+  test "*= keeps the element only if already present (intersection)":
+    let spec = (colors: flag[set[Color]]("--only-red*=red", default = {red, green}, help = ""))
+    spec.parse(args = @["--only-red"], command = "prog")
+    check spec.colors == {red}
+
+  test "*= drops everything when the element isn't present":
+    let spec = (colors: flag[set[Color]]("--only-blue*=blue", default = {red, green}, help = ""))
+    spec.parse(args = @["--only-blue"], command = "prog")
+    check spec.colors == {}
+
+  test "variantValues supplies a multi-element set directly, including a referenced const":
+    let spec = (colors: flag[set[Color]]("--warm=", variantValues = {"--warm": warmColors}.toTable, default = {}, help = ""))
+    spec.parse(args = @["--warm"], command = "prog")
+    check spec.colors == {red, green}
 
 suite "[options] catch-all":
   test "an option mentioned explicitly can't also be matched again via [options]":

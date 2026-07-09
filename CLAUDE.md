@@ -194,6 +194,65 @@ navigating the code:
    `toSeqT*[T](arg: ValueArg[T, true]): seq[T]` return the field's value
    transparently at use-sites — code reads `spec.dest` rather than
    `spec.dest.value`.
+   `defineSetFlag*[E: enum](elemType: typedesc[E])` is a ready-built
+   extension on top of this same mechanism, registering flag support for
+   `set[E]`: each variant's value names one element of `E`, and `=`/`+=`/
+   `-=`/`*=` set/include/exclude/intersect it (`value = value * arg` for
+   `*=`) (`FlagOp[T].arg` is already a full `T`, so for `T = set[E]` it's
+   naturally a singleton set once parsed — no core `flag*`/`defineFlagArg`
+   changes needed; `+=`/`-=` already *are* union/difference at the set
+   level via `incl`/`excl`, so `*=` is the only operator that needed adding
+   as new — see `variantValues` below for how a variant gets more than one
+   element into `arg` in the first place). Call it once per concrete enum
+   before declaring `flag[set[E]](...)`, the same opt-in discipline as
+   `Priority`/`Level`/`Speed`. Plain `set[int]` isn't supported (Nim's `set`
+   needs a bounded ordinal; a raw 64-bit `int` doesn't fit) — enum element
+   types only.
+   `flag*`'s `variantValues: Table[string, T]` param (keyed by bare flag
+   name, same convention as `variantHelp`) is the escape hatch from string
+   parsing entirely: a variant's `arg: T` can be supplied directly as typed
+   Nim code instead of text in `variants` (e.g. `--priority=high`) — useful
+   for a `T` with no natural short string spelling, or to reference an
+   existing value (a `const`, a computed expression) rather than
+   re-spelling it. This is what makes a multi-element `set[E]` variant
+   practical: `variantValues = {"--warm": {red, orange, yellow}}.toTable` is
+   just an ordinary Nim set literal, no new grammar needed. A variant may
+   get its value from `variants` or `variantValues`, not both (`SpecDefect`
+   if both are given); `<op>` always comes from `variants` regardless —
+   only `<value>` moves. Nothing else in the flag pipeline changes:
+   `variantDesc`'s auto-generated wording (`"Set to " & $vArg`, etc.)
+   already stringifies whatever `arg` turned out to be, so a
+   `variantValues`-supplied value flows through identically to a
+   string-parsed one everywhere downstream.
+   **Gotcha**: `defineSetFlag`'s body must build the `set[E]` type expression
+   from its `elemType: typedesc[E]` *parameter*, not from the bare generic
+   symbol `E`, when passing it into `defineArg(set[...]): ...`. `defineArg`
+   forwards that type expression through further templates down to
+   `defineFlagOps`, a `macro` with an `untyped` parameter — `untyped`
+   parameters carry raw, unresolved AST, and `E` used there resolves to
+   *`defineSetFlag`'s own generic-parameter symbol* (its `repr` is literally
+   `"E"`), not the concrete type the caller instantiated it with; `elemType`,
+   being an ordinary parameter whose bound value at the call site
+   (`defineSetFlag(Color)`) is the literal `Color` expression, carries the
+   concrete type through correctly (`defineFlagOps` keys its `flagOps`
+   `CacheTable` on `typeName.repr`, e.g. `"set[Color]"` — it used to key on
+   `$typeName`, but `system.$`/`macros.$` doesn't support compound AST node
+   kinds like the `nnkBracketExpr` a generic instantiation produces; `repr`
+   does).
+   **Gotcha**: nesting `defineArg(set[elemType]): case op ... value = arg
+   ...` *inside* another template's body (`defineSetFlag`, rather than
+   calling `defineArg` directly at top level the way `Priority`/`Level`/
+   `Speed` do) makes the injected `value` from `defineFlagArg`'s
+   `handleFlag` proc get shadowed by an unrelated same-named symbol already
+   in scope (here, `macrocache.value`, since `macrocache` is imported at the
+   top of this file) — the compiler warns "a new symbol 'value' has been
+   injected... however macrocache.value(...) captured at the proc
+   declaration will be used instead" and then fails with "'value' cannot be
+   assigned to". Fixed with a module-level `{.experimental: "openSym".}` (top
+   of `src/argumint.nim`), which makes Nim prefer the later-injected symbol
+   over one merely visible at the enclosing template's definition scope.
+   Only needed because of this extra layer of template nesting — the
+   directly-called `Priority`/`Level`/`Speed` pattern doesn't hit it.
    **Gotcha**: appending to `self.value` (a `ValueArg[T, true]`'s
    `Option[seq[T]]`) via `self.value = some(self.value.get & @[tmp])` silently
    corrupts earlier elements under ORC — this only manifests once the object
