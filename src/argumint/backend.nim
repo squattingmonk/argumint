@@ -128,6 +128,22 @@ method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## per-type via `defineArg`.
   ""
 
+method envName*(self: Arg): string {.base.} =
+  ## Returns the environment variable configured to supply this arg's
+  ## value, or "" if none. Base case (positional args, commands, message
+  ## args) has no notion of one; `ValueArg`/`FlagArg` override this
+  ## per-type via `defineArg`/`defineFlagArg`. Only ever consulted for an
+  ## arg that's optional in the usage grammar -- a required arg's absence
+  ## from the command line fails FSM matching before env is ever checked.
+  ""
+
+method setFromEnv*(self: Arg, value: string) {.base.} =
+  ## Applies an already-fetched environment variable value to this arg, as
+  ## if it had been given on the command line (but not overriding an
+  ## explicit CLI value -- callers are expected to check that first). Goes
+  ## through the same conversion/validation as a CLI-supplied value.
+  raise newException(Defect, fmt"setFromEnv() is not defined for {self.name}")
+
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by
   ## priority.

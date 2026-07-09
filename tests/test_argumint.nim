@@ -1,4 +1,4 @@
-import std/[algorithm, sequtils, strutils, tables, unittest]
+import std/[algorithm, os, sequtils, strutils, tables, unittest]
 
 import argumint
 import argumint/backend
@@ -28,6 +28,19 @@ defineFlag(Level, "Bump up one level"):
   of "": value = Level((ord(value) + 1) mod 3)
   of "=": value = arg
   else: raise newException(SpecDefect, "level flags only support = operations")
+
+type Speed = enum
+  slow, medium2, fast
+
+converter toSpeed(value: string): Speed =
+  parseEnum[Speed](value)
+
+defineArg(Speed):
+  # Deliberately doesn't support "=" -- used to test that `flag*` raises
+  # SpecDefect when `env` is given for a type whose handler can't apply it.
+  case op
+  of "+=": value = Speed((ord(value) + 1) mod 3)
+  else: raise newException(SpecDefect, "speed flags only support += operations")
 
 suite "Positional args":
   test "parse scalar values and fall back to defaults when absent":
@@ -796,3 +809,90 @@ suite "FSM choice deduplication":
     let spec = (v: flag("-a, -b, -c", help = ""), help: help())
     let s = newSpec(spec, usage = "(-a | -b | -c)\n--help")
     check s.dot.count("Opt(-a)") == 1
+
+suite "Environment variables":
+  test "opt: env var set, no CLI value, is used and converted like a CLI value":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    let s = newSpec(spec, usage = "[--port=<port>]")
+    s.parseSpec(@[], "prog")
+    check spec.port == 9090
+
+  test "opt: an explicit CLI value overrides the env var":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    let s = newSpec(spec, usage = "[--port=<port>]")
+    s.parseSpec(@["--port=1234"], "prog")
+    check spec.port == 1234
+
+  test "opt: an env value still goes through the option's validator":
+    putEnv("ARGUMINT_TEST_PORT", "99999")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT",
+        validator = range(1..65535), help = ""),
+    )
+    let s = newSpec(spec, usage = "[--port=<port>]")
+    expect ValidationError:
+      s.parseSpec(@[], "prog")
+
+  test "opt: neither CLI nor env set falls back to the coded default":
+    delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    let s = newSpec(spec, usage = "[--port=<port>]")
+    s.parseSpec(@[], "prog")
+    check spec.port == 8080
+
+  test "flag: env value is converted and applied via =, CLI flag overrides":
+    putEnv("ARGUMINT_TEST_VERBOSE", "5")
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    let s = newSpec(spec, usage = "[--verbose]...")
+    s.parseSpec(@[], "prog")
+    check spec.verbosity == 5
+
+    let spec2 = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    let s2 = newSpec(spec2, usage = "[--verbose]...")
+    s2.parseSpec(@["--verbose"], "prog")
+    check spec2.verbosity == 1 # CLI's own increment op wins; env is skipped entirely
+
+  test "a required option's env var does not satisfy the requirement":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    let s = newSpec(spec, usage = "--port=<port>")
+    expect ParseError:
+      s.parseSpec(@[], "prog")
+
+  test "[env: X] appears in help text for opt and flag, combined with other annotations":
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = "Port"),
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = "Verbosity"),
+      help: help(),
+    )
+    let s = newSpec(spec, maxVariantsWidth = 0)
+    var helpText = ""
+    try:
+      s.parseSpec(@["--help"], "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText
+    check "Verbosity [env: ARGUMINT_TEST_VERBOSE]" in helpText
+
+  test "SpecDefect raised when env is given for a flag type whose handler doesn't support =":
+    expect SpecDefect:
+      discard flag[Speed]("--speed", default = slow, env = "ARGUMINT_TEST_SPEED", help = "")

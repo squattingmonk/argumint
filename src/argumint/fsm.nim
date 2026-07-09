@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[pegs, strformat, strutils, tables]
+import std/[os, pegs, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -295,6 +295,19 @@ proc parseSpec*(spec: Spec, args: seq[string], command: string) =
       let subject = if subjects.len > 1: "({joined})".fmt else: joined
       message.add "\n  - {kind}: {subject}".fmt
     raiseParseError(message, pc.command, pc.spec)
+
+  # Fall back to an environment variable for any arg that has one
+  # configured and wasn't explicitly matched on the command line. This is
+  # deliberately outside the FSM/backtracking above -- walk() only ever
+  # sees typed tokens, and this way an arg only reachable via [options]
+  # still picks up its env var even though [options] itself was never
+  # explicitly attempted during matching. `arg notin pc.matches` is
+  # exactly "wasn't explicitly typed", so an explicit CLI value always
+  # wins for free, no extra bookkeeping needed.
+  for arg in pc.spec.args:
+    let name = arg.envName
+    if name.len > 0 and arg notin pc.matches and existsEnv(name):
+      arg.setFromEnv(getEnv(name))
 
   var commands = newSeq[Arg]()
   for arg, matches in pc.matches.pairs:

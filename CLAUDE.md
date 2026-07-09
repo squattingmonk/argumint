@@ -83,6 +83,16 @@ navigating the code:
    attempt, not just "invalid arguments". A successful walk populates
    `pc.matches: OrderedTable[Arg, seq[Match]]`, which is then fed back into
    each `Arg`'s `parse` method (see below) to actually convert/store values.
+   After a successful walk, `parseSpec` does one more pass entirely outside
+   the FSM/backtracking machinery: for every `Arg` in `spec.args` with a
+   non-empty `envName` (see below) that *wasn't* explicitly matched
+   (`arg notin pc.matches`) and whose env var `existsEnv`, it calls
+   `arg.setFromEnv(getEnv(name))` to apply the env value through the same
+   conversion/validation path a CLI value would take. Doing this after
+   `walk` rather than folding it into the FSM means an option only
+   reachable via `[options]` (never explicitly attempted during matching)
+   still picks up its env var, and `arg notin pc.matches` gives an explicit
+   CLI value precedence for free with no extra bookkeeping.
 
 4. **Value conversion** (`src/argumint.nim`, top): `ValueArg[T: not seq,
    multi: static bool]` / `FlagArg[T]` are generic ref objects holding a
@@ -169,6 +179,16 @@ navigating the code:
    names collides with the `{.inject.}`ed `op`/`arg` from the
    sibling-generated `parse*` method, since `inject` makes those visible
    across the whole template expansion, not just inside `flagHandler`.
+   **Gotcha**: `std/strformat`'s `fmt"..."` cannot resolve *any* local
+   identifier — not `self`, not a plain `let`, not a generic type param
+   like `T` — when used inside a `method`/`proc` that is itself generated
+   inside a template (as every method in `defineArg`/`defineFlag`/
+   `defineFlagArg` is); it fails with "undeclared identifier" even for
+   names that are clearly in scope. Use `%` (`strutils`) or `&`
+   concatenation instead — e.g. `setFromEnv`'s `ParseError` message is
+   built with `"expected $# for $# but got $#" % [$typeOf(T), self.env,
+   envValue.escape]`, not `fmt"..."`. This is why the other
+   `defineArg`/`defineFlagArg`-generated methods already avoid `fmt`.
    Converters `toT*[T](arg: ValueArg[T, false]): T` and
    `toSeqT*[T](arg: ValueArg[T, true]): seq[T]` return the field's value
    transparently at use-sites — code reads `spec.dest` rather than
@@ -180,6 +200,26 @@ navigating the code:
    around it by copying `self.value.get` into a local `var` and calling
    `.add` before reassigning; don't revert to the inline `get(...) & @[...]`
    form.
+
+   `opt*`/`flag*` (not `arg*`/`args*`/`opts*` — env vars map naturally to a
+   single named value, which positional/multi-value args don't have) take
+   an `env` param naming an environment variable that can supply the
+   option's value when omitted from the CLI, at a lower precedence than an
+   explicit CLI value but higher than the arg's own coded `default` (see
+   the `parseSpec` env sweep, above, and the required-vs-optional gotcha,
+   below). `ValueArg`/`FlagArg` each carry an `env: string` field, and
+   `defineArg`/`defineFlagArg` generate per-type `envName`/`setFromEnv`
+   overrides of the `Arg` base methods (`backend.nim`) — `envName` just
+   returns `self.env`; `setFromEnv` funnels the fetched value through the
+   same conversion path a CLI value takes (`parseImpl` for `ValueArg`; for
+   `FlagArg`, converts to `T` and applies via the flag's `=` op
+   specifically, regardless of what ops its variants declare, since `=` is
+   the one op every flag type universally supports — `flag*` raises
+   `SpecDefect` at construction time if `env` is given for a type whose
+   `flagHandler` doesn't support `=`, rather than failing only when the env
+   var happens to be set at runtime). `genHelp` folds a non-empty `envName`
+   into the same annotations bracket as `validatorHelp`/`defaultStr`, e.g.
+   `[default: 8080; env: SERVE_PORT]`.
 
    `Spec.width` (default `DefaultWidth = 80`) and `Spec.maxVariantsWidth`
    (default `DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping:
@@ -287,3 +327,15 @@ navigating the code:
   considered worth guarding against, since a user reaching for such a type
   here is unlikely, but worth knowing if `defineArg` ever fails to compile
   for a custom `T` with an unhelpful-looking error.
+- An `opt`/`flag`'s `env` var is only ever consulted when that option is
+  already optional in the usage grammar (bracketed, e.g.
+  `[--port=<port>]`, or reachable only via `[options]`). A *required*
+  (unbracketed) option omitted from the CLI still fails FSM matching
+  (`missing option ...`) before `parseSpec`'s env sweep ever runs, even if
+  its env var is set — this mirrors how a coded `default` on a required
+  option is already dead code today (`walk()` fails first, so it's never
+  reached); `env` occupies the exact same fallback slot. This is
+  deliberate: letting env silently satisfy a required option would mean
+  `--help`'s Usage: line could show something as mandatory that secretly
+  isn't, depending on the runtime environment. The bracket stays the
+  single source of truth for requiredness.

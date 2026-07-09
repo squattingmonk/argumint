@@ -7,12 +7,14 @@ type
     value: Option[seq[T]]
     default: seq[T]
     validator: Validator[T]
+    env: string
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
   FlagArg[T] = ref object of Arg
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
+    env: string
 
 const flagOps = CacheTable"flagOps"
 
@@ -134,6 +136,7 @@ proc genHelp(spec: Spec, command: string): string =
             var annotations: seq[string]
             if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
             if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
+            if arg.envName.len > 0: annotations.add "env: {arg.envName}".fmt
             if groups.len > 1 and vg.desc.len > 0: annotations.add "action: {vg.desc}".fmt
             let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
             if bracket.len == 0: arg.help
@@ -259,6 +262,16 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method validatorHelp*(self: ValueArg[T, true]): string =
     if self.validator.isNil: "" else: self.validator.help()
 
+  method envName*(self: ValueArg[T, false]): string = self.env
+
+  method envName*(self: ValueArg[T, true]): string = self.env
+
+  method setFromEnv*(self: ValueArg[T, false], value: string) =
+    self.parseImpl(value, self.env)
+
+  method setFromEnv*(self: ValueArg[T, true], value: string) =
+    self.parseImpl(value, self.env)
+
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg` and `defineFlag` below.
   ## **Gotcha**: this is deliberately its own template rather than having
@@ -294,6 +307,21 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     of "+=": "Increase by " & $vArg
     of "-=": "Decrease by " & $vArg
     else: blankDesc
+
+  method envName*(self: FlagArg[T]): string = self.env
+
+  method setFromEnv*(self: FlagArg[T], envValue: string) =
+    # `envValue`, not `value` -- `value` is one of the names `{.inject.}`ed
+    # by `handleFlag` above, and leaks into this whole template's scope.
+    # Uses `%` rather than `fmt` -- `fmt` string interpolation can't
+    # resolve identifiers (not even `self`/params) when the containing
+    # method is generated inside a template like this one; `%`/`&` don't
+    # have that problem, which is why the rest of this template uses them.
+    try:
+      let t: T = envValue
+      self.value.handleFlag("=", t)
+    except ValueError:
+      raise newException(ParseError, "expected $# for $# but got $#" % [$typeOf(T), self.env, envValue.escape])
 
   defineArg typeName
 
@@ -500,7 +528,7 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
 
 
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", validator: Validator[T] = nil, env = ""): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -513,7 +541,16 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
+  ## - `env` optionally names an environment variable that supplies this
+  ##   option's value when it isn't given on the command line (an explicit
+  ##   command-line value always wins), going through the same
+  ##   conversion/validation as a command-line value would. **Only takes
+  ##   effect if this option is already optional in the usage grammar** --
+  ##   e.g. `[--port=<port>]`, not a bare `--port=<port>`. A required
+  ##   option's absence from the command line still fails parsing
+  ##   regardless of `env`, exactly like a coded `default` is never reached
+  ##   for a required option either.
+  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator, env: env)
 
 proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
@@ -539,7 +576,7 @@ macro getFlagOps(typeName: string): untyped =
   result = flagOps[$typeName]
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
-    variantHelp: Table[string, string] = initTable[string, string]()): FlagArg[T] =
+    variantHelp: Table[string, string] = initTable[string, string](), env = ""): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -562,7 +599,20 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   `"--quiet"`, not `"--quiet=0"`). Variants not present here fall back
   ##   to the auto-generated description. Every key must match a declared
   ##   variant, or spec construction raises `SpecDefect`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, ops: newOrderedTable[string, FlagOp[T]]())
+  ## - `env` optionally names an environment variable that supplies this
+  ##   flag's value when it isn't given on the command line (an explicit
+  ##   command-line flag always wins). Since a flag has no runtime-supplied
+  ##   value on the command line to fall back to (its `<op><value>` is baked
+  ##   into `variants` above, not typed by the user), the env var's value is
+  ##   instead converted to `T` and applied via the `=` op specifically --
+  ##   raises `SpecDefect` here if `T`'s flag handler doesn't support `=`.
+  ##   **Only takes effect if this flag is already optional in the usage
+  ##   grammar** -- a required flag's absence from the command line still
+  ##   fails parsing regardless of `env`, exactly like a coded `default` is
+  ##   never reached for a required flag either.
+  if env.len > 0 and "=" notin getFlagOps($T):
+    raise newException(SpecDefect, fmt"env requires {$typeOf(T)} flags to support the = operation, but they don't")
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, ops: newOrderedTable[string, FlagOp[T]](), env: env)
   for rawName in variants.split(Comma):
     var matches: array[3, string]
     if rawName.match(FlagVariantFormat, matches):
