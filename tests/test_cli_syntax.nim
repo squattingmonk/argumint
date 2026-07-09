@@ -1,54 +1,45 @@
 import std/unittest
 
 import argumint
-import argumint/fsm
 
 suite "Option value separators":
   test "-o=value and --output=value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s1 = newSpec(spec1)
-    s1.parse(@["-o=foo"], "prog")
+    spec1.parse(args = @["-o=foo"], command = "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s2 = newSpec(spec2)
-    s2.parse(@["--output=foo"], "prog")
+    spec2.parse(args = @["--output=foo"], command = "prog")
     check spec2.output == "foo"
 
   test "-o:value and --output:value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s1 = newSpec(spec1)
-    s1.parse(@["-o:foo"], "prog")
+    spec1.parse(args = @["-o:foo"], command = "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s2 = newSpec(spec2)
-    s2.parse(@["--output:foo"], "prog")
+    spec2.parse(args = @["--output:foo"], command = "prog")
     check spec2.output == "foo"
 
 suite "Space-separated option values":
   test "-o value and --output value":
     let spec1 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s1 = newSpec(spec1)
-    s1.parse(@["-o", "foo"], "prog")
+    spec1.parse(args = @["-o", "foo"], command = "prog")
     check spec1.output == "foo"
 
     let spec2 = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s2 = newSpec(spec2)
-    s2.parse(@["--output", "foo"], "prog")
+    spec2.parse(args = @["--output", "foo"], command = "prog")
     check spec2.output == "foo"
 
   test "raise ParseError when the trailing value is missing":
     let spec = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s = newSpec(spec)
     expect ParseError:
-      s.parse(@["-o"], "prog")
+      spec.parse(args = @["-o"], command = "prog")
 
 suite "Short option value concatenation":
   test "-ofoo sets the value with no separator":
     let spec = (output: opt("-o, --output=<value>", default = "", help = ""))
-    let s = newSpec(spec)
-    s.parse(@["-ofoo"], "prog")
+    spec.parse(args = @["-ofoo"], command = "prog")
     check spec.output == "foo"
 
 suite "Short flag clustering":
@@ -58,8 +49,7 @@ suite "Short flag clustering":
       b: flag("-b", default = false, help = ""),
       c: flag("-c", default = false, help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-abc"], "prog")
+    spec.parse(args = @["-abc"], command = "prog")
     check spec.a == true
     check spec.b == true
     check spec.c == true
@@ -70,8 +60,7 @@ suite "Short flag clustering":
       b: flag("-b", default = false, help = ""),
       c: flag("-c", default = false, help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-cab"], "prog")
+    spec.parse(args = @["-cab"], command = "prog")
     check spec.a == true
     check spec.b == true
     check spec.c == true
@@ -83,8 +72,7 @@ suite "Folding a value option at the end of a cluster":
       b: flag("-b", default = false, help = ""),
       o: opt("-o=<value>", default = "", help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-abo=value"], "prog")
+    spec.parse(args = @["-abo=value"], command = "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -95,8 +83,7 @@ suite "Folding a value option at the end of a cluster":
       b: flag("-b", default = false, help = ""),
       o: opt("-o=<value>", default = "", help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-abo", "value"], "prog")
+    spec.parse(args = @["-abo", "value"], command = "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -107,8 +94,7 @@ suite "Folding a value option at the end of a cluster":
       b: flag("-b", default = false, help = ""),
       o: opt("-o=<value>", default = "", help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-abovalue"], "prog")
+    spec.parse(args = @["-abovalue"], command = "prog")
     check spec.a == true
     check spec.b == true
     check spec.o == "value"
@@ -119,8 +105,7 @@ suite "Folding a value option at the end of a cluster":
       o: opt("-o=<value>", default = "", help = ""),
       b: flag("-b", default = false, help = ""),
     )
-    let s = newSpec(spec)
-    s.parse(@["-aob"], "prog")
+    spec.parse(args = @["-aob"], command = "prog")
     check spec.a == true
     check spec.o == "b"
     check spec.b == false
@@ -131,26 +116,22 @@ suite "-- end of options":
       verbose: flag("--verbose", help = ""),
       files: args[string]("<file>", help = ""),
     )
-    let s = newSpec(spec, usage = "[--verbose] [<file>...]")
-    s.parse(@["--verbose", "--", "-x", "--verbose", "file.txt"], "prog")
+    spec.parse(usage = "[--verbose] [<file>...]", args = @["--verbose", "--", "-x", "--verbose", "file.txt"], command = "prog")
     check spec.verbose == true
     check spec.files == @["-x", "--verbose", "file.txt"]
 
 suite "Negative number literals":
   test "a leading space disambiguates a negative int from a short option":
     let spec = (count: arg("<count>", default = 0, help = ""))
-    let s = newSpec(spec, usage = "<count>")
-    s.parse(@[" -1"], "prog")
+    spec.parse(usage = "<count>", args = @[" -1"], command = "prog")
     check spec.count == -1
 
   test "a leading space disambiguates a negative float from a short option":
     let spec = (amount: arg("<amount>", default = 0.0, help = ""))
-    let s = newSpec(spec, usage = "<amount>")
-    s.parse(@[" -3.14"], "prog")
+    spec.parse(usage = "<amount>", args = @[" -3.14"], command = "prog")
     check spec.amount == -3.14
 
   test "a negative number without the leading space is read as an unrecognized option":
     let spec = (count: arg("<count>", default = 0, help = ""))
-    let s = newSpec(spec, usage = "<count>")
     expect ParseError:
-      s.parse(@["-1"], "prog")
+      spec.parse(usage = "<count>", args = @["-1"], command = "prog")

@@ -47,39 +47,34 @@ suite "Positional args":
     let spec = (
       name: arg("<name>", default = "nobody", help = ""),
     )
-    let s = newSpec(spec, usage = "[<name>]")
-    s.parse(@["ship"], "prog")
+    spec.parse(usage = "[<name>]", args = @["ship"], command = "prog")
     check spec.name == "ship"
 
     let spec2 = (
       name: arg("<name>", default = "nobody", help = ""),
     )
-    let s2 = newSpec(spec2, usage = "[<name>]")
-    s2.parse(@[], "prog")
+    spec2.parse(usage = "[<name>]", args = @[], command = "prog")
     check spec2.name == "nobody"
 
   test "parse multiple values without corrupting earlier elements (ORC regression)":
     let spec = (
       files: args[string]("<file>", help = ""),
     )
-    let s = newSpec(spec, usage = "<file>...")
-    s.parse(@["a", "b", "c", "d"], "prog")
+    spec.parse(usage = "<file>...", args = @["a", "b", "c", "d"], command = "prog")
     check spec.files == @["a", "b", "c", "d"]
 
   test "args[T] with no default given defaults to empty":
     let spec = (
       files: args[string]("<file>", help = ""),
     )
-    let s = newSpec(spec, usage = "[<file>...]")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == newSeq[string]()
 
   test "args() with a non-empty default infers T without a bracket":
     let spec = (
       files: args("<file>", default = @["a", "b"], help = ""),
     )
-    let s = newSpec(spec, usage = "[<file>...]")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == @["a", "b"]
 
 suite "Optional args":
@@ -87,32 +82,28 @@ suite "Optional args":
     let spec = (
       speed: opt("--speed=<speed>", default = 1, validator = range(1..100), help = ""),
     )
-    let s = newSpec(spec, usage = "[--speed=<speed>]")
-    s.parse(@["--speed=42"], "prog")
+    spec.parse(usage = "[--speed=<speed>]", args = @["--speed=42"], command = "prog")
     check spec.speed == 42
 
   test "raise ValidationError for values outside the validator's range":
     let spec = (
       speed: opt("--speed=<speed>", default = 1, validator = range(1..100), help = ""),
     )
-    let s = newSpec(spec, usage = "[--speed=<speed>]")
     expect ValidationError:
-      s.parse(@["--speed=999"], "prog")
+      spec.parse(usage = "[--speed=<speed>]", args = @["--speed=999"], command = "prog")
 
   test "opts[T] with no default given defaults to empty":
     let spec = (
       tags: opts[string]("--tag=<tag>", help = ""),
     )
-    let s = newSpec(spec, usage = "[--tag=<tag>]...")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == newSeq[string]()
 
   test "opts() with a non-empty default infers T without a bracket":
     let spec = (
       tags: opts("--tag=<tag>", default = @["a", "b"], help = ""),
     )
-    let s = newSpec(spec, usage = "[--tag=<tag>]...")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["a", "b"]
 
 suite "Flags":
@@ -120,24 +111,21 @@ suite "Flags":
     let spec = (
       moored: flag("--moored", default = false, help = ""),
     )
-    let s = newSpec(spec, usage = "[--moored]")
-    s.parse(@["--moored"], "prog")
+    spec.parse(usage = "[--moored]", args = @["--moored"], command = "prog")
     check spec.moored == true
 
   test "int flags apply their default increment op across repeats":
     let spec = (
       verbosity: flag[int]("--verbose", default = 0, help = ""),
     )
-    let s = newSpec(spec, usage = "[--verbose]...")
-    s.parse(@["--verbose", "--verbose", "--verbose"], "prog")
+    spec.parse(usage = "[--verbose]...", args = @["--verbose", "--verbose", "--verbose"], command = "prog")
     check spec.verbosity == 3
 
   test "user-defined types work via the user's own converter (extensibility regression)":
     let spec = (
       p: flag[Priority]("--priority=high", default = low, help = ""),
     )
-    let s = newSpec(spec, usage = "[--priority]")
-    s.parse(@["--priority"], "prog")
+    spec.parse(usage = "[--priority]", args = @["--priority"], command = "prog")
     check spec.p == high
 
   test "SpecDefect raised when variantHelp references an unknown variant":
@@ -150,9 +138,8 @@ suite "Flags":
       p: flag[Priority]("--priority=high, --boost=medium", default = low, help = "Set priority"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
-    try: s.parse(@["--help"], "prog")
+    try: spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
     # --priority is the primary (first-declared) group, so it keeps the
     # shared `help` text; only the divergent --boost group shows its own
@@ -165,9 +152,8 @@ suite "Flags":
       lvl: flag[Level]("--set=loud, -b, --bump", default = quiet, help = "Adjust level"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
-    try: s.parse(@["--help"], "prog")
+    try: spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
     # --set is the primary group here, so -b/--bump (the divergent
     # blank-op group) is what shows the defineFlag-supplied blankDesc.
@@ -180,36 +166,31 @@ suite "[options] catch-all":
       verbose: flag("--verbose", help = ""),
       moored: flag("--moored", help = ""),
     )
-    let s = newSpec(spec, usage = "[options] --verbose")
-    s.parse(@["--verbose"], "prog")
+    spec.parse(usage = "[options] --verbose", args = @["--verbose"], command = "prog")
 
-    let s2 = newSpec(spec, usage = "[options] --verbose")
     expect ParseError:
-      s2.parse(@["--verbose", "--verbose"], "prog")
+      spec.parse(usage = "[options] --verbose", args = @["--verbose", "--verbose"], command = "prog")
 
   test "an option only reachable via [options] is unaffected":
     let spec = (
       verbose: flag("--verbose", help = ""),
       moored: flag("--moored", help = ""),
     )
-    let s = newSpec(spec, usage = "[options] --verbose")
-    s.parse(@["--moored", "--verbose"], "prog")
+    spec.parse(usage = "[options] --verbose", args = @["--moored", "--verbose"], command = "prog")
     check spec.moored == true
 
   test "the exclusion also applies to value-taking options (opt())":
     let spec = (
       speed: opt("--speed=<speed>", default = 1, help = ""),
     )
-    let s = newSpec(spec, usage = "[options] --speed=<speed>")
     expect ParseError:
-      s.parse(@["--speed=1", "--speed=2"], "prog")
+      spec.parse(usage = "[options] --speed=<speed>", args = @["--speed=1", "--speed=2"], command = "prog")
 
   test "an explicit repeat (...) on the mentioned option still works":
     let spec = (
       verbose: flag[int]("--verbose", default = 0, help = ""),
     )
-    let s = newSpec(spec, usage = "[options] --verbose...")
-    s.parse(@["--verbose", "--verbose", "--verbose"], "prog")
+    spec.parse(usage = "[options] --verbose...", args = @["--verbose", "--verbose", "--verbose"], command = "prog")
     check spec.verbose == 3
 
   test "the exclusion applies to options nested inside a mutually-exclusive choice group":
@@ -219,20 +200,16 @@ suite "[options] catch-all":
     )
     let usage = "[options] [--moored | --drifting]"
 
-    let s1 = newSpec(spec, usage = usage)
-    s1.parse(@["--moored"], "prog")
+    spec.parse(usage = usage, args = @["--moored"], command = "prog")
     check spec.moored == true
 
-    let s2 = newSpec(spec, usage = usage)
     expect ParseError:
-      s2.parse(@["--moored", "--moored"], "prog")
+      spec.parse(usage = usage, args = @["--moored", "--moored"], command = "prog")
 
-    let s3 = newSpec(spec, usage = usage)
     expect ParseError:
-      s3.parse(@["--moored", "--drifting"], "prog")
+      spec.parse(usage = usage, args = @["--moored", "--drifting"], command = "prog")
 
-    let s4 = newSpec(spec, usage = usage)
-    s4.parse(@[], "prog")
+    spec.parse(usage = usage, args = @[], command = "prog")
 
 suite "Commands":
   test "dispatch a matched subcommand to its handler":
@@ -244,14 +221,12 @@ suite "Commands":
     let spec = (
       ship: command("ship", move, handler = cmdMove, usage = "<name>", help = ""),
     )
-    let s = newSpec(spec, usage = "ship")
-    s.parse(@["ship", "Titanic"], "prog")
+    spec.parse(usage = "ship", args = @["ship", "Titanic"], command = "prog")
     check moved == "Titanic"
 
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
-    let s = newSpec(())
-    s.parse(@[], "prog")
+    parse((), args = @[], command = "prog")
 
   test "two argument-less subcommands in a choice each parse correctly on their own":
     let spec = (
@@ -259,22 +234,19 @@ suite "Empty specs":
       mine: command("mine", (), help = "Mine"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "(ship | mine)\n--help")
-    s.parse(@["ship"], "prog")
+    spec.parse(usage = "(ship | mine)\n--help", args = @["ship"], command = "prog")
 
     let spec2 = (
       ship: command("ship", (), help = "Ship"),
       mine: command("mine", (), help = "Mine"),
       help: help(),
     )
-    let s2 = newSpec(spec2, usage = "(ship | mine)\n--help")
-    s2.parse(@["mine"], "prog")
+    spec2.parse(usage = "(ship | mine)\n--help", args = @["mine"], command = "prog")
 
   test "an argument-less subcommand nested inside another subcommand parses correctly":
     let inner = (status: command("status", (), help = "Status"), help: help())
     let spec = (ship: command("ship", inner, help = "Ship"), help: help())
-    let s = newSpec(spec, usage = "ship")
-    s.parse(@["ship", "status"], "prog")
+    spec.parse(usage = "ship", args = @["ship", "status"], command = "prog")
 
   test "an argument-less subcommand mixed with a normal one in the same choice still parses both":
     let spec = (
@@ -282,8 +254,7 @@ suite "Empty specs":
       move: command("move", (x: arg("<x>", default = 0, help = "")), help = "Move"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "(status | move)\n--help")
-    s.parse(@["status"], "prog")
+    spec.parse(usage = "(status | move)\n--help", args = @["status"], command = "prog")
 
     let moveArgs = (x: arg("<x>", default = 0, help = ""))
     let spec2 = (
@@ -291,8 +262,7 @@ suite "Empty specs":
       move: command("move", moveArgs, help = "Move"),
       help: help(),
     )
-    let s2 = newSpec(spec2, usage = "(status | move)\n--help")
-    s2.parse(@["move", "5"], "prog")
+    spec2.parse(usage = "(status | move)\n--help", args = @["move", "5"], command = "prog")
     check moveArgs.x == 5
 
 suite "Errors":
@@ -300,9 +270,8 @@ suite "Errors":
     let spec = (
       name: arg("<name>", help = ""),
     )
-    let s = newSpec(spec, usage = "<name>")
     expect ParseError:
-      s.parse(@["--nope"], "prog")
+      spec.parse(usage = "<name>", args = @["--nope"], command = "prog")
 
   test "raise SpecDefect for a malformed positional variant":
     expect SpecDefect:
@@ -318,10 +287,9 @@ suite "Errors":
       add: command("add", (help: help()), help = "Add"),
       help: help(),
     )
-    let s = newSpec(spec)
     var caught = ""
     try:
-      s.parse(@[], "prog")
+      spec.parse(args = @[], command = "prog")
     except ParseError as e:
       caught = e.msg
     check caught.count("--verbose") == 1
@@ -331,10 +299,9 @@ suite "Errors":
       src: args[string]("<src>", help = ""),
       dest: arg("<dest>", help = ""),
     )
-    let s = newSpec(spec, usage = "<src>... <dest>")
     var caught = ""
     try:
-      s.parse(@["a.txt"], "prog")
+      spec.parse(usage = "<src>... <dest>", args = @["a.txt"], command = "prog")
     except ParseError as e:
       caught = e.msg
     check "missing argument: <dest>" in caught
@@ -346,10 +313,9 @@ suite "Errors":
       mine: command("mine", (help: help()), help = "Mine"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "(ship | mine)\n(-h | --help)")
     var caught = ""
     try:
-      s.parse(@[], "prog")
+      spec.parse(usage = "(ship | mine)\n(-h | --help)", args = @[], command = "prog")
     except ParseError as e:
       caught = e.msg
     check "missing command: (ship | mine)" in caught
@@ -358,10 +324,9 @@ suite "Errors":
     let spec = (
       name: arg("<name>", help = ""),
     )
-    let s = newSpec(spec, usage = "<name>")
     var caught = ""
     try:
-      s.parse(@[], "prog")
+      spec.parse(usage = "<name>", args = @[], command = "prog")
     except ParseError as e:
       caught = e.msg
     check "missing argument: <name>" in caught
@@ -389,18 +354,16 @@ suite "Messages":
       name: arg("<name>", help = "who to greet"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "<name>\n--help")
     expect HelpError:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "<name>\n--help", args = @["--help"], command = "prog")
 
   test "version() raises MessageError with the configured text":
     let spec = (
       ver: version("myapp 1.2.3"),
     )
-    let s = newSpec(spec, usage = "--version")
     var caught = ""
     try:
-      s.parse(@["--version"], "prog")
+      spec.parse(usage = "--version", args = @["--version"], command = "prog")
     except MessageError as e:
       caught = e.msg
     check caught == "myapp 1.2.3"
@@ -413,10 +376,9 @@ suite "Messages":
       cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
       help: help(),
     )
-    let s = newSpec(spec)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let order = @["Commands", "Arguments", "Options", "Global Options"].mapIt(helpText.find(it))
@@ -431,10 +393,9 @@ suite "Messages":
       cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
       help: help(),
     )
-    let s = newSpec(spec)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let width = "--speed=<speed>".len
@@ -448,10 +409,9 @@ suite "Messages":
       verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 20)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 20, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let firstLine = "  " & "-v, --verbose,".alignLeft(20) & "  Adjust verbosity"
@@ -466,10 +426,9 @@ suite "Messages":
       verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = ""),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 20)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 20, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let lines = helpText.splitLines
@@ -484,10 +443,9 @@ suite "Messages":
       verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2", default = 0, help = "Adjust verbosity"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
@@ -501,10 +459,9 @@ suite "Messages":
       verbosity: flag[int]("-v, --verbose, --quiet=0", default = 0, help = ""),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  [action: Increment by 1]" in helpText
@@ -515,10 +472,9 @@ suite "Messages":
         variantHelp = {"--quiet": "Reset to silent"}.toTable),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Reset to silent" in helpText
@@ -529,10 +485,9 @@ suite "Messages":
       moored: flag("--docked=true, -m, --moored", default = false, help = "Ship status"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Ship status" in helpText
@@ -543,10 +498,9 @@ suite "Messages":
       verbosity: flag[int]("-v, --verbose", default = 0, help = "Adjust verbosity"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  Adjust verbosity" in helpText
@@ -601,10 +555,10 @@ suite "Messages":
 
   test "help text for a single arg wraps at the configured width with a hanging indent":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
-    let s = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))
+    let spec = (speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help())
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let optionsLines = helpText.splitLines.filterIt(it.startsWith("  --speed") or it.startsWith("                   "))
@@ -622,10 +576,9 @@ suite "Messages":
       verbose: flag("--verbose", help = "Verbose output"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "<x> <name> <file>...\n[--speed=<speed>] [--verbose]\n--help")
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "<x> <name> <file>...\n[--speed=<speed>] [--verbose]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Speed in knots [default: 10]" in helpText
@@ -641,10 +594,9 @@ suite "Messages":
       verbose: flag[int]("--verbose", default = 0, help = "Verbosity"),
       help: help(),
     )
-    let s = newSpec(spec, usage = "<x> [--speed=<speed>] [--verbose]\n--help")
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "<x> [--speed=<speed>] [--verbose]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "x grid reference [default" notin helpText
@@ -652,11 +604,10 @@ suite "Messages":
     check "Verbosity [default" notin helpText
 
   test "help text shows [default: X] alone when help is empty":
-    let s = newSpec((speed: opt("--speed=<speed>", default = 5, help = ""), help: help()),
-      usage = "[--speed=<speed>]\n--help")
+    let spec = (speed: opt("--speed=<speed>", default = 5, help = ""), help: help())
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "[--speed=<speed>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  --speed=<speed>  [default: 5]" in helpText
@@ -667,10 +618,9 @@ suite "Messages":
         validator = choice(["foo", "bar", "baz"])),
       help: help(),
     )
-    let s = newSpec(spec, usage = "<action>\n--help")
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "<action>\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Action to perform [choices: foo, bar, baz; default: foo]" in helpText
@@ -680,10 +630,9 @@ suite "Messages":
       speed: opt("--speed=<speed>", default = 0, help = "Speed", validator = range(1..100)),
       help: help(),
     )
-    let s = newSpec(spec, usage = "[--speed=<speed>]\n--help")
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "[--speed=<speed>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Speed [range: 1..100]" in helpText
@@ -695,10 +644,9 @@ suite "Messages":
         validator = checkIt[int](it mod 2 == 0, "must be even"), help = ""),
       help: help(),
     )
-    let s = newSpec(spec, usage = "[--amount=<amount>]\n--help")
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(usage = "[--amount=<amount>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  --amount=<amount>  [must be even]" in helpText
@@ -833,8 +781,7 @@ suite "Environment variables":
     let spec = (
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
     )
-    let s = newSpec(spec, usage = "[--port=<port>]")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[--port=<port>]", args = @[], command = "prog")
     check spec.port == 9090
 
   test "opt: an explicit CLI value overrides the env var":
@@ -843,8 +790,7 @@ suite "Environment variables":
     let spec = (
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
     )
-    let s = newSpec(spec, usage = "[--port=<port>]")
-    s.parse(@["--port=1234"], "prog")
+    spec.parse(usage = "[--port=<port>]", args = @["--port=1234"], command = "prog")
     check spec.port == 1234
 
   test "opt: an env value still goes through the option's validator":
@@ -854,17 +800,15 @@ suite "Environment variables":
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT",
         validator = range(1..65535), help = ""),
     )
-    let s = newSpec(spec, usage = "[--port=<port>]")
     expect ValidationError:
-      s.parse(@[], "prog")
+      spec.parse(usage = "[--port=<port>]", args = @[], command = "prog")
 
   test "opt: neither CLI nor env set falls back to the coded default":
     delEnv("ARGUMINT_TEST_PORT")
     let spec = (
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = ""),
     )
-    let s = newSpec(spec, usage = "[--port=<port>]")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[--port=<port>]", args = @[], command = "prog")
     check spec.port == 8080
 
   test "flag: env value is converted and applied via =, CLI flag overrides":
@@ -873,15 +817,13 @@ suite "Environment variables":
     let spec = (
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
     )
-    let s = newSpec(spec, usage = "[--verbose]...")
-    s.parse(@[], "prog")
+    spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
     check spec.verbosity == 5
 
     let spec2 = (
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
     )
-    let s2 = newSpec(spec2, usage = "[--verbose]...")
-    s2.parse(@["--verbose"], "prog")
+    spec2.parse(usage = "[--verbose]...", args = @["--verbose"], command = "prog")
     check spec2.verbosity == 1 # CLI's own increment op wins; env is skipped entirely
 
   test "a required option's env var does not satisfy the requirement":
@@ -890,9 +832,8 @@ suite "Environment variables":
     let spec = (
       port: opt("--port=<port>", env = "ARGUMINT_TEST_PORT", help = ""),
     )
-    let s = newSpec(spec, usage = "--port=<port>")
     expect ParseError:
-      s.parse(@[], "prog")
+      spec.parse(usage = "--port=<port>", args = @[], command = "prog")
 
   test "[env: X] appears in help text for opt and flag, combined with other annotations":
     let spec = (
@@ -900,10 +841,9 @@ suite "Environment variables":
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = "Verbosity"),
       help: help(),
     )
-    let s = newSpec(spec, maxVariantsWidth = 0)
     var helpText = ""
     try:
-      s.parse(@["--help"], "prog")
+      spec.parse(maxVariantsWidth = 0, args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText
