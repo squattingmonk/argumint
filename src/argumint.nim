@@ -1,6 +1,6 @@
 {.experimental: "openSym".}
 
-import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, wordwrap]
+import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
 import ./argumint/[backend, dot, fsm, parser, validators]
 
@@ -500,14 +500,18 @@ proc setWidth(spec: Spec, width, maxVariantsWidth: int) =
   for cmd in spec.commands.values:
     cmd.spec.setWidth(width, maxVariantsWidth)
 
-proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
     maxVariantsWidth = DefaultMaxVariantsWidth): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
   ## column width usage/help text is wrapped at; `maxVariantsWidth` is the
   ## max width of the help text's variants column before it wraps onto
   ## additional indented lines (`0` means unlimited). Both cascade to every
-  ## nested subcommand's spec (see `setWidth`).
+  ## nested subcommand's spec (see `setWidth`). `width` defaults to the
+  ## caller's detected terminal width (`std/terminal.terminalWidth()`), which
+  ## itself falls back to `DefaultWidth` (80 columns) when no terminal can be
+  ## detected (e.g. output is piped/redirected and `COLUMNS` isn't set) --
+  ## pass an explicit `width` to opt out of auto-detection entirely.
   ##
   ## Unlike `parseOrQuit*`, this does not catch any exceptions raised during
   ## spec construction (`SpecDefect`) or -- if you go on to call
@@ -819,7 +823,7 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
-proc parseOrQuit*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+proc parseOrQuit*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
     maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
@@ -830,7 +834,7 @@ proc parseOrQuit*(spec: tuple, usage = "", prolog = "", epilog = "", width = Def
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
-proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = DefaultWidth,
+proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
     maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
   ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in

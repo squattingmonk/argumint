@@ -290,12 +290,14 @@ navigating the code:
    into the same annotations bracket as `validatorHelp`/`defaultStr`, e.g.
    `[default: 8080; env: SERVE_PORT]`.
 
-   `Spec.width` (default `DefaultWidth = 80`) and `Spec.maxVariantsWidth`
-   (default `DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping:
-   `width` wraps usage lines (`formatUsage`) and each row's help/description
-   text, while `maxVariantsWidth` caps the "variants" column (e.g. `-v,
-   --verbose, --quiet`) so one arg with many aliases can't inflate the
-   shared column width for every other row. `genHelp` doesn't iterate
+   `Spec.width` (default `terminalWidth()`, i.e. `std/terminal`'s
+   auto-detected terminal width -- itself falling back to `DefaultWidth = 80`
+   when no terminal can be detected, e.g. output is piped and `COLUMNS` isn't
+   set) and `Spec.maxVariantsWidth` (default `DefaultMaxVariantsWidth = 30`)
+   control `genHelp`'s wrapping: `width` wraps usage lines (`formatUsage`)
+   and each row's help/description text, while `maxVariantsWidth` caps the
+   "variants" column (e.g. `-v, --verbose, --quiet`) so one arg with many
+   aliases can't inflate the shared column width for every other row. `genHelp` doesn't iterate
    `arg.variants` directly for this — it goes through `arg.variantGroups()`
    (`argumint.nim`, near `genHelp`), which groups an arg's variants by their
    `variantDesc` text and returns one group per distinct behavior (almost

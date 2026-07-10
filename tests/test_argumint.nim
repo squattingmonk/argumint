@@ -1,4 +1,4 @@
-import std/[algorithm, os, sequtils, strutils, tables, unittest]
+import std/[algorithm, os, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/backend
@@ -678,7 +678,7 @@ suite "Messages":
     let spec = (speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help())
     var helpText = ""
     try:
-      spec.parse(args = @["--help"], command = "prog")
+      spec.parse(args = @["--help"], command = "prog", width = 80)
     except HelpError as e:
       helpText = e.msg
     let optionsLines = helpText.splitLines.filterIt(it.startsWith("  --speed") or it.startsWith("                   "))
@@ -771,9 +771,9 @@ suite "Messages":
       helpText = e.msg
     check "  --amount=<amount>  [must be even]" in helpText
 
-  test "width is configurable and defaults to 80":
+  test "an explicit width overrides terminal detection":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
-    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()))
+    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), width = 80)
     let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), width = 40)
     check wide.width == 80
     check narrow.width == 40
@@ -787,6 +787,17 @@ suite "Messages":
     check wideText.splitLines.allIt(it.len <= 80)
     check narrowText.splitLines.allIt(it.len <= 40)
     check narrowText.splitLines.len > wideText.splitLines.len
+
+  test "width defaults to the detected terminal width, via the COLUMNS env var":
+    putEnv("COLUMNS", "100")
+    defer: delEnv("COLUMNS")
+    let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
+    check spec.width == 100
+
+  test "width defaults to terminalWidth() when COLUMNS isn't set":
+    delEnv("COLUMNS")
+    let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
+    check spec.width == terminalWidth()
 
   test "width cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())
