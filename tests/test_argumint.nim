@@ -451,6 +451,24 @@ suite "Messages":
       caught = e.msg
     check caught == "myapp 1.2.3"
 
+  test "help text does not show hidden args":
+    let spec = (
+      deprecated: flag("--deprecated", help = "A deprecated flag", hidden = true),
+      help: help()
+    )
+    try:
+      spec.parse(args = @["--help"], command = "prog")
+    except HelpError as e:
+      check "--deprecated" notin e.msg
+
+  test "hidden args can still be parsed":
+    let spec = (
+      deprecated: flag("--deprecated", help = "A deprecated flag", hidden = true),
+      help: help()
+    )
+    spec.parse(args = @["--deprecated"], command = "prog")
+    check spec.deprecated == true
+
   test "help text lists groups as Commands, Arguments, Options, then user-defined groups":
     let spec = (
       verbose: flag("--verbose", help = "Verbose", group = "Global Options"),

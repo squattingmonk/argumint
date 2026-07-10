@@ -133,6 +133,8 @@ proc genHelp(spec: Spec, command: string): string =
   for group in spec.groupOrder:
     var argLines: seq[string]
     for arg in spec.groups[group]:
+      if arg.hidden:
+        continue
       let groups = arg.variantGroups()
       for i, vg in groups:
         let variants = vg.names.join(", ")
@@ -525,21 +527,22 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = Default
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, false] =
+proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, false] =
   ## Creates a positional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value of the argument if not given by the user.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator)
+  ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator)
 
-proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", validator: Validator[T] = nil): ValueArg[T, true] =
+proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
@@ -549,16 +552,15 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
-
-
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", validator: Validator[T] = nil, env = ""): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env = ""): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -566,6 +568,7 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ## - `default` is the default value of the option if not given by the user.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -580,9 +583,9 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   option's absence from the command line still fails parsing
   ##   regardless of `env`, exactly like a coded `default` is never reached
   ##   for a required option either.
-  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, validator: validator, env: env)
+  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", validator: Validator[T] = nil): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -593,12 +596,13 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, validator: validator)
+  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
@@ -606,7 +610,7 @@ macro getFlagOps(typeName: string): untyped =
   result = flagOps[$typeName]
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
-    variantHelp: Table[string, string] = initTable[string, string](),
+    hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
     variantValues: Table[string, T] = initTable[string, T](), env = ""): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
@@ -624,6 +628,7 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   - `<value>` is the value the flag represents
   ## - `default` is the default value of the flag if not given by the user.
   ## - `group` determines how flags are grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `variantHelp` optionally overrides the auto-generated per-variant
   ##   description shown in help text (e.g. "Increase by 5") for specific
   ##   variants, keyed by the bare flag name as written in `variants` (e.g.
@@ -652,7 +657,7 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   never reached for a required flag either.
   if env.len > 0 and "=" notin getFlagOps($T):
     raise newException(SpecDefect, fmt"env requires {$typeOf(T)} flags to support the = operation, but they don't")
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, ops: newOrderedTable[string, FlagOp[T]](), env: env)
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
   for rawName in variants.split(Comma):
     var matches: array[3, string]
     if rawName.match(FlagVariantFormat, matches):
@@ -715,23 +720,23 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       let escapedKey = strutils.escape(key)
       raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
 
-proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S) = nil): CommandArg =
+proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false, handler: proc(spec: S) = nil): CommandArg =
   ## `width`/`maxVariantsWidth` are deliberately not parameters here: they
   ## cascade down from whatever the top-level `newSpec`/`parse*` call is
   ## given (see `setWidth`), so they only need to be specified once
   ## regardless of how deeply nested this command is.
-  result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group)
+  result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not handler.isNil:
     result.handler = () => handler(spec)
 
-proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", handler: proc(spec: S, opts: O) = nil): CommandArg =
-  command(variants, spec, help, prolog, epilog, usage, group, handler = (cmdSpec: S) => handler(spec, options))
+proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false, handler: proc(spec: S, opts: O) = nil): CommandArg =
+  command(variants, spec, help, prolog, epilog, usage, group, hidden, handler = (cmdSpec: S) => handler(spec, options))
 
-proc help*(variants = "-h, --help", help = "Display this help message", group = "Options"): HelpArg =
-  HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group)
+proc help*(variants = "-h, --help", help = "Display this help message", group = "Options", hidden = false): HelpArg =
+  HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
 
-proc message*(text: string, variants: string, help = "", group = "Options"): MessageArg =
+proc message*(text: string, variants: string, help = "", group = "Options", hidden = false): MessageArg =
   ## Creates a flag which, when matched, displays `text` and exits
   ## successfully instead of parsing further arguments.
   ## - `text` is the message to display when the flag is matched.
@@ -739,12 +744,19 @@ proc message*(text: string, variants: string, help = "", group = "Options"): Mes
   ##   presented to the user. These must take the form `-o` or `--option`.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
-  MessageArg(kind: Flag, variants: variants.split(Comma), message: text, help: help, group: group)
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  MessageArg(kind: Flag, variants: variants.split(Comma), message: text, help: help, group: group, hidden: hidden)
 
-proc version*(version: string, variants = "-v, --version", help = "Display version information", group = "Options"): MessageArg =
+proc version*(version: string, variants = "-v, --version", help = "Display version information", group = "Options", hidden = false): MessageArg =
   ## Creates a flag which, when matched, displays `version` and exits
   ## successfully instead of parsing further arguments.
-  message(version, variants, help, group)
+  ## - `version` is the message to display when the flag is matched.
+  ## - `variants` is a comma-separated list of names by which the flag is
+  ##   presented to the user. These must take the form `-o` or `--option`.
+  ## - `help` is a short description of the flag used in help messages.
+  ## - `group` determines how the flag is grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  message(version, variants, help, group, hidden)
 
 # ------------------------------------------------------------------------------
 # Here is where we define the datatypes supported out of the box.

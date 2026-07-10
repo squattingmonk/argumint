@@ -17,6 +17,7 @@ type
     variants*: seq[string] ## The forms in which the argument may appear
     help*: string ## The help string for the argument
     group*: string ## The group where the argument should appear in help messages
+    hidden*: bool ## Whether the arg should be shown in help messages
 
   CommandArg* = ref object of Arg
     spec*: Spec
