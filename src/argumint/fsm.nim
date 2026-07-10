@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[os, pegs, strformat, strutils, tables]
+import std/[editdistance, os, pegs, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -62,6 +62,14 @@ let
   longOption <- '--' \w (\w / ('-' \w))+
   """
 
+proc unknownOptionMsg(unknownVariant: string, spec: Spec): string =
+  result = fmt"unrecognized option {unknownVariant}"
+  if unknownVariant.len > 2:
+    for knownVariant in spec.options.keys:
+      if knownVariant.len > 2 and editDistance(unknownVariant, knownVariant) == 1:
+        result.add fmt"; did you mean {knownVariant}?"
+        break
+
 proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): seq[CmdLineToken] =
   ## Parses `args` into a series of `CmdLineToken`s that can be acted on by the
   ## FSM navigator. In the case of an unrecognized command or option or a
@@ -97,12 +105,12 @@ proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): se
         of Optional:
           pos.inc
           if pos >= args.len:
-            raiseParseError(fmt"missing value for {variant}", command, spec)
+            raiseParseError(unknownOptionMsg(variant, spec), command, spec)
           result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: args[pos])
         else:
           assert false
       else:
-        raiseParseError(fmt"unrecognized option {variant}", command, spec)
+        raiseParseError(unknownOptionMsg(variant, spec), command, spec)
     # Check for `-o=val` or `--option=value`
     elif args[pos] =~ OptionValueFormat:
       let
@@ -110,7 +118,7 @@ proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): se
         sep = matches[1]
         value = matches[2]
       if variant notin spec.options:
-        raiseParseError(fmt"unrecognized option {variant}", command, spec)
+        raiseParseError(unknownOptionMsg(variant, spec), command, spec)
       if spec.options[variant].kind != Optional:
         raiseParseError(fmt"{variant} cannot take a value", command, spec)
       result.add CmdLineToken(kind: Optional, opt: spec.options[variant], optName: variant, optVal: value, optSep: sep)
@@ -119,7 +127,7 @@ proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): se
       for idx, c in args[pos].substr(1):
         let variant = fmt"-{c}"
         if variant notin spec.options:
-          raiseParseError(fmt"unrecognized option {variant}", command, spec)
+          raiseParseError(unknownOptionMsg(variant, spec), command, spec)
         let option = spec.options[variant]
         case option.kind
         of Flag:

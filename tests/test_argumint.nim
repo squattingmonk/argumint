@@ -356,6 +356,25 @@ suite "Errors":
     expect ParseError:
       spec.parse(usage = "<name>", args = @["--nope"], command = "prog")
 
+  test "unrecognized long options off by 1 character can trigger a suggestion":
+    let spec = (
+      help: help()
+    )
+    try:
+      spec.parse(args = @["--hlp"], command = "prog")
+    except ParseError as e:
+      check "did you mean --help?" in e.msg
+
+    try:
+      spec.parse(args = @["--hlpp"], command = "prog")
+    except ParseError as e:
+      check "did you mean --help?" notin e.msg
+
+    try:
+      spec.parse(args = @["-j"], command = "prog")
+    except ParseError as e:
+      check "did you mean -h?" notin e.msg
+
   test "raise SpecDefect for a malformed positional variant":
     expect SpecDefect:
       discard newSpec((bad: arg("bad", help = "")))
