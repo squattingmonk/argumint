@@ -418,3 +418,17 @@ navigating the code:
   `--help`'s Usage: line could show something as mandatory that secretly
   isn't, depending on the runtime environment. The bracket stays the
   single source of truth for requiredness.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for squattingmonk/argumint, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (CONTEXT.md + docs/adr/ at repo root). See `docs/agents/domain.md`.
