@@ -972,20 +972,51 @@ suite "Environment variables":
     spec.parse(usage = "[--port=<port>]", args = @[], command = "prog")
     check spec.port == 8080
 
-  test "flag: env value is converted and applied via =, CLI flag overrides":
-    putEnv("ARGUMINT_TEST_VERBOSE", "5")
+  test "flag: env value names a variant, applied via that variant's own op; CLI flag overrides":
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbose")
     defer: delEnv("ARGUMINT_TEST_VERBOSE")
     let spec = (
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
     )
     spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
-    check spec.verbosity == 5
+    check spec.verbosity == 1 # blank-op variant's own increment-by-1, not an arbitrary env value
 
     let spec2 = (
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
     )
     spec2.parse(usage = "[--verbose]...", args = @["--verbose"], command = "prog")
     check spec2.verbosity == 1 # CLI's own increment op wins; env is skipped entirely
+
+  test "flag: an env value naming no declared variant raises ParseError":
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbse") # typo
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
+
+  test "flag: repeatable position consumes multiple env-named variants, composing via each one's own op":
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbose:--verbose:--verbose")
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
+    check spec.verbosity == 3
+
+  test "flag: env now works for a type with no = support, applying its own declared op":
+    # Speed's handler only supports `+=` (see its `defineArg` above) -- this
+    # used to be impossible via env at all, since env used to force a `=`
+    # conversion. Now env just names the variant's bare flag spelling
+    # (`self.ops`' key), not the full "--speed+=slow" declaration text.
+    putEnv("ARGUMINT_TEST_SPEED", "--speed")
+    defer: delEnv("ARGUMINT_TEST_SPEED")
+    let spec = (
+      speed: flag[Speed]("--speed+=slow", default = slow, env = "ARGUMINT_TEST_SPEED", help = ""),
+    )
+    spec.parse(usage = "[--speed]", args = @[], command = "prog")
+    check spec.speed == medium2
 
   test "a required option's env var satisfies the requirement":
     putEnv("ARGUMINT_TEST_PORT", "9090")
@@ -997,13 +1028,13 @@ suite "Environment variables":
     check spec.port == 9090
 
   test "a required flag's env var satisfies the requirement":
-    putEnv("ARGUMINT_TEST_VERBOSE", "5")
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbose")
     defer: delEnv("ARGUMINT_TEST_VERBOSE")
     let spec = (
       verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
     )
     spec.parse(usage = "--verbose", args = @[], command = "prog")
-    check spec.verbosity == 5
+    check spec.verbosity == 1
 
   test "an explicit CLI value overrides the env var for a required option too":
     putEnv("ARGUMINT_TEST_PORT", "9090")
@@ -1014,8 +1045,26 @@ suite "Environment variables":
     spec.parse(usage = "--port=<port>", args = @["--port=1234"], command = "prog")
     check spec.port == 1234
 
-  test "an option required twice can only have one occurrence satisfied by env":
+  test "an option required twice needs two env values, and errors if given only one":
     putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "--port=<port> --port=<port>", args = @[], command = "prog")
+
+  test "an option required twice has both occurrences satisfied by two delimited env values":
+    putEnv("ARGUMINT_TEST_PORT", "9090:9091")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    spec.parse(usage = "--port=<port> --port=<port>", args = @[], command = "prog")
+    check spec.port == 9091 # scalar Match Accumulation: last value wins
+
+  test "an option required twice errors when given one more env value than it has slots for":
+    putEnv("ARGUMINT_TEST_PORT", "9090:9091:9092")
     defer: delEnv("ARGUMINT_TEST_PORT")
     let spec = (
       port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
@@ -1032,6 +1081,53 @@ suite "Environment variables":
     spec.parse(usage = "[options]", args = @[], command = "prog")
     check spec.port == 9090
 
+  test "opts: env var supplies multiple values via the delimiter":
+    putEnv("ARGUMINT_TEST_TAGS", "foo:bar:baz")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["foo", "bar", "baz"]
+
+  test "empty segments from a doubled delimiter are kept as literal values, not dropped":
+    putEnv("ARGUMINT_TEST_TAGS", "foo::bar")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["foo", "", "bar"]
+
+  test "\\x1e takes priority over the configured delimiter":
+    putEnv("ARGUMINT_TEST_TAGS", "foo:bar\x1ebaz:qux")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["foo:bar", "baz:qux"]
+
+  test "a custom envDelim splits on something other than colon":
+    putEnv("ARGUMINT_TEST_TAGS", "foo,bar,baz")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", envDelim = ",", args = @[], command = "prog")
+    check spec.tags == @["foo", "bar", "baz"]
+
+  test "an Arg whose position is never reached this walk still gets every available env value applied":
+    putEnv("ARGUMINT_TEST_PORT", "1234:5678")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      a: arg("<a>", help = ""),
+      b: arg("<b>", help = ""),
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    spec.parse(usage = "<a>\n[options] <b>", args = @["foo"], command = "prog")
+    check spec.port == 5678 # neither line 2 nor [options] was ever walked; every value still applies
+
   test "[env: X] appears in help text for opt and flag, combined with other annotations":
     let spec = (
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = "Port"),
@@ -1045,7 +1141,3 @@ suite "Environment variables":
       helpText = e.msg
     check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText
     check "Verbosity [env: ARGUMINT_TEST_VERBOSE]" in helpText
-
-  test "SpecDefect raised when env is given for a flag type whose handler doesn't support =":
-    expect SpecDefect:
-      discard flag[Speed]("--speed", default = slow, env = "ARGUMINT_TEST_SPEED", help = "")

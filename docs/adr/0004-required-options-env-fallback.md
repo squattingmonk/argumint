@@ -2,6 +2,12 @@
 
 Supersedes ADR 0001.
 
+> **Extended by [ADR 0005](0005-env-supplied-multi-value-options-and-flags.md)**:
+> `envSatisfied`'s one-shot-per-Arg cap described below is gone -- an env
+> var can now supply more than one value. The decision to let env satisfy
+> a required Option/Flag at all, and the per-Arg-not-per-Usage-Line
+> reasoning, still stand as described here.
+
 ADR 0001 decided that a required (unbracketed) Option/Flag's configured env
 var is never consulted -- FSM matching fails outright the moment the Option
 is absent from the command line, regardless of whether its env var is set.

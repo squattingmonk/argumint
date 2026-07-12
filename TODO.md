@@ -16,13 +16,6 @@ Parsing / UX
   that ANDs several Validators together, so an Arg can require e.g. both a
   Range and a Check to pass, instead of only ever accepting one Validator
   per Arg. AND-only for now, no OR.
-- Let an Option/Flag's env var supply more than one value (e.g. a
-  colon-delimited list), so it can satisfy more than one required/repeated
-  occurrence of the same Arg instead of always contributing at most one
-  value. `ParseContext.envSatisfied`
-  (`docs/adr/0004-required-options-env-fallback.md`) currently caps env
-  fallback at exactly one virtual match per Arg per walk; this would need
-  to become a per-Arg count instead of a one-shot set.
 
 Open questions
 --------------

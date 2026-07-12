@@ -275,11 +275,19 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
 
   method envName*(self: ValueArg[T, true]): string = self.env
 
-  method setFromEnv*(self: ValueArg[T, false], value: string) =
-    self.parseImpl(value, self.env)
+  method setFromEnv*(self: ValueArg[T, false], values: seq[string]) =
+    # Each value is applied in order via the same `parseImpl` a CLI match
+    # would use; `multi = false`'s overwrite-on-each-call behavior already
+    # gives the usual scalar Match Accumulation rule (last value wins) for
+    # free -- no special-casing needed here for more than one value.
+    for value in values:
+      self.parseImpl(value, self.env)
 
-  method setFromEnv*(self: ValueArg[T, true], value: string) =
-    self.parseImpl(value, self.env)
+  method setFromEnv*(self: ValueArg[T, true], values: seq[string]) =
+    # `multi = true`'s append-on-each-call behavior already gives the
+    # usual multi-value Match Accumulation rule for free.
+    for value in values:
+      self.parseImpl(value, self.env)
 
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg` and `defineFlag` below.
@@ -319,18 +327,29 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
 
   method envName*(self: FlagArg[T]): string = self.env
 
-  method setFromEnv*(self: FlagArg[T], envValue: string) =
-    # `envValue`, not `value` -- `value` is one of the names `{.inject.}`ed
-    # by `handleFlag` above, and leaks into this whole template's scope.
-    # Uses `%` rather than `fmt` -- `fmt` string interpolation can't
-    # resolve identifiers (not even `self`/params) when the containing
-    # method is generated inside a template like this one; `%`/`&` don't
-    # have that problem, which is why the rest of this template uses them.
-    try:
-      let t: T = envValue
-      self.value.handleFlag("=", t)
-    except ValueError:
-      raise newException(ParseError, "expected $# for $# but got $#" % [$typeOf(T), self.env, envValue.escape])
+  method setFromEnv*(self: FlagArg[T], values: seq[string]) =
+    # Each value names one of this Flag's own declared Variants -- its
+    # literal spelling, e.g. "--verbose", matching `self.ops`' keys exactly
+    # the same way a CLI-matched Variant already does in `parse*` above --
+    # and is applied via *that* Variant's own Flag Operation, in order,
+    # restoring genuine Match Accumulation instead of forcing every env
+    # value through `=`. Looked up directly against `self.ops` rather than
+    # via `self.name(variantName)`: an *empty* value must name no variant
+    # (a `ParseError`), not silently fall back to `self.variants[0]` the
+    # way `name()`'s blank-variant convenience default would. Uses `%`
+    # rather than `fmt` -- `fmt` string interpolation can't resolve
+    # identifiers (not even `self`/params) when the containing method is
+    # generated inside a template like this one; `%`/`&` don't have that
+    # problem, which is why the rest of this template uses them. The loop
+    # variable is named `variantName`, not `value` -- `value` is one of
+    # the names `{.inject.}`ed by `handleFlag` above, and leaks into this
+    # whole template's scope. See
+    # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+    for variantName in values:
+      if not self.ops.hasKey(variantName):
+        raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
+      let (op {.inject.}, arg {.inject.}, _) = self.ops[variantName]
+      self.value.handleFlag(op, arg)
 
   defineArg typeName
 
@@ -490,28 +509,36 @@ proc autoFillUsage(spec: Spec) =
   if spec.usage.len > usageLenBefore:
     spec.fsm = spec.genFsm()
 
-proc setWidth(spec: Spec, width, maxVariantsWidth: int) =
-  ## Sets `width`/`maxVariantsWidth` on `spec` and cascades them into every
-  ## nested subcommand's spec too, so values given to the top-level
-  ## `newSpec`/`parse*` call apply uniformly throughout the whole command
-  ## tree without needing to be repeated at each `command()` call.
+proc cascadeSpecDefaults(spec: Spec, width, maxVariantsWidth: int, envDelim: string) =
+  ## Sets `width`/`maxVariantsWidth`/`envDelim` on `spec` and cascades them
+  ## into every nested subcommand's spec too, so values given to the
+  ## top-level `newSpec`/`parse*` call apply uniformly throughout the whole
+  ## command tree without needing to be repeated at each `command()` call.
   spec.width = width
   spec.maxVariantsWidth = maxVariantsWidth
+  spec.envDelim = envDelim
   for cmd in spec.commands.values:
-    cmd.spec.setWidth(width, maxVariantsWidth)
+    cmd.spec.cascadeSpecDefaults(width, maxVariantsWidth, envDelim)
 
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth): Spec =
+    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
   ## column width usage/help text is wrapped at; `maxVariantsWidth` is the
   ## max width of the help text's variants column before it wraps onto
-  ## additional indented lines (`0` means unlimited). Both cascade to every
-  ## nested subcommand's spec (see `setWidth`). `width` defaults to the
+  ## additional indented lines (`0` means unlimited). `width`/
+  ## `maxVariantsWidth`/`envDelim` all cascade to every nested subcommand's
+  ## spec (see `cascadeSpecDefaults`). `width` defaults to the
   ## caller's detected terminal width (`std/terminal.terminalWidth()`), which
   ## itself falls back to `DefaultWidth` (80 columns) when no terminal can be
   ## detected (e.g. output is piped/redirected and `COLUMNS` isn't set) --
   ## pass an explicit `width` to opt out of auto-detection entirely.
+  ## `envDelim` is the delimiter an env-configured Option/Flag's raw env
+  ## value is split on to supply more than one value -- see `Spec.parse`'s
+  ## env sweep and `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## `\x1e` (ASCII Record Separator) is always tried first regardless of
+  ## `envDelim`, since that's how fish auto-joins a native list variable's
+  ## elements for any variable name when exporting it to a subprocess.
   ##
   ## Unlike `parseOrQuit*`, this does not catch any exceptions raised during
   ## spec construction (`SpecDefect`) or -- if you go on to call
@@ -525,7 +552,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = termina
   result.addArgs(spec)
   result.fsm = result.genFsm()
   result.autoFillUsage()
-  result.setWidth(width, maxVariantsWidth)
+  result.cascadeSpecDefaults(width, maxVariantsWidth, envDelim)
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -581,15 +608,15 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ## - `env` optionally names an environment variable that supplies this
   ##   option's value when it isn't given on the command line (an explicit
   ##   command-line value always wins), going through the same
-  ##   conversion/validation as a command-line value would. **Only takes
-  ##   effect if this option is already optional in the usage grammar** --
-  ##   e.g. `[--port=<port>]`, not a bare `--port=<port>`. A required
-  ##   option's absence from the command line still fails parsing
-  ##   regardless of `env`, exactly like a coded `default` is never reached
-  ##   for a required option either.
+  ##   conversion/validation as a command-line value would. Applies
+  ##   uniformly whether the option is required or optional in the usage
+  ##   grammar -- see `docs/adr/0004-required-options-env-fallback.md`. Can
+  ##   supply more than one value (splitting on `Spec.envDelim`) to satisfy
+  ##   an option matched more than once -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env = ""): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -606,7 +633,14 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
+  ## - `env` optionally names an environment variable that supplies this
+  ##   option's value(s) when none are given on the command line (an
+  ##   explicit command-line value always wins), going through the same
+  ##   conversion/validation a command-line value would. The raw env value
+  ##   is split (`Spec.envDelim`) into as many values as this option's
+  ##   position(s) in the matched Usage Line can consume -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env)
 
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
@@ -651,16 +685,16 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ## - `env` optionally names an environment variable that supplies this
   ##   flag's value when it isn't given on the command line (an explicit
   ##   command-line flag always wins). Since a flag has no runtime-supplied
-  ##   value on the command line to fall back to (its `<op><value>` is baked
-  ##   into `variants` above, not typed by the user), the env var's value is
-  ##   instead converted to `T` and applied via the `=` op specifically --
-  ##   raises `SpecDefect` here if `T`'s flag handler doesn't support `=`.
-  ##   **Only takes effect if this flag is already optional in the usage
-  ##   grammar** -- a required flag's absence from the command line still
-  ##   fails parsing regardless of `env`, exactly like a coded `default` is
-  ##   never reached for a required flag either.
-  if env.len > 0 and "=" notin getFlagOps($T):
-    raise newException(SpecDefect, fmt"env requires {$typeOf(T)} flags to support the = operation, but they don't")
+  ##   value on the command line to fall back to, each env value instead
+  ##   names one of this flag's own declared Variants (its literal
+  ##   spelling, e.g. `--verbose`), applied via *that* Variant's own
+  ##   Operation -- an env value naming no declared Variant is a
+  ##   `ParseError`. Applies uniformly whether the flag is required or
+  ##   optional in the usage grammar -- see
+  ##   `docs/adr/0004-required-options-env-fallback.md`. Can supply more
+  ##   than one value (splitting on `Spec.envDelim`) to satisfy a flag
+  ##   matched more than once -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
   for rawName in variants.split(Comma):
     var matches: array[3, string]
@@ -725,10 +759,10 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false, handler: proc(spec: S) = nil): CommandArg =
-  ## `width`/`maxVariantsWidth` are deliberately not parameters here: they
-  ## cascade down from whatever the top-level `newSpec`/`parse*` call is
-  ## given (see `setWidth`), so they only need to be specified once
-  ## regardless of how deeply nested this command is.
+  ## `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
+  ## here: they cascade down from whatever the top-level `newSpec`/`parse*`
+  ## call is given (see `cascadeSpecDefaults`), so they only need to be
+  ## specified once regardless of how deeply nested this command is.
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not handler.isNil:
@@ -824,25 +858,25 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
     quit(e.msg, QuitSuccess)
 
 proc parseOrQuit*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
-    command = extractFilename(getAppFilename())) =
+    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim,
+    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
   try:
-    newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parseOrQuit(args, command)
+    newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim).parseOrQuit(args, command)
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
 proc parse*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth, args: seq[string] = commandLineParams(),
-    command = extractFilename(getAppFilename())) =
+    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim,
+    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in
   ## one step. Raises `SpecDefect` (malformed spec), or
   ## `ParseError`/`ValidationError`/`HelpError`/`MessageError` (parse
   ## failure) -- use `parseOrQuit*` if you want those to print a message and
   ## `quit()` instead.
-  newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth).parse(args, command)
+  newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim).parse(args, command)
 
 proc dot*(spec: Spec): string =
   ## Renders `spec`'s FSM as a Graphviz dot graph, useful for debugging or

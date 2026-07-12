@@ -40,6 +40,7 @@ type
     fsm*: State ## The initial state for the FSM used for parsing
     width*: int ## Column width to wrap usage/help text at
     maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
+    envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e`, which is always tried first)
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has
@@ -70,6 +71,22 @@ type
 
 const DefaultWidth* = 80
 const DefaultMaxVariantsWidth* = 30
+const DefaultEnvDelim* = ":"
+const EnvListSep* = "\x1e" ## Always tried before `Spec.envDelim` -- see `splitEnvValue`
+
+proc splitEnvValue*(value, envDelim: string): seq[string] =
+  ## Splits a raw env var's value into the (possibly several) values it
+  ## supplies to Value Precedence's environment-variable tier. Always
+  ## splits on `EnvListSep` (`\x1e`) if present -- how fish auto-joins a
+  ## native list variable's elements for any variable name when exporting
+  ## it to a subprocess -- otherwise on `envDelim` (`Spec.envDelim`, the
+  ## `PATH`-style `:` convention by default). Empty segments (a stray
+  ## leading/trailing/doubled delimiter) are kept as literal values, not
+  ## dropped, so an env value is never treated differently from one typed
+  ## on the command line -- see
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  if EnvListSep in value: value.split(EnvListSep)
+  else: value.split(envDelim)
 
 proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
   ## Formats `usage` (a spec's raw usage string, one alternative per line) as
@@ -133,16 +150,18 @@ method envName*(self: Arg): string {.base.} =
   ## Returns the environment variable configured to supply this arg's
   ## value, or "" if none. Base case (positional args, commands, message
   ## args) has no notion of one; `ValueArg`/`FlagArg` override this
-  ## per-type via `defineArg`/`defineFlagArg`. Only ever consulted for an
-  ## arg that's optional in the usage grammar -- a required arg's absence
-  ## from the command line fails FSM matching before env is ever checked.
+  ## per-type via `defineArg`/`defineFlagArg`. Consulted regardless of
+  ## whether the arg is required or optional in the usage grammar -- see
+  ## `docs/adr/0004-required-options-env-fallback.md`.
   ""
 
-method setFromEnv*(self: Arg, value: string) {.base.} =
-  ## Applies an already-fetched environment variable value to this arg, as
-  ## if it had been given on the command line (but not overriding an
-  ## explicit CLI value -- callers are expected to check that first). Goes
-  ## through the same conversion/validation as a CLI-supplied value.
+method setFromEnv*(self: Arg, values: seq[string]) {.base.} =
+  ## Applies an already-fetched, already-split environment variable value
+  ## to this arg, as if each value in `values` had matched on the command
+  ## line in order (but not overriding an explicit CLI value -- callers
+  ## are expected to check that first). Goes through the same
+  ## conversion/validation as a CLI-supplied value. See
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   raise newException(Defect, fmt"setFromEnv() is not defined for {self.name}")
 
 func priority(m: Matcher): int {.inline.} =

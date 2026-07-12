@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, sets, strformat, strutils, tables]
+import std/[editdistance, os, pegs, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -22,14 +22,20 @@ type
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
     tokens: seq[CmdLineToken]     ## The arguments left to be parsed
     matches: MatchTable   ## A table of processed matches
-    envSatisfied: HashSet[Arg] ## Options/Flags that have already used their
-      ## one env-derived virtual match in this walk (see `match`'s `Option`
-      ## branch) -- caps env fallback at satisfying a single required
-      ## occurrence of a given Arg, and stops a repeatable catch-all
-      ## ([options]...) from retrying the same env-satisfied Arg forever.
-      ## A future feature letting one env var supply several values (e.g. a
-      ## colon-delimited list) would need this to become a per-Arg count
-      ## instead of a one-shot set.
+    envValues: Table[Arg, seq[string]] ## Cache of an env-configured Arg's
+      ## raw env value already split via `splitEnvValue`, populated the
+      ## first time `match`'s `Option` branch consults it during this walk.
+    envConsumed: Table[Arg, int] ## How many of an Arg's `envValues` have
+      ## already been handed out as a virtual match in this walk (see
+      ## `match`'s `Option` branch) -- a cursor, not a one-shot flag, so an
+      ## Arg matched more than once (a real repeat, or simply named more
+      ## than once in one Usage Line) can have each occurrence satisfied by
+      ## a *different* value from the same env var. Whether an Arg's
+      ## position gets consulted once or several times is never decided
+      ## here -- it falls out of however many times `walk` actually visits
+      ## this matcher, driven entirely by the FSM already built from the
+      ## Usage String. See
+      ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
 
   CmdLineToken = object
     case kind: ArgKind
@@ -254,14 +260,24 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     # `pc.matches` defers the actual value-setting to `Spec.parse`'s
     # existing post-walk env sweep, which already runs for any Arg that
     # wasn't explicitly matched -- this just stops the walk itself from
-    # failing here. `pc.envSatisfied` caps this at one virtual match per Arg
-    # per walk, so an Arg required twice over (or reachable through a
-    # repeatable [options]...) can't have every occurrence satisfied by a
-    # single env var.
+    # failing here.
+    #
+    # The env var's value is always split (`splitEnvValue`) into however
+    # many values it supplies; `pc.envConsumed` is a per-Arg cursor into
+    # that list rather than a one-shot flag, handing out the next
+    # unconsumed value each time this Arg's matcher is consulted, and
+    # failing (falling through to "missing option" below) once the list is
+    # exhausted -- the same outcome as running out of real CLI tokens for a
+    # repeatable position. See
+    # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
     let envName = m.opt.envName
-    if envName.len > 0 and m.opt notin pc.envSatisfied and existsEnv(envName):
-      pc.envSatisfied.incl m.opt
-      return true
+    if envName.len > 0 and existsEnv(envName):
+      if m.opt notin pc.envValues:
+        pc.envValues[m.opt] = splitEnvValue(getEnv(envName), pc.spec.envDelim)
+      let consumed = pc.envConsumed.getOrDefault(m.opt, 0)
+      if consumed < pc.envValues[m.opt].len:
+        pc.envConsumed[m.opt] = consumed + 1
+        return true
 
     pc.messages.add ("missing option", m.opt.name)
   of Options:
@@ -323,6 +339,18 @@ proc walk(s: State, pc: var ParseContext): bool =
       pc.messages = fresh.messages
       pc.command = fresh.command
 
+proc formatComplaints(messages: seq[Complaint]): string =
+  ## Groups same-kind complaints (e.g. two unmatched commands) into one line
+  ## joined by " | ".
+  var subjectsByKind = initOrderedTable[string, seq[string]]()
+  for (kind, subject) in messages:
+    if subject notin subjectsByKind.getOrDefault(kind, @[]):
+      subjectsByKind.mgetOrPut(kind, @[]).add subject
+  for kind, subjects in subjectsByKind.pairs:
+    let joined = subjects.join(" | ")
+    let subject = if subjects.len > 1: "({joined})".fmt else: joined
+    result.add "\n  - {kind}: {subject}".fmt
+
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
@@ -333,18 +361,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## `quit()` instead.
   var pc = ParseContext(spec: spec, command: command, tokens: spec.tokenizeArgs(args, command))
   if not spec.fsm.walk(pc):
-    # Group same-kind complaints (e.g. two unmatched commands) into one
-    # line joined by " | "
-    var subjectsByKind = initOrderedTable[string, seq[string]]()
-    for (kind, subject) in pc.messages:
-      if subject notin subjectsByKind.getOrDefault(kind, @[]):
-        subjectsByKind.mgetOrPut(kind, @[]).add subject
-    var message: string
-    for kind, subjects in subjectsByKind.pairs:
-      let joined = subjects.join(" | ")
-      let subject = if subjects.len > 1: "({joined})".fmt else: joined
-      message.add "\n  - {kind}: {subject}".fmt
-    raiseParseError(message, pc.command, pc.spec)
+    raiseParseError(formatComplaints(pc.messages), pc.command, pc.spec)
 
   # Fall back to an environment variable for any arg that has one
   # configured and wasn't explicitly matched on the command line. This is
@@ -354,10 +371,34 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   # explicitly attempted during matching. `arg notin pc.matches` is
   # exactly "wasn't explicitly typed", so an explicit CLI value always
   # wins for free, no extra bookkeeping needed.
+  #
+  # An Arg whose matcher was actually consulted during the walk
+  # (`arg in pc.envConsumed`) gets exactly as many values applied as the
+  # walk consumed -- if the env var had more left over than the grammar
+  # had positions for, that's a ParseError rather than a silent
+  # truncation to a prefix of the values (see
+  # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). An Arg
+  # never consulted at all this walk (reachable only via a different,
+  # unmatched Usage Line of this same spec) has no walk-derived count to
+  # bound it by, so every available value is applied, generalizing the
+  # single-value fallback ADR 0004 already established for that case.
+  var envComplaints: seq[Complaint]
   for arg in pc.spec.args:
     let name = arg.envName
-    if name.len > 0 and arg notin pc.matches and existsEnv(name):
-      arg.setFromEnv(getEnv(name))
+    if name.len == 0 or arg in pc.matches or not existsEnv(name):
+      continue
+    if arg in pc.envConsumed:
+      let consumed = pc.envConsumed[arg]
+      let total = pc.envValues[arg].len
+      if consumed < total:
+        let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
+        envComplaints.add (kind, arg.name)
+      else:
+        arg.setFromEnv(pc.envValues[arg])
+    else:
+      arg.setFromEnv(splitEnvValue(getEnv(name), pc.spec.envDelim))
+  if envComplaints.len > 0:
+    raiseParseError(formatComplaints(envComplaints), pc.command, pc.spec)
 
   var commands = newSeq[Arg]()
   for arg, matches in pc.matches.pairs:

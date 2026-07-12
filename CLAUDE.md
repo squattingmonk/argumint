@@ -277,25 +277,31 @@ navigating the code:
    `.add` before reassigning; don't revert to the inline `get(...) & @[...]`
    form.
 
-   `opt*`/`flag*` (not `arg*`/`args*`/`opts*` — env vars map naturally to a
-   single named value, which positional/multi-value args don't have) take
-   an `env` param naming an environment variable that can supply the
-   option's value when omitted from the CLI, at a lower precedence than an
-   explicit CLI value but higher than the arg's own coded `default` (see
-   the `Spec.parse` env sweep, above, and the required-vs-optional gotcha,
+   `opt*`/`opts*`/`flag*` (not `arg*`/`args*` — env vars map naturally to a
+   named value, which a Positional Argument doesn't have) take an `env`
+   param naming an environment variable that can supply the arg's value(s)
+   when omitted from the CLI, at a lower precedence than an explicit CLI
+   value but higher than the arg's own coded `default` (see the
+   `Spec.parse` env sweep, above, and the required-vs-optional gotcha,
    below). `ValueArg`/`FlagArg` each carry an `env: string` field, and
    `defineArg`/`defineFlagArg` generate per-type `envName`/`setFromEnv`
    overrides of the `Arg` base methods (`backend.nim`) — `envName` just
-   returns `self.env`; `setFromEnv` funnels the fetched value through the
-   same conversion path a CLI value takes (`parseImpl` for `ValueArg`; for
-   `FlagArg`, converts to `T` and applies via the flag's `=` op
-   specifically, regardless of what ops its variants declare, since `=` is
-   the one op every flag type universally supports — `flag*` raises
-   `SpecDefect` at construction time if `env` is given for a type whose
-   `flagHandler` doesn't support `=`, rather than failing only when the env
-   var happens to be set at runtime). `genHelp` folds a non-empty `envName`
-   into the same annotations bracket as `validatorHelp`/`defaultStr`, e.g.
-   `[default: 8080; env: SERVE_PORT]`.
+   returns `self.env`; `setFromEnv` now takes a `seq[string]` (the env
+   value already split into however many values it supplied — see
+   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`) and
+   applies each one in order, funneled through the same conversion path a
+   CLI value takes. For `ValueArg`, that's `parseImpl` called once per
+   value — the `multi: static bool` arity's existing overwrite-vs-append
+   behavior already gives the right Match Accumulation semantics for free,
+   no special-casing needed for more than one value. For `FlagArg`, each
+   value names one of the flag's own declared Variants (its literal
+   spelling, matching `self.ops`' keys exactly, looked up directly rather
+   than via `self.name(value)` so an *empty* value can't accidentally
+   fall back to `self.variants[0]`) and is applied via *that* Variant's
+   own `(op, arg)`, same as a real CLI-matched Variant would be in
+   `parse*` — an unrecognized name is a `ParseError`. `genHelp` folds a
+   non-empty `envName` into the same annotations bracket as
+   `validatorHelp`/`defaultStr`, e.g. `[default: 8080; env: SERVE_PORT]`.
 
    `Spec.width` (default `terminalWidth()`, i.e. `std/terminal`'s
    auto-detected terminal width -- itself falling back to `DefaultWidth = 80`
@@ -334,9 +340,11 @@ navigating the code:
    (independently wrapped) help-text lines, so the help text stays inline
    with the *first* wrapped variants line rather than being pushed below
    all of them. `0` disables the cap (unlimited width, the pre-cap
-   behavior). Neither `width` nor `maxVariantsWidth` is a parameter to
-   `command*` — both cascade from the top-level `newSpec`/`parse*` call into
-   every nested subcommand spec via `setWidth`, so they only need to be set
+   behavior). None of `width`, `maxVariantsWidth`, or `Spec.envDelim` (the
+   delimiter an env-configured Arg's raw env value is split on -- see the
+   multi-value env bullet above) is a parameter to `command*` — all three
+   cascade from the top-level `newSpec`/`parse*` call into every nested
+   subcommand spec via `cascadeSpecDefaults`, so they only need to be set
    once regardless of nesting depth.
 
 5. **Subcommands**: `command*` builds a `CommandArg` wrapping its own nested
@@ -413,26 +421,60 @@ navigating the code:
   considered worth guarding against, since a user reaching for such a type
   here is unlikely, but worth knowing if `defineArg` ever fails to compile
   for a custom `T` with an unhelpful-looking error.
-- An `opt`/`flag`'s `env` var is consulted regardless of whether that
-  option is required (unbracketed) or optional in the usage grammar (see
+- An `opt`/`opts`/`flag`'s `env` var is consulted regardless of whether that
+  Arg is required (unbracketed) or optional in the usage grammar (see
   `docs/adr/0004-required-options-env-fallback.md`, superseding
   `docs/adr/0001-required-options-skip-value-precedence-fallback.md`).
-  For an *optional* option, this still happens via `Spec.parse`'s
-  post-walk env sweep exactly as before. For a *required* one, `fsm.nim`'s
-  `match` (the `Option` matcher kind) falls back to the env var itself
-  when no CLI token matches: it succeeds with zero token consumption and
-  no `pc.matches` entry, so FSM matching doesn't fail with "missing option"
-  at that structural position, and the actual value-setting still happens
-  in the same post-walk sweep (the Arg remains `notin pc.matches`, which
-  is exactly the sweep's trigger condition). `ParseContext.envSatisfied`
-  caps this at one virtual match per Arg per walk — without it, a
-  repeatable `[options]...` catch-all (see the `[options]` note above)
-  would retry an env-satisfied option forever, and an option required
-  twice over in one Usage Line could have both occurrences wrongly
-  satisfied by a single env var. A coded `default` on a required option is
-  still dead code (`walk()` only ever reaches the post-walk sweep, which
-  checks env, not the default, for an unmatched Arg) — only the env tier
-  changed, not the default tier.
+  For an *optional* Arg, this still happens via `Spec.parse`'s post-walk
+  env sweep exactly as before. For a *required* one, `fsm.nim`'s `match`
+  (the `Option` matcher kind) falls back to the env var itself when no CLI
+  token matches: it succeeds with zero token consumption and no
+  `pc.matches` entry, so FSM matching doesn't fail with "missing option" at
+  that structural position, and the actual value-setting still happens in
+  the same post-walk sweep (the Arg remains `notin pc.matches`, which is
+  exactly the sweep's trigger condition). A coded `default` on a required
+  Arg is still dead code (`walk()` only ever reaches the post-walk sweep,
+  which checks env, not the default, for an unmatched Arg) — only the env
+  tier changed, not the default tier.
+- An env var can supply more than one value, not just one (see
+  `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). The raw
+  env string is always split (`backend.splitEnvValue`) — on `\x1e` (ASCII
+  Record Separator) if present, since that's how fish auto-joins a native
+  list variable's elements for any variable name when exporting it to a
+  subprocess, otherwise on `Spec.envDelim` (cascades like `width`, default
+  `:`), keeping empty segments as literal values rather than dropping
+  them. `ParseContext.envConsumed` is a per-Arg *cursor* into that split
+  list (not the one-shot `envSatisfied` flag ADR 0004 originally used),
+  handing out the next unconsumed value each time `match`'s `Option`
+  branch is consulted for that Arg during the walk. Nothing decides in
+  advance how many times that can happen — it falls out entirely from
+  however many times `walk` actually visits that matcher, driven by the
+  FSM already built from the Usage String: a real repeat (`...`, or
+  reachable only through `[options]`) loops back and keeps consuming until
+  the list runs out; the same Arg named more than once in one Usage Line
+  with no `...` is just two separate matcher instances, and the cursor is
+  consulted twice either way, no special-casing needed for either case.
+  After a successful walk, `Spec.parse`'s post-walk sweep applies exactly
+  as many values as the walk consumed for each Arg (`ParseContext.envValues`
+  holds the cached split list); if values are left over (the env var had
+  more than the grammar had positions for), that's a `ParseError` —
+  `"unexpected option"`/`"unexpected flag"`, the same wording already used
+  for a genuinely excess CLI token — rather than a silent truncation to a
+  prefix of the values. This is also what keeps a single-position Option
+  whose one legitimate value happens to contain the delimiter (a URL, a
+  timestamp) safe. An Arg whose matcher was never consulted at all this
+  walk (reachable only through a different, unmatched Usage Line of the
+  same spec) has no walk-derived count to bound it by, so every available
+  value is applied, generalizing the single-value fallback ADR 0004
+  already established for that case. For `flag`, each value names one of
+  the Arg's own declared Variants (its literal spelling, e.g. `--verbose`,
+  matching `self.ops`' keys exactly) and is applied via *that* Variant's
+  own Flag Operation — not forced through `=` the way a single env value
+  used to be — so an env value naming no declared Variant is a
+  `ParseError`, and `flag*` no longer needs `T`'s flag handler to support
+  `=` at all (env never converts a raw string to `T` directly anymore),
+  which also makes `env` usable for a type like `set[E]`
+  (`defineSetFlag`) that has no natural string spelling.
 
 ## Agent skills
 

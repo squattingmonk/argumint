@@ -164,15 +164,50 @@ Option's (or Flag's) final value: an explicit value from the actual
 command line, then a value from a configured environment variable, then a
 coded default. Applies uniformly regardless of whether the Option/Flag is
 required or optional in the usage grammar, and only to Option/Flag — a
-Positional Argument or Command has no environment-variable source. For a
-Flag specifically, the environment-variable tier always applies via the
-`=` Flag Operation, regardless of which Flag Operations the Arg's declared
-Variants actually use. The environment-variable tier always contributes at
-most one value, even for a multi-value Option or an Option required more
-than once in a single Usage Line — an env var holds a single string, so it
-can satisfy one occurrence, never the whole list or every required
-occurrence.
+Positional Argument or Command has no environment-variable source.
+
+The environment-variable tier can contribute more than one value: the raw
+env string is always split (see Env Delimiter), and each resulting value
+is consumed one at a time, each time the Arg's position in the FSM is
+actually walked. Whether that happens once or several times is never
+precomputed or stored anywhere — it falls straight out of the graph
+already built from the Usage String, the same way it does for real
+command-line tokens: a genuine repeat (Repetition, or Options Catch-all)
+loops back and keeps consuming values until the split list runs out; the
+same Arg named more than once in one Usage Line with no Repetition marker
+is just several separate positions, each consuming one value in turn, no
+different in kind. If the env var has values left over once the walk
+finishes — more than the Usage Line actually had positions for — that's a
+parse failure, not a silent truncation to a prefix of the values (this is
+what keeps a single-position Option whose one legitimate value happens to
+contain the delimiter safe: it fails loudly rather than silently using
+only the first fragment). An Arg whose position was never reached at all
+in the matched Usage Line — reachable only through a different Usage Line
+that isn't the one that ended up matching — has no walk-derived count to
+bound it by, so every available value is applied; env is a per-Arg
+concern, not a per-Usage-Line one, so it still applies even to an Arg the
+matched Usage Line never mentions.
+
+For a Flag specifically, each value names one of the Flag's own declared
+Variants (matching its literal spelling, e.g. `--verbose`) and is applied
+via *that* Variant's own Flag Operation — unlike an ordinary Option, a
+Flag's env value was never a value in `T` to begin with, so there's
+nothing else for it to name.
 _Avoid_: Fallback order, resolution order
+
+**Env Delimiter**:
+The character sequence a configured environment variable's raw value is
+split on before being fed into Value Precedence's environment-variable
+tier. Always `\x1e` (ASCII Record Separator) if present — this is how
+fish auto-joins a native list variable's elements when exporting it to a
+subprocess's environment, for any variable name, not just ones fish
+special-cases like `PATH` — otherwise `Spec.envDelim`, which cascades to
+nested Command Specs the same way `width` does and defaults to `:` (the
+`PATH`-style convention `bash`/`zsh` users already reach for). A resulting
+empty value (a stray leading/trailing/doubled delimiter) is kept as a
+literal value rather than dropped, so an env value is never treated
+differently from a value typed on the command line.
+_Avoid_: envDelim (code-level name, fine in prose about the API itself)
 
 **Usage Line**:
 One line within a Usage String, expressing one complete alternative
