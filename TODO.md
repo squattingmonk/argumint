@@ -51,5 +51,3 @@ Packaging / docs
 - No top-level README.md -- CLAUDE.md is agent-facing internal
   documentation, not a user-facing quickstart. Anyone finding this on
   GitHub or Nimble has nothing to start from.
-- argumint.nimble declares license = "MIT" but there's no LICENSE file in
-  the repo.

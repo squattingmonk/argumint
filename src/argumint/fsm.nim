@@ -122,27 +122,32 @@ proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): se
       if spec.options[variant].kind != Optional:
         raiseParseError(fmt"{variant} cannot take a value", command, spec)
       result.add CmdLineToken(kind: Optional, opt: spec.options[variant], optName: variant, optVal: value, optSep: sep)
-    # Check if it's a short option followed by something
-    elif args[pos] =~ peg"\-\w.+":
-      for idx, c in args[pos].substr(1):
-        let variant = fmt"-{c}"
+    # A leading `-` followed by more than one character that isn't itself a
+    # long option is a cluster of short options (`-abc`), possibly folding a
+    # value onto the last one (`-abo=value`, `-abovalue`).
+    elif args[pos].len > 2 and args[pos][0] == '-' and args[pos][1] != '-':
+      let cluster = args[pos]
+      var idx = 1
+      while idx < cluster.len:
+        let variant = "-" & cluster[idx]
         if variant notin spec.options:
           raiseParseError(unknownOptionMsg(variant, spec), command, spec)
         let option = spec.options[variant]
         case option.kind
         of Flag:
           result.add CmdLineToken(kind: Flag, flag: option, flagName: variant)
+          idx.inc
         of Optional:
-          let value = args[pos].substr(2 + idx)
-          if value.len == 0:
+          let folded = cluster.substr(idx + 1)
+          if folded.len == 0:
             pos.inc
             if pos >= args.len:
               raiseParseError(fmt"missing value for {variant}", command, spec)
             result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: args[pos])
-          elif fmt"{variant}{value}" =~ OptionValueFormat:
+          elif fmt"{variant}{folded}" =~ OptionValueFormat:
             result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optSep: matches[1], optVal: matches[2])
           else:
-            result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: value)
+            result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: folded)
           break
         else: assert false
     # It must be a positional argument
