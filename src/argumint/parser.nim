@@ -141,6 +141,7 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     result.b = result.a.add(newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
       .filterIt(not (it of MessageArg) and it notin p.explicitOptions)))
     result.a.addShortcut(result.b) # Make it optional
+    result.b.addShortcut(result.a) # Make it repeatable by default (ADR 0002)
   of tkCommand:
     if token.literal notin p.spec.commands:
       token.error(fmt"Undeclared command: {token.literal}")

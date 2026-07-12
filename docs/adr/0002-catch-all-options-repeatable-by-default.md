@@ -32,6 +32,8 @@ mention is how an author opts out of the catch-all's repeat-by-default
 behavior for one specific Arg while leaving the rest of `[options]`
 alone.
 
-This is implemented today as "the catch-all repeats when `[options]`
-itself is written with a trailing `...`" (`fsm.nim:239`), which is not
-quite what we want -- see the TODO item to make it unconditional.
+This is now implemented as described above: an Option or Flag reachable
+only through `[options]` is repeatable by default, with no `...` required
+on the catch-all itself (`parser.nim`'s `atom()`, `tkAnyOption` branch).
+Writing `[options]...` still parses -- the trailing `...` is just a
+redundant no-op in that position now.

@@ -276,10 +276,15 @@ suite "[options] catch-all":
     spec.parse(usage = "[options]...", args = @["--tag=a", "--tag=b"], command = "prog")
     check spec.tags == @["a", "b"]
 
-  test "bare [options] (no ...) still caps a catch-all-only option at one match":
-    let spec = (verbose: flag("--verbose", help = ""))
-    expect ParseError:
-      spec.parse(usage = "[options]", args = @["--verbose", "--verbose"], command = "prog")
+  test "bare [options] (no ...) still allows a catch-all-only option to be matched more than once":
+    let spec = (verbosity: flag[int]("--verbose", default = 0, help = ""))
+    spec.parse(usage = "[options]", args = @["--verbose", "--verbose", "--verbose"], command = "prog")
+    check spec.verbosity == 3
+
+  test "bare [options] (no ...) lets a catch-all-only multi-value opt accumulate":
+    let spec = (tags: opts[string]("--tag=<tag>", help = ""))
+    spec.parse(usage = "[options]", args = @["--tag=a", "--tag=b"], command = "prog")
+    check spec.tags == @["a", "b"]
 
   test "an option named explicitly on one Usage Line is still reachable via [options] on another":
     let spec = (

@@ -63,23 +63,30 @@ navigating the code:
    subcommand) manually when debugging FSM construction. `scripts/dot2png.sh`
    renders that dot output to a viewable PNG (requires Graphviz's `dot`
    CLI installed separately). `genFsm` also
-   pre-scans every line of `spec.usage` (`parser.collectExplicitOptions`)
-   for options mentioned by name, so the `[options]` catch-all
+   scans each line of `spec.usage` individually
+   (`parser.collectExplicitOptions`, called once per Usage Line, not once
+   for the whole Usage String) for options mentioned by name on that line,
+   so the `[options]` catch-all
    (`tkAnyOption`) excludes them from its own `Options` matcher — e.g. in
    `[options] --verbose`, `--verbose` can only be matched once (via its own
    explicit atom), not once via `[options]` and again via the explicit
-   mention. Without `...` on either side, no option can be repeated
-   regardless of whether it's reached through `[options]` or written out
-   explicitly — repetition always requires an explicit `...`. For
-   `[options]...` specifically, that `...` governs every option reachable
-   through the catch-all uniformly (`fsm.nim`'s `Options` matcher re-tries
-   the whole `m.opts` list on each pass with no per-option memory) — so any
-   catch-all-only option, flag or multi-value opt alike, can be matched
-   more than once, not just "the group as a whole." An author who wants one
-   specific option to stay single-match while the rest of the spec still
-   uses `[options]...` mentions that option explicitly instead (without its
-   own `...`), which excludes it from `m.opts` via `collectExplicitOptions`
-   as above.
+   mention. An option named explicitly on one Usage Line is unaffected on a
+   different Usage Line, where it remains reachable through that line's
+   own `[options]`. An explicitly-named option still requires its own
+   `...` to be repeated. A catch-all-only option is different: every
+   option reachable only through `[options]` is repeatable by default,
+   with no `...` needed on the catch-all itself (`fsm.nim`'s `Options`
+   matcher re-tries the whole `m.opts` list on each pass with no
+   per-option memory) — so any catch-all-only option, flag or
+   multi-value opt alike, can be matched more than once, not just "the
+   group as a whole." Writing `[options]...` still parses but is a no-op;
+   the trailing `...` no longer changes anything. An author who wants one
+   specific option to stay single-match while the rest of the spec is
+   still reachable via `[options]` mentions that option explicitly instead
+   (without its own `...`), which excludes it from `m.opts` via
+   `collectExplicitOptions` as above. See
+   `docs/adr/0002-catch-all-options-repeatable-by-default.md` for why the
+   catch-all's default differs from an explicitly-named Arg's.
 
 3. **Runtime matching** (`fsm.nim`): actual `os.commandLineParams()` (or
    passed-in `args`) are first tokenized into `CmdLineToken`s

@@ -12,10 +12,6 @@ Parsing / UX
   Value Precedence env/default tiers are dead code -- see
   `docs/adr/0001-required-options-skip-value-precedence-fallback.md` for
   why it works this way today.
-- Make an Options Catch-all (`[options]`) grant repetition to any
-  Option/Flag reachable only through it unconditionally, rather than only
-  when `[options]` itself carries a trailing `...` (`fsm.nim:239`). See
-  `docs/adr/0002-catch-all-options-repeatable-by-default.md`.
 - Support Option Operations for multi-value Options (e.g. `--option^=value`
   to prepend, mirroring Flag Operation's `=`/`+=`/`-=`), instead of always
   appending on repeated matches. `OptionValueFormat` (`fsm.nim:43-56`)
