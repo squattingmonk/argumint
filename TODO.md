@@ -7,11 +7,6 @@ Parsing / UX
 - Shell completion generation (bash/zsh/fish) from a Spec.
 - Reading args from a file (@file / --flagfile-style), for very long
   argument lists.
-- Let a required Option/Flag be satisfied by its env var being set, rather
-  than always failing FSM matching first. Currently a required option's
-  Value Precedence env/default tiers are dead code -- see
-  `docs/adr/0001-required-options-skip-value-precedence-fallback.md` for
-  why it works this way today.
 - Support Option Operations for multi-value Options (e.g. `--option^=value`
   to prepend, mirroring Flag Operation's `=`/`+=`/`-=`), instead of always
   appending on repeated matches. `OptionValueFormat` (`fsm.nim:43-56`)
@@ -21,6 +16,13 @@ Parsing / UX
   that ANDs several Validators together, so an Arg can require e.g. both a
   Range and a Check to pass, instead of only ever accepting one Validator
   per Arg. AND-only for now, no OR.
+- Let an Option/Flag's env var supply more than one value (e.g. a
+  colon-delimited list), so it can satisfy more than one required/repeated
+  occurrence of the same Arg instead of always contributing at most one
+  value. `ParseContext.envSatisfied`
+  (`docs/adr/0004-required-options-env-fallback.md`) currently caps env
+  fallback at exactly one virtual match per Arg per walk; this would need
+  to become a per-Arg count instead of a one-shot set.
 
 Open questions
 --------------

@@ -987,14 +987,50 @@ suite "Environment variables":
     spec2.parse(usage = "[--verbose]...", args = @["--verbose"], command = "prog")
     check spec2.verbosity == 1 # CLI's own increment op wins; env is skipped entirely
 
-  test "a required option's env var does not satisfy the requirement":
+  test "a required option's env var satisfies the requirement":
     putEnv("ARGUMINT_TEST_PORT", "9090")
     defer: delEnv("ARGUMINT_TEST_PORT")
     let spec = (
-      port: opt("--port=<port>", env = "ARGUMINT_TEST_PORT", help = ""),
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    spec.parse(usage = "--port=<port>", args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "a required flag's env var satisfies the requirement":
+    putEnv("ARGUMINT_TEST_VERBOSE", "5")
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    spec.parse(usage = "--verbose", args = @[], command = "prog")
+    check spec.verbosity == 5
+
+  test "an explicit CLI value overrides the env var for a required option too":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    spec.parse(usage = "--port=<port>", args = @["--port=1234"], command = "prog")
+    check spec.port == 1234
+
+  test "an option required twice can only have one occurrence satisfied by env":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
     )
     expect ParseError:
-      spec.parse(usage = "--port=<port>", args = @[], command = "prog")
+      spec.parse(usage = "--port=<port> --port=<port>", args = @[], command = "prog")
+
+  test "an env-configured option reachable only via a repeatable [options] doesn't hang":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    spec.parse(usage = "[options]", args = @[], command = "prog")
+    check spec.port == 9090
 
   test "[env: X] appears in help text for opt and flag, combined with other annotations":
     let spec = (

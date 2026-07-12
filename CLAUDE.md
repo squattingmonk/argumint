@@ -413,18 +413,26 @@ navigating the code:
   considered worth guarding against, since a user reaching for such a type
   here is unlikely, but worth knowing if `defineArg` ever fails to compile
   for a custom `T` with an unhelpful-looking error.
-- An `opt`/`flag`'s `env` var is only ever consulted when that option is
-  already optional in the usage grammar (bracketed, e.g.
-  `[--port=<port>]`, or reachable only via `[options]`). A *required*
-  (unbracketed) option omitted from the CLI still fails FSM matching
-  (`missing option ...`) before `Spec.parse`'s env sweep ever runs, even if
-  its env var is set — this mirrors how a coded `default` on a required
-  option is already dead code today (`walk()` fails first, so it's never
-  reached); `env` occupies the exact same fallback slot. This is
-  deliberate: letting env silently satisfy a required option would mean
-  `--help`'s Usage: line could show something as mandatory that secretly
-  isn't, depending on the runtime environment. The bracket stays the
-  single source of truth for requiredness.
+- An `opt`/`flag`'s `env` var is consulted regardless of whether that
+  option is required (unbracketed) or optional in the usage grammar (see
+  `docs/adr/0004-required-options-env-fallback.md`, superseding
+  `docs/adr/0001-required-options-skip-value-precedence-fallback.md`).
+  For an *optional* option, this still happens via `Spec.parse`'s
+  post-walk env sweep exactly as before. For a *required* one, `fsm.nim`'s
+  `match` (the `Option` matcher kind) falls back to the env var itself
+  when no CLI token matches: it succeeds with zero token consumption and
+  no `pc.matches` entry, so FSM matching doesn't fail with "missing option"
+  at that structural position, and the actual value-setting still happens
+  in the same post-walk sweep (the Arg remains `notin pc.matches`, which
+  is exactly the sweep's trigger condition). `ParseContext.envSatisfied`
+  caps this at one virtual match per Arg per walk — without it, a
+  repeatable `[options]...` catch-all (see the `[options]` note above)
+  would retry an env-satisfied option forever, and an option required
+  twice over in one Usage Line could have both occurrences wrongly
+  satisfied by a single env var. A coded `default` on a required option is
+  still dead code (`walk()` only ever reaches the post-walk sweep, which
+  checks env, not the default, for an unmatched Arg) — only the env tier
+  changed, not the default tier.
 
 ## Agent skills
 

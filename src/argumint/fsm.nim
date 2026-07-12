@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, strformat, strutils, tables]
+import std/[editdistance, os, pegs, sets, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -22,6 +22,14 @@ type
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
     tokens: seq[CmdLineToken]     ## The arguments left to be parsed
     matches: MatchTable   ## A table of processed matches
+    envSatisfied: HashSet[Arg] ## Options/Flags that have already used their
+      ## one env-derived virtual match in this walk (see `match`'s `Option`
+      ## branch) -- caps env fallback at satisfying a single required
+      ## occurrence of a given Arg, and stops a repeatable catch-all
+      ## ([options]...) from retrying the same env-satisfied Arg forever.
+      ## A future feature letting one env var supply several values (e.g. a
+      ## colon-delimited list) would need this to become a per-Arg count
+      ## instead of a one-shot set.
 
   CmdLineToken = object
     case kind: ArgKind
@@ -236,6 +244,25 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       else:
         discard
       pos.inc
+
+    # No CLI token matched. Rather than failing outright, let this Arg's
+    # configured env var stand in for a missing value here -- this is what
+    # lets a *required* (unbracketed) Option/Flag be satisfied by env: env
+    # is a per-Arg declaration, so it shouldn't behave differently depending
+    # on whether this particular Usage Line happens to require the Arg or
+    # not (see ADR 0004). Consuming no token and not recording into
+    # `pc.matches` defers the actual value-setting to `Spec.parse`'s
+    # existing post-walk env sweep, which already runs for any Arg that
+    # wasn't explicitly matched -- this just stops the walk itself from
+    # failing here. `pc.envSatisfied` caps this at one virtual match per Arg
+    # per walk, so an Arg required twice over (or reachable through a
+    # repeatable [options]...) can't have every occurrence satisfied by a
+    # single env var.
+    let envName = m.opt.envName
+    if envName.len > 0 and m.opt notin pc.envSatisfied and existsEnv(envName):
+      pc.envSatisfied.incl m.opt
+      return true
+
     pc.messages.add ("missing option", m.opt.name)
   of Options:
     # Iterate over all the matcher's options and try to match each of them using
@@ -346,14 +373,3 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     for (variant, value) in pc.matches[command]:
       # echo "Got command: ", variant
       command.parse(value, variant)
-
-  # let matches = pc.matches.pairs.toSeq.keepItIf(it[0].kind != Command)
-  # for (arg, matches) in matches:
-  # echo pc.matches.pairs.toSeq.sortedByIt(it[0].kind).reversed
-  # for (arg, matches) in pc.matches.pairs.toSeq.sortedByIt(it[0].kind).reversed:
-    # echo arg.name
-    # for (variant, value) in matches:
-    #   arg.parse(value, variant)
-    # TODO: Implement setting value by env vars
-    # arg.setByEnv = false
-    # arg.setByUser = true

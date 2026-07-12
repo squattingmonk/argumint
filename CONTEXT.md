@@ -162,11 +162,16 @@ _Avoid_: Grammar, usage text
 The fixed order in which candidate sources are consulted to determine an
 Option's (or Flag's) final value: an explicit value from the actual
 command line, then a value from a configured environment variable, then a
-coded default. Applies only to Option/Flag — a Positional Argument or
-Command has no environment-variable source. For a Flag specifically, the
-environment-variable tier always applies via the `=` Flag Operation,
-regardless of which Flag Operations the Arg's declared Variants actually
-use.
+coded default. Applies uniformly regardless of whether the Option/Flag is
+required or optional in the usage grammar, and only to Option/Flag — a
+Positional Argument or Command has no environment-variable source. For a
+Flag specifically, the environment-variable tier always applies via the
+`=` Flag Operation, regardless of which Flag Operations the Arg's declared
+Variants actually use. The environment-variable tier always contributes at
+most one value, even for a multi-value Option or an Option required more
+than once in a single Usage Line — an env var holds a single string, so it
+can satisfy one occurrence, never the whole list or every required
+occurrence.
 _Avoid_: Fallback order, resolution order
 
 **Usage Line**:

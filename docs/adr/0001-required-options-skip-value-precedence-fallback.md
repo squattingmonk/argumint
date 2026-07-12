@@ -1,5 +1,9 @@
 # Required options skip Value Precedence's env/default fallback
 
+> **Superseded by [ADR 0004](0004-required-options-env-fallback.md)**: a
+> required Option/Flag's env var now satisfies the requirement. The
+> decision and rationale below describe the behavior prior to that change.
+
 Value Precedence lets an Option/Flag's value come from an explicit
 command-line value, then a configured environment variable, then a coded
 default. For a *required* (unbracketed) Option, though, none of that ever
