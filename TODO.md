@@ -35,16 +35,6 @@ Open questions
   checked against their own Validator, unlike a command-line or env-var
   value. Not yet decided whether this asymmetry is desired.
 
-Bugs
-----
-
-- `collectExplicitOptions` (`parser.nim`) scans every Usage Line in the
-  whole Usage String for explicitly-mentioned options, not just the
-  current Usage Line. This means an Options Catch-all (`[options]`) on one
-  Usage Line can silently exclude an option that's only explicitly named
-  on a *different* Usage Line -- it should scope to the current Usage Line
-  only.
-
 Packaging / docs
 -----------------
 

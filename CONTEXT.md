@@ -92,10 +92,9 @@ explicitly-named Arg, it needs no Repetition marker of its own, since
 argumint's static single-/multi-value typing (not repetition) already
 determines whether repeated matches accumulate into a list or are simply
 redundant (see `docs/adr/0002-catch-all-options-repeatable-by-default.md`
-for why). (Note: `parser.nim`'s `collectExplicitOptions` currently scopes
-"explicitly named" to the whole Usage String rather than the current
-Usage Line -- a bug, tracked in `TODO.md`, not part of this concept's
-intended definition.)
+for why). "Explicitly named" scopes to the current Usage Line only -- an
+Option or Flag named explicitly on one Usage Line is still reachable
+through the catch-all on a different Usage Line in the same Usage String.
 _Avoid_: `[options]`, options wildcard
 
 **Repetition**:

@@ -281,6 +281,31 @@ suite "[options] catch-all":
     expect ParseError:
       spec.parse(usage = "[options]", args = @["--verbose", "--verbose"], command = "prog")
 
+  test "an option named explicitly on one Usage Line is still reachable via [options] on another":
+    let spec = (
+      name: arg("<name>", help = ""),
+      format: opt("--format=<value>", default = "", help = ""),
+    )
+    let usage = "--format=<value>\n[options] <name>"
+
+    # Line 1 requires exactly `--format=<value>` with no positional; line 2
+    # is the one actually exercised here.
+    spec.parse(usage = usage, args = @["--format=json", "somename"], command = "prog")
+    check spec.name == "somename"
+    check spec.format == "json"
+
+  test "an option named explicitly (as part of a cluster) on one Usage Line is still reachable via [options] on another":
+    let spec = (
+      name: arg("<name>", help = ""),
+      verbose: flag("-v", help = ""),
+      quiet: flag("-q", help = ""),
+    )
+    let usage = "-vq\n[options] <name>"
+
+    spec.parse(usage = usage, args = @["-v", "somename"], command = "prog")
+    check spec.name == "somename"
+    check spec.verbose == true
+
   test "an explicitly-mentioned option stays single-match even when the rest of [options]... repeats":
     let spec = (
       format: opt("--format=<value>", default = "", help = ""),

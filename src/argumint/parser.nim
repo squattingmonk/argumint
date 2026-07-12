@@ -12,9 +12,12 @@ type
     lex: SpecLexer ## Tokenizer
     tok: SpecToken ## Lookahead token
     spec: Spec
-    explicitOptions: HashSet[Arg] ## Options explicitly mentioned anywhere in
-      ## `spec.usage`, so `[options]` can exclude them (see `atom`'s
+    explicitOptions: HashSet[Arg] ## Options explicitly mentioned on the
+      ## current Usage Line, so `[options]` can exclude them (see `atom`'s
       ## `tkAnyOption` branch) rather than making them separately repeatable.
+      ## Recomputed per line by `genFsm`, since `[options]` only excludes
+      ## what's explicit on its own Usage Line, not elsewhere in the Usage
+      ## String.
 
 const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption}
 
@@ -160,31 +163,30 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     result.b.addShortcut(result.a)
     p.next()
 
-proc collectExplicitOptions(spec: Spec): HashSet[Arg] =
-  ## Scans every line of `spec.usage` for options mentioned by name (`-o`,
+proc collectExplicitOptions(spec: Spec, line: string): HashSet[Arg] =
+  ## Scans a single Usage Line for options mentioned by name (`-o`,
   ## `--option`, or a `-abc`-style cluster), as opposed to picked up only via
   ## the `[options]` catch-all. Used so `[options]` can exclude options
-  ## that are handled explicitly elsewhere in the same grammar, rather than
-  ## making them independently (and repeatably) matchable through both.
-  for line in spec.usage.split(peg"\n!\s"):
-    var lex: SpecLexer
-    lex.open(line)
-    defer: lex.close()
-    while true:
-      let tok = lex.next()
-      case tok.kind
-      of tkEof:
-        break
-      of tkShortOption, tkLongOption:
-        if tok.literal in spec.options:
-          result.incl spec.options[tok.literal]
-      of tkShortOptions:
-        for c in tok.literal.substr(1):
-          let name = fmt"-{c}"
-          if name in spec.options:
-            result.incl spec.options[name]
-      else:
-        discard
+  ## that are handled explicitly elsewhere on the *same* Usage Line, rather
+  ## than making them independently (and repeatably) matchable through both.
+  var lex: SpecLexer
+  lex.open(line)
+  defer: lex.close()
+  while true:
+    let tok = lex.next()
+    case tok.kind
+    of tkEof:
+      break
+    of tkShortOption, tkLongOption:
+      if tok.literal in spec.options:
+        result.incl spec.options[tok.literal]
+    of tkShortOptions:
+      for c in tok.literal.substr(1):
+        let name = fmt"-{c}"
+        if name in spec.options:
+          result.incl spec.options[name]
+    else:
+      discard
 
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
@@ -198,8 +200,9 @@ proc genFsm*(spec: Spec): State =
     # can never succeed.
     result.terminal = true
   else:
-    let p = SpecParser(spec: spec, explicitOptions: spec.collectExplicitOptions())
+    let p = SpecParser(spec: spec)
     for line in spec.usage.split(peg"\n!\s"):
+      p.explicitOptions = spec.collectExplicitOptions(line)
       p.lex.open(line)
       defer: p.lex.close()
       p.tok = p.lex.next()
