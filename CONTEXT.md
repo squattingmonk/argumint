@@ -137,20 +137,51 @@ failure points, not one. Never applies to Flag, Command, or Message
 Argument, since a Flag's value comes from author-declared Flag Operations
 rather than arbitrary user-typed text. Always checked against
 the scalar element type, never a collected list, even for a multi-value
-Arg -- each match is validated individually as it arrives. Currently one
-kind per Validator: Choice (value must be one of an enumerated set), Range
-(value must fall within a range), or Check (value must satisfy an
-arbitrary predicate, with an optional description for help text). A
-Validator runs on a value from the command line or from Value
-Precedence's environment-variable tier (both funnel through the same
+Arg -- each match is validated individually as it arrives. Five kinds:
+Choice (value must be one of an enumerated set), Range (value must fall
+within a range), Check (value must satisfy an arbitrary predicate, with an
+optional description for help text), and the two composing kinds, All and
+Any (see below). A Validator runs on a value from the command line or from
+Value Precedence's environment-variable tier (both funnel through the same
 conversion path), but never on the coded default, which is substituted
 later at read time instead -- whether that's intended or not is still an
 open question (see `TODO.md`).
-
-Planned: a fourth kind, **All**, composing several Validators so every one
-of them must pass (AND-only, e.g. a Range and a Check together) -- see
-`TODO.md`.
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
+
+**All**:
+A Validator composing several other Validators of the same element type
+with AND semantics -- every one must pass. Short-circuits left-to-right:
+the first child to fail determines the failure. May itself contain another
+All or Any as a child; children are never auto-flattened into the parent's
+list, both because a mixed All/Any nest can't be flattened without
+changing its meaning, and because flattening would silently discard a
+child's own optional `desc` override. See Any for the OR counterpart, and
+Validator Failure Message for how All and Any report failure differently.
+_Avoid_: AND, combinator (ambiguous with Any, which is also a combinator)
+
+**Any**:
+A Validator composing several other Validators of the same element type
+with OR semantics -- at least one must pass. May itself contain another
+Any or All as a child, with the same no-auto-flatten rule as All. In
+generated help text, a child that is itself a composite (All or Any) is
+parenthesized to disambiguate nested AND/OR grouping, e.g. `(choices: a, b
+or range: 0..5) and must be even`. See All for the AND counterpart, and
+Validator Failure Message for how All and Any report failure differently.
+_Avoid_: OR, combinator (ambiguous with All)
+
+**Validator Failure Message**:
+The text of the `ValidationError` a failing Validator raises. All and Any
+both accept the same optional trailing `desc` override (named to match
+Check's existing `desc` param, and to avoid colliding with the `help()`
+proc), and both use it identically when given: it's shown directly as the
+failure reason, regardless of which child(ren) actually failed. They
+differ only when `desc` is absent: All passes the first failing child's
+own message through
+verbatim (already the most specific reason, since All short-circuits), while
+Any -- which has no single dispositive failing child, since none of them
+passed -- falls back to joining each child's own help text with "or".
+_Avoid_: error message (ambiguous with `ParseError`'s conversion-failure
+message, a separate failure point -- see Validator)
 
 **Usage String**:
 The complete docopt-style declaration of a Spec's valid argument patterns —

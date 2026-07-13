@@ -155,7 +155,25 @@ navigating the code:
    `self.validator.help()` (`validators.nim`) when a validator is present —
    `Validator[T].help` returns a short description per kind (`"choices: a,
    b, c"`, `"range: a..b"`, or a `check`/`checkIt` validator's own `desc`
-   verbatim), also requiring `$` on `T`. `genHelp` combines `validatorHelp`
+   verbatim), also requiring `$` on `T`. Two more kinds, `all`/`any`
+   (`validators.nim`), compose several Validators of the same `T` with
+   AND/OR semantics respectively, and can nest inside each other (no
+   auto-flattening) to form arbitrary boolean trees — see
+   `docs/adr/0006-composable-validators-all-and-any.md` and `CONTEXT.md`'s
+   All/Any/Validator Failure Message entries for the full design
+   (short-circuit vs. joined failure messages, the optional `desc`
+   override, and help-text parenthesization for nested composite children).
+   **Gotcha**: both take a `varargs[Validator[T]]` first param followed by
+   an optional `desc`, but `desc` can't just be `desc = ""` on that same
+   proc — Nim can't resolve a call with more than one `varargs` element
+   against an overload that also has a defaulted parameter following the
+   `varargs` (a bare `all(a, b)` fails to compile; `all(a, b, desc = "x")`
+   or `all(a)` alone both compile fine, since either naming the trailing
+   param or supplying exactly one `varargs` element sidesteps the
+   ambiguity). Each is instead two separate overloads — one with a
+   required `desc`, one `varargs`-only that delegates to the first with
+   `desc = ""` — rather than one proc with a default value. `genHelp`
+   combines `validatorHelp`
    and `defaultStr` into one bracket, `;`-separated (e.g. `[choices: foo,
    bar; default: foo]`), rather than showing them as two separate brackets.
    Flags are special: they don't take user converters —

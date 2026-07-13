@@ -12,10 +12,6 @@ Parsing / UX
   appending on repeated matches. `OptionValueFormat` (`fsm.nim:43-56`)
   already tokenizes the prepend/append/remove/reset op prefix into
   `CmdLineToken.optSep`; nothing downstream consumes it yet.
-- Support composable Validators: a fourth Validator kind (e.g. `all()`)
-  that ANDs several Validators together, so an Arg can require e.g. both a
-  Range and a Check to pass, instead of only ever accepting one Validator
-  per Arg. AND-only for now, no OR.
 
 Open questions
 --------------
