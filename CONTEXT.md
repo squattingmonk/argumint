@@ -148,7 +148,9 @@ Validator runs on a value from the command line or from Value Precedence's
 environment-variable tier (both funnel through the same conversion path),
 but never on the coded default, which is substituted later at read time
 instead -- whether that's intended or not is still an open question (see
-`TODO.md`).
+`TODO.md`). Every kind takes the same optional trailing `desc` param,
+shown instead of that kind's auto-generated help/failure text when
+non-empty -- see Validator Failure Message.
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
 
 **Seen Values**:
@@ -188,16 +190,18 @@ Validator Failure Message for how All and Any report failure differently.
 _Avoid_: OR, combinator (ambiguous with All)
 
 **Validator Failure Message**:
-The text of the `ValidationError` a failing Validator raises. All and Any
-both accept the same optional trailing `desc` override (named to match
-Check's existing `desc` param, and to avoid colliding with the `help()`
-proc), and both use it identically when given: it's shown directly as the
-failure reason, regardless of which child(ren) actually failed. They
-differ only when `desc` is absent: All passes the first failing child's
-own message through
-verbatim (already the most specific reason, since All short-circuits), while
-Any -- which has no single dispositive failing child, since none of them
-passed -- falls back to joining each child's own help text with "or".
+The text of the `ValidationError` a failing Validator raises. Every
+Validator kind accepts the same optional trailing `desc` param (named to
+avoid colliding with the `help()` proc), used identically when given: it's
+shown directly as the failure reason. For Choice, Range, Check, and the
+history-aware Check built via `checkSeen`, there's exactly one check to
+fail, so `desc` simply replaces that kind's auto-generated wording (e.g.
+Choice's "got X but expected one of [...]"). All and Any, which compose
+several child Validators, differ only when `desc` is *absent*: All passes
+the first failing child's own message through verbatim (already the most
+specific reason, since All short-circuits), while Any -- which has no
+single dispositive failing child, since none of them passed -- falls back
+to joining each child's own help text with "or".
 _Avoid_: error message (ambiguous with `ParseError`'s conversion-failure
 message, a separate failure point -- see Validator)
 

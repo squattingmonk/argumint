@@ -154,8 +154,17 @@ navigating the code:
    likewise generates a per-arity `method validatorHelp`, which calls
    `self.validator.help()` (`validators.nim`) when a validator is present —
    `Validator[T].help` returns a short description per kind (`"choices: a,
-   b, c"`, `"range: a..b"`, or a `check`/`checkIt` validator's own `desc`
-   verbatim), also requiring `$` on `T`. Two more kinds, `all`/`any`
+   b, c"`, `"range: a..b"`, etc.), or every kind's own `desc` verbatim
+   instead when one was given (`Validator[T].desc` is a single field shared
+   by every kind, declared *before* the `case kind` discriminator rather
+   than inside a specific `of` branch — a field name can't be redeclared
+   across two separate `of` branches even with an identical type in each,
+   but a field declared ahead of the `case` is implicitly shared by all
+   branches, sidestepping that restriction entirely), also requiring `$` on
+   `T`. `choice`/`range` accept the same optional trailing `desc` too,
+   overriding their own auto-generated help/failure wording exactly like
+   `check`/`checkIt` already did — `desc` is a uniform, every-kind
+   parameter, not something bespoke to `check`. Two more kinds, `all`/`any`
    (`validators.nim`), compose several Validators of the same `T` with
    AND/OR semantics respectively, and can nest inside each other (no
    auto-flattening) to form arbitrary boolean trees — see
