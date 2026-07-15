@@ -6,7 +6,7 @@ type
   ValidationError* = object of CatchableError
 
   ValidatorKind = enum
-    vkChoice, vkRange, vkCheck, vkAll, vkAny
+    vkChoice, vkRange, vkCheck, vkCheckSeen, vkAll, vkAny
 
   Validator*[T] = ref object
     case kind: ValidatorKind
@@ -17,6 +17,9 @@ type
     of vkCheck:
       checker: proc (x: T): bool
       desc: string
+    of vkCheckSeen:
+      seenChecker: proc (value: T, seen: openArray[T]): bool
+      seenDesc: string
     of vkAll, vkAny:
       validators: seq[Validator[T]]
       groupDesc: string
@@ -42,6 +45,32 @@ template checkIt*[T](pred: untyped, desc = ""): Validator[T] =
   ## be shown to the user to explain the condition the value must meet to pass
   ## the check; if not supplied, the string form of `pred` will be used.
   check[T](it => pred, if desc.len > 0: desc else: astToStr(pred))
+
+proc checkSeen*[T](checker: proc (value: T, seen: openArray[T]): bool, desc = ""): Validator[T] =
+  ## Returns a `Validator` whose check depends on both the candidate
+  ## `value` and `seen`, the values already accumulated for the same Arg so
+  ## far (in encounter order, not including `value` itself). `seen` reflects
+  ## everything matched across every `parse` call ever made on the Arg's
+  ## spec tuple, not just the current call -- wrap spec construction in a
+  ## proc and call it fresh if you want `seen` scoped to just one `parse`
+  ## call. `desc` may be shown to the user to explain the condition. See
+  ## `unique` for the most common use case.
+  Validator[T](kind: vkCheckSeen, seenChecker: checker, seenDesc: desc)
+
+template checkSeenIt*[T](pred: untyped, desc = ""): Validator[T] =
+  ## Convenience template mirroring `checkIt`: the candidate value is `it`
+  ## and the previously-accumulated values are `seen`. Since neither type
+  ## can be inferred, `T` must be given explicitly. `desc` falls back to the
+  ## string form of `pred` if not supplied.
+  checkSeen[T]((it, seen) => pred, if desc.len > 0: desc else: astToStr(pred))
+
+proc unique*[T](desc = ""): Validator[T] =
+  ## Returns a `Validator` that rejects a value already present among the
+  ## values previously matched for the same multi-value Arg. Only requires
+  ## `==` on `T` (a linear scan), not `hash()`. See `checkSeen`'s doc
+  ## comment for what `seen` reflects across repeated `parse` calls.
+  checkSeen[T](proc (value: T, seen: openArray[T]): bool = value notin seen,
+    if desc.len > 0: desc else: "must be unique")
 
 proc all*[T](validators: varargs[Validator[T]], desc: string): Validator[T] =
   ## Returns a `Validator` that passes only if every one of `validators`
@@ -100,6 +129,8 @@ proc help*[T](self: Validator[T]): string =
     fmt"range: {self.range.a}..{self.range.b}"
   of vkCheck:
     self.desc
+  of vkCheckSeen:
+    self.seenDesc
   of vkAll, vkAny:
     if self.groupDesc.len > 0:
       self.groupDesc
@@ -110,9 +141,12 @@ proc help*[T](self: Validator[T]): string =
         parts.add(if v.kind in {vkAll, vkAny}: fmt"({h})" else: h)
       parts.join(if self.kind == vkAll: " and " else: " or ")
 
-proc validate*[T](self: Validator[T], value: T) =
+proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
-  ## `ValidationError`.
+  ## `ValidationError`. `seen` is the values already accumulated for the
+  ## same Arg so far (not including `value`), consulted only by
+  ## `vkCheckSeen`-kind validators (see `checkSeen`) -- every other kind
+  ## ignores it.
   let tmpVal =
     when value is string: value.escape
     else: $value
@@ -127,10 +161,14 @@ proc validate*[T](self: Validator[T], value: T) =
     if not self.checker(value):
       let desc = if self.desc.len > 0: fmt": {self.desc}" else: ""
       raise newException(ValidationError, fmt"{tmpVal} did not meet condition{desc}")
+  of vkCheckSeen:
+    if not self.seenChecker(value, seen):
+      let desc = if self.seenDesc.len > 0: fmt": {self.seenDesc}" else: ""
+      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{desc}")
   of vkAll:
     for v in self.validators:
       try:
-        v.validate(value)
+        v.validate(value, seen)
       except ValidationError:
         if self.groupDesc.len > 0:
           raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {self.groupDesc}")
@@ -140,7 +178,7 @@ proc validate*[T](self: Validator[T], value: T) =
     var passed = false
     for v in self.validators:
       try:
-        v.validate(value)
+        v.validate(value, seen)
         passed = true
         break
       except ValidationError:
@@ -265,6 +303,64 @@ when isMainModule:
       check caught == "7 did not meet condition: choices: 1, 3, 5 or must be even"
 
       check validator.help() == "range: 0..100 and (choices: 1, 3, 5 or must be even)"
+
+    test "checkSeenIt passes it and seen through to the predicate":
+      let validator = checkSeenIt[int](it notin seen, "must not repeat")
+      validator.validate(1, seen = @[])
+      validator.validate(3, seen = @[1, 2])
+
+      var caught = ""
+      try:
+        validator.validate(2, seen = @[1, 2])
+      except ValidationError as e:
+        caught = e.msg
+      check caught == "2 did not meet condition: must not repeat"
+
+    test "unique rejects a value already in seen, using == only":
+      let intValidator = unique[int]()
+      intValidator.validate(3, seen = @[1, 2])
+
+      var caught = ""
+      try:
+        intValidator.validate(2, seen = @[1, 2])
+      except ValidationError as e:
+        caught = e.msg
+      check caught == "2 did not meet condition: must be unique"
+
+      # only requires `==`, not `hash()` -- a type with no `hash` still works
+      let strValidator = unique[string]()
+      strValidator.validate("c", seen = @["a", "b"])
+      expect ValidationError:
+        strValidator.validate("b", seen = @["a", "b"])
+
+    test "unique with a desc override reports it directly":
+      let validator = unique[int](desc = "no repeated tags")
+      var caught = ""
+      try:
+        validator.validate(2, seen = @[1, 2])
+      except ValidationError as e:
+        caught = e.msg
+      check caught == "2 did not meet condition: no repeated tags"
+
+    test "unique defaults to an empty seen when none is given":
+      let validator = unique[int]()
+      validator.validate(1) # no `seen` passed -- defaults to empty, always passes
+
+    test "All and Any thread seen through unchanged to a checkSeen child":
+      let validator = all(range(0..100), unique[int]())
+      validator.validate(3, seen = @[1, 2])
+
+      var caught = ""
+      try:
+        validator.validate(2, seen = @[1, 2])
+      except ValidationError as e:
+        caught = e.msg
+      check caught == "2 did not meet condition: must be unique"
+
+      let anyValidator = any(choice([1, 3, 5]), unique[int]())
+      anyValidator.validate(7, seen = @[1, 2]) # fails choice, but unique still passes
+      expect ValidationError:
+        anyValidator.validate(2, seen = @[1, 2]) # fails both choice and unique
 
     test "All and Any require at least one Validator":
       expect SpecDefect:

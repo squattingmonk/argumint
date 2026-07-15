@@ -137,16 +137,34 @@ failure points, not one. Never applies to Flag, Command, or Message
 Argument, since a Flag's value comes from author-declared Flag Operations
 rather than arbitrary user-typed text. Always checked against
 the scalar element type, never a collected list, even for a multi-value
-Arg -- each match is validated individually as it arrives. Five kinds:
-Choice (value must be one of an enumerated set), Range (value must fall
-within a range), Check (value must satisfy an arbitrary predicate, with an
-optional description for help text), and the two composing kinds, All and
-Any (see below). A Validator runs on a value from the command line or from
-Value Precedence's environment-variable tier (both funnel through the same
-conversion path), but never on the coded default, which is substituted
-later at read time instead -- whether that's intended or not is still an
-open question (see `TODO.md`).
+Arg -- each match is validated individually as it arrives, though a Check
+built via `checkSeen`/`unique` may also consult Seen Values (see below).
+Six kinds: Choice (value must be one of an enumerated set), Range (value
+must fall within a range), Check (value must satisfy an arbitrary
+predicate, with an optional description for help text), a history-aware
+specialization of Check built via `checkSeen`/`checkSeenIt`/`unique` (see
+Seen Values), and the two composing kinds, All and Any (see below). A
+Validator runs on a value from the command line or from Value Precedence's
+environment-variable tier (both funnel through the same conversion path),
+but never on the coded default, which is substituted later at read time
+instead -- whether that's intended or not is still an open question (see
+`TODO.md`).
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
+
+**Seen Values**:
+The sequence of values already matched for the same multi-value Option or
+Positional Argument at the moment a new candidate value is being checked --
+consulted only by a Check Validator built via `checkSeen`/`checkSeenIt`/
+`unique` (every other Validator kind ignores it). Reflects everything ever
+matched across every `parse` call made on that Arg's spec tuple, not just
+the current call, since nothing resets an Arg's accumulated state between
+`parse` calls on a reused spec tuple (deliberately; see
+`docs/adr/0007-history-aware-validators.md`). Never includes the candidate
+value currently being checked. A caller wanting Seen Values scoped to a
+single `parse` call should wrap spec construction in a builder proc and
+call it fresh each time, per the same ADR.
+_Avoid_: history, accumulated values (ambiguous with a multi-value Arg's
+stored result, which is a superset -- Seen Values excludes the candidate)
 
 **All**:
 A Validator composing several other Validators of the same element type

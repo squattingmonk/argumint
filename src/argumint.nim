@@ -192,7 +192,7 @@ proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: 
   try:
     let tmp: T = value
     if not self.validator.isNil:
-      self.validator.validate(tmp)
+      self.validator.validate(tmp, self.value.get(otherwise = newSeq[T]()))
     when multi:
       # NOTE: appending via `self.value = some(self.value.get & @[tmp])`
       # corrupts earlier elements under ORC when `self` is a generic ref

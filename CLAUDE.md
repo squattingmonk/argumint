@@ -172,7 +172,26 @@ navigating the code:
    param or supplying exactly one `varargs` element sidesteps the
    ambiguity). Each is instead two separate overloads — one with a
    required `desc`, one `varargs`-only that delegates to the first with
-   `desc = ""` — rather than one proc with a default value. `genHelp`
+   `desc = ""` — rather than one proc with a default value. A sixth kind,
+   `checkSeen`/`checkSeenIt` (with `unique` as a thin convenience wrapper
+   over it), is a history-aware specialization of `check`/`checkIt`: its
+   predicate takes both the candidate value and `seen: openArray[T]`, the
+   Arg's own previously-matched values (sourced by `parseImpl` from
+   `self.value` — read *before* that field is mutated by the current
+   match, so `seen` never includes the candidate itself). `all`/`any`
+   thread `seen` through their recursive `validate` calls unchanged to
+   every child, since history belongs to the outer Arg, not to any
+   sub-validator. `seen` deliberately spans every `parse` call ever made
+   on the Arg's spec tuple (nothing resets Arg state between `parse`
+   calls on a reused spec tuple, by design) — a caller wanting it scoped
+   to one `parse` call should wrap spec construction in a builder proc and
+   call it fresh each time. See
+   `docs/adr/0007-history-aware-validators.md` and `CONTEXT.md`'s Seen
+   Values entry for the full design, including why this is stateless
+   (`seen` passed in, not tracked on the `Validator` itself) rather than
+   giving the Validator its own mutable state — a stateful design would
+   silently cross-contaminate if the same `Validator[T]` instance were
+   ever shared across two different Args, unlike every other kind. `genHelp`
    combines `validatorHelp`
    and `defaultStr` into one bracket, `;`-separated (e.g. `[choices: foo,
    bar; default: foo]`), rather than showing them as two separate brackets.
