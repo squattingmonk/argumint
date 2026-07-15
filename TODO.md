@@ -13,15 +13,6 @@ Parsing / UX
   already tokenizes the prepend/append/remove/reset op prefix into
   `CmdLineToken.optSep`; nothing downstream consumes it yet.
 
-Open questions
---------------
-
-- Should a Validator also apply to a coded default value? Currently a
-  default bypasses `parseImpl`/`validate` entirely -- it's substituted
-  later at read time (`toT`/`toSeqT`), so an author's own default is never
-  checked against their own Validator, unlike a command-line or env-var
-  value. Not yet decided whether this asymmetry is desired.
-
 Packaging / docs
 -----------------
 

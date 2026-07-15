@@ -147,10 +147,14 @@ Seen Values), and the two composing kinds, All and Any (see below). A
 Validator runs on a value from the command line or from Value Precedence's
 environment-variable tier (both funnel through the same conversion path),
 but never on the coded default, which is substituted later at read time
-instead -- whether that's intended or not is still an open question (see
-`TODO.md`). Every kind takes the same optional trailing `desc` param,
-shown instead of that kind's auto-generated help/failure text when
-non-empty -- see Validator Failure Message.
+instead -- deliberately: an author should be free to declare a default
+that falls outside their own Validator's rules (see
+`docs/adr/0008-validators-dont-run-against-defaults.md`). A default is
+likewise invisible to Seen Values (see below), a separate consequence of
+the same substitution -- a CLI-supplied value equal to the default won't
+be caught as a duplicate by `unique()`. Every kind takes the same optional
+trailing `desc` param, shown instead of that kind's auto-generated
+help/failure text when non-empty -- see Validator Failure Message.
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
 
 **Seen Values**:
