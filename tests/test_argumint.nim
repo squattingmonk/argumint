@@ -1258,6 +1258,59 @@ suite "Environment variables":
     spec.parse(usage = "<a>\n[options] <b>", args = @["foo"], command = "prog")
     check spec.port == 5678 # neither line 2 nor [options] was ever walked; every value still applies
 
+  test "a top-level env-configured option's env var still applies when a nested command is also invoked":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let move = (name: arg("<name>", help = ""))
+    let spec = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+      ship: command("ship", move, usage = "<name>", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>] ship", args = @["ship", "Titanic"], command = "prog")
+    check spec.port == 9090
+    check move.name == "Titanic"
+
+  test "the same Arg reachable at both an ancestor and a nested command's grammar isn't double-applied from its env var":
+    putEnv("ARGUMINT_TEST_TAGS", "foo")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let tag = opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = "")
+    let ship = (tag: tag)
+    let spec = (
+      tag: tag,
+      ship: command("ship", ship, usage = "[--tag=<tag>]", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>] ship", args = @["ship"], command = "prog")
+    check tag == @["foo"]
+
+  test "an env-fallback error deeper in the tree prevents every hook from firing, even an already-would-be-entered ancestor's":
+    # Contrast with "an ancestor's after still runs when a nested command's
+    # own before raises" (suite "Commands" above): that failure happens
+    # *inside* dispatch's own try/finally chain, after `outer`'s before
+    # already ran, so outer's after still fires for cleanup. An
+    # env-fallback error is resolved in a separate pass that completes (or
+    # raises) entirely before dispatch is ever called, so no level's
+    # before runs at all here -- and per the "a level whose own before
+    # raises never runs its own after" rule, that means no level's after
+    # runs either, including outer's.
+    putEnv("ARGUMINT_TEST_PORT", "9090:9091:9092") # one more value than the two slots below need
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    var log: seq[string]
+    proc outerBefore(spec: tuple) = log.add "outer-before"
+    proc outerAfter(spec: tuple) = log.add "outer-after"
+
+    let inner = (
+      port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
+    )
+    let outer = (
+      move: command("move", inner, usage = "--port=<port> --port=<port>", help = ""),
+    )
+    let spec = (
+      ship: command("ship", outer, before = outerBefore, after = outerAfter, help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "ship", args = @["ship", "move"], command = "prog")
+    check log.len == 0
+
   test "[env: X] appears in help text for opt and flag, combined with other annotations":
     let spec = (
       port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", help = "Port"),

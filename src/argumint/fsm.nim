@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, strformat, strutils, tables]
+import std/[editdistance, os, pegs, sets, strformat, strutils, tables]
 
 import ./[backend, parser]
 export ParseError, SpecDefect
@@ -405,6 +405,72 @@ proc formatComplaints(messages: seq[Complaint]): string =
     let subject = if subjects.len > 1: "({joined})".fmt else: joined
     result.add "\n  - {kind}: {subject}".fmt
 
+proc applyEnvFallback(spec: Spec, pc: ParseContext, seen: var HashSet[Arg],
+    complaints: var seq[Complaint]) =
+  ## Falls back to an environment variable for any of `spec`'s own args
+  ## that has one configured and wasn't explicitly matched on the command
+  ## line, then recurses into whichever nested spec was actually matched
+  ## at this level (mirroring `parseOwnValues`/`matchedCommand` above) --
+  ## so this reaches every spec level actually entered during this parse,
+  ## not just the deepest one `walk` leaves `pc.spec` pointed at. See
+  ## `docs/adr/0009-command-before-action-after-hooks.md` for the same
+  ## per-level problem already solved for value-dispatch.
+  ##
+  ## This is deliberately outside the FSM/backtracking in `walk` -- it only
+  ## ever sees typed tokens, and this way an arg only reachable via
+  ## [options] still picks up its env var even though [options] itself was
+  ## never explicitly attempted during matching. `arg notin pc.matches` is
+  ## exactly "wasn't explicitly typed", so an explicit CLI value always
+  ## wins for free, no extra bookkeeping needed.
+  ##
+  ## `seen` guards against processing the same Arg twice: an Arg can
+  ## deliberately be reachable from more than one spec level's grammar
+  ## (see "the same Arg reachable at both an ancestor and a nested
+  ## command's grammar..." below) -- unlike a real CLI match (tagged
+  ## per-level via `push`'s `Match.spec`), an env-driven `setFromEnv` call
+  ## has no such tagging, so without this guard a shared Arg's env var
+  ## would be applied once per level it appears in.
+  ##
+  ## An Arg whose matcher was actually consulted during the walk
+  ## (`arg in pc.envConsumed`) gets exactly as many values applied as the
+  ## walk consumed -- if the env var had more left over than the grammar
+  ## had positions for, that's a ParseError rather than a silent
+  ## truncation to a prefix of the values (see
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). An Arg
+  ## never consulted at all this walk (reachable only via a different,
+  ## unmatched Usage Line of this same spec) has no walk-derived count to
+  ## bound it by, so every available value is applied, generalizing the
+  ## single-value fallback ADR 0004 already established for that case.
+  ##
+  ## This runs to completion (or raises) entirely before `dispatch` is
+  ## ever called -- so no `before`/`action`/`after` hook anywhere fires
+  ## until every level's env fallback is resolved. If an env problem
+  ## exists at any level, no level's hooks fire at all (not even an
+  ## ancestor's `before`, and thus not its `after` either), since no level
+  ## ever gets far enough to run its own `before` in the first place --
+  ## unlike a CLI- or validator-driven error occurring *during* dispatch,
+  ## which unwinds through already-entered ancestors' `finally` blocks and
+  ## so still runs their `after`.
+  for arg in spec.args:
+    let name = arg.envName
+    if name.len == 0 or arg in seen or arg in pc.matches or not existsEnv(name):
+      continue
+    seen.incl(arg)
+    if arg in pc.envConsumed:
+      let consumed = pc.envConsumed[arg]
+      let total = pc.envValues[arg].len
+      if consumed < total:
+        let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
+        complaints.add (kind, arg.name)
+      else:
+        arg.setFromEnv(pc.envValues[arg])
+    else:
+      arg.setFromEnv(splitEnvValue(getEnv(name), spec.envDelim))
+
+  let (cmd, _) = matchedCommand(spec, pc.matches)
+  if not cmd.isNil:
+    applyEnvFallback(cmd.spec, pc, seen, complaints)
+
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
@@ -417,40 +483,9 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if not spec.fsm.walk(pc):
     raiseParseError(formatComplaints(pc.messages), pc.command, pc.spec)
 
-  # Fall back to an environment variable for any arg that has one
-  # configured and wasn't explicitly matched on the command line. This is
-  # deliberately outside the FSM/backtracking above -- walk() only ever
-  # sees typed tokens, and this way an arg only reachable via [options]
-  # still picks up its env var even though [options] itself was never
-  # explicitly attempted during matching. `arg notin pc.matches` is
-  # exactly "wasn't explicitly typed", so an explicit CLI value always
-  # wins for free, no extra bookkeeping needed.
-  #
-  # An Arg whose matcher was actually consulted during the walk
-  # (`arg in pc.envConsumed`) gets exactly as many values applied as the
-  # walk consumed -- if the env var had more left over than the grammar
-  # had positions for, that's a ParseError rather than a silent
-  # truncation to a prefix of the values (see
-  # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). An Arg
-  # never consulted at all this walk (reachable only via a different,
-  # unmatched Usage Line of this same spec) has no walk-derived count to
-  # bound it by, so every available value is applied, generalizing the
-  # single-value fallback ADR 0004 already established for that case.
   var envComplaints: seq[Complaint]
-  for arg in pc.spec.args:
-    let name = arg.envName
-    if name.len == 0 or arg in pc.matches or not existsEnv(name):
-      continue
-    if arg in pc.envConsumed:
-      let consumed = pc.envConsumed[arg]
-      let total = pc.envValues[arg].len
-      if consumed < total:
-        let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
-        envComplaints.add (kind, arg.name)
-      else:
-        arg.setFromEnv(pc.envValues[arg])
-    else:
-      arg.setFromEnv(splitEnvValue(getEnv(name), pc.spec.envDelim))
+  var envSeen: HashSet[Arg]
+  applyEnvFallback(spec, pc, envSeen, envComplaints)
   if envComplaints.len > 0:
     raiseParseError(formatComplaints(envComplaints), pc.command, pc.spec)
 
