@@ -60,18 +60,18 @@ each `Arg`'s `parse` method to actually convert/store values.
 
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
-machinery: for every `Arg` in `spec.args` with a non-empty `envName` that
-*wasn't* explicitly matched (`arg notin pc.matches`) and whose env var
-`existsEnv`, it calls `arg.setFromEnv(getEnv(name))` to apply the env value
-through the same conversion/validation path a CLI value would take. Doing
-this after `walk` rather than folding it into the FSM means an option only
-reachable via `[options]` (never explicitly attempted during matching) still
-picks up its env var, and `arg notin pc.matches` gives an explicit CLI value
-precedence for free with no extra bookkeeping. See `docs/adr/0004-required-
-options-env-fallback.md` and `docs/adr/0005-env-supplied-multi-value-options-
-and-flags.md` for the design decisions behind the env-fallback tier;
-CONTEXT.md's Value Precedence / Env Delimiter entries have the user-facing
-semantics.
+machinery, via `EnvCursor.apply`: for every `Arg` in `spec.args` with a
+non-empty `envName` that *wasn't* explicitly matched (`arg notin matches`)
+and whose env var `existsEnv`, it calls `arg.setFromEnv(...)` to apply the
+env value through the same conversion/validation path a CLI value would
+take. Doing this after `walk` rather than folding it into the FSM means an
+option only reachable via `[options]` (never explicitly attempted during
+matching) still picks up its env var, and `arg notin matches` gives an
+explicit CLI value precedence for free with no extra bookkeeping. See
+`docs/adr/0004-required-options-env-fallback.md` and `docs/adr/0005-env-
+supplied-multi-value-options-and-flags.md` for the design decisions behind
+the env-fallback tier; CONTEXT.md's Value Precedence / Env Delimiter entries
+have the user-facing semantics.
 
 ### Env var mechanics
 
@@ -80,18 +80,21 @@ The raw env string is always split (`backend.splitEnvValue`) — on `\x1e`
 native list variable's elements when exporting it to a subprocess, otherwise
 on `Spec.envDelim` (cascades like `width`, default `:`), keeping empty
 segments as literal values rather than dropping them.
-`ParseContext.envConsumed` is a per-Arg *cursor* into that split list, handing
-out the next unconsumed value each time `match`'s `Option` branch is
-consulted for that Arg during the walk. Nothing decides in advance how many
-times that can happen — it falls out entirely from however many times `walk`
-actually visits that matcher: a real repeat (`...`, or reachable only through
-`[options]`) loops back and keeps consuming until the list runs out; the same
-Arg named more than once in one Usage Line with no `...` is just two separate
-matcher instances, and the cursor is consulted twice either way.
+Value Precedence's environment-variable tier is consolidated into
+`fsm.nim`'s own `EnvCursor` type (embedded as `ParseContext.env`), rather than
+loose fields/procs: `EnvCursor.probe` is consulted from `match`'s `Option`
+branch during the walk, lazily splitting/caching an Arg's env value and
+handing out the next unconsumed value each time that Arg's matcher is
+visited. Nothing decides in advance how many times that can happen — it
+falls out entirely from however many times `walk` actually visits that
+matcher: a real repeat (`...`, or reachable only through `[options]`) loops
+back and keeps consuming until the list runs out; the same Arg named more
+than once in one Usage Line with no `...` is just two separate matcher
+instances, and the cursor is consulted twice either way.
 
-After a successful walk, `Spec.parse`'s post-walk sweep applies exactly as
-many values as the walk consumed for each Arg (`ParseContext.envValues` holds
-the cached split list); if values are left over (the env var had more than
+After a successful walk, `Spec.parse`'s post-walk sweep (`EnvCursor.apply`)
+applies exactly as many values as the walk consumed for each Arg (cached on
+the same `EnvCursor`); if values are left over (the env var had more than
 the grammar had positions for), that's a `ParseError` — `"unexpected
 option"`/`"unexpected flag"`, the same wording already used for a genuinely
 excess CLI token — rather than a silent truncation to a prefix of the

@@ -2,6 +2,7 @@
 /argumint
 /src/argumint.out
 /src/argumint/validators
+/src/argumint/fsm
 /tests/test_*
 !/tests/test_*.nim
 /examples/*

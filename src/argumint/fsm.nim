@@ -14,6 +14,23 @@ type
     ## (rather than a pre-formatted string) so same-kind complaints can be
     ## grouped into one message at render time -- see `parse`.
 
+  EnvCursor = object
+    ## Owns Value Precedence's environment-variable tier: for each Arg with
+    ## an env var configured, the raw value already split via
+    ## `splitEnvValue` (cached the first time `probe` consults it during a
+    ## walk) and a cursor into how many of those values have already been
+    ## handed out as a virtual match -- not a one-shot flag, so an Arg
+    ## matched more than once (a real repeat, or simply named more than
+    ## once in one Usage Line) can have each occurrence satisfied by a
+    ## *different* value from the same env var. Whether an Arg's position
+    ## gets consulted once or several times is never decided here -- it
+    ## falls out of however many times `walk` actually visits this
+    ## matcher, driven entirely by the FSM already built from the Usage
+    ## String. See `docs/adr/0005-env-supplied-multi-value-options-and-
+    ## flags.md`.
+    values: Table[Arg, seq[string]]
+    consumed: Table[Arg, int]
+
   ParseContext = object
     depth: int            ## The depth of the current fsm path
     maxDepth: int         ## The depth of the deepest fsm path prior to the current one
@@ -22,20 +39,7 @@ type
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
     tokens: seq[CmdLineToken]     ## The arguments left to be parsed
     matches: MatchTable   ## A table of processed matches
-    envValues: Table[Arg, seq[string]] ## Cache of an env-configured Arg's
-      ## raw env value already split via `splitEnvValue`, populated the
-      ## first time `match`'s `Option` branch consults it during this walk.
-    envConsumed: Table[Arg, int] ## How many of an Arg's `envValues` have
-      ## already been handed out as a virtual match in this walk (see
-      ## `match`'s `Option` branch) -- a cursor, not a one-shot flag, so an
-      ## Arg matched more than once (a real repeat, or simply named more
-      ## than once in one Usage Line) can have each occurrence satisfied by
-      ## a *different* value from the same env var. Whether an Arg's
-      ## position gets consulted once or several times is never decided
-      ## here -- it falls out of however many times `walk` actually visits
-      ## this matcher, driven entirely by the FSM already built from the
-      ## Usage String. See
-      ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+    env: EnvCursor        ## Value Precedence's environment-variable tier -- see `EnvCursor`
 
   CmdLineToken = object
     case kind: ArgKind
@@ -177,6 +181,33 @@ proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value 
   if matches.hasKeyOrPut(arg, @[(variant, value, spec)]):
     matches[arg].add (variant, value, spec)
 
+proc probe(cursor: var EnvCursor, arg: Arg, spec: Spec): bool =
+  ## Lets `arg`'s configured env var stand in for a missing command-line
+  ## value -- this is what lets a *required* (unbracketed) Option/Flag be
+  ## satisfied by env: env is a per-Arg declaration, so it shouldn't behave
+  ## differently depending on whether this particular Usage Line happens
+  ## to require the Arg or not (see ADR 0004). Returning `false` and
+  ## recording no match here just stops the walk itself from failing --
+  ## the actual value-setting happens later, in `apply`'s post-walk sweep.
+  ##
+  ## The env var's value is always split (`splitEnvValue`) into however
+  ## many values it supplies; `cursor.consumed` is a per-Arg cursor into
+  ## that list rather than a one-shot flag, handing out the next
+  ## unconsumed value each time this Arg's matcher is consulted here, and
+  ## returning `false` (so the caller falls through to its own "missing
+  ## option" complaint) once the list is exhausted -- the same outcome as
+  ## running out of real CLI tokens for a repeatable position. See
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  let envName = arg.envName
+  if envName.len == 0 or not existsEnv(envName):
+    return false
+  if arg notin cursor.values:
+    cursor.values[arg] = splitEnvValue(getEnv(envName), spec.envDelim)
+  let consumed = cursor.consumed.getOrDefault(arg, 0)
+  if consumed < cursor.values[arg].len:
+    cursor.consumed[arg] = consumed + 1
+    return true
+
 proc match(m: Matcher, pc: var ParseContext): bool =
   ## Checks if `m` matches a token in `tokens`. May consume a token and may add
   ## a variant and value to `matches`. Returns whether the match was successful.
@@ -252,32 +283,12 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       pos.inc
 
     # No CLI token matched. Rather than failing outright, let this Arg's
-    # configured env var stand in for a missing value here -- this is what
-    # lets a *required* (unbracketed) Option/Flag be satisfied by env: env
-    # is a per-Arg declaration, so it shouldn't behave differently depending
-    # on whether this particular Usage Line happens to require the Arg or
-    # not (see ADR 0004). Consuming no token and not recording into
-    # `pc.matches` defers the actual value-setting to `Spec.parse`'s
-    # existing post-walk env sweep, which already runs for any Arg that
-    # wasn't explicitly matched -- this just stops the walk itself from
-    # failing here.
-    #
-    # The env var's value is always split (`splitEnvValue`) into however
-    # many values it supplies; `pc.envConsumed` is a per-Arg cursor into
-    # that list rather than a one-shot flag, handing out the next
-    # unconsumed value each time this Arg's matcher is consulted, and
-    # failing (falling through to "missing option" below) once the list is
-    # exhausted -- the same outcome as running out of real CLI tokens for a
-    # repeatable position. See
-    # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-    let envName = m.opt.envName
-    if envName.len > 0 and existsEnv(envName):
-      if m.opt notin pc.envValues:
-        pc.envValues[m.opt] = splitEnvValue(getEnv(envName), pc.spec.envDelim)
-      let consumed = pc.envConsumed.getOrDefault(m.opt, 0)
-      if consumed < pc.envValues[m.opt].len:
-        pc.envConsumed[m.opt] = consumed + 1
-        return true
+    # configured env var stand in for a missing value here (see `probe`) --
+    # consuming no token and not recording into `pc.matches` defers the
+    # actual value-setting to `apply`'s post-walk sweep, which already runs
+    # for any Arg that wasn't explicitly matched.
+    if pc.env.probe(m.opt, pc.spec):
+      return true
 
     pc.messages.add ("missing option", m.opt.name)
   of Options:
@@ -541,7 +552,7 @@ proc formatComplaints(messages: seq[Complaint]): string =
     let subject = if subjects.len > 1: "({joined})".fmt else: joined
     result.add "\n  - {kind}: {subject}".fmt
 
-proc applyEnvFallback(spec: Spec, pc: ParseContext, seen: var HashSet[Arg],
+proc apply(cursor: EnvCursor, spec: Spec, matches: MatchTable, seen: var HashSet[Arg],
     complaints: var seq[Complaint]) =
   ## Falls back to an environment variable for any of `spec`'s own args
   ## that has one configured and wasn't explicitly matched on the command
@@ -555,7 +566,7 @@ proc applyEnvFallback(spec: Spec, pc: ParseContext, seen: var HashSet[Arg],
   ## This is deliberately outside the FSM/backtracking in `walk` -- it only
   ## ever sees typed tokens, and this way an arg only reachable via
   ## [options] still picks up its env var even though [options] itself was
-  ## never explicitly attempted during matching. `arg notin pc.matches` is
+  ## never explicitly attempted during matching. `arg notin matches` is
   ## exactly "wasn't explicitly typed", so an explicit CLI value always
   ## wins for free, no extra bookkeeping needed.
   ##
@@ -568,7 +579,7 @@ proc applyEnvFallback(spec: Spec, pc: ParseContext, seen: var HashSet[Arg],
   ## would be applied once per level it appears in.
   ##
   ## An Arg whose matcher was actually consulted during the walk
-  ## (`arg in pc.envConsumed`) gets exactly as many values applied as the
+  ## (`arg in cursor.consumed`) gets exactly as many values applied as the
   ## walk consumed -- if the env var had more left over than the grammar
   ## had positions for, that's a ParseError rather than a silent
   ## truncation to a prefix of the values (see
@@ -589,23 +600,23 @@ proc applyEnvFallback(spec: Spec, pc: ParseContext, seen: var HashSet[Arg],
   ## so still runs their `after`.
   for arg in spec.args:
     let name = arg.envName
-    if name.len == 0 or arg in seen or arg in pc.matches or not existsEnv(name):
+    if name.len == 0 or arg in seen or arg in matches or not existsEnv(name):
       continue
     seen.incl(arg)
-    if arg in pc.envConsumed:
-      let consumed = pc.envConsumed[arg]
-      let total = pc.envValues[arg].len
+    if arg in cursor.consumed:
+      let consumed = cursor.consumed[arg]
+      let total = cursor.values[arg].len
       if consumed < total:
         let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
         complaints.add (kind, arg.name)
       else:
-        arg.setFromEnv(pc.envValues[arg])
+        arg.setFromEnv(cursor.values[arg])
     else:
       arg.setFromEnv(splitEnvValue(getEnv(name), spec.envDelim))
 
-  let (cmd, _) = matchedCommand(spec, pc.matches)
+  let (cmd, _) = matchedCommand(spec, matches)
   if not cmd.isNil:
-    applyEnvFallback(cmd.spec, pc, seen, complaints)
+    cursor.apply(cmd.spec, matches, seen, complaints)
 
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
@@ -630,8 +641,113 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
 
   var envComplaints: seq[Complaint]
   var envSeen: HashSet[Arg]
-  applyEnvFallback(spec, pc, envSeen, envComplaints)
+  pc.env.apply(spec, pc.matches, envSeen, envComplaints)
   if envComplaints.len > 0:
     raiseParseError(formatComplaints(envComplaints), pc.command, pc.spec)
 
   dispatch(spec, pc.matches, command)
+
+when isMainModule:
+  import std/unittest
+
+  type
+    TestArg = ref object of Arg
+      ## A minimal concrete Arg for exercising EnvCursor.probe/apply
+      ## directly, without going through argumint.nim's ValueArg/FlagArg
+      ## (which import this module, so the reverse import isn't available
+      ## here).
+      env: string
+      recorded: seq[string]
+
+  method envName(self: TestArg): string = self.env
+  method setFromEnv(self: TestArg, values: seq[string]) =
+    self.recorded = values
+
+  proc newTestArg(name: string, env = ""): TestArg =
+    TestArg(kind: Optional, variants: @[name], env: env)
+
+  suite "EnvCursor.probe":
+    test "false when the arg has no env var configured":
+      var cursor: EnvCursor
+      check not cursor.probe(newTestArg("--foo"), Spec(envDelim: ":"))
+
+    test "false when the configured env var isn't set":
+      delEnv("ARGUMINT_TEST_UNSET")
+      var cursor: EnvCursor
+      check not cursor.probe(newTestArg("--foo", "ARGUMINT_TEST_UNSET"), Spec(envDelim: ":"))
+
+    test "hands out a single value once, then reports exhausted":
+      putEnv("ARGUMINT_TEST_SINGLE", "hello")
+      defer: delEnv("ARGUMINT_TEST_SINGLE")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_SINGLE")
+      let spec = Spec(envDelim: ":")
+      check cursor.probe(arg, spec)
+      check not cursor.probe(arg, spec)
+
+    test "hands out each delimiter-split value in order":
+      putEnv("ARGUMINT_TEST_MULTI", "a:b:c")
+      defer: delEnv("ARGUMINT_TEST_MULTI")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_MULTI")
+      let spec = Spec(envDelim: ":")
+      check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      check not cursor.probe(arg, spec)
+
+  suite "EnvCursor.apply":
+    test "sets an unconsulted arg's value directly from env":
+      putEnv("ARGUMINT_TEST_DIRECT", "hi")
+      defer: delEnv("ARGUMINT_TEST_DIRECT")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_DIRECT")
+      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      var matches: MatchTable
+      var seen: HashSet[Arg]
+      var complaints: seq[Complaint]
+      cursor.apply(spec, matches, seen, complaints)
+      check complaints.len == 0
+      check arg.recorded == @["hi"]
+
+    test "applies every split value once the walk fully consumed them":
+      putEnv("ARGUMINT_TEST_CONSUMED", "a:b")
+      defer: delEnv("ARGUMINT_TEST_CONSUMED")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_CONSUMED")
+      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      var matches: MatchTable
+      var seen: HashSet[Arg]
+      var complaints: seq[Complaint]
+      cursor.apply(spec, matches, seen, complaints)
+      check complaints.len == 0
+      check arg.recorded == @["a", "b"]
+
+    test "complains about env values the walk didn't consume":
+      putEnv("ARGUMINT_TEST_LEFTOVER", "a:b:c")
+      defer: delEnv("ARGUMINT_TEST_LEFTOVER")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_LEFTOVER")
+      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      discard cursor.probe(arg, spec) # consumes only 1 of the 3 available values
+      var matches: MatchTable
+      var seen: HashSet[Arg]
+      var complaints: seq[Complaint]
+      cursor.apply(spec, matches, seen, complaints)
+      check complaints == @[("unexpected option", arg.name)]
+
+    test "skips an arg already explicitly matched on the command line":
+      putEnv("ARGUMINT_TEST_SKIP", "hi")
+      defer: delEnv("ARGUMINT_TEST_SKIP")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_SKIP")
+      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      var matches: MatchTable
+      matches[Arg arg] = @[(variant: "--foo", value: "explicit", spec: spec)]
+      var seen: HashSet[Arg]
+      var complaints: seq[Complaint]
+      cursor.apply(spec, matches, seen, complaints)
+      check complaints.len == 0
+      check arg.recorded.len == 0

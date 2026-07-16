@@ -27,9 +27,10 @@ registration.
   unexpected "missing option"/"unexpected arg" errors, compile first (`nim c
   file`) then run the binary directly with the same args to rule this out.
 - Run the full test suite with `nimble test`, which compiles and runs
-  `src/argumint/validators.nim`'s embedded `std/unittest` block plus every
-  `tests/test_*.nim` file (each is its own standalone `std/unittest` suite;
-  `tests/config.nims` adds `src` to the path for anything placed there). Add
+  `src/argumint/validators.nim`'s and `src/argumint/fsm.nim`'s embedded
+  `std/unittest` blocks plus every `tests/test_*.nim` file (each is its own
+  standalone `std/unittest` suite; `tests/config.nims` adds `src` to the path
+  for anything placed there). Add
   new tests as new `tests/test_*.nim` files -- no per-file wiring needed
   beyond that naming convention.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
