@@ -291,3 +291,40 @@ the fill-in rule differs by category:
   still unreachable, a standalone `[options]` line is added as a fallback.
   Weaving `[options]` into an arbitrary hand-written line that's missing it
   is not attempted.
+
+## 6. Shell completion (`fsm.completeArgs*`, `completion.nim`)
+
+A compiled binary's `parse*`/`parseOrQuit*` intercepts a magic leading arg,
+`mycli __complete <partial words...>`, before any real FSM matching, env
+fallback, or dispatch — short-circuiting into `fsm.completeArgs*`, which
+re-walks `spec.fsm` to resolve candidates dynamically rather than via a
+static generated script. See
+`docs/adr/0012-fsm-driven-shell-completion.md` for why.
+
+`fsm.collectFrontier` generalizes `walk`'s single-winner backtracking into
+"every state simultaneously still reachable after consuming the tokens
+typed so far" (a `Frontier`), since several Usage Lines or `choice`
+alternatives can all still be live for a command line that isn't finished
+yet. It reuses `Matcher.match` unmodified, so env-var fallback (`docs/adr/
+0004`, `docs/adr/0005`) applies to completion exactly as it would to a real
+parse. `completeArgs*` reads each live frontier state's own outgoing
+transitions for next-word candidates (`candidateWords`) — or, when the last
+already-typed word is itself a bare Optional-kind option name still
+awaiting its value (`pendingOptionalArgs`), completes that Arg's own
+`completions()` instead (populated from a `Validator`'s enumerable
+candidates — see `validators.completions`/`Arg.completions`). Candidate
+words are read from `spec.options` (the canonical bare-spelling → `Arg`
+map `tokenizeArgs` itself uses), not `Arg.variants` directly — the latter,
+for an Optional-kind `ValueArg` (`opt`/`opts`), still carries any
+declaration-time `=<placeholder>` suffix used only for help-text rendering.
+
+`completion.genCompletionScript*` generates a thin, mostly-static per-shell
+adapter (`Shell = bash | zsh | fish`) that just shells out to
+`<binaryName> __complete <words...>` and feeds newline-separated stdout
+into that shell's own reply mechanism — it needs almost nothing about the
+`Spec`'s own contents, since completion is resolved dynamically by the
+binary itself. `parseOrQuit*` gives `CompletionError` (a `MessageError`
+peer of `HelpError`) its own `echo`-based handling rather than reusing the
+shared `except MessageError as e: quit(e.msg, QuitSuccess)` branch: `quit`'s
+non-nimscript/js implementation writes to stderr, not stdout, which a shell
+adapter's `$(...)` capture can't see.

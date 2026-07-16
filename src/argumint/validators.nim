@@ -147,6 +147,58 @@ proc help*[T](self: Validator[T]): string =
       parts.add(if v.kind in {vkAll, vkAny}: fmt"({h})" else: h)
     parts.join(if self.kind == vkAll: " and " else: " or ")
 
+proc candidateValues[T](self: Validator[T]): seq[T] =
+  ## Every value `self` would accept, or `@[]` if `self` isn't enumerable.
+  ## Stays in `T`-space so `vkAll`'s re-validation step below can call
+  ## `validate` directly -- this module has no access to argumint.nim's
+  ## string converters, so stringifying earlier would lose that ability.
+  case self.kind
+  of vkChoice:
+    result = self.choices
+  of vkRange, vkCheck, vkCheckSeen:
+    discard # not enumerable -- a range/predicate can't list its own domain
+  of vkAny:
+    # OR semantics: any candidate satisfying any child is valid, so the
+    # union of every child's own candidates is correct.
+    for v in self.validators:
+      for c in v.candidateValues():
+        if c notin result: result.add c
+  of vkAll:
+    # AND semantics: start from whichever child(ren) are enumerable,
+    # intersect their candidates, then re-validate each survivor against
+    # *every* child (enumerable or not) so a non-enumerable sibling (e.g.
+    # `check(isEven)`) still filters the set correctly instead of being
+    # ignored. No candidates at all if no child is enumerable.
+    var base: seq[T]
+    var haveBase = false
+    for v in self.validators:
+      let c = v.candidateValues()
+      if c.len == 0: continue
+      if not haveBase:
+        base = c
+        haveBase = true
+      else:
+        base = base.filterIt(it in c)
+    if not haveBase:
+      return @[]
+    for candidate in base:
+      var ok = true
+      for v in self.validators:
+        try:
+          v.validate(candidate)
+        except ValidationError:
+          ok = false
+          break
+      if ok:
+        result.add candidate
+
+proc completions*[T](self: Validator[T]): seq[string] =
+  ## Every value `self` would accept, stringified (`$`), or `@[]` if `self`
+  ## isn't enumerable (a `range`/`check`/`checkSeen`, or an `all`/`any`
+  ## composite with no enumerable branch) -- callers should treat an empty
+  ## result as "no candidates," not as an error.
+  self.candidateValues().mapIt($it)
+
 proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
   ## `ValidationError`. `seen` is the values already accumulated for the
@@ -401,4 +453,31 @@ when isMainModule:
         discard all[int]()
       expect SpecDefect:
         discard any[int]()
+
+    test "Choice completions returns its own choices, stringified":
+      check choice(["foo", "bar", "baz"]).completions() == @["foo", "bar", "baz"]
+      check choice([1, 3, 5]).completions() == @["1", "3", "5"]
+
+    test "Range/Check/CheckSeen aren't enumerable -- completions is empty":
+      check range(0..4).completions() == newSeq[string]()
+      check checkIt[int](it mod 2 == 0).completions() == newSeq[string]()
+      check checkSeenIt[int](it notin seen).completions() == newSeq[string]()
+
+    test "Any completions is the union of every child's own completions":
+      check any(choice([1, 3, 5]), choice([3, 5, 7])).completions() == @["1", "3", "5", "7"]
+      # a non-enumerable child contributes nothing, but doesn't blank out siblings
+      check any(choice([1, 3]), range(10..20)).completions() == @["1", "3"]
+
+    test "All completions intersects enumerable children, then re-validates against every child":
+      let validator = all(choice(["a", "bb", "ccc"]), checkIt[string](it.len <= 2))
+      check validator.completions() == @["a", "bb"]
+
+      # no enumerable child at all -- nothing to intersect from
+      check all(range(0..100), checkIt[int](it mod 2 == 0)).completions() == newSeq[string]()
+
+    test "All/Any completions nest without flattening":
+      let validator = all(range(0..100), any(choice([4, 7, 101]), choice([4, 200])))
+      # union of the nested any's completions (4, 7, 101, 200), filtered by
+      # the outer range (0..100) via re-validation
+      check validator.completions() == @["4", "7"]
 

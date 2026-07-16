@@ -91,3 +91,38 @@ inside a template.
   `arg`/`opt` value type. Not considered worth guarding against, but worth
   knowing if `defineArg` ever fails to compile for a custom `T` with an
   unhelpful-looking error.
+
+- **`system.quit(errormsg: string, errorcode)`'s doc comment ("a shorthand
+  for `echo(errormsg); quit(errorcode)`") is only true under
+  `nimscript`/`js`/standalone.** On a normal compiled target it actually
+  writes via `cstderr.rawWrite` — stderr, not stdout. `parseOrQuit*`'s
+  `HelpError`/`ValidationError`/etc. branches don't care (both streams reach
+  a terminal the same way), but `CompletionError` (`docs/adr/
+  0012-fsm-driven-shell-completion.md`) does: a shell completion adapter
+  reads candidates via `$(...)` command substitution, which only captures
+  stdout, so reusing the shared `quit(e.msg, QuitSuccess)` branch silently
+  swallows every candidate. Caught only by actually sourcing a generated
+  completion script and driving it in a live shell — the unit tests, which
+  only asserted on the raised exception's `msg` field, couldn't have caught
+  it, since `quit()` never actually runs inside a test process. Needs its
+  own `except CompletionError as e: echo e.msg; quit(QuitSuccess)` branch,
+  ordered before the general `except MessageError` catch the same way
+  `HelpError`'s already is.
+
+- **`hash(x: ref T)` requires `-d:nimPreviewHashRef`.** `HashSet[State]`/
+  `Table[State, ...]` (used by `collectFrontier`, and pre-existing in
+  `backend.nim`'s `terminals`/`collectArgs`/`sortTransitions`) only compile
+  because `config.nims` sets this flag project-wide (see CLAUDE.md). A
+  scratch file compiled *outside* this project's directory tree (e.g. in
+  `/tmp`) won't pick up `config.nims` automatically and fails with a
+  confusing "type mismatch: expected ... Expression: hash(key)" error with
+  no obvious mention of `ref`/`State` — pass `-d:nimPreviewHashRef` by hand
+  when compiling a throwaway repro outside the repo.
+
+- **A nested `proc` that captures an outer `var seq[T]` named `result` (a
+  closure inside a proc, referencing `result` from its enclosing scope)
+  fails under ORC** with "'result' is of type <seq[T]> which cannot be
+  captured as it would violate memory safety" — happened inside
+  `pendingOptionalArgs` (`fsm.nim`) when a nested `proc consider(arg: Arg)`
+  tried to `result.add arg`. Inline the logic into the loop instead of
+  factoring it into a nested closure that captures `result`.

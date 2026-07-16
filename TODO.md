@@ -4,7 +4,6 @@ argumint - possible future work
 Parsing / UX
 ------------
 
-- Shell completion generation (bash/zsh/fish) from a Spec.
 - Reading args from a file (@file / --flagfile-style), for very long
   argument lists.
 

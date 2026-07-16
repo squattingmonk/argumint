@@ -1,9 +1,9 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, sets, strformat, strutils, tables]
+import std/[editdistance, os, pegs, sets, strformat, strutils, sugar, tables]
 
 import ./[backend, parser]
-export ParseError, SpecDefect
+export ParseError, SpecDefect, CompletionError
 
 
 type
@@ -339,6 +339,148 @@ proc walk(s: State, pc: var ParseContext): bool =
       pc.messages = fresh.messages
       pc.command = fresh.command
 
+type
+  Frontier = seq[tuple[state: State, pc: ParseContext]]
+    ## Every `State` simultaneously still reachable after consuming a given
+    ## prefix of tokens, paired with the `ParseContext` that reached it --
+    ## see `collectFrontier`.
+
+proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var HashSet[State]) =
+  ## Generalizes `walk`'s single-winner backtracking into "every live
+  ## branch, not just the first to succeed" -- needed for shell completion,
+  ## where several Usage Lines (or `choice` alternatives) can all still be
+  ## viable at once for a command line that isn't finished yet. Reuses
+  ## `Matcher.match` unmodified, so env-var fallback (`docs/adr/0004`,
+  ## `docs/adr/0005`) applies here exactly as it would to a real parse.
+  ##
+  ## `seen` bounds the traversal of this otherwise-cyclic graph (`...`
+  ## repetition, `[options]...`): it's only consulted/populated while
+  ## consuming zero tokens (a `Shortcut`, or an env-satisfied `Option`) --
+  ## any transition that actually consumes a real token recurses with a
+  ## *fresh* `seen`, since that sub-problem is strictly smaller (bounded by
+  ## how many tokens are left) and can't loop back into this one. Revisiting
+  ## the same `State` within one zero-token layer can't discover anything
+  ## new -- its own transitions are static, and matching them again against
+  ## the same (unchanged, since nothing was consumed) `pc.tokens` reproduces
+  ## the same outcome -- so it's safe to skip, not just an optimization.
+  if s in seen:
+    return
+  seen.incl s
+
+  if pc.tokens.len == 0:
+    acc.add (s, pc)
+
+  for tr in s.transitions:
+    var fresh = pc
+    if tr.matcher.match(fresh):
+      if fresh.tokens.len < pc.tokens.len:
+        var freshSeen: HashSet[State]
+        collectFrontier(tr.next, fresh, acc, freshSeen)
+      else:
+        collectFrontier(tr.next, fresh, acc, seen)
+
+proc bareVariants(spec: Spec, arg: Arg): seq[string] =
+  ## The bare option/flag spellings actually typed on the command line for
+  ## `arg` (e.g. "--log-level", never "--log-level=<level>"). Reads
+  ## `spec.options`, the same canonical bare-name -> Arg map `tokenizeArgs`
+  ## itself looks up against, rather than re-deriving stripping logic from
+  ## `arg.variants` -- for an Optional-kind `ValueArg` (`opt`/`args`),
+  ## `variants` stores the *declared* string verbatim, including any
+  ## `=<placeholder>` suffix used only for help-text rendering (`FlagArg`
+  ## already stores bare names at construction time, so this is a no-op for
+  ## it, but reusing one rule for both is simpler than branching by kind).
+  for k, v in spec.options:
+    if v == arg: result.add k
+
+proc candidateWords(frontier: Frontier, prefix: string): seq[string] =
+  ## Reads every live frontier state's own outgoing transitions for literal
+  ## next-word spellings (option/flag variants, command variants, or an
+  ## enumerable positional's `completions()`), keeping only ones starting
+  ## with `prefix` and deduplicating while preserving first-seen (== FSM
+  ## priority/declaration) order.
+  for (state, pc) in frontier:
+    for tr in state.transitions:
+      let candidates =
+        case tr.matcher.kind
+        of Option: pc.spec.bareVariants(tr.matcher.opt)
+        of Options:
+          collect:
+            for opt in tr.matcher.opts:
+              for v in pc.spec.bareVariants(opt): v
+        of Command: tr.matcher.cmd.variants
+        of Argument: tr.matcher.arg.completions()
+        of Shortcut: newSeq[string]()
+      for c in candidates:
+        if c.startsWith(prefix) and c notin result:
+          result.add c
+
+proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
+  ## Every distinct `Optional`-kind (value-taking, not `Flag`) Arg reachable
+  ## from a live frontier state whose variants include `name` exactly --
+  ## used by `completeArgs` to detect "the last already-typed word is itself
+  ## a bare option name still awaiting its value" (e.g. `--log-level` typed
+  ## with nothing after it yet).
+  var seenArgs: HashSet[Arg]
+  for (state, pc) in frontier:
+    for tr in state.transitions:
+      var candidates: seq[Arg]
+      case tr.matcher.kind
+      of Option: candidates = @[tr.matcher.opt]
+      of Options: candidates = tr.matcher.opts
+      else: discard
+      for arg in candidates:
+        if arg.kind == Optional and name in pc.spec.bareVariants(arg) and arg notin seenArgs:
+          seenArgs.incl arg
+          result.add arg
+
+proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string] =
+  ## Returns shell-completion candidates for `words` -- everything typed
+  ## after the `__complete` marker (see `parse*`). The last element of
+  ## `words` is the word currently being completed (possibly `""` if the
+  ## cursor follows a space with nothing typed for this word yet); every
+  ## earlier element is already complete. Never raises -- an unparseable
+  ## prefix simply yields no candidates, leaving the shell's own
+  ## file-completion fallback to take over. See
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`.
+  let wordBeingCompleted = if words.len > 0: words[^1] else: ""
+  let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
+
+  # Case (b): is the last already-complete word itself a bare Optional-kind
+  # option name still awaiting its value (`--log-level`, not
+  # `--log-level=info`)? If so, don't try to tokenize it as a complete
+  # token at all -- `tokenizeArgs` requires the *next* raw arg to already
+  # supply that option's value, which isn't true here since this word is
+  # the last one typed. Short-circuit straight to that Arg's own
+  # `completions()` instead.
+  if priorWords.len > 0:
+    let committed = priorWords[0 ..< priorWords.high]
+    var frontier: Frontier
+    var seen: HashSet[State]
+    try:
+      var pc = ParseContext(spec: spec, command: command,
+        tokens: spec.tokenizeArgs(committed, command))
+      collectFrontier(spec.fsm, pc, frontier, seen)
+    except ParseError:
+      return @[]
+    let pending = frontier.pendingOptionalArgs(priorWords[^1])
+    if pending.len > 0:
+      for arg in pending:
+        for c in arg.completions():
+          if c.startsWith(wordBeingCompleted) and c notin result:
+            result.add c
+      return result
+
+  # Case (a): ordinary "what word can come next" completion.
+  var frontier: Frontier
+  var seen: HashSet[State]
+  try:
+    var pc = ParseContext(spec: spec, command: command,
+      tokens: spec.tokenizeArgs(priorWords, command))
+    collectFrontier(spec.fsm, pc, frontier, seen)
+  except ParseError:
+    return @[]
+  result = frontier.candidateWords(wordBeingCompleted)
+
 proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
   ## Parses every non-Command match belonging to `spec`'s own level (per
   ## `Match.spec` provenance -- see `push`), leaving any Command matched
@@ -470,9 +612,18 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
   ## terminal state was reached and all args were consumed, the parse was
   ## successful and each match is parsed into its arg. Raises `ParseError`,
-  ## `ValidationError`, `HelpError`, or `MessageError` on failure -- use
-  ## `parseOrQuit*` (`argumint.nim`) if you want those to print a message and
-  ## `quit()` instead.
+  ## `ValidationError`, `HelpError`, `MessageError`, or `CompletionError` on
+  ## failure -- use `parseOrQuit*` (`argumint.nim`) if you want those to
+  ## print a message and `quit()` instead.
+  ##
+  ## `args[0] == "__complete"` is a shell-completion request (see
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`): short-circuits before
+  ## any real FSM matching, env fallback, or dispatch (so no `before`/
+  ## `action`/`after` hook fires), raising `CompletionError` with the
+  ## newline-joined candidates as its `msg`.
+  if args.len > 0 and args[0] == "__complete":
+    raise newException(CompletionError, spec.completeArgs(args[1 ..< args.len], command).join("\n"))
+
   var pc = ParseContext(spec: spec, command: command, tokens: spec.tokenizeArgs(args, command))
   if not spec.fsm.walk(pc):
     raiseParseError(formatComplaints(pc.messages), pc.command, pc.spec)

@@ -5,6 +5,12 @@ type
   ParseError* = object of CatchableError
   MessageError* = object of CatchableError
   HelpError* = object of MessageError
+  CompletionError* = object of MessageError
+    ## Carries the newline-joined shell-completion candidates for a
+    ## `__complete` request (see `fsm.parse*`). A peer of `HelpError`, not a
+    ## subtype of it -- reuses `parseOrQuit*`'s existing `except
+    ## MessageError as e: quit(e.msg, QuitSuccess)` branch for free. See
+    ## `docs/adr/0012-fsm-driven-shell-completion.md`.
 
   ArgKind* {.pure.} = enum
     Command ## A subcommand (e.g., `clone`)
@@ -131,6 +137,13 @@ method defaultStr*(self: Arg): string {.base.} =
   ## notion of a displayable default; `ValueArg` overrides this per-type via
   ## `defineArg`.
   ""
+
+method completions*(self: Arg): seq[string] {.base.} = @[]
+  ## Returns every value `self` would accept as a *value* (not a variant
+  ## spelling), for shell-completion purposes -- or `@[]` if unenumerable or
+  ## not applicable. The base case (commands, flags, message args -- none of
+  ## which carry a `Validator`) has nothing to show; `ValueArg` overrides
+  ## this per-type via `defineArg` (`argumint.nim`).
 
 method validatorHelp*(self: Arg): string {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.

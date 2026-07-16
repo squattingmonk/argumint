@@ -2,12 +2,14 @@
 
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
-import ./argumint/[backend, dot, fsm, parser, validators]
+import ./argumint/[backend, completion, dot, fsm, parser, validators]
+
+export completion.Shell
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise, without also reaching into
 # `argumint/backend`/`argumint/validators`/`argumint/lexer` by hand.
-export ParseError, ValidationError, HelpError, MessageError, SpecDefect
+export ParseError, ValidationError, HelpError, MessageError, SpecDefect, CompletionError
 
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
@@ -270,6 +272,12 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
 
   method validatorHelp*(self: ValueArg[T, true]): string =
     if self.validator.isNil: "" else: self.validator.help()
+
+  method completions*(self: ValueArg[T, false]): seq[string] =
+    if self.validator.isNil: @[] else: self.validator.completions()
+
+  method completions*(self: ValueArg[T, true]): seq[string] =
+    if self.validator.isNil: @[] else: self.validator.completions()
 
   method envName*(self: ValueArg[T, false]): string = self.env
 
@@ -862,6 +870,30 @@ defineArg char:
 # import ./argumint/dot
 
 
+proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
+  ## Returns whether `args` is a shell-completion request (see
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
+  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
+  ## completion handling rather than a real run.
+  ##
+  ## Every completion request re-invokes the compiled binary as a fresh
+  ## process, so any code an author runs *before* calling `parse*`/
+  ## `parseOrQuit*` at all (config loading, opening a DB connection, etc.)
+  ## reruns on every single completion request -- once per keystroke a user
+  ## presses TAB, not just once. `before`/`action`/`after` hooks are already
+  ## safe from this (they never fire during completion), but anything ahead
+  ## of the `parse*`/`parseOrQuit*` call itself isn't. Guard expensive
+  ## pre-parse setup with this if that matters for your program:
+  ## ```nim
+  ## when isMainModule:
+  ##   if isCompletionRequest():
+  ##     spec.parse(...)          # skip straight past expensive setup
+  ##   else:
+  ##     setupDatabaseConnection()
+  ##     spec.parse(...)
+  ## ```
+  args.len > 0 and args[0] == "__complete"
+
 proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
   ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
@@ -874,6 +906,15 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
     quit("Validation error: {e.msg}".fmt)
   except HelpError as e:
     quit(e.msg, QuitSuccess)
+  except CompletionError as e:
+    # Unlike every other MessageError kind, this must land on stdout, not
+    # stderr -- a shell adapter script reads candidates via `$(...)` command
+    # substitution, which only captures stdout. `quit(msg, code)`'s doc
+    # comment claims it's shorthand for `echo(msg); quit(code)`, but on a
+    # compiled (non-nimscript/js) target it actually writes to stderr
+    # (`system.nim`'s `cstderr.rawWrite`) -- so this needs a real `echo`.
+    echo e.msg
+    quit(QuitSuccess)
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
@@ -929,6 +970,15 @@ proc dot*(spec: tuple, usage = "", prolog = "", epilog = ""): string =
     newSpec(spec, usage, prolog, epilog).dot
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
+
+proc completionScript*(spec: Spec, shell: Shell, binaryName = extractFilename(getAppFilename())): string =
+  ## Returns a shell-completion script for `shell` that completes
+  ## `binaryName` by shelling out to it (`<binaryName> __complete
+  ## <words...>`) -- see `docs/adr/0012-fsm-driven-shell-completion.md`.
+  ## Author-driven, like `dot*`: install the result however your packaging
+  ## needs (write it to a file, expose a `completion` subcommand, etc.) --
+  ## argumint doesn't wire this up automatically.
+  spec.genCompletionScript(shell, binaryName)
 
 when isMainModule:
   # let
