@@ -224,11 +224,46 @@ use-sites — code reads `spec.dest` rather than `spec.dest.value`.
 ## 5. Subcommands
 
 `command*` builds a `CommandArg` wrapping its own nested `Spec` (built via
-`newSpec` from a nested arg tuple), optionally binding a `handler` closure.
-A subcommand's FSM is spliced into the parent's FSM as a single
-`Command`-kind transition (see `atom()`'s `tkCommand` branch in
+`newSpec` from a nested arg tuple), optionally binding `before`/`action`/
+`after` hook closures onto that nested `Spec` (not onto the `CommandArg`
+itself — see below). A subcommand's FSM is spliced into the parent's FSM
+as a single `Command`-kind transition (see `atom()`'s `tkCommand` branch in
 `parser.nim`), with all of the subcommand's terminal states wired via
 shortcut back to a single continuation state in the parent graph.
+
+### Dispatch order
+
+Runtime matching (§3 above) populates one flat `pc.matches:
+OrderedTable[Arg, seq[Match]]` across the *entire* spliced FSM, regardless
+of depth. Each `Match` additionally carries the `Spec` it was recorded
+under (`fsm.nim`'s `push`, reading `pc.spec` at the exact moment of the
+match — safe because `ParseContext` is a plain `object`, not a `ref
+object`, so `walk`'s backtracking clones it per candidate branch and only
+commits the winning branch back) — this is what lets dispatch scope a
+match to the correct level even when the same `Arg` is reachable at more
+than one grammar level.
+
+After a successful walk, `Spec.parse`'s final step recursively re-walks
+the *declared* Spec tree — not `pc.matches` itself, which carries no scope
+information on its own — via `dispatch(spec, pc.matches, command)`. At
+each `Spec` level: `parseOwnValues` parses that level's own non-Command
+matches (filtered by the `Match`'s `Spec` provenance); `spec.before()`
+fires, if set, now that those values are ready; `matchedCommand` finds
+whichever single Command was matched at this level, if any (at most one
+ever can be — `tokenizeArgs` hands off every remaining token to a matched
+command's own nested spec permanently, so a sibling command word can never
+be recognized afterward); if none, `spec.action()` fires (this Spec is the
+dynamic leaf for this invocation); if one, `dispatch` recurses into its
+own nested `Spec`; finally `spec.after()` fires, wrapped in a `try/finally`
+around the action-or-recursion step so it's guaranteed to run once
+`before` (or its absence) has completed without raising, regardless of
+what happens afterward. Applied recursively, this gives `before` a
+root-to-leaf firing order, `action` firing exactly once at whichever level
+turns out to be the leaf, and `after` a leaf-to-root order — and, since
+each level's `after` is reached via its own `try/finally`, an ancestor
+whose `before` already ran still gets a chance to clean up even when
+something nested inside it fails, with no explicit bookkeeping. See
+`docs/adr/0009-command-before-action-after-hooks.md`.
 
 ## `autoFillUsage`
 

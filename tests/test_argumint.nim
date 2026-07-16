@@ -325,17 +325,147 @@ suite "[options] catch-all":
       spec.parse(usage = usage, args = @["--format=json", "--format=yaml"], command = "prog")
 
 suite "Commands":
-  test "dispatch a matched subcommand to its handler":
+  test "a matched subcommand's action fires with its own parsed values":
     var moved = ""
     proc cmdMove(spec: tuple) =
       moved = spec.name
 
     let move = (name: arg("<name>", help = ""))
     let spec = (
-      ship: command("ship", move, handler = cmdMove, usage = "<name>", help = ""),
+      ship: command("ship", move, action = cmdMove, usage = "<name>", help = ""),
     )
     spec.parse(usage = "ship", args = @["ship", "Titanic"], command = "prog")
     check moved == "Titanic"
+
+  test "before runs root-to-leaf, action fires once at the leaf, after runs leaf-to-root":
+    var log: seq[string]
+    proc outerBefore(spec: tuple) = log.add "outer-before"
+    proc outerAfter(spec: tuple) = log.add "outer-after"
+    proc innerBefore(spec: tuple) = log.add "inner-before"
+    proc innerAction(spec: tuple) = log.add "inner-action"
+    proc innerAfter(spec: tuple) = log.add "inner-after"
+
+    let inner = (name: arg("<name>", help = ""))
+    let outer = (
+      move: command("move", inner, before = innerBefore, action = innerAction, after = innerAfter, usage = "<name>", help = ""),
+    )
+    let spec = (
+      ship: command("ship", outer, before = outerBefore, after = outerAfter, help = ""),
+    )
+    spec.parse(usage = "ship", args = @["ship", "move", "Titanic"], command = "prog")
+    check log == @["outer-before", "inner-before", "inner-action", "inner-after", "outer-after"]
+
+  test "action fires when a command is invoked bare, but not when it routes to a subcommand":
+    var shipActionFired = false
+    var moveActionFired = false
+    proc shipAction(spec: tuple) = shipActionFired = true
+    proc moveAction(spec: tuple) = moveActionFired = true
+
+    let move1 = ()
+    let ship1 = (move: command("move", move1, action = moveAction, help = ""))
+    let bareSpec = (ship: command("ship", ship1, action = shipAction, usage = "[move]", help = ""))
+    bareSpec.parse(usage = "ship", args = @["ship"], command = "prog")
+    check shipActionFired
+    check not moveActionFired
+
+    shipActionFired = false
+    moveActionFired = false
+    let move2 = ()
+    let ship2 = (move: command("move", move2, action = moveAction, help = ""))
+    let routedSpec = (ship: command("ship", ship2, action = shipAction, usage = "[move]", help = ""))
+    routedSpec.parse(usage = "ship", args = @["ship", "move"], command = "prog")
+    check not shipActionFired
+    check moveActionFired
+
+  test "before/action/after passed to the top-level parse* call fire around the whole tree":
+    var log: seq[string]
+    proc appBefore(spec: tuple) = log.add "app-before"
+    proc appAction(spec: tuple) = log.add "app-action"
+    proc appAfter(spec: tuple) = log.add "app-after"
+
+    let spec = (name: arg("<name>", help = ""))
+    spec.parse(usage = "<name>", args = @["Titanic"], command = "prog",
+      before = appBefore, action = appAction, after = appAfter)
+    check log == @["app-before", "app-action", "app-after"]
+
+  test "an ancestor's after still runs when a nested command's own before raises":
+    var log: seq[string]
+    proc outerBefore(spec: tuple) = log.add "outer-before"
+    proc outerAfter(spec: tuple) = log.add "outer-after"
+    proc innerBefore(spec: tuple) = raise newException(CatchableError, "boom")
+    proc innerAfter(spec: tuple) = log.add "inner-after"
+
+    let inner = ()
+    let outer = (
+      move: command("move", inner, before = innerBefore, after = innerAfter, help = ""),
+    )
+    let spec = (
+      ship: command("ship", outer, before = outerBefore, after = outerAfter, help = ""),
+    )
+    expect CatchableError:
+      spec.parse(usage = "ship", args = @["ship", "move"], command = "prog")
+    check log == @["outer-before", "outer-after"]
+
+  test "the [S, O] overload's options param reaches before, action, and after":
+    var seenBefore, seenAction, seenAfter = ""
+    let context = (label: "outer-context")
+    proc cmdBefore(spec: tuple, opts: tuple) = seenBefore = opts.label
+    proc cmdAction(spec: tuple, opts: tuple) = seenAction = opts.label
+    proc cmdAfter(spec: tuple, opts: tuple) = seenAfter = opts.label
+
+    let inner = ()
+    let spec = (
+      ship: command("ship", inner, context, before = cmdBefore, action = cmdAction, after = cmdAfter, help = ""),
+    )
+    spec.parse(usage = "ship", args = @["ship"], command = "prog")
+    check seenBefore == "outer-context"
+    check seenAction == "outer-context"
+    check seenAfter == "outer-context"
+
+  test "a nested command's own --help renders its own spec, not a sibling level's":
+    # [--help] is explicitly named (not the [options] catch-all, which
+    # excludes MessageArg/HelpArg) so it's reachable alongside `ship` in
+    # one line, letting the walk enter ship's own subgraph (mutating
+    # pc.spec) in the same successful walk that matched --help at the top
+    # level -- exercising the fix that scopes HelpArg dispatch to the
+    # correct per-level spec instead of the walk's final pc.spec.
+    let spec = (
+      ship: command("ship", (), help = ""),
+      help: help(),
+    )
+    var helpText = ""
+    try: spec.parse(usage = "[--help] ship", prolog = "TOP LEVEL", args = @["--help", "ship"], command = "prog")
+    except HelpError as e: helpText = e.msg
+    check "TOP LEVEL" in helpText
+
+  test "two Commands can share one underlying proc, parameterized differently per call site":
+    var log: seq[string]
+    proc cmdToggle(spec: tuple, on: bool) =
+      log.add (if on: "on" else: "off")
+
+    let spec1 = (
+      start: command("start", (), action = (proc(spec: tuple) = cmdToggle(spec, true)), help = ""),
+      stop: command("stop", (), action = (proc(spec: tuple) = cmdToggle(spec, false)), help = ""),
+    )
+    spec1.parse(usage = "(start | stop)", args = @["start"], command = "prog")
+
+    let spec2 = (
+      start: command("start", (), action = (proc(spec: tuple) = cmdToggle(spec, true)), help = ""),
+      stop: command("stop", (), action = (proc(spec: tuple) = cmdToggle(spec, false)), help = ""),
+    )
+    spec2.parse(usage = "(start | stop)", args = @["stop"], command = "prog")
+
+    check log == @["on", "off"]
+
+  test "the same Arg reachable at both an ancestor and a nested command's grammar gets each occurrence attributed to the right level":
+    let tag = opts[string]("--tag=<tag>", help = "")
+    let ship = (tag: tag)
+    let spec = (
+      tag: tag,
+      ship: command("ship", ship, usage = "[--tag=<tag>]", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>] ship", args = @["--tag=a", "ship", "--tag=b"], command = "prog")
+    check tag == @["a", "b"]
 
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":

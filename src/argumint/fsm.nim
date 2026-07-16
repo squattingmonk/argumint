@@ -7,7 +7,7 @@ export ParseError, SpecDefect
 
 
 type
-  Match = tuple[variant: string, value: string]
+  Match = tuple[variant: string, value: string, spec: Spec]
   MatchTable = OrderedTable[Arg, seq[Match]]
   Complaint = tuple[kind: string, subject: string]
     ## A failure reason, e.g. `("missing option", "-v")`. Kept structured
@@ -172,10 +172,16 @@ proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): se
 
     pos.inc
 
-proc push(matches: var MatchTable, arg: Arg, variant: string, value = "") =
-  ## Adds a matched arg's seen variant and value to the table of matches.
-  if matches.hasKeyOrPut(arg, @[(variant, value)]):
-    matches[arg].add (variant, value)
+proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "") =
+  ## Adds a matched arg's seen variant and value to the table of matches,
+  ## tagged with the Spec it was matched under (`spec`, i.e. the spec
+  ## level whose own grammar this match's Matcher belongs to) -- needed so
+  ## `dispatch` (`Spec.parse`'s tail) can tell apart two independent real
+  ## matches of the same `Arg` reachable at two different grammar levels
+  ## from one match seen twice. See
+  ## `docs/adr/0009-command-before-action-after-hooks.md`.
+  if matches.hasKeyOrPut(arg, @[(variant, value, spec)]):
+    matches[arg].add (variant, value, spec)
 
 proc match(m: Matcher, pc: var ParseContext): bool =
   ## Checks if `m` matches a token in `tokens`. May consume a token and may add
@@ -194,7 +200,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       let token = pc.tokens[pos]
       case token.kind
       of Positional:
-        pc.matches.push(m.arg, m.arg.name, token.argVal)
+        pc.matches.push(m.arg, pc.spec, m.arg.name, token.argVal)
         pc.tokens.delete pos
         result = true
         break
@@ -216,7 +222,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       case token.kind
       of Command:
         if token.cmd == m.cmd:
-          pc.matches.push(m.cmd, token.cmdName)
+          pc.matches.push(m.cmd, pc.spec, token.cmdName)
           pc.command = fmt"{pc.command} {token.cmdName}"
           pc.spec = m.cmd.spec
           pc.tokens.delete 0
@@ -237,12 +243,12 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       case token.kind
       of Optional:
         if token.opt == m.opt:
-          pc.matches.push(token.opt, token.optName, token.optVal)
+          pc.matches.push(token.opt, pc.spec, token.optName, token.optVal)
           pc.tokens.delete pos
           return true
       of Flag:
         if token.flag == m.opt:
-          pc.matches.push(token.flag, token.flagName)
+          pc.matches.push(token.flag, pc.spec, token.flagName)
           pc.tokens.delete pos
           return true
       of Command:
@@ -339,6 +345,54 @@ proc walk(s: State, pc: var ParseContext): bool =
       pc.messages = fresh.messages
       pc.command = fresh.command
 
+proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
+  ## Parses every non-Command match belonging to `spec`'s own level (per
+  ## `Match.spec` provenance -- see `push`), leaving any Command matched
+  ## at this level for `dispatch` to handle.
+  for arg in spec.args:
+    if arg.kind == Command:
+      continue
+    for (variant, value, matchSpec) in matches.getOrDefault(arg):
+      if matchSpec != spec:
+        continue
+      if arg of HelpArg:
+        arg.parse(command, spec, variant)
+      else:
+        arg.parse(value, variant)
+
+proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, variant: string] =
+  ## The Command actually matched at this spec's own level for this
+  ## invocation, if any -- `cmd` is nil if this spec is the dynamic leaf.
+  ## At most one Command can ever be matched per spec level: `tokenizeArgs`
+  ## hands off every remaining token to a matched command's own nested
+  ## spec permanently, so a sibling command word can never be recognized
+  ## afterward.
+  for arg in spec.args:
+    if arg.kind != Command:
+      continue
+    let cmd = CommandArg(arg)
+    for (variant, _, matchSpec) in matches.getOrDefault(cmd):
+      if matchSpec == spec:
+        return (cmd, variant)
+
+proc dispatch(spec: Spec, matches: MatchTable, command: string) =
+  ## Recursively dispatches `spec` and, if a Command was matched at its own
+  ## level, whichever nested spec that routes to -- firing `before`/
+  ## `action`/`after` per `docs/adr/0009-command-before-action-after-hooks.md`.
+  parseOwnValues(spec, matches, command)
+  if not spec.before.isNil:
+    spec.before()
+  try:
+    let (cmd, variant) = matchedCommand(spec, matches)
+    if cmd.isNil:
+      if not spec.action.isNil:
+        spec.action()
+    else:
+      dispatch(cmd.spec, matches, "{command} {variant}".fmt)
+  finally:
+    if not spec.after.isNil:
+      spec.after()
+
 proc formatComplaints(messages: seq[Complaint]): string =
   ## Groups same-kind complaints (e.g. two unmatched commands) into one line
   ## joined by " | ".
@@ -400,17 +454,4 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if envComplaints.len > 0:
     raiseParseError(formatComplaints(envComplaints), pc.command, pc.spec)
 
-  var commands = newSeq[Arg]()
-  for arg, matches in pc.matches.pairs:
-    if arg.kind == Command:
-      commands.add arg
-      continue
-    for (variant, value) in matches:
-      if arg of HelpArg:
-        arg.parse(pc.command, pc.spec, variant)
-      else:
-        arg.parse(value, variant)
-  for command in commands:
-    for (variant, value) in pc.matches[command]:
-      # echo "Got command: ", variant
-      command.parse(value, variant)
+  dispatch(spec, pc.matches, command)

@@ -71,12 +71,12 @@ let
   )
 
   ship = (
-    new: command("new", shipNew, handler = cmdShipNew, usage = "<name>...", help = "Build new ship(s)"),
+    new: command("new", shipNew, action = cmdShipNew, usage = "<name>...", help = "Build new ship(s)"),
     move: command(
-      "move", shipMove, handler = cmdShipMove,
+      "move", shipMove, action = cmdShipMove,
       usage = "<name> <x> <y> [--speed=<kn>]", help = "Move a ship to a new position"
     ),
-    shoot: command("shoot", shipShoot, handler = cmdShipShoot, usage = "<x> <y>", help = "Shoot at a position"),
+    shoot: command("shoot", shipShoot, action = cmdShipShoot, usage = "<x> <y>", help = "Shoot at a position"),
     help: help()
   )
 
@@ -97,9 +97,9 @@ let
   )
 
   mine = (
-    set: command("set", mineSet, handler = cmdMineSet, usage = "<x> <y> [--moored | --drifting]", help = "Lay a mine"),
+    set: command("set", mineSet, action = cmdMineSet, usage = "<x> <y> [--moored | --drifting]", help = "Lay a mine"),
     remove: command(
-      "remove", mineRemove, handler = cmdMineRemove,
+      "remove", mineRemove, action = cmdMineRemove,
       usage = "<x> <y> [--moored | --drifting]", help = "Remove a mine"
     ),
     help: help()

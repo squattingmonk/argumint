@@ -21,7 +21,6 @@ type
 
   CommandArg* = ref object of Arg
     spec*: Spec
-    handler*: proc ()
 
   MessageArg* = ref object of Arg
     message*: string
@@ -41,6 +40,9 @@ type
     width*: int ## Column width to wrap usage/help text at
     maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
     envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e`, which is always tried first)
+    before*: proc () ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
+    action*: proc () ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
+    after*: proc () ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has

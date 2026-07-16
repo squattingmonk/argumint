@@ -9,7 +9,10 @@ string is compiled into a finite state machine that drives parsing.
 The complete declaration of a command-line interface: every argument it
 accepts, its Usage String, and its help text. A Command owns its own
 nested Spec, scoped to that subcommand — there is no separate concept for
-a "sub-spec."
+a "sub-spec." A Spec may also carry a Before Hook, an Action, and an After
+Hook, fired around its own dispatch — this applies equally to a Command's
+own nested Spec and to the top-level Spec, which carries no Command of its
+own. See those entries.
 _Avoid_: Parser, schema, config
 
 **Arg**:
@@ -71,9 +74,56 @@ A named subcommand that carries no value of its own; matching one of its
 Variants routes the remaining argument list into that Command's own nested
 Spec. A raw argument is checked against known Command Variants before it's
 considered for a Positional Argument. All Variants route to the same
-nested Spec, but a Command's handler could still branch on which Variant
-was actually seen.
-_Avoid_: Subcommand, verb, action
+nested Spec, including whatever Before Hook/Action/After Hook that Spec
+carries — a Variant is an alias for the same Command, not a signal for
+different behavior; a caller wanting different behavior per Variant
+declares separate Commands (optionally sharing one underlying proc,
+parameterized differently at each call site) rather than branching inside
+a shared hook.
+_Avoid_: Subcommand, verb, action (a Command is never itself "an action" —
+Action is a distinct, formally-defined term, see below)
+
+**Before Hook**:
+An optional callback carried by a Spec (`command*`'s `before` param for a
+Command's own nested Spec, or the top-level `parse*`/`parseOrQuit*` tuple
+overloads' `before` param for the top-level Spec), fired once that Spec's
+own values are parsed but before dispatch descends into any Command
+matched at that Spec's own level. Runs root-to-leaf across a matched
+Command tree — an ancestor's Before Hook always fires before any Command
+nested inside it fires its own. Pairs with After Hook to wrap dispatch
+into whatever's nested inside a Spec (e.g. setup/teardown shared
+infrastructure a nested Command shouldn't have to redo); pairs with Action
+for a Spec's own leaf-level logic. See
+`docs/adr/0009-command-before-action-after-hooks.md`.
+_Avoid_: handler (the removed, single-callback predecessor to this trio),
+pre-hook, callback
+
+**Action**:
+An optional callback carried by a Spec, fired once that Spec's own values
+are parsed, but only if that Spec is the dynamic leaf for the current
+invocation — i.e. no Command was matched at that Spec's own level for
+this parse. Whether a given Spec is the dynamic leaf is determined
+per-invocation, not by how the Spec was declared: the same Command
+invoked bare fires its own Action, while the same Command invoked with a
+further subcommand instead defers to whatever Action fires deeper, only
+wrapping it via Before Hook/After Hook. Never fires alongside a Command
+matched at the same level. See Before Hook, After Hook.
+_Avoid_: handler (the removed predecessor); don't use "action" to mean
+Command itself — see Command's own _Avoid_ note
+
+**After Hook**:
+An optional callback carried by a Spec, fired once that Spec's own
+dispatch — its own values, Before Hook, and Action or whatever Command it
+routed into — has finished, whether it succeeded or raised. Runs
+leaf-to-root: an ancestor's After Hook fires only once every Command
+nested inside it, including that Command's own After Hook, has already
+finished. Guaranteed to run if the Spec's own Before Hook (or its absence)
+completed without raising, regardless of what happens afterward — this is
+what lets an ancestor's After Hook still perform cleanup (e.g. closing a
+file handle a Before Hook opened) even when something nested inside it
+fails; falls out of ordinary nested `try`/`finally`, no bookkeeping of its
+own. See Before Hook, Action.
+_Avoid_: handler (the removed predecessor), post-hook, cleanup callback
 
 **Message Argument**:
 An Arg whose match, via any of its Variants, displays a fixed message and

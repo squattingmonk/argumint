@@ -1,4 +1,4 @@
-# This example demonstrates subcommands with per-command handlers, in the
+# This example demonstrates subcommands with per-command actions, in the
 # same style as the larger Naval Fate demo in src/argumint.nim (see
 # `command()`), but pared down to just two subcommands: `add` and `commit`. A
 # top-level `--verbose` flag shows how `[options]` auto-fills into the usage
@@ -30,9 +30,9 @@ let
 
   spec = (
     verbose: flag("--verbose", help = "Show extra output"),
-    add: command("add", add, handler = cmdAdd, usage = "<file>...", help = "Add file contents to the index"),
+    add: command("add", add, action = cmdAdd, usage = "<file>...", help = "Add file contents to the index"),
     commit: command(
-      "commit", commit, handler = cmdCommit,
+      "commit", commit, action = cmdCommit,
       usage = "[--amend] <message>", help = "Record changes to the repository"
     ),
     help: help()

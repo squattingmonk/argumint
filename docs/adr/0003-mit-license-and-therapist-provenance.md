@@ -37,3 +37,8 @@ signature, `isNil` guard, and closure-adaptation idiom. Judged too thin
 `fsm.nim` block's distinctive comment/regex) to be worth a rewrite, and left
 as-is. May become moot anyway if `CommandArg` moves from a single `handler`
 to separate before/after hooks.
+
+**Update:** this did become moot. `docs/adr/0009-command-before-action-
+after-hooks.md` removed `CommandArg.handler` outright, replacing it with
+`before`/`action`/`after` hooks living on `Spec` -- the LGPL-adjacent field
+this note was tracking no longer exists.
