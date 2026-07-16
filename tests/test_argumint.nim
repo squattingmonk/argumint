@@ -541,6 +541,31 @@ suite "Commands":
 
     check log == @["b", "b"]
 
+  test "SpecDefect: a repeated Command can never satisfy its own repeat":
+    # foo...: once the first `foo` matches, tokenizeArgs hands off every
+    # remaining token to foo's own nested spec permanently, so the self-loop
+    # wired for `...` can never actually be re-entered by a second `foo`.
+    expect SpecDefect:
+      discard newSpec((
+        foo: command("foo", (), help = ""),
+      ), usage = "foo...")
+
+  test "SpecDefect: a repeated group containing a Command is equally broken":
+    # (foo)... and (foo | bar)...: repeating a group requires re-entering
+    # its own start state, which a matched Command's permanent hand-off
+    # prevents just as much as a bare repeated Command does.
+    for usage in ["(foo)...", "(foo | bar)..."]:
+      expect SpecDefect:
+        discard newSpec((
+          foo: command("foo", (), help = ""),
+          bar: command("bar", (), help = ""),
+        ), usage = usage)
+
+  test "a repeated non-Command atom is unaffected":
+    let spec = (names: args[string]("<name>", help = ""))
+    spec.parse(usage = "<name>...", args = @["a", "b", "c"], command = "prog")
+    check spec.names == @["a", "b", "c"]
+
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
     parse((), args = @[], command = "prog")

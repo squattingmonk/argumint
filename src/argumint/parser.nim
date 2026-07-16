@@ -169,6 +169,8 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
     assert false
 
   if p.peek {tkRepeat}:
+    if result.hasCommand:
+      token.error("A Command cannot be repeated with '...' -- a matched Command consumes every remaining argument, so a second repetition can never be reached; give the Command's own nested Usage Line a repeatable atom instead if you want to match multiple values there")
     result.b.addShortcut(result.a)
     p.next()
 

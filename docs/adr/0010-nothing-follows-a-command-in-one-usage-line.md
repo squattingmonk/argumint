@@ -90,6 +90,26 @@ suite: the same `CommandArg` reused both as a top-level sibling and as
 another command's own nested subcommand, exercised both ways, must compile
 and dispatch correctly with no `SpecDefect`.
 
+### A repeated Command (`cmd...`) is the same bug, closed by reusing `hasCommand`
+
+`foo...` shares the exact same root cause: once the first `foo` matches,
+`tokenizeArgs`'s hand-off is permanent, so a second occurrence of `foo` in
+the input can never be recognized as another repetition -- it falls through
+to whatever `foo`'s own nested spec makes of it, never satisfying the outer
+grammar's repeat. This wasn't caught by the check above at first, because
+`...` is wired as a self-loop shortcut edge in `atom`'s trailing-repeat
+handling *without* a second call to `atom`, so no second token flowed
+through the `seenCommand` check.
+
+Closed by reusing the same `hasCommand` bit already computed for the atom,
+at the point `atom` handles a trailing `...`: if the atom being repeated
+contains a Command, repeating it is rejected the same way, since repeating
+requires re-entering the atom's own start state -- exactly what a matched
+Command's permanent hand-off prevents. Using `result.hasCommand` rather
+than checking for a literal `tkCommand` token also catches `(foo)...` and
+`(foo | bar)...` -- any repeated group containing a Command, not just a
+bare repeated Command -- for free, with no new state to track.
+
 ## Considered options
 
 - **A `HashSet[Arg]`/`bool` field on `SpecParser`**, following the
@@ -104,14 +124,8 @@ and dispatch correctly with no `SpecDefect`.
   distinguish `foo foo` from `foo bar`: rejected -- the runtime bug is
   purely structural, any atom after an earlier Command breaks identically
   regardless of which Command it was, so a plain `bool` is sufficient.
-
-## Out of scope
-
-`cmd...` (a single Command with a trailing repeat) shares the same root
-cause -- after the first match, all remaining tokens, including a second
-literal occurrence of the same command word, are handed to the matched
-command's own nested spec -- but isn't caught by this fix: `...` wires a
-self-loop shortcut edge (`atom`'s repeat handling) without a second call to
-`atom`, so no second token ever flows through the `seenCommand` check. Left
-as a known, unaddressed edge case rather than silently claiming full
-coverage.
+- **A separate `seenRepeat`-style check keyed on `tkCommand` specifically**,
+  for the trailing-repeat case: rejected in favor of reusing `hasCommand` --
+  same reasoning as generalizing past "a second Command" above, and it
+  catches repeated groups containing a Command for free instead of missing
+  them.
