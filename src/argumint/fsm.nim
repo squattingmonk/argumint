@@ -56,14 +56,8 @@ type
 let
   OptionValueFormat = peg"""
     # Allows you to capture [-o, =, val] / [--option, =, val] in -o=val / --option=val
-    option <- ^ {(shortOption / longOption)} ({sep} {value}) $
-    sep <- op? equals
+    option <- ^ {(shortOption / longOption)} ({equals} {value}) $
     equals <- '=' / ':'
-    op <- (prepend / append / remove / reset)
-    prepend <- '^'
-    append <- '+'
-    remove <- '-'
-    reset <- '&'
     shortOption <- '-' \w
     longOption <- '--' \w (\w / ('-' \w))+
     value <- _*

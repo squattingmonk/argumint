@@ -162,13 +162,11 @@ final stored value, which differs by Arg kind:
 - Scalar Option/Positional Argument: each match overwrites the previous —
   the final match wins.
 - Multi-value Positional Argument: each match appends to an ordered list.
-- Multi-value Option: today, each match always appends to an ordered
-  list, same as a multi-value Positional Argument. This is expected to
-  grow into a selectable operation (prepend/append/remove/reset,
-  mirroring Flag Operation) once the operator symbol already tokenized
-  into `optSep` is wired through to parsing -- see `TODO.md`. This future
-  pluggability is Option-only: a Positional Argument has no separator
-  syntax to select an operation with.
+- Multi-value Option: each match always appends to an ordered list, same
+  as a multi-value Positional Argument -- deliberately not a selectable
+  operation the way Flag Operation is; see
+  `docs/adr/0011-rejected-option-operations.md` for why that extension
+  was designed in detail and then rejected.
 - Flag: each match applies its Variant's Flag Operation to one shared
   value, in the order seen — composing sequentially, not overwriting or
   listing. This ordering is a guaranteed invariant, not incidental: an
