@@ -467,6 +467,80 @@ suite "Commands":
     spec.parse(usage = "[--tag=<tag>] ship", args = @["--tag=a", "ship", "--tag=b"], command = "prog")
     check tag == @["a", "b"]
 
+  test "SpecDefect: two top-level sibling Commands sequential in one Usage Line":
+    # Direct reproduction from the originating issue: once `foo` matches,
+    # tokenizeArgs hands off every remaining token to foo's own nested spec,
+    # so `bar` can never be reached.
+    expect SpecDefect:
+      discard newSpec((
+        foo: command("foo", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+        bar: command("bar", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+      ), usage = "foo bar")
+
+  test "SpecDefect: a Command followed by a plain positional from the outer spec":
+    # Not just a second Command -- anything from the outer spec following a
+    # Command sequentially is equally unreachable.
+    expect SpecDefect:
+      discard newSpec((
+        foo: command("foo", (), help = ""),
+        name: arg("<name>", help = ""),
+      ), usage = "foo <name>")
+
+  test "SpecDefect: a Command inside a bracket or paren group still blocks what follows":
+    # The blind spot a check scoped to one sequence() call frame would miss:
+    # `foo` is parsed in a nested sequence() call (the bracket/paren branch
+    # of atom()), `bar` in the outer one -- same runtime bug regardless.
+    for usage in ["[foo] bar", "(foo) bar"]:
+      expect SpecDefect:
+        discard newSpec((
+          foo: command("foo", (), help = ""),
+          bar: command("bar", (), help = ""),
+        ), usage = usage)
+
+  test "SpecDefect: a Command after a choice whose alternative already contains a Command":
+    # (foo | baz) bar: the `foo` branch alone hits the same runtime bug once
+    # `bar` follows, even though the `baz` branch on its own is fine.
+    expect SpecDefect:
+      discard newSpec((
+        foo: command("foo", (), help = ""),
+        baz: command("baz", (), help = ""),
+        bar: command("bar", (), help = ""),
+      ), usage = "(foo | baz) bar")
+
+  test "sibling Commands as choice alternatives alone remain legal":
+    let spec = (
+      foo: command("foo", (), help = ""),
+      bar: command("bar", (), help = ""),
+    )
+    spec.parse(usage = "(foo | bar)", args = @["foo"], command = "prog")
+
+  test "a Command reused as both a top-level sibling and a nested command's own subcommand doesn't trip the check":
+    # `b` is both a top-level sibling of `a` and `a`'s own subcommand -- the
+    # exact same CommandArg, mirroring "the same Arg reachable at both an
+    # ancestor and a nested command's grammar" above, but for a Command.
+    # Compiling `a\nb` must not raise SpecDefect, and each route must reach
+    # the shared underlying command.
+    var log: seq[string]
+    proc bAction(spec: tuple) = log.add "b"
+
+    block:
+      let bCmd = command("b", (), action = bAction, help = "")
+      let spec = (
+        a: command("a", (b: bCmd), usage = "b", help = ""),
+        b: bCmd,
+      )
+      spec.parse(usage = "a\nb", args = @["a", "b"], command = "prog")
+
+    block:
+      let bCmd = command("b", (), action = bAction, help = "")
+      let spec = (
+        a: command("a", (b: bCmd), usage = "b", help = ""),
+        b: bCmd,
+      )
+      spec.parse(usage = "a\nb", args = @["b"], command = "prog")
+
+    check log == @["b", "b"]
+
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
     parse((), args = @[], command = "prog")

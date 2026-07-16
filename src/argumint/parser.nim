@@ -42,9 +42,9 @@ proc eat(p: SpecParser, kinds: set[SpecTokenKind]): SpecToken =
   result = p.tok
   p.next
 
-proc atom(p: SpecParser): tuple[a: State, b: State]
+proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool]
 
-proc trivialArg(child: tuple[a: State, b: State]): Arg =
+proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool]): Arg =
   ## If `child` is nothing but a single Option or Argument matcher straight
   ## from `a` to `b` (not repeated via `...`, not part of a larger sequence
   ## or a bracket/`[options]` construct -- those all leave more than one
@@ -57,13 +57,13 @@ proc trivialArg(child: tuple[a: State, b: State]): Arg =
       of Argument: return tr.matcher.arg
       else: discard
 
-proc choice(p: SpecParser): tuple[a: State, b: State] =
+proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool] =
   ## Constructs a choice (e.g., `this | that`). Note `this` is still a choice.
-  var children = newSeq[tuple[a: State, b: State]]()
-  children.add p.atom
+  var children = newSeq[tuple[a: State, b: State, hasCommand: bool]]()
+  children.add p.atom(seenCommand)
   while p.peek {tkChoice}:
     p.next()
-    children.add p.atom()
+    children.add p.atom(seenCommand)
 
   if children.len == 1:
     return children[0]
@@ -72,8 +72,10 @@ proc choice(p: SpecParser): tuple[a: State, b: State] =
     a = newState()
     b = newState()
     seenArgs: HashSet[Arg]
+    hasCommand = false
 
   for child in children:
+    hasCommand = hasCommand or child.hasCommand
     # A bare `-h`/`--help`-style alternative already matches every variant
     # of its Arg (matching compares Arg identity, not the specific variant
     # string seen), so a later alternative referencing an Arg a previous
@@ -87,14 +89,15 @@ proc choice(p: SpecParser): tuple[a: State, b: State] =
     a.addShortcut(child.a)
     child.b.addShortcut(b)
 
-  return (a, b)
+  return (a, b, hasCommand)
 
-proc sequence(p: SpecParser, required = true): tuple[a: State, b: State] =
+proc sequence(p: SpecParser, required = true, seenCommand = false): tuple[a: State, b: State, hasCommand: bool] =
   ## Constructs a new sequence (e.g., `this that`). If `required` is `true`, the
   ## sequence must have child nodes.
   var
     a = newState()
     b = a
+    hasCmd = seenCommand
 
   proc add(x, y: State) =
     # Add all transitions in x to b, then set b to y.
@@ -103,18 +106,22 @@ proc sequence(p: SpecParser, required = true): tuple[a: State, b: State] =
     b = y
 
   if required:
-    let (s, e) = p.choice() # s == a == b
-    add(s, e) # s == a, e == b
+    let child = p.choice(hasCmd) # child.a == a == b
+    add(child.a, child.b) # child.a == a, child.b == b
+    hasCmd = hasCmd or child.hasCommand
 
   while p.peek CanAtom:
-    let (s, e) = p.choice()
-    add(s, e)
-  return (a, b)
+    let child = p.choice(hasCmd)
+    add(child.a, child.b)
+    hasCmd = hasCmd or child.hasCommand
+  return (a, b, hasCmd)
 
-proc atom(p: SpecParser): tuple[a: State, b: State] =
+proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool] =
   ## Generates a partial FSM for the next token if it represents or begins an
   ## atom. Returns a beginning and ending state for the atom.
   result.a = newState()
+  if seenCommand:
+    p.tok.error("Nothing may follow a Command earlier in the same Usage Line -- a matched Command consumes every remaining argument, so anything after it can never be reached; use '(a | b)' for alternatives, or move it into the earlier Command's own usage")
   let token = p.eat CanAtom
   case token.kind
   of tkArgument:
@@ -150,11 +157,12 @@ proc atom(p: SpecParser): tuple[a: State, b: State] =
     for s in cmd.spec.fsm.terminals:
       s.addShortcut(result.b)
     result.a.add(cmd.spec.fsm, newCmdMatcher(cmd))
+    result.hasCommand = true
   of tkParensOpen:
-    result = p.sequence()
+    result = p.sequence(seenCommand = seenCommand)
     discard p.eat {tkParensClose}
   of tkBracketOpen:
-    result = p.sequence()
+    result = p.sequence(seenCommand = seenCommand)
     result.a.addShortcut(result.b)
     discard p.eat {tkBracketClose}
   else:
@@ -207,7 +215,7 @@ proc genFsm*(spec: Spec): State =
       p.lex.open(line)
       defer: p.lex.close()
       p.tok = p.lex.next()
-      let (s, e) = p.sequence(false)
+      let (s, e, _) = p.sequence(false)
       if not p.peek {tkEof}:
         p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
       result.addShortcut(s)
