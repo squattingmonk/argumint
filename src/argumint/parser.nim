@@ -61,10 +61,7 @@ proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool]): Arg =
   if child.a.transitions.len == 1 and child.b.transitions.len == 0:
     let tr = child.a.transitions[0]
     if tr.next == child.b:
-      case tr.matcher.kind
-      of Option: return tr.matcher.opt
-      of Argument: return tr.matcher.arg
-      else: discard
+      result = tr.matcher.underlyingArg
 
 proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool] =
   ## Constructs a choice (e.g., `this | that`). Note `this` is still a choice.
@@ -219,7 +216,7 @@ proc genFsm*(spec: Spec): State =
       # patch each [options] atom's matcher to exclude it (see atom's
       # tkAnyOption branch and SpecParser.pendingOptions).
       for matcher in p.pendingOptions:
-        matcher.opts = matcher.opts.filterIt(it notin p.explicitOptions)
+        matcher.excludeOptions(p.explicitOptions)
       result.addShortcut(s)
       e.terminal = true
   result.prepare()
