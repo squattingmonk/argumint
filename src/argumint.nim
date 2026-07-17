@@ -495,19 +495,24 @@ proc cascadeSpecDefaults(spec: Spec, width, maxVariantsWidth: int, envDelim: str
 
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
     maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim): Spec =
-  ## Creates a new spec from a spec tuple and builds its FSM. See
-  ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
-  ## column width usage/help text wraps at, and `maxVariantsWidth` caps the
-  ## variants column's width before it wraps onto extra indented lines
-  ## (`0` for unlimited); both cascade to every nested subcommand's spec
-  ## (see `cascadeSpecDefaults`), as does `envDelim`. `width` defaults to
-  ## the caller's detected terminal width, falling back to 80 columns when
-  ## none can be detected (e.g. piped output with `COLUMNS` unset) -- pass
-  ## an explicit `width` to opt out of auto-detection. `envDelim` is the
-  ## delimiter an env-configured Option/Flag's raw value is split on to
-  ## supply more than one value (`\x1e` is always tried first, since
-  ## that's how fish auto-joins a list variable) -- see
-  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## Creates a new spec from a spec tuple and builds its FSM.
+  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
+  ##   for how gaps in `usage` are auto-filled.
+  ## - `prolog` is the front matter for help messages generated from this spec.
+  ## - `epilog` is the end matter for help messages generated from this spec.
+  ## - `width` is the column width usage/help text wraps at. Defaults to the
+  ##   caller's detected terminal width or 80 columns when none can be detected
+  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
+  ##   out of auto-detection.
+  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
+  ##   extra indented lines (`0` for unlimited)
+  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
+  ##   split on to supply more than one value (`\x1e` is always tried first,
+  ##   since that's how fish auto-joins a list variable) -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##
+  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
+  ## subcommand's spec (see `cascadeSpecDefaults`).
   ##
   ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
   ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you
@@ -704,17 +709,30 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
     before: proc(spec: S) = nil,
     action: proc(spec: S) = nil,
     after: proc(spec: S) = nil): CommandArg =
-  ## `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
+  ## - `variants` is a comma-separated list of names by which the command can be
+  ##   called by the user.
+  ## - `spec` is a spec tuple representing all possible args this command takes.
+  ## - `help` is a short description of the command used in help messages.
+  ## - `prolog` is the front matter for help messages generated for this
+  ##   command. Use this to provide a detailed description of the command's
+  ##   purpose.
+  ## - `epilog` is the end matter for help messages generated for this command.
+  ## - `usage` is the usage string that controls how the command's args can be
+  ##   invoked.
+  ## - `group` determines how this command is grouped in help messages.
+  ## - `hidden`, if `true`, prevents the command from appearing in help messages
+  ## - `before` fires once this command's own `spec`'s values are parsed
+  ## - `action` fires after `before`, but only if this command is the dynamic
+  ##   leaf (no nested command was also matched)
+  ## - `after` fires after this command's own `before`/`action`/nested dispatch.
+  ##
+  ## For more information on how before/action/after hooks are used, see
+  ## `docs/adr/0009-command-before-action-after-hooks.md`.
+  ##
+  ## Note: `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
   ## here: they cascade down from whatever the top-level `newSpec`/`parse*`
   ## call is given (see `cascadeSpecDefaults`), so they only need to be
   ## specified once regardless of how deeply nested this command is.
-  ##
-  ## `before` fires once this command's own `spec`'s values are parsed;
-  ## `action` fires right after, only if this command is the dynamic leaf
-  ## (no nested command was also matched); `after` fires once this
-  ## command's own before/action/nested dispatch has run, whether it
-  ## succeeded or raised. See
-  ## `docs/adr/0009-command-before-action-after-hooks.md`.
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
@@ -728,17 +746,48 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
     before: proc(spec: S, opts: O) = nil,
     action: proc(spec: S, opts: O) = nil,
     after: proc(spec: S, opts: O) = nil): CommandArg =
-  ## `options` is a generic extra-context passthrough, not necessarily
-  ## CLI-options-shaped data -- typically the caller's enclosing/parent spec
-  ## tuple (or any other context object), so a nested command's hooks can
-  ## read outer/global state that `spec: S` alone -- scoped to just this
-  ## command's own tuple -- wouldn't otherwise expose.
+  ## - `variants` is a comma-separated list of names by which the command can be
+  ##   called by the user.
+  ## - `spec` is a spec tuple representing all possible args this command takes.
+  ## - `options` is a generic extra-context passthrough, not necessarily
+  ##   CLI-options-shaped data -- typically the caller's enclosing/parent spec
+  ##   tuple (or any other context object), so a nested command's hooks can
+  ##   read outer/global state that `spec: S` alone -- scoped to just this
+  ##   command's own tuple -- wouldn't otherwise expose.
+  ## - `help` is a short description of the command used in help messages.
+  ## - `prolog` is the front matter for help messages generated for this
+  ##   command. Use this to provide a detailed description of the command's
+  ##   purpose.
+  ## - `epilog` is the end matter for help messages generated for this command.
+  ## - `usage` is the usage string that controls how the command's args can be
+  ##   invoked.
+  ## - `group` determines how this command is grouped in help messages.
+  ## - `hidden`, if `true`, prevents the command from appearing in help messages
+  ## - `before` fires once this command's own `spec`'s values are parsed
+  ## - `action` fires after `before`, but only if this command is the dynamic
+  ##   leaf (no nested command was also matched)
+  ## - `after` fires after this command's own `before`/`action`/nested dispatch.
+  ##
+  ## For more information on how before/action/after hooks are used, see
+  ## `docs/adr/0009-command-before-action-after-hooks.md`.
+  ##
+  ## Note: `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
+  ## here: they cascade down from whatever the top-level `newSpec`/`parse*`
+  ## call is given (see `cascadeSpecDefaults`), so they only need to be
+  ## specified once regardless of how deeply nested this command is.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
     before = if before.isNil: nil else: (proc(cmdSpec: S) = before(spec, options)),
     action = if action.isNil: nil else: (proc(cmdSpec: S) = action(spec, options)),
     after = if after.isNil: nil else: (proc(cmdSpec: S) = after(spec, options)))
 
 proc help*(variants = "-h, --help", help = "Display this help message", group = "Options", hidden = false): HelpArg =
+  ## Creates a flag which, when matched, displays an auto-generated help message
+  ## for the spec in whose context it was called.
+  ## - `variants` is a comma-separated list of names by which the flag is
+  ##   presented to the user. These must take the form `-o` or `--option`.
+  ## - `help` is a short description of the flag used in help messages.
+  ## - `group` determines how the flag is grouped in help messages.
+  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
 
 proc message*(text: string, variants: string, help = "", group = "Options", hidden = false): MessageArg =
@@ -803,6 +852,10 @@ defineArg char:
   of "=": value = arg
   else: raise newException(SpecDefect, "char flags only support = operations")
 
+# ------------------------------------------------------------------------------
+# These are the functions that handle shell completion and initiate parsing.
+# ------------------------------------------------------------------------------
+
 proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ## Returns whether `args` is a shell-completion request (see
   ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
@@ -851,9 +904,33 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width
     after: proc(spec: S) = nil) =
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
-  ## embedding in a larger program. `before`/`action`/`after` are app-level
-  ## hooks around the whole parse -- see
-  ## `docs/adr/0009-command-before-action-after-hooks.md`.
+  ## embedding in a larger program.
+  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
+  ##   for how gaps in `usage` are auto-filled.
+  ## - `prolog` is the front matter for help messages generated from this spec.
+  ## - `epilog` is the end matter for help messages generated from this spec.
+  ## - `width` is the column width usage/help text wraps at. Defaults to the
+  ##   caller's detected terminal width or 80 columns when none can be detected
+  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
+  ##   out of auto-detection.
+  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
+  ##   extra indented lines (`0` for unlimited)
+  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
+  ##   split on to supply more than one value (`\x1e` is always tried first,
+  ##   since that's how fish auto-joins a list variable) -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## - `args` is the command-line arguments to parse using the spec.
+  ## - `command` is the name of the binary to use in help messages.
+  ## - `before` fires once this `spec`'s own values are parsed
+  ## - `action` fires after `before`, but only if this spec is the dynamic leaf
+  ##   (no nested command was matched)
+  ## - `after` fires after this spec's own `before`/`action`/nested dispatch.
+  ##
+  ## `before`/`action`/`after` are app-level hooks around the
+  ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
+  ##
+  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
+  ## subcommand's spec (see `cascadeSpecDefaults`).
   try:
     let builtSpec = newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim)
     if not before.isNil: builtSpec.before = () => before(spec)
@@ -870,12 +947,35 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width = ter
     action: proc(spec: S) = nil,
     after: proc(spec: S) = nil) =
   ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in
-  ## one step. `before`/`action`/`after` are app-level hooks around the
+  ## one step. Raises `SpecDefect` (malformed spec), or `ParseError`/
+  ## `ValidationError`/`HelpError`/`MessageError` (parse failure) -- use
+  ## `parseOrQuit*` if you want those to print a message and `quit()` instead.
+  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
+  ##   for how gaps in `usage` are auto-filled.
+  ## - `prolog` is the front matter for help messages generated from this spec.
+  ## - `epilog` is the end matter for help messages generated from this spec.
+  ## - `width` is the column width usage/help text wraps at. Defaults to the
+  ##   caller's detected terminal width or 80 columns when none can be detected
+  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
+  ##   out of auto-detection.
+  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
+  ##   extra indented lines (`0` for unlimited)
+  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
+  ##   split on to supply more than one value (`\x1e` is always tried first,
+  ##   since that's how fish auto-joins a list variable) -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## - `args` is the command-line arguments to parse using the spec.
+  ## - `command` is the name of the binary to use in help messages.
+  ## - `before` fires once this `spec`'s own values are parsed
+  ## - `action` fires after `before`, but only if this spec is the dynamic leaf
+  ##   (no nested command was matched)
+  ## - `after` fires after this spec's own `before`/`action`/nested dispatch.
+  ##
+  ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
-  ## Raises `SpecDefect` (malformed spec), or
-  ## `ParseError`/`ValidationError`/`HelpError`/`MessageError` (parse
-  ## failure) -- use `parseOrQuit*` if you want those to print a message and
-  ## `quit()` instead.
+  ##
+  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
+  ## subcommand's spec (see `cascadeSpecDefaults`).
   let builtSpec = newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim)
   if not before.isNil: builtSpec.before = () => before(spec)
   if not action.isNil: builtSpec.action = () => action(spec)
