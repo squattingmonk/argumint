@@ -64,7 +64,14 @@ type
   MatcherKind* {.pure.} = enum
     Option, Options, Command, Argument, Shortcut
 
-  Matcher* = object
+  Matcher* = ref object
+    ## A `ref` so a Matcher created for a `[options]` atom (see `parser.atom`'s
+    ## `tkAnyOption` branch) can be patched in place after the fact -- once
+    ## the whole Usage Line is parsed and `explicitOptions` is final --
+    ## regardless of how many times its surrounding `Transition` gets copied
+    ## by `sequence`'s local `add` helper as composition proceeds (see
+    ## `docs/gotchas.md`). A value-type `Matcher` would make every such copy
+    ## independent, silently discarding the patch.
     case kind*: MatcherKind
     of Argument:
       arg*: Arg

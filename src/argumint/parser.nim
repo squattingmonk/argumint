@@ -13,11 +13,20 @@ type
     tok: SpecToken ## Lookahead token
     spec: Spec
     explicitOptions: HashSet[Arg] ## Options explicitly mentioned on the
-      ## current Usage Line, so `[options]` can exclude them (see `atom`'s
-      ## `tkAnyOption` branch) rather than making them separately repeatable.
-      ## Recomputed per line by `genFsm`, since `[options]` only excludes
-      ## what's explicit on its own Usage Line, not elsewhere in the Usage
-      ## String.
+      ## current Usage Line, populated as a side effect of atom's own
+      ## tkShortOption/tkLongOption/tkShortOptions branches as it parses that
+      ## line, so `[options]` can exclude them (see `tkAnyOption` below)
+      ## rather than making them separately repeatable. Reset per line by
+      ## `genFsm`, since `[options]` only excludes what's explicit on its own
+      ## Usage Line, not elsewhere in the Usage String.
+    pendingOptions: seq[Matcher] ## Matchers created by the current line's
+      ## `tkAnyOption` atoms, deferred here because `explicitOptions` isn't
+      ## complete until the whole line has been parsed (a later atom on the
+      ## same line can still name an option `[options]` needs to exclude).
+      ## `genFsm` patches each one's `opts` once the line is done, then
+      ## clears this for the next line. Holds the `Matcher` itself, not the
+      ## `Transition` it started out on -- see `Matcher`'s own doc comment
+      ## (`backend.nim`) for why that distinction matters.
 
 const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption}
 
@@ -131,7 +140,9 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
   of tkShortOption, tkLongOption:
     if token.literal notin p.spec.options:
       token.error(fmt"Undeclared option: {token.literal}")
-    result.b = result.a.add(newOptMatcher(p.spec.options[token.literal]))
+    let opt = p.spec.options[token.literal]
+    p.explicitOptions.incl opt
+    result.b = result.a.add(newOptMatcher(opt))
     if p.peek {tkOptionValue}:
       p.next()
   of tkShortOptions:
@@ -141,12 +152,20 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
       if name notin p.spec.options:
         token.error(fmt"Undeclared option in {token.literal}: {name}")
       options.add p.spec.options[name]
+    for opt in options:
+      p.explicitOptions.incl opt
     result.b = result.a.add(newOptsMatcher(options))
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:
-    result.b = result.a.add(newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
-      .filterIt(not (it of MessageArg) and it notin p.explicitOptions)))
+    # Can't exclude p.explicitOptions here yet -- a later atom on this same
+    # line may still name an option that belongs in the exclusion set. Build
+    # unfiltered (bar MessageArgs) and let genFsm patch this matcher's opts
+    # once the whole line is parsed and explicitOptions is final.
+    let matcher = newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
+      .filterIt(not (it of MessageArg)))
+    p.pendingOptions.add matcher
+    result.b = result.a.add(matcher)
     result.a.addShortcut(result.b) # Make it optional
     result.b.addShortcut(result.a) # Make it repeatable by default (ADR 0002)
   of tkCommand:
@@ -174,31 +193,6 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
     result.b.addShortcut(result.a)
     p.next()
 
-proc collectExplicitOptions(spec: Spec, line: string): HashSet[Arg] =
-  ## Scans a single Usage Line for options mentioned by name (`-o`,
-  ## `--option`, or a `-abc`-style cluster), as opposed to picked up only via
-  ## the `[options]` catch-all. Used so `[options]` can exclude options
-  ## that are handled explicitly elsewhere on the *same* Usage Line, rather
-  ## than making them independently (and repeatably) matchable through both.
-  var lex: SpecLexer
-  lex.open(line)
-  defer: lex.close()
-  while true:
-    let tok = lex.next()
-    case tok.kind
-    of tkEof:
-      break
-    of tkShortOption, tkLongOption:
-      if tok.literal in spec.options:
-        result.incl spec.options[tok.literal]
-    of tkShortOptions:
-      for c in tok.literal.substr(1):
-        let name = fmt"-{c}"
-        if name in spec.options:
-          result.incl spec.options[name]
-    else:
-      discard
-
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
@@ -213,13 +207,19 @@ proc genFsm*(spec: Spec): State =
   else:
     let p = SpecParser(spec: spec)
     for line in spec.usage.split(peg"\n!\s"):
-      p.explicitOptions = spec.collectExplicitOptions(line)
+      p.explicitOptions.clear()
+      p.pendingOptions.setLen(0)
       p.lex.open(line)
       defer: p.lex.close()
       p.tok = p.lex.next()
       let (s, e, _) = p.sequence(false)
       if not p.peek {tkEof}:
         p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
+      # Only now, with the whole line parsed, is explicitOptions final --
+      # patch each [options] atom's matcher to exclude it (see atom's
+      # tkAnyOption branch and SpecParser.pendingOptions).
+      for matcher in p.pendingOptions:
+        matcher.opts = matcher.opts.filterIt(it notin p.explicitOptions)
       result.addShortcut(s)
       e.terminal = true
   result.prepare()

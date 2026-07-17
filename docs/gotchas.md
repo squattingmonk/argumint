@@ -119,6 +119,26 @@ inside a template.
   no obvious mention of `ref`/`State` — pass `-d:nimPreviewHashRef` by hand
   when compiling a throwaway repro outside the repo.
 
+- **`sequence`'s local `add` helper (`parser.nim`) copies each child atom's
+  `Transition`s onto its own growing state rather than reusing them** — `for
+  tr in x.transitions: b.add(tr.next, tr.matcher)` constructs a brand new
+  `Transition` per copy. This only became a problem once something needed to
+  mutate a matcher *after* `atom` returned it (the `[options]` catch-all's
+  exclusion set isn't final until the whole Usage Line is parsed, per
+  `docs/architecture.md`'s "Usage-string compilation" section): a
+  `Transition` reference captured inside `atom` goes stale the instant
+  `sequence` copies it, silently discarding any later patch applied to it.
+  Fixed by making `Matcher` (`backend.nim`) a `ref object` instead of a
+  value `object` — copying a `Transition` (or anything else holding a
+  `Matcher`) now copies the reference, not the data, so a stashed `Matcher`
+  ref stays patchable no matter how many times `sequence` copies it this
+  way (`choice` doesn't hit this -- it wires children together with fresh
+  `newShortcut()` transitions instead of copying an existing child's
+  transitions). Caught only by an actual failing test
+  (`[options] --verbose` no longer excluding the explicit `--verbose`) —
+  the bug was invisible from the code itself, since the patch loop *looked*
+  correct and even visibly mutated the (wrong, orphaned) object when traced.
+
 - **A nested `proc` that captures an outer `var seq[T]` named `result` (a
   closure inside a proc, referencing `result` from its enclosing scope)
   fails under ORC** with "'result' is of type <seq[T]> which cannot be

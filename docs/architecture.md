@@ -34,16 +34,26 @@ for a subcommand) manually when debugging FSM construction.
 `scripts/dot2png.sh` renders that dot output to a viewable PNG (requires
 Graphviz's `dot` CLI installed separately).
 
-`genFsm` also scans each line of `spec.usage` individually
-(`parser.collectExplicitOptions`, called once per Usage Line, not once for
-the whole Usage String) for options mentioned by name on that line, so the
-`[options]` catch-all (`tkAnyOption`) excludes them from its own `Options`
-matcher — e.g. in `[options] --verbose`, `--verbose` can only be matched once
-(via its own explicit atom), not once via `[options]` and again via the
-explicit mention. An option named explicitly on one Usage Line is unaffected
-on a different Usage Line, where it remains reachable through that line's
-own `[options]`. See `docs/adr/0002-catch-all-options-repeatable-by-default.md`
-for why the catch-all's default differs from an explicitly-named Arg's.
+While parsing a Usage Line, `atom`'s own `tkShortOption`/`tkLongOption`/
+`tkShortOptions` branches record each option they see into
+`SpecParser.explicitOptions` (reset per line, not once for the whole Usage
+String), so the `[options]` catch-all (`tkAnyOption`) can exclude them from
+its own `Options` matcher — e.g. in `[options] --verbose`, `--verbose` can
+only be matched once (via its own explicit atom), not once via `[options]`
+and again via the explicit mention. Because a `[options]` atom earlier in
+the line can't yet know about an explicit mention later in the same line,
+its `Options` matcher is built unfiltered and its `Matcher` (a `ref`, see
+`backend.nim`) stashed in `SpecParser.pendingOptions`; once the whole line
+is parsed and `explicitOptions` is final, `genFsm` patches each pending
+matcher's `opts` in place. Using the `Matcher` itself (rather than its
+surrounding `Transition`) for this is what makes the patch stick: `sequence`
+composes atoms by copying each one's transitions onto its own growing
+state, so a captured `Transition` would go stale the moment that copy
+happens, but the `Matcher` ref travels with it. An option named explicitly
+on one Usage Line is unaffected on a different Usage Line, where it remains
+reachable through that line's own `[options]`. See
+`docs/adr/0002-catch-all-options-repeatable-by-default.md` for why the
+catch-all's default differs from an explicitly-named Arg's.
 
 ## 3. Runtime matching (`fsm.nim`)
 
