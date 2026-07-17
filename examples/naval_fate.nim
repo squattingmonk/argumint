@@ -11,12 +11,10 @@
 #   naval_fate -h | --help
 #   naval_fate --version
 # ```
-# Unlike the smaller Naval Fate excerpt in `src/argumint.nim`'s
-# `when isMainModule` block (which only covers `ship move` and a
-# validator-based `mine <action>`), this covers every action and
-# demonstrates *nested* commands: `ship`/`mine` are commands whose own specs
-# are themselves built from further commands (`new`/`move`/`shoot` and
-# `set`/`remove`), rather than plain positional/option args.
+# This covers every action and demonstrates *nested* commands: `ship`/`mine`
+# are commands whose own specs are themselves built from further commands
+# (`new`/`move`/`shoot` and `set`/`remove`), rather than plain
+# positional/option args.
 #
 # One deviation from the canonical grammar: docopt's `ship <name> move <x>
 # <y>` puts `<name>` before the literal word `move`. argumint's `command()`
