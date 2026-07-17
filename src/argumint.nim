@@ -289,18 +289,11 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
       self.parseImpl(value, self.env)
 
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
-  ## Shared implementation for `defineArg` and `defineFlag` below.
-  ## **Gotcha**: this is deliberately its own template rather than having
-  ## `defineArg`/`defineFlag` overload each other or call each other
-  ## directly -- two generic templates sharing a name, each forwarding an
-  ## `untyped` param down to a nested `{.inject.}` proc, corrupt each
-  ## other's hygiene in this Nim version (`op`/`arg` end up undeclared
-  ## inside `flagHandler`, even in the overload that resolves correctly).
-  ## Distinct names sidestep it. Relatedly, `variantDesc`'s own locals below
-  ## are named `vOp`/`vArg`/`vDesc`, not `op`/`arg` -- reusing those names
-  ## collides with the `{.inject.}`ed `op`/`arg` from `parse*` below, which
-  ## leak into this template's whole scope (that's the point of `inject`),
-  ## not just into `flagHandler`.
+  ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
+  ## its own template (rather than an overload of either), and
+  ## `variantDesc`'s locals below are named `vOp`/`vArg`/`vDesc` rather
+  ## than `op`/`arg`, both for template-hygiene reasons documented in
+  ## docs/gotchas.md.
   defineFlagOps typeName:
     flagHandler
 
@@ -446,20 +439,10 @@ proc addArgs(self: Spec, spec: tuple) =
       raise newException(SpecDefect, fmt"Error: all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
 
 proc autoFillUsage(spec: Spec) =
-  ## Appends a usage line for any declared command or MessageArg (e.g. one
-  ## created by `help()`) that ends up unreachable, and for positional args
-  ## or a `[options]` catch-all when the *entire* category is unreachable --
-  ## so callers only need to hand-write the parts of the grammar they want
-  ## to customize. Splices the FSM with a usage line for each appended line
-  ## if anything was appended -- see `parser.addUsageLines`. This can't
-  ## safely fill in a *partially*-mentioned positional-arg sequence (which
-  ## one is missing, and where would it go?), nor weave `[options]` into an
-  ## arbitrary hand-written line that's missing it -- only the case where
-  ## nothing else was generated falls back to a standalone `[options]` line.
-  ## All unreachable commands are joined into a single `(cmd1 | cmd2)`
-  ## alternation line (rather than one line per command) so a shared
-  ## `[options]` prefix isn't repeated for each one; MessageArgs still get
-  ## their own line each, since they never carry that prefix to begin with.
+  ## Fills in usage lines for whatever's unreachable (commands, positional
+  ## args, `[options]`) so callers only need to hand-write the parts they
+  ## want to customize -- see architecture.md's "autoFillUsage" section for
+  ## the exact per-category fill-in rules.
   var newLines: seq[string]
 
   proc addLine(line: string) =
@@ -514,30 +497,24 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = termina
     maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM. See
   ## `autoFillUsage` for how gaps in `usage` are auto-filled. `width` is the
-  ## column width usage/help text is wrapped at; `maxVariantsWidth` is the
-  ## max width of the help text's variants column before it wraps onto
-  ## additional indented lines (`0` means unlimited). `width`/
-  ## `maxVariantsWidth`/`envDelim` all cascade to every nested subcommand's
-  ## spec (see `cascadeSpecDefaults`). `width` defaults to the
-  ## caller's detected terminal width (`std/terminal.terminalWidth()`), which
-  ## itself falls back to `DefaultWidth` (80 columns) when no terminal can be
-  ## detected (e.g. output is piped/redirected and `COLUMNS` isn't set) --
-  ## pass an explicit `width` to opt out of auto-detection entirely.
-  ## `envDelim` is the delimiter an env-configured Option/Flag's raw env
-  ## value is split on to supply more than one value -- see `Spec.parse`'s
-  ## env sweep and `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-  ## `\x1e` (ASCII Record Separator) is always tried first regardless of
-  ## `envDelim`, since that's how fish auto-joins a native list variable's
-  ## elements for any variable name when exporting it to a subprocess.
+  ## column width usage/help text wraps at, and `maxVariantsWidth` caps the
+  ## variants column's width before it wraps onto extra indented lines
+  ## (`0` for unlimited); both cascade to every nested subcommand's spec
+  ## (see `cascadeSpecDefaults`), as does `envDelim`. `width` defaults to
+  ## the caller's detected terminal width, falling back to 80 columns when
+  ## none can be detected (e.g. piped output with `COLUMNS` unset) -- pass
+  ## an explicit `width` to opt out of auto-detection. `envDelim` is the
+  ## delimiter an env-configured Option/Flag's raw value is split on to
+  ## supply more than one value (`\x1e` is always tried first, since
+  ## that's how fish auto-joins a list variable) -- see
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ##
-  ## Unlike `parseOrQuit*`, this does not catch any exceptions raised during
-  ## spec construction (`SpecDefect`) or -- if you go on to call
-  ## `result.parse(args, command)` yourself -- during parsing
-  ## (`ParseError`/`ValidationError`/`HelpError`/`MessageError`). Use this
-  ## when you need to handle those errors yourself instead of letting
-  ## `parseOrQuit*` print a message and `quit()` (or just call `parse*`
-  ## directly on the spec tuple, which does the same `newSpec` + parse in one
-  ## step while still raising on failure).
+  ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
+  ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you
+  ## call `result.parse(args, command)` yourself) -- use it when you need
+  ## to handle those yourself, or just call `parse*` on the spec tuple
+  ## directly for the same `newSpec` + parse in one step, still raising on
+  ## failure.
   result = Spec(usage: usage, prolog: prolog, epilog: epilog)
   result.addArgs(spec)
   result.fsm = result.genFsm()
@@ -595,14 +572,12 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ## - `env` optionally names an environment variable that supplies this
-  ##   option's value when it isn't given on the command line (an explicit
-  ##   command-line value always wins), going through the same
-  ##   conversion/validation as a command-line value would. Applies
-  ##   uniformly whether the option is required or optional in the usage
-  ##   grammar -- see `docs/adr/0004-required-options-env-fallback.md`. Can
-  ##   supply more than one value (splitting on `Spec.envDelim`) to satisfy
-  ##   an option matched more than once -- see
+  ## - `env` optionally names an environment variable supplying this
+  ##   option's value when none is given on the command line (a CLI value
+  ##   always wins), converted/validated the same way. Applies whether the
+  ##   option is required or optional. An option matched more than once
+  ##   can take multiple env values, split on `Spec.envDelim` -- see
+  ##   `docs/adr/0004-required-options-env-fallback.md` and
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
 
@@ -623,12 +598,11 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ## - `env` optionally names an environment variable that supplies this
-  ##   option's value(s) when none are given on the command line (an
-  ##   explicit command-line value always wins), going through the same
-  ##   conversion/validation a command-line value would. The raw env value
-  ##   is split (`Spec.envDelim`) into as many values as this option's
-  ##   position(s) in the matched Usage Line can consume -- see
+  ## - `env` optionally names an environment variable supplying this
+  ##   option's value(s) when none are given on the command line (a CLI
+  ##   value always wins), converted/validated the same way. The raw value
+  ##   is split on `Spec.envDelim` into as many values as this option's
+  ##   position(s) can consume -- see
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env)
 
@@ -664,26 +638,18 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   to the auto-generated description. Every key must match a declared
   ##   variant, or spec construction raises `SpecDefect`.
   ## - `variantValues` optionally supplies a variant's `<value>` directly as
-  ##   a typed `T`, keyed by the bare flag name (same convention as
-  ##   `variantHelp`), bypassing string parsing entirely -- useful for a `T`
-  ##   with no natural short string spelling, or to reference an existing
-  ##   Nim value (a `const`, a computed expression) rather than re-spelling
-  ##   it as text. A variant may specify a value this way or in `variants`
-  ##   (e.g. `--priority=high`), not both -- `SpecDefect` if it does. Every
-  ##   key must match a declared variant, or spec construction raises
-  ##   `SpecDefect`. `<op>` still always comes from `variants`.
-  ## - `env` optionally names an environment variable that supplies this
-  ##   flag's value when it isn't given on the command line (an explicit
-  ##   command-line flag always wins). Since a flag has no runtime-supplied
-  ##   value on the command line to fall back to, each env value instead
-  ##   names one of this flag's own declared Variants (its literal
-  ##   spelling, e.g. `--verbose`), applied via *that* Variant's own
-  ##   Operation -- an env value naming no declared Variant is a
-  ##   `ParseError`. Applies uniformly whether the flag is required or
-  ##   optional in the usage grammar -- see
-  ##   `docs/adr/0004-required-options-env-fallback.md`. Can supply more
-  ##   than one value (splitting on `Spec.envDelim`) to satisfy a flag
-  ##   matched more than once -- see
+  ##   a typed `T` (keyed by bare flag name, same convention as
+  ##   `variantHelp`), bypassing string parsing -- useful for a `T` with no
+  ##   natural string spelling. A variant may set its value here or in
+  ##   `variants`, not both; either way, an unrecognized key or specifying
+  ##   both raises `SpecDefect`. `<op>` always comes from `variants`.
+  ## - `env` optionally names an environment variable supplying this
+  ##   flag's value when none is given on the command line (a CLI flag
+  ##   always wins). Each env value must name one of the flag's own
+  ##   declared Variants (e.g. `--verbose`); an unrecognized name raises
+  ##   `ParseError`. A flag matched more than once can take multiple env
+  ##   values, split on `Spec.envDelim` -- see
+  ##   `docs/adr/0004-required-options-env-fallback.md` and
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
   for rawName in variants.split(Comma):
@@ -843,14 +809,11 @@ proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
   ## completion handling rather than a real run.
   ##
-  ## Every completion request re-invokes the compiled binary as a fresh
-  ## process, so any code an author runs *before* calling `parse*`/
-  ## `parseOrQuit*` at all (config loading, opening a DB connection, etc.)
-  ## reruns on every single completion request -- once per keystroke a user
-  ## presses TAB, not just once. `before`/`action`/`after` hooks are already
-  ## safe from this (they never fire during completion), but anything ahead
-  ## of the `parse*`/`parseOrQuit*` call itself isn't. Guard expensive
-  ## pre-parse setup with this if that matters for your program:
+  ## Each completion request re-invokes the binary as a fresh process, so
+  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
+  ## connection) reruns on every keystroke, not just real invocations --
+  ## unlike `before`/`action`/`after` hooks, which are already skipped
+  ## during completion. Guard expensive pre-parse setup with this:
   ## ```nim
   ## when isMainModule:
   ##   if isCompletionRequest():

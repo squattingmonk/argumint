@@ -15,19 +15,9 @@ type
     ## grouped into one message at render time -- see `parse`.
 
   EnvCursor = object
-    ## Owns Value Precedence's environment-variable tier: for each Arg with
-    ## an env var configured, the raw value already split via
-    ## `splitEnvValue` (cached the first time `probe` consults it during a
-    ## walk) and a cursor into how many of those values have already been
-    ## handed out as a virtual match -- not a one-shot flag, so an Arg
-    ## matched more than once (a real repeat, or simply named more than
-    ## once in one Usage Line) can have each occurrence satisfied by a
-    ## *different* value from the same env var. Whether an Arg's position
-    ## gets consulted once or several times is never decided here -- it
-    ## falls out of however many times `walk` actually visits this
-    ## matcher, driven entirely by the FSM already built from the Usage
-    ## String. See `docs/adr/0005-env-supplied-multi-value-options-and-
-    ## flags.md`.
+    ## Owns Value Precedence's env-var tier -- see architecture.md's "Env
+    ## var mechanics" and `docs/adr/0005-env-supplied-multi-value-options-
+    ## and-flags.md`.
     values: Table[Arg, seq[string]]
     consumed: Table[Arg, int]
 
@@ -182,22 +172,10 @@ proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value 
     matches[arg].add (variant, value, spec)
 
 proc probe(cursor: var EnvCursor, arg: Arg, spec: Spec): bool =
-  ## Lets `arg`'s configured env var stand in for a missing command-line
-  ## value -- this is what lets a *required* (unbracketed) Option/Flag be
-  ## satisfied by env: env is a per-Arg declaration, so it shouldn't behave
-  ## differently depending on whether this particular Usage Line happens
-  ## to require the Arg or not (see ADR 0004). Returning `false` and
-  ## recording no match here just stops the walk itself from failing --
-  ## the actual value-setting happens later, in `apply`'s post-walk sweep.
-  ##
-  ## The env var's value is always split (`splitEnvValue`) into however
-  ## many values it supplies; `cursor.consumed` is a per-Arg cursor into
-  ## that list rather than a one-shot flag, handing out the next
-  ## unconsumed value each time this Arg's matcher is consulted here, and
-  ## returning `false` (so the caller falls through to its own "missing
-  ## option" complaint) once the list is exhausted -- the same outcome as
-  ## running out of real CLI tokens for a repeatable position. See
-  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## Lets `arg`'s env var stand in for a missing CLI value during the walk
+  ## -- see architecture.md's "Env var mechanics". Returning `false` just
+  ## lets the walk fail normally; the actual value-setting happens later,
+  ## in `apply`'s post-walk sweep.
   let envName = arg.envName
   if envName.len == 0 or not existsEnv(envName):
     return false
@@ -336,23 +314,15 @@ type
     ## see `collectFrontier`.
 
 proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var HashSet[State]) =
-  ## Generalizes `walk`'s single-winner backtracking into "every live
-  ## branch, not just the first to succeed" -- needed for shell completion,
-  ## where several Usage Lines (or `choice` alternatives) can all still be
-  ## viable at once for a command line that isn't finished yet. Reuses
-  ## `Matcher.match` unmodified, so env-var fallback (`docs/adr/0004`,
-  ## `docs/adr/0005`) applies here exactly as it would to a real parse.
+  ## Generalizes `walk` into "every live branch, not just the first to
+  ## succeed" for shell completion -- see architecture.md §6.
   ##
-  ## `seen` bounds the traversal of this otherwise-cyclic graph (`...`
-  ## repetition, `[options]...`): it's only consulted/populated while
-  ## consuming zero tokens (a `Shortcut`, or an env-satisfied `Option`) --
-  ## any transition that actually consumes a real token recurses with a
-  ## *fresh* `seen`, since that sub-problem is strictly smaller (bounded by
-  ## how many tokens are left) and can't loop back into this one. Revisiting
-  ## the same `State` within one zero-token layer can't discover anything
-  ## new -- its own transitions are static, and matching them again against
-  ## the same (unchanged, since nothing was consumed) `pc.tokens` reproduces
-  ## the same outcome -- so it's safe to skip, not just an optimization.
+  ## `seen` only bounds zero-token transitions (a `Shortcut`, or an
+  ## env-satisfied `Option`); anything that consumes a real token recurses
+  ## with a fresh `seen`, since that's a strictly smaller sub-problem.
+  ## Revisiting a `State` within one zero-token layer can't discover
+  ## anything new, since its transitions and `pc.tokens` are unchanged --
+  ## so skipping it is safe, not just an optimization.
   if s in seen:
     return
   seen.incl s
@@ -528,50 +498,22 @@ proc formatComplaints(messages: seq[Complaint]): string =
 
 proc apply(cursor: EnvCursor, spec: Spec, matches: MatchTable, seen: var HashSet[Arg],
     complaints: var seq[Complaint]) =
-  ## Falls back to an environment variable for any of `spec`'s own args
-  ## that has one configured and wasn't explicitly matched on the command
-  ## line, then recurses into whichever nested spec was actually matched
-  ## at this level (mirroring `parseOwnValues`/`matchedCommand` above) --
-  ## so this reaches every spec level actually entered during this parse,
-  ## not just the deepest one `walk` leaves `pc.spec` pointed at. See
-  ## `docs/adr/0009-command-before-action-after-hooks.md` for the same
-  ## per-level problem already solved for value-dispatch.
+  ## Recurses through every spec level actually entered during this parse
+  ## (mirroring `dispatch`'s own recursion -- see architecture.md §5),
+  ## falling back to each unmatched Arg's env var. Deliberately outside
+  ## `walk`'s FSM/backtracking, so an Arg only reachable via `[options]`
+  ## still picks up its env var -- see architecture.md's "Env var
+  ## mechanics" and `docs/adr/0005-env-supplied-multi-value-options-and-
+  ## flags.md` for the value-count/`ParseError` rules.
   ##
-  ## This is deliberately outside the FSM/backtracking in `walk` -- it only
-  ## ever sees typed tokens, and this way an arg only reachable via
-  ## [options] still picks up its env var even though [options] itself was
-  ## never explicitly attempted during matching. `arg notin matches` is
-  ## exactly "wasn't explicitly typed", so an explicit CLI value always
-  ## wins for free, no extra bookkeeping needed.
+  ## `seen` guards against double-applying an Arg reachable from more than
+  ## one spec level: unlike a real CLI match (tagged per-level via `push`'s
+  ## `Match.spec`), an env-driven `setFromEnv` call carries no such tagging
+  ## to dedupe on otherwise.
   ##
-  ## `seen` guards against processing the same Arg twice: an Arg can
-  ## deliberately be reachable from more than one spec level's grammar
-  ## (see "the same Arg reachable at both an ancestor and a nested
-  ## command's grammar..." below) -- unlike a real CLI match (tagged
-  ## per-level via `push`'s `Match.spec`), an env-driven `setFromEnv` call
-  ## has no such tagging, so without this guard a shared Arg's env var
-  ## would be applied once per level it appears in.
-  ##
-  ## An Arg whose matcher was actually consulted during the walk
-  ## (`arg in cursor.consumed`) gets exactly as many values applied as the
-  ## walk consumed -- if the env var had more left over than the grammar
-  ## had positions for, that's a ParseError rather than a silent
-  ## truncation to a prefix of the values (see
-  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). An Arg
-  ## never consulted at all this walk (reachable only via a different,
-  ## unmatched Usage Line of this same spec) has no walk-derived count to
-  ## bound it by, so every available value is applied, generalizing the
-  ## single-value fallback ADR 0004 already established for that case.
-  ##
-  ## This runs to completion (or raises) entirely before `dispatch` is
-  ## ever called -- so no `before`/`action`/`after` hook anywhere fires
-  ## until every level's env fallback is resolved. If an env problem
-  ## exists at any level, no level's hooks fire at all (not even an
-  ## ancestor's `before`, and thus not its `after` either), since no level
-  ## ever gets far enough to run its own `before` in the first place --
-  ## unlike a CLI- or validator-driven error occurring *during* dispatch,
-  ## which unwinds through already-entered ancestors' `finally` blocks and
-  ## so still runs their `after`.
+  ## Runs to completion (or raises) entirely before `dispatch` is called --
+  ## so an env problem at any level blocks every level's hooks from firing
+  ## at all, not just that level's, since `dispatch` never starts.
   for arg in spec.args:
     let name = arg.envName
     if name.len == 0 or arg in seen or arg in matches or not existsEnv(name):

@@ -91,11 +91,8 @@ proc all*[T](validators: varargs[Validator[T]], desc: string): Validator[T] =
   ## child's own `help` joined with "and". Raises `SpecDefect` if
   ## `validators` is empty.
   ##
-  ## `desc` has no default here (see the overload below) because Nim
-  ## cannot resolve a call with more than one `varargs` element against an
-  ## overload that also has a defaulted parameter following the `varargs`
-  ## -- so a bare `all(a, b)` (no `desc`) must dispatch to a genuinely
-  ## separate, `varargs`-only overload instead of relying on a default.
+  ## `desc` has no default here -- see docs/gotchas.md for why a bare
+  ## `all(a, b)` needs the separate `varargs`-only overload below instead.
   if validators.len == 0:
     raise newException(SpecDefect, "all() requires at least one Validator")
   Validator[T](kind: vkAll, validators: @validators, desc: desc)
