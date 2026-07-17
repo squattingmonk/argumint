@@ -196,10 +196,8 @@ proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: 
     if not self.validator.isNil:
       self.validator.validate(tmp, self.value.get(otherwise = newSeq[T]()))
     when multi:
-      # NOTE: appending via `self.value = some(self.value.get & @[tmp])`
-      # corrupts earlier elements under ORC when `self` is a generic ref
-      # object carrying a `static bool` param (as `ValueArg` does) -- copying
-      # to a local var first avoids the miscompilation.
+      # Inline `some(self.value.get & @[tmp])` corrupts earlier elements
+      # under ORC here -- see docs/gotchas.md.
       if self.value.isSome:
         var s = self.value.get
         s.add(tmp)
@@ -284,10 +282,7 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method envName*(self: ValueArg[T, true]): string = self.env
 
   method setFromEnv*(self: ValueArg[T, false], values: seq[string]) =
-    # Each value is applied in order via the same `parseImpl` a CLI match
-    # would use; `multi = false`'s overwrite-on-each-call behavior already
-    # gives the usual scalar Match Accumulation rule (last value wins) for
-    # free -- no special-casing needed here for more than one value.
+    # multi=false's overwrite-on-each-call already gives last-value-wins.
     for value in values:
       self.parseImpl(value, self.env)
 
@@ -336,23 +331,12 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
   method envName*(self: FlagArg[T]): string = self.env
 
   method setFromEnv*(self: FlagArg[T], values: seq[string]) =
-    # Each value names one of this Flag's own declared Variants -- its
-    # literal spelling, e.g. "--verbose", matching `self.ops`' keys exactly
-    # the same way a CLI-matched Variant already does in `parse*` above --
-    # and is applied via *that* Variant's own Flag Operation, in order,
-    # restoring genuine Match Accumulation instead of forcing every env
-    # value through `=`. Looked up directly against `self.ops` rather than
-    # via `self.name(variantName)`: an *empty* value must name no variant
-    # (a `ParseError`), not silently fall back to `self.variants[0]` the
-    # way `name()`'s blank-variant convenience default would. Uses `%`
-    # rather than `fmt` -- `fmt` string interpolation can't resolve
-    # identifiers (not even `self`/params) when the containing method is
-    # generated inside a template like this one; `%`/`&` don't have that
-    # problem, which is why the rest of this template uses them. The loop
-    # variable is named `variantName`, not `value` -- `value` is one of
-    # the names `{.inject.}`ed by `handleFlag` above, and leaks into this
-    # whole template's scope. See
-    # `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+    # Each value names a declared Variant and is applied via that Variant's
+    # own Flag Operation -- see ADR 0005. Looked up against self.ops
+    # directly (not self.name) so an empty value raises ParseError instead
+    # of defaulting to self.variants[0]. Named variantName, not value --
+    # handleFlag above already injects `value` into this scope. Uses `%`,
+    # not `fmt` (see docs/gotchas.md).
     for variantName in values:
       if not self.ops.hasKey(variantName):
         raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
@@ -716,22 +700,8 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
             raise newException(SpecDefect, fmt"{matches[0]} has both a string value and a variantValues entry -- use only one")
           arg = variantValues[matches[0]]
         elif matches[2].len > 0:
-          # The built-in types are converted here explicitly (rather than
-          # relying on the implicit `arg = matches[2]` conversion below) so
-          # that `flag[T]` compiles for callers outside this module: this
-          # generic proc is instantiated at its call site, and an implicit
-          # `converter string -> T` is only found there if it's visible in
-          # the *caller's* scope, not just here. Our own built-in
-          # converters are private (unlike a public `converter`, calling
-          # them by name can't silently hijack unrelated overload
-          # resolution -- e.g. a plain `"x" in someString` -- in a
-          # consumer module that doesn't import `std/strutils` itself), so
-          # we call them explicitly instead of exporting them. Any other
-          # `T` falls through to the implicit conversion, which still
-          # works for a user's own type as long as *they* define
-          # `converter toMyType(value: string): MyType` somewhere visible
-          # at their own `flag[MyType](...)` call site -- exactly the
-          # extension mechanism `defineArg` documents for `arg`/`opt`.
+          # Built-in types call our converters explicitly rather than
+          # relying on implicit conversion -- see docs/gotchas.md.
           when T is string: arg = matches[2]
           elif T is int: arg = toInt(matches[2])
           elif T is float64: arg = toFloat(matches[2])
@@ -871,12 +841,6 @@ defineArg char:
   of "=": value = arg
   else: raise newException(SpecDefect, "char flags only support = operations")
 
-# static:
-#   for typeName, ops in flagOps:
-#     echo typeName, " -> ", ops.treeRepr
-# import ./argumint/dot
-
-
 proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ## Returns whether `args` is a shell-completion request (see
   ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
@@ -914,12 +878,7 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   except HelpError as e:
     quit(e.msg, QuitSuccess)
   except CompletionError as e:
-    # Unlike every other MessageError kind, this must land on stdout, not
-    # stderr -- a shell adapter script reads candidates via `$(...)` command
-    # substitution, which only captures stdout. `quit(msg, code)`'s doc
-    # comment claims it's shorthand for `echo(msg); quit(code)`, but on a
-    # compiled (non-nimscript/js) target it actually writes to stderr
-    # (`system.nim`'s `cstderr.rawWrite`) -- so this needs a real `echo`.
+    # Must land on stdout, not stderr like quit() -- see docs/gotchas.md.
     echo e.msg
     quit(QuitSuccess)
   except MessageError as e:
@@ -1010,14 +969,9 @@ when isMainModule:
   type Grade = enum
     gPoor, gFair, gGood
 
-  # defineArg/defineFlag/defineFlagArg are separately-named templates, not
-  # overloads of one another, specifically so their hygiene doesn't corrupt
-  # across calls (see docs/gotchas.md) -- exercising all of them in the same
-  # run is itself the regression test for that: a hygiene corruption would
-  # fail to compile, not fail an assertion. defineFlag (exported, 3-arg) is
-  # called directly below; defineFlagArg (the shared implementation) and the
-  # bare 1-arg defineArg are both exercised transitively by it and by
-  # defineSetFlag's own internal 2-arg defineArg(set[elemType]) call.
+  # Regression test for the template-hygiene gotcha in docs/gotchas.md --
+  # exercises defineFlag/defineFlagArg/defineArg together; a corruption
+  # would fail to compile, not fail an assertion.
   defineFlag(Rank, "Bump to the next rank"):
     case op
     of "": value = Rank((ord(value) + 1) mod 3)
@@ -1066,15 +1020,9 @@ when isMainModule:
       check f.value == {rMid}
 
     test "two distinct defineSetFlag(enum) instantiations don't cross-wire in the flagOps CacheTable":
-      # defineFlagOps (the macro above) registers each type's valid ops
-      # keyed by typeName.repr (e.g. "set[Rank]"/"set[Grade]") -- repr, not
-      # $, since $ can't stringify the raw nnkBracketExpr AST these
-      # templates forward internally (a compile error if that regressed,
-      # not a silent collision). flag() reads back via getFlagOps($T) at
-      # its own instantiation, so calling the real flag[set[Rank]]/
-      # flag[set[Grade]] constructors here -- not just building a FlagArg
-      # by hand -- exercises both the write (defineSetFlag above) and the
-      # read, proving neither's registered ops were corrupted by the other.
+      # Regression test for the repr-vs-$ CacheTable keying in
+      # docs/gotchas.md -- calls the real flag[set[Rank]]/flag[set[Grade]]
+      # constructors to exercise both the write and read side.
       let rankFlag = flag[set[Rank]]("--rank+=rHigh", default = {})
       rankFlag.parse("", "--rank")
       check rankFlag.value == {rHigh}

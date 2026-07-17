@@ -216,10 +216,8 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     # A shortcut consumes no tokens and always indicates success.
     result = true
   of Argument:
-    # Iterate over tokens until either a Command token or a Positional token is
-    # found. If a Positional token is found, consume it and return true. If a
-    # Command token is found, set an error message and return false. All other
-    # token types are skipped. This allows us to ignore option/argument order.
+    # Skip non-Positional tokens so option/argument order doesn't matter;
+    # a Command token ends the search (nothing follows a command, ADR 0010).
     var pos = 0
     while pos < pc.tokens.len:
       let token = pc.tokens[pos]
@@ -257,11 +255,8 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     if not result:
       pc.messages.add ("missing command", m.cmd.name)
   of Option:
-    # Iterate over tokens until a matching Optional or Flag token is found,
-    # consuming a matching token and returning true. If a Command token is found
-    # before a matching Optional or Flag token, consume nothing and return
-    # false. Positional tokens or non-matching Optional or Flag tokens are
-    # skipped, allowing us to ignore the order of options and args.
+    # Skip non-matching tokens so option/arg order doesn't matter; a
+    # Command token ends the search unmatched (ADR 0010).
     var pos = 0
     while pos < pc.tokens.len:
       let token = pc.tokens[pos]
@@ -282,31 +277,17 @@ proc match(m: Matcher, pc: var ParseContext): bool =
         discard
       pos.inc
 
-    # No CLI token matched. Rather than failing outright, let this Arg's
-    # configured env var stand in for a missing value here (see `probe`) --
-    # consuming no token and not recording into `pc.matches` defers the
-    # actual value-setting to `apply`'s post-walk sweep, which already runs
-    # for any Arg that wasn't explicitly matched.
+    # No CLI token matched; let the configured env var stand in instead --
+    # see architecture.md's "Env var mechanics".
     if pc.env.probe(m.opt, pc.spec):
       return true
 
     pc.messages.add ("missing option", m.opt.name)
   of Options:
-    # Iterate over all the matcher's options and try to match each of them using
-    # the algorithm described above. Consume a token and return true when a
-    # matching Optional or Flag token is found.
-    # A repeated `[options]...` re-tries every option in `m.opts` on each
-    # pass with no memory of prior matches -- so any option reachable only
-    # through the catch-all can be matched more than once, governed purely
-    # by whether the catch-all itself carries `...`. An author who wants a
-    # specific option to stay single-match mentions it explicitly in `usage`
-    # instead (without its own `...`); `collectExplicitOptions` then excludes
-    # it from `m.opts` entirely, reverting it to the default one-shot rule.
+    # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
     for opt in m.opts:
-      # newOptMatcher(opt).match(pc) is used purely to probe this candidate;
-      # a failed probe's own "missing option" complaint isn't meant to be
-      # user-facing on its own, so roll pc.messages back to before the probe
-      # and add our own complaint for it instead.
+      # Probe only -- a failed probe's own message isn't user-facing, so
+      # roll pc.messages back and add our own complaint instead.
       let before = pc.messages.len
       if newOptMatcher(opt).match(pc):
         result = true
@@ -456,13 +437,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
-  # Case (b): is the last already-complete word itself a bare Optional-kind
-  # option name still awaiting its value (`--log-level`, not
-  # `--log-level=info`)? If so, don't try to tokenize it as a complete
-  # token at all -- `tokenizeArgs` requires the *next* raw arg to already
-  # supply that option's value, which isn't true here since this word is
-  # the last one typed. Short-circuit straight to that Arg's own
-  # `completions()` instead.
+  # Case (b): last word is a bare option name awaiting its value --
+  # short-circuit to that Arg's completions() (see architecture.md §6).
   if priorWords.len > 0:
     let committed = priorWords[0 ..< priorWords.high]
     var frontier: Frontier

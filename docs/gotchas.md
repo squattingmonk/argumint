@@ -84,6 +84,19 @@ inside a template.
   one with a required `desc`, one `varargs`-only that delegates to the first
   with `desc = ""` — rather than one proc with a default value.
 
+- **An implicit `converter string -> T` is only found at a generic proc's
+  call site, not at its definition site.** `defineFlagArg`'s generated
+  `handleFlag` calls our own `toInt`/`toFloat`/etc. converters explicitly for
+  the built-in types rather than relying on the implicit `arg = matches[2]`
+  conversion, because `flag[T]` is instantiated wherever a caller writes it
+  -- an implicit converter only applies if it's visible in *that* scope, not
+  just here. Our built-in converters are kept private (a public `converter`
+  callable by name could otherwise silently hijack unrelated overload
+  resolution, e.g. a plain `"x" in someString`, in a module that doesn't
+  import `std/strutils` itself); a user's own `T` still gets the implicit
+  conversion, as long as they define `converter toMyType(value: string): T`
+  somewhere visible at their own `flag[T](...)` call site.
+
 - **`ValueArg[T, false].defaultStr` requires `T` to support both `default(T)`
   and `==`** (it compares `self.default[0]` against `default(T)` to decide
   whether a default is "meaningfully set"). Nearly every type does, but a

@@ -82,11 +82,8 @@ proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComm
 
   for child in children:
     hasCommand = hasCommand or child.hasCommand
-    # A bare `-h`/`--help`-style alternative already matches every variant
-    # of its Arg (matching compares Arg identity, not the specific variant
-    # string seen), so a later alternative referencing an Arg a previous
-    # one already covers contributes nothing new -- skip wiring it in
-    # rather than leaving a functionally-redundant parallel branch behind.
+    # Matching compares Arg identity, not variant string, so a later
+    # alternative for an Arg a previous one already covers is redundant.
     let arg = child.trivialArg
     if arg != nil:
       if arg in seenArgs:
@@ -155,10 +152,8 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:
-    # Can't exclude p.explicitOptions here yet -- a later atom on this same
-    # line may still name an option that belongs in the exclusion set. Build
-    # unfiltered (bar MessageArgs) and let genFsm patch this matcher's opts
-    # once the whole line is parsed and explicitOptions is final.
+    # Built unfiltered; genFsm patches this matcher's opts once
+    # explicitOptions is final for the line -- see architecture.md §2.
     let matcher = newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
       .filterIt(not (it of MessageArg)))
     p.pendingOptions.add matcher

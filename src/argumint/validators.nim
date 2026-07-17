@@ -164,11 +164,9 @@ proc candidateValues[T](self: Validator[T]): seq[T] =
       for c in v.candidateValues():
         if c notin result: result.add c
   of vkAll:
-    # AND semantics: start from whichever child(ren) are enumerable,
-    # intersect their candidates, then re-validate each survivor against
-    # *every* child (enumerable or not) so a non-enumerable sibling (e.g.
-    # `check(isEven)`) still filters the set correctly instead of being
-    # ignored. No candidates at all if no child is enumerable.
+    # Intersect enumerable children's candidates, then re-validate each
+    # survivor against every child (including non-enumerable ones like
+    # `check(isEven)`) so they still filter the set.
     var base: seq[T]
     var haveBase = false
     for v in self.validators:
