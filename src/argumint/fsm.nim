@@ -323,8 +323,6 @@ proc walk(s: State, pc: var ParseContext): bool =
         of Flag:
           fresh.messages.add ("unexpected flag", token.flagName)
 
-    # a usage message to send to the parent's scope
-    # echo fmt"{tr.matcher.name=}, {fresh.depth=}, {fresh.message=}, {pc.maxDepth=}"
     if fresh.depth >= pc.maxDepth or pc.messages.len == 0:
       pc.maxDepth = fresh.depth
       pc.spec = fresh.spec

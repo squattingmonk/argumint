@@ -212,19 +212,15 @@ proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: 
     raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.name(variant)} but got {value.escape}")
 
 macro defineFlagOps(typeName, body: untyped) =
-  # echo "This is the input to our macro:"
-  # echo body.treeRepr
   body.expectLen 1
   let caseBody = body.findChild(it.kind == nnkCaseStmt) or body.findChild(it.kind == nnkStmtList).findChild(it.kind == nnkCaseStmt)
 
-  # echo "found ", caseBody.treeRepr
   caseBody.expectKind nnkCaseStmt
   caseBody.expectMinLen 3 # ident + at least 2 of branches
 
   var ops = nnkBracket.newTree()
 
   for op in caseBody[1..^1]:
-    # echo op.treeRepr()
     op.expectKind {nnkOfBranch, nnkElse, nnkElifBranch}
     case op.kind
     of nnkOfBranch:
