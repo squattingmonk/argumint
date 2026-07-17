@@ -139,6 +139,25 @@ inside a template.
   the bug was invisible from the code itself, since the patch loop *looked*
   correct and even visibly mutated the (wrong, orphaned) object when traced.
 
+- **A `State`'s `terminal` flag, once set, doesn't un-set itself when more
+  transitions are spliced onto it later.** `genFsm` (`parser.nim`) builds a
+  spec's root by calling `addUsageLines`, which marks the root `terminal =
+  true` only when it ends up with no transitions at all (an empty `usage`
+  string -- nothing to match). `autoFillUsage` (`argumint.nim`) can later
+  discover unreachable args/commands/options for that same spec and call
+  `addUsageLines` again on that *same* root object to splice on real
+  transitions (rather than re-parsing already-built lines from scratch) --
+  if the stale `terminal = true` from the first call weren't cleared, the
+  FSM would wrongly accept "no more input" at a root that now requires real
+  args. Fixed by having `addUsageLines` itself unconditionally recompute
+  `root.terminal = root.transitions.len == 0` as its last step, rather than
+  leaving each caller to remember this invariant on its own. Caught by a
+  test that actually calls `.parse()` against a spec built from `usage = ""`
+  and auto-filled (`tests/test_argumint.nim`'s `"autoFillUsage"` suite) --
+  the pre-existing tests there only asserted on the rendered `s.usage`
+  string, which stays correct either way, and wouldn't have caught a
+  regression here.
+
 - **A nested `proc` that captures an outer `var seq[T]` named `result` (a
   closure inside a proc, referencing `result` from its enclosing scope)
   fails under ORC** with "'result' is of type <seq[T]> which cannot be

@@ -190,33 +190,42 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
     result.b.addShortcut(result.a)
     p.next()
 
+proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
+  ## Parses each of `lines` as a Usage Line and splices its FSM onto `root`
+  ## via `addShortcut` -- the shared line-building step behind both `genFsm`
+  ## (the initial build) and `autoFillUsage` (`argumint.nim`, which splices
+  ## auto-generated lines onto an already-built `spec.fsm` instead of
+  ## re-parsing the whole usage string from scratch). Recomputes `root.
+  ## terminal` from scratch afterwards (true only if `root` still has no
+  ## transitions at all -- e.g. `lines` was empty, meaning this spec/
+  ## subcommand takes no further input, like `command("status", (), ...)`)
+  ## rather than leaving it as a stateful flag: `root` may already carry a
+  ## stale `terminal = true` from an earlier call with an empty `lines` (a
+  ## spec whose `usage` started out completely empty, later auto-filled by
+  ## `autoFillUsage`), and nothing else would clear it once real lines get
+  ## spliced on.
+  let p = SpecParser(spec: spec)
+  for line in lines:
+    p.explicitOptions.clear()
+    p.pendingOptions.setLen(0)
+    p.lex.open(line)
+    defer: p.lex.close()
+    p.tok = p.lex.next()
+    let (s, e, _) = p.sequence(false)
+    if not p.peek {tkEof}:
+      p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
+    # Only now, with the whole line parsed, is explicitOptions final --
+    # patch each [options] atom's matcher to exclude it (see atom's
+    # tkAnyOption branch and SpecParser.pendingOptions).
+    for matcher in p.pendingOptions:
+      matcher.excludeOptions(p.explicitOptions)
+    root.addShortcut(s)
+    e.terminal = true
+  root.terminal = root.transitions.len == 0
+
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
-  if spec.usage.len == 0:
-    # An empty usage string means this spec (or subcommand) takes no
-    # further input at all -- e.g. `command("status", (), ...)` -- so the
-    # root state is trivially already done. `usage.split` yields zero
-    # lines for an empty string, so the loop below would otherwise leave
-    # `result` neither terminal nor with any transitions: a dead end that
-    # can never succeed.
-    result.terminal = true
-  else:
-    let p = SpecParser(spec: spec)
-    for line in spec.usage.split(peg"\n!\s"):
-      p.explicitOptions.clear()
-      p.pendingOptions.setLen(0)
-      p.lex.open(line)
-      defer: p.lex.close()
-      p.tok = p.lex.next()
-      let (s, e, _) = p.sequence(false)
-      if not p.peek {tkEof}:
-        p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
-      # Only now, with the whole line parsed, is explicitOptions final --
-      # patch each [options] atom's matcher to exclude it (see atom's
-      # tkAnyOption branch and SpecParser.pendingOptions).
-      for matcher in p.pendingOptions:
-        matcher.excludeOptions(p.explicitOptions)
-      result.addShortcut(s)
-      e.terminal = true
+  let lines = if spec.usage.len == 0: newSeq[string]() else: spec.usage.split(peg"\n!\s")
+  spec.addUsageLines(result, lines)
   result.prepare()

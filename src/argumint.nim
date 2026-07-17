@@ -470,7 +470,8 @@ proc autoFillUsage(spec: Spec) =
   ## created by `help()`) that ends up unreachable, and for positional args
   ## or a `[options]` catch-all when the *entire* category is unreachable --
   ## so callers only need to hand-write the parts of the grammar they want
-  ## to customize. Rebuilds the FSM if anything was appended. This can't
+  ## to customize. Splices the FSM with a usage line for each appended line
+  ## if anything was appended -- see `parser.addUsageLines`. This can't
   ## safely fill in a *partially*-mentioned positional-arg sequence (which
   ## one is missing, and where would it go?), nor weave `[options]` into an
   ## arbitrary hand-written line that's missing it -- only the case where
@@ -479,7 +480,16 @@ proc autoFillUsage(spec: Spec) =
   ## alternation line (rather than one line per command) so a shared
   ## `[options]` prefix isn't repeated for each one; MessageArgs still get
   ## their own line each, since they never carry that prefix to begin with.
-  let usageLenBefore = spec.usage.len
+  var newLines: seq[string]
+
+  proc addLine(line: string) =
+    ## Appends `line` to both the human-readable `spec.usage` and the
+    ## `newLines` list later spliced onto `spec.fsm` -- one call keeps the
+    ## two in sync instead of relying on every call site to remember both.
+    spec.usage.addSep("\n")
+    spec.usage.add line
+    newLines.add line
+
   let reachable = spec.fsm.referencedArgs()
   let optionsUnreachable = spec.options.values.toSeq.deduplicate
     .anyIt(not (it of MessageArg) and it notin reachable)
@@ -490,27 +500,24 @@ proc autoFillUsage(spec: Spec) =
   if unreachableCommands.len > 0:
     let variants = unreachableCommands.mapIt(it.variants).concat
     let combined = if variants.len > 1: "(" & variants.join(" | ") & ")" else: variants[0]
-    spec.usage.addSep("\n")
-    spec.usage.add prefix & combined
+    addLine prefix & combined
     prefixUsed = prefixUsed or optionsUnreachable
 
   let positionals = spec.args.filterIt(it.kind == Positional)
   if positionals.len > 0 and positionals.allIt(it notin reachable):
-    spec.usage.addSep("\n")
-    spec.usage.add prefix & positionals.mapIt(it.name).join(" ")
+    addLine prefix & positionals.mapIt(it.name).join(" ")
     prefixUsed = prefixUsed or optionsUnreachable
 
   for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
     let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
-    spec.usage.addSep("\n")
-    spec.usage.add variants
+    addLine variants
 
   if optionsUnreachable and not prefixUsed:
-    spec.usage.addSep("\n")
-    spec.usage.add "[options]"
+    addLine "[options]"
 
-  if spec.usage.len > usageLenBefore:
-    spec.fsm = spec.genFsm()
+  if newLines.len > 0:
+    spec.addUsageLines(spec.fsm, newLines)
+    spec.fsm.prepare()
 
 proc cascadeSpecDefaults(spec: Spec, width, maxVariantsWidth: int, envDelim: string) =
   ## Sets `width`/`maxVariantsWidth`/`envDelim` on `spec` and cascades them

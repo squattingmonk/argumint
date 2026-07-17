@@ -25,8 +25,10 @@ into a graph of `State`/`Transition` objects. Each token becomes a `Matcher`
 optional/repeated branches). `backend.prepare` (`simplify` +
 `sortTransitions`) collapses shortcut chains and orders transitions by
 matcher priority (`ord(MatcherKind)`) so, e.g., positional args aren't
-greedily consumed ahead of options. `genFsm` calls `result.prepare()`
-directly after building the FSM from the usage string.
+greedily consumed ahead of options. The per-line lex/parse/splice loop
+itself lives in `parser.addUsageLines` (shared with `autoFillUsage`, see
+below); `genFsm` calls it once for every line in `spec.usage`, then calls
+`result.prepare()` directly after.
 
 `dot.nim` renders any FSM to Graphviz dot for debugging/visualization but is
 not called anywhere by default — wire up `spec.fsm.dot` (or `cmd.spec.fsm.dot`
@@ -44,7 +46,7 @@ and again via the explicit mention. Because a `[options]` atom earlier in
 the line can't yet know about an explicit mention later in the same line,
 its `Options` matcher is built unfiltered and its `Matcher` (a `ref`, see
 `backend.nim`) stashed in `SpecParser.pendingOptions`; once the whole line
-is parsed and `explicitOptions` is final, `genFsm` patches each pending
+is parsed and `explicitOptions` is final, `addUsageLines` patches each pending
 matcher's `opts` in place. Using the `Matcher` itself (rather than its
 surrounding `Transition`) for this is what makes the patch stick: `sequence`
 composes atoms by copying each one's transitions onto its own growing
@@ -283,9 +285,17 @@ something nested inside it fails, with no explicit bookkeeping. See
 `newSpec` builds the FSM first, then calls `autoFillUsage` to patch any
 gaps: it uses `backend.referencedArgs` to collect every `Arg` actually
 referenced by a matcher, then appends usage lines for whatever isn't
-reachable and rebuilds the FSM once more if anything changed. This runs
-regardless of whether `usage` was left blank or passed in explicitly, and
-the fill-in rule differs by category:
+reachable. Rather than rebuilding the FSM from scratch a second time (which
+would re-lex/re-parse every line, including ones already built moments
+earlier), the newly-appended lines are spliced directly onto the existing
+`spec.fsm` root via the same `parser.addUsageLines` `genFsm` itself uses,
+then `spec.fsm.prepare()` runs once more over the combined graph.
+`addUsageLines` itself recomputes the root's `terminal` flag after splicing
+(true only if the root still has no transitions at all), so neither caller
+needs to know that a spec which started with a fully empty `usage` string
+left that flag `true` and now needs it cleared. This runs regardless of
+whether `usage` was left blank or passed in explicitly, and the fill-in rule
+differs by category:
 
 - **Commands** that are unreachable are joined into a single `(cmd1 | cmd2)`
   alternation line (all their variants flattened into one `|`-list) rather

@@ -1103,6 +1103,24 @@ suite "autoFillUsage":
     let s2 = newSpec(spec2, usage = "<a>")
     check s2.usage == "<a>"
 
+  test "a spec auto-filled from a fully empty usage string actually parses, not just displays correctly":
+    let spec = (
+      a: arg("<a>", help = ""),
+      b: arg("<b>", help = ""),
+    )
+    let s = newSpec(spec, usage = "")
+    s.parse(@["x", "y"], "prog")
+    check spec.a == "x"
+    check spec.b == "y"
+
+    let spec2 = (
+      a: arg("<a>", help = ""),
+      b: arg("<b>", help = ""),
+    )
+    let s2 = newSpec(spec2, usage = "")
+    expect ParseError:
+      s2.parse(@[], "prog")
+
   test "a standalone [options] line is added when nothing else needs appending":
     let spec = (
       verbose: flag("--verbose", default = false, help = ""),
