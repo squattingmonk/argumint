@@ -981,79 +981,105 @@ proc completionScript*(spec: Spec, shell: Shell, binaryName = extractFilename(ge
   spec.genCompletionScript(shell, binaryName)
 
 when isMainModule:
-  # let
-  #   spec = (
-  #     src: args("<src>", default = @["foo"], help = "The source file(s) to copy"),
-  #     dest: arg("<dest>", help = "The destination to copy to"),
-  #     recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
-  #     help: help()
-  #   )
-  #
-  # spec.parseOrQuit(usage = "[-r] <src>... <dest>\n--help")
-  # for file in spec.src:
-  #   echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"
+  ## Direct regression tests for the `defineArg`/`defineFlag`/`defineFlagArg`/
+  ## `defineSetFlag` macro machinery above, one per hygiene workaround
+  ## documented in `docs/gotchas.md` -- each instantiates `ValueArg`/`FlagArg`
+  ## directly and drives the generated methods by hand, bypassing `Spec`/
+  ## `parse*` entirely (one test also uses the real `flag*` constructor,
+  ## since the CacheTable it reads from can only be exercised that way), so
+  ## a regression here fails right at the template instead of three layers
+  ## downstream at some other test's `spec.parse()` call. See
+  ## `tests/test_argumint.nim`'s `Priority`/`Level`/`Speed`/`Color` for the
+  ## complementary integration coverage (that these types work correctly
+  ## *through* the full pipeline) -- this suite is deliberately narrower and
+  ## doesn't duplicate it.
+  import std/unittest
 
-  proc cmdMove(spec: tuple) =
-    echo fmt"Moving ship {spec.name} to ({spec.x}, {spec.y}) at {spec.speed} knots"
+  type Rank = enum
+    rLow, rMid, rHigh
 
-  proc appBefore(spec: tuple) =
-    echo "Starting Naval Fate"
+  converter toRank(value: string): Rank = parseEnum[Rank](value)
 
-  proc appAfter(spec: tuple) =
-    echo "Naval Fate finished"
+  type Grade = enum
+    gPoor, gFair, gGood
 
-  proc shipBefore(spec: tuple) =
-    echo "Entering ship command"
+  # defineArg/defineFlag/defineFlagArg are separately-named templates, not
+  # overloads of one another, specifically so their hygiene doesn't corrupt
+  # across calls (see docs/gotchas.md) -- exercising all of them in the same
+  # run is itself the regression test for that: a hygiene corruption would
+  # fail to compile, not fail an assertion. defineFlag (exported, 3-arg) is
+  # called directly below; defineFlagArg (the shared implementation) and the
+  # bare 1-arg defineArg are both exercised transitively by it and by
+  # defineSetFlag's own internal 2-arg defineArg(set[elemType]) call.
+  defineFlag(Rank, "Bump to the next rank"):
+    case op
+    of "": value = Rank((ord(value) + 1) mod 3)
+    of "=": value = arg
+    else: raise newException(SpecDefect, "rank flags only support blank or = operations")
 
-  proc shipAfter(spec: tuple) =
-    echo "Done with ship command"
+  defineSetFlag(Rank)
+  defineSetFlag(Grade)
 
-  let
-    coords = (
-      x: arg("<x>", default = 0, help = "x grid reference"),
-      y: arg("<y>", default = 0, help = "y grid reference"),
-    )
+  suite "defineArg/defineFlag macro machinery":
+    test "a ValueArg's generated parse/defaultStr work when constructed directly, bypassing arg()":
+      let a = ValueArg[Rank, false](kind: Positional, variants: @["<rank>"])
+      a.parse("rHigh")
+      check a.value.get[0] == rHigh
+      check a.defaultStr() == ""
 
-    move = (
-      name: arg("<name>", help = "The name of the ship to move"),
-      x: coords.x,
-      y: coords.y,
-      speed: opt("--speed=<speed>", default = 10, validator = range(1..100), help = "Speed in knots"),
-      help: help()
-    )
+    test "a FlagArg's generated parse()/variantDesc() are correct -- % (not fmt) inside a defineFlagArg-generated method, and defineFlag's blankDesc wiring":
+      let f = FlagArg[Rank](kind: Flag, variants: @["-r", "-b"])
+      f.ops = newOrderedTable[string, FlagOp[Rank]]()
+      f.ops["-r"] = ("=", rHigh, "")
+      f.ops["-b"] = ("", rLow, "")
+      expect SpecDefect:
+        f.parse("", "--unknown")
+      try:
+        f.parse("", "--unknown")
+      except SpecDefect as e:
+        check "--unknown" in e.msg
+        check "-r" in e.msg
+      check f.variantDesc("-b") == "Bump to the next rank"
 
-    ship = (
-      move: command("move", move, action = cmdMove, usage = "<name> <x> <y> [--speed=<speed>]", help = "Move a ship to a point"),
-      help: help()
-    )
+    test "defineSetFlag's =/+=/-=/*= ops all work on a directly-constructed FlagArg[set[T]]":
+      let f = FlagArg[set[Rank]](kind: Flag, variants: @["-r"])
+      f.ops = newOrderedTable[string, FlagOp[set[Rank]]]()
+      f.ops["="] = ("=", {rLow}, "")
+      f.ops["+="] = ("+=", {rMid}, "")
+      f.ops["-="] = ("-=", {rLow}, "")
+      f.ops["*="] = ("*=", {rMid}, "")
 
-    mine = (
-      action: arg("<action>", help = "Action to perform", validator = choice(["set", "remove"])),
-      x: coords.x,
-      y: coords.y,
-      moored: flag("--moored", help = "Moored (anchored) mine"),
-      drifting: flag("--drifting", help = "Drifting mine"),
-      help: help()
-    )
+      f.parse("", "=")
+      check f.value == {rLow}
+      f.parse("", "+=")
+      check f.value == {rLow, rMid}
+      f.parse("", "-=")
+      check f.value == {rMid}
+      f.parse("", "*=")
+      check f.value == {rMid}
 
-    spec = (
-      ship: command("ship", ship, before = shipBefore, after = shipAfter, help = "Ship commands"),
-      mine: command("mine", mine, usage = "<action> <x> <y> [--moored | --drifting]", help = "Mine commands"),
-      help: help(),
-      version: version("Naval Fate 1.0.0")
-    )
+    test "two distinct defineSetFlag(enum) instantiations don't cross-wire in the flagOps CacheTable":
+      # defineFlagOps (the macro above) registers each type's valid ops
+      # keyed by typeName.repr (e.g. "set[Rank]"/"set[Grade]") -- repr, not
+      # $, since $ can't stringify the raw nnkBracketExpr AST these
+      # templates forward internally (a compile error if that regressed,
+      # not a silent collision). flag() reads back via getFlagOps($T) at
+      # its own instantiation, so calling the real flag[set[Rank]]/
+      # flag[set[Grade]] constructors here -- not just building a FlagArg
+      # by hand -- exercises both the write (defineSetFlag above) and the
+      # read, proving neither's registered ops were corrupted by the other.
+      let rankFlag = flag[set[Rank]]("--rank+=rHigh", default = {})
+      rankFlag.parse("", "--rank")
+      check rankFlag.value == {rHigh}
 
-  # echo ""
-  # echo "Listing usage..."
-  # echo spec.ship.spec.usage
-  #
-  # echo "Listing commands..."
-  # for cmd in spec.ship.spec.commands.values:
-  #   echo cmd.name
+      let gradeFlag = flag[set[Grade]]("--grade+=gGood", default = {})
+      gradeFlag.parse("", "--grade")
+      check gradeFlag.value == {gGood}
+      check rankFlag.value == {rHigh} # unaffected by gradeFlag's own +=
 
-  spec.parseOrQuit(prolog = "Naval Fate", before = appBefore, after = appAfter)
-
-  echo fmt"{move.name=}"
-  echo fmt"{move.x=}"
-  echo fmt"{move.y=}"
-  echo fmt"{move.speed=}"
+    test "repeated parse() calls on a multi-value ValueArg don't corrupt earlier elements (ORC regression)":
+      let a = ValueArg[Rank, true](kind: Positional, variants: @["<rank>"])
+      a.parse("rLow")
+      a.parse("rMid")
+      a.parse("rHigh")
+      check a.value.get == @[rLow, rMid, rHigh]
