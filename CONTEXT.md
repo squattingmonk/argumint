@@ -303,16 +303,31 @@ _Avoid_: Fallback order, resolution order
 **Env Delimiter**:
 The character sequence a configured environment variable's raw value is
 split on before being fed into Value Precedence's environment-variable
-tier. Always `\x1e` (ASCII Record Separator) if present — this is how
-fish auto-joins a native list variable's elements when exporting it to a
-subprocess's environment, for any variable name, not just ones fish
-special-cases like `PATH` — otherwise `Spec.envDelim`, which cascades to
+tier. Consulted in order: an Env Source's own delimiter override, if
+explicitly set to the empty string, means this Arg's value is never split
+at all — a stronger instruction than everything below it, including
+`\x1e`. Otherwise `\x1e` (ASCII Record Separator) wins if present — this
+is how fish auto-joins a native list variable's elements when exporting it
+to a subprocess's environment, for any variable name, not just ones fish
+special-cases like `PATH`. Otherwise, a non-empty Env Source override
+wins. Failing all of those, `Spec.config.envDelim`, which cascades to
 nested Command Specs the same way `width` does and defaults to `:` (the
 `PATH`-style convention `bash`/`zsh` users already reach for). A resulting
 empty value (a stray leading/trailing/doubled delimiter) is kept as a
 literal value rather than dropped, so an env value is never treated
 differently from a value typed on the command line.
 _Avoid_: envDelim (code-level name, fine in prose about the API itself)
+
+**Env Source**:
+A per-Arg override of Value Precedence's environment-variable tier,
+pairing the env var name with an optional Env Delimiter override. Every
+Option/Flag's `env` param takes one — a plain string names an env var with
+no delimiter override (the common case); the `env(name, delim)` proc names
+one with an explicit delimiter override, including the empty string,
+which means "never split this Arg's value" (see Env Delimiter). Unlike
+`Spec.config.envDelim`, an Env Source belongs to a single Arg and doesn't
+cascade.
+_Avoid_: EnvSource (code-level name, fine in prose about the API itself)
 
 **Usage Line**:
 One line within a Usage String, expressing one complete alternative

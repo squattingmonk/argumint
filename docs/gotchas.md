@@ -178,3 +178,18 @@ inside a template.
   `pendingOptionalArgs` (`fsm.nim`) when a nested `proc consider(arg: Arg)`
   tried to `result.add arg`. Inline the logic into the loop instead of
   factoring it into a nested closure that captures `result`.
+
+- **`import std/options` (even aliased, `import std/options as opt`) breaks
+  every `case ... of Option:` branch matching `MatcherKind.Option`** (and
+  `.Options`) in `backend.nim`/`fsm.nim`, with a confusing "type mismatch:
+  got 'typedesc[Option]' for 'Option' but expected 'MatcherKind = enum'".
+  `std/options.Option` is a same-named *type*, not just a same-named enum
+  value, and it wins the bare-identifier lookup in a case-branch position
+  regardless of import aliasing -- an `as` alias only adds the qualified
+  form, it doesn't remove the unqualified one from scope. Fixed by
+  `from std/options import some, none, isSome, get` (the non-colliding
+  procs, usable unqualified) and referencing the type itself as
+  `options.Option[T]` everywhere -- `from ... import` still allows this
+  qualified form for `Option` even though it wasn't named in the import
+  list, so no separate `import std/options` is needed at all. See
+  `docs/adr/0015-per-arg-env-delimiter-overrides.md`.

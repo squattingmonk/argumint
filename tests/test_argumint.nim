@@ -1440,6 +1440,64 @@ suite "Environment variables":
     spec.parse(usage = "[--tag=<tag>]...", config = newSpecConfig(envDelim = ","), args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
 
+  test "a per-arg env(name, delim) override splits on something other than the spec's envDelim":
+    putEnv("ARGUMINT_TEST_TAGS", "foo;bar;baz")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["foo", "bar", "baz"]
+
+  test "a per-arg delim override applies only to that arg, not the whole spec":
+    # Two separate parses, not one usage line with both args repeatable --
+    # two independently-repeatable env-configured positions in a single
+    # usage line hang the FSM walk regardless of any delim override
+    # (reproduces with plain string env= too), a pre-existing bug tracked
+    # separately from this feature.
+    putEnv("ARGUMINT_TEST_A", "foo;bar")
+    defer: delEnv("ARGUMINT_TEST_A")
+    let specA = (
+      a: opts[string]("--av=<a>", env = env("ARGUMINT_TEST_A", ";"), help = ""),
+    )
+    specA.parse(usage = "[--av=<a>]...", args = @[], command = "prog")
+    check specA.a == @["foo", "bar"]
+
+    putEnv("ARGUMINT_TEST_B", "foo:bar")
+    defer: delEnv("ARGUMINT_TEST_B")
+    let specB = (
+      b: opts[string]("--bv=<b>", env = "ARGUMINT_TEST_B", help = ""),
+    )
+    specB.parse(usage = "[--bv=<b>]...", args = @[], command = "prog")
+    check specB.b == @["foo", "bar"]
+
+  test "\\x1e still takes priority over a non-empty per-arg delim override":
+    putEnv("ARGUMINT_TEST_TAGS", "foo;bar\x1ebaz;qux")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts[string]("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["foo;bar", "baz;qux"]
+
+  test "an empty per-arg delim override disables splitting entirely, even over \\x1e":
+    putEnv("ARGUMINT_TEST_TOKEN", "a:b\x1ec")
+    defer: delEnv("ARGUMINT_TEST_TOKEN")
+    let spec = (
+      token: opt[string]("--token=<token>", env = env("ARGUMINT_TEST_TOKEN", ""), help = ""),
+    )
+    spec.parse(usage = "[--token=<token>]", args = @[], command = "prog")
+    check spec.token == "a:b\x1ec"
+
+  test "flag: a per-arg delim override applies to how env-named variants are split":
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbose;--verbose")
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = env("ARGUMINT_TEST_VERBOSE", ";"), help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
+    check spec.verbosity == 2
+
   test "an Arg whose position is never reached this walk still gets every available env value applied":
     putEnv("ARGUMINT_TEST_PORT", "1234:5678")
     defer: delEnv("ARGUMINT_TEST_PORT")

@@ -16,14 +16,14 @@ type
     value: Option[seq[T]]
     default: seq[T]
     validator: Validator[T]
-    env: string
+    env: Option[EnvSource]
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
   FlagArg[T] = ref object of Arg
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
-    env: string
+    env: Option[EnvSource]
 
 const flagOps = CacheTable"flagOps"
 
@@ -273,20 +273,28 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method completions*(self: ValueArg[T, true]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
 
-  method envName*(self: ValueArg[T, false]): string = self.env
+  method envName*(self: ValueArg[T, false]): string =
+    if self.env.isSome: self.env.get.name else: ""
 
-  method envName*(self: ValueArg[T, true]): string = self.env
+  method envName*(self: ValueArg[T, true]): string =
+    if self.env.isSome: self.env.get.name else: ""
+
+  method envDelim*(self: ValueArg[T, false]): Option[string] =
+    if self.env.isSome: self.env.get.delim else: none(string)
+
+  method envDelim*(self: ValueArg[T, true]): Option[string] =
+    if self.env.isSome: self.env.get.delim else: none(string)
 
   method setFromEnv*(self: ValueArg[T, false], values: seq[string]) =
     # multi=false's overwrite-on-each-call already gives last-value-wins.
     for value in values:
-      self.parseImpl(value, self.env)
+      self.parseImpl(value, self.envName)
 
   method setFromEnv*(self: ValueArg[T, true], values: seq[string]) =
     # `multi = true`'s append-on-each-call behavior already gives the
     # usual multi-value Match Accumulation rule for free.
     for value in values:
-      self.parseImpl(value, self.env)
+      self.parseImpl(value, self.envName)
 
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
@@ -317,7 +325,11 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     of "-=": "Decrease by " & $vArg
     else: blankDesc
 
-  method envName*(self: FlagArg[T]): string = self.env
+  method envName*(self: FlagArg[T]): string =
+    if self.env.isSome: self.env.get.name else: ""
+
+  method envDelim*(self: FlagArg[T]): Option[string] =
+    if self.env.isSome: self.env.get.delim else: none(string)
 
   method setFromEnv*(self: FlagArg[T], values: seq[string]) =
     # Each value names a declared Variant and is applied via that Variant's
@@ -495,7 +507,10 @@ proc newSpecConfig*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVarian
   ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
   ##   is split on to supply more than one value (`\x1e` is always tried
   ##   first, since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
+  ##   single Option/Flag can override this delimiter (or opt out of
+  ##   splitting entirely) via `env*`'s two-arg form -- see
+  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   ##
   ## Hold onto the returned `SpecConfig` and pass the same instance to
   ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
@@ -513,6 +528,20 @@ proc cascadeSpecConfig(spec: Spec, config: SpecConfig) =
   spec.config = config
   for cmd in spec.commands.values:
     cmd.spec.cascadeSpecConfig(config)
+
+converter toEnvSource*(name: string): Option[EnvSource] =
+  ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
+  ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
+  ## form that also overrides the delimiter.
+  some(EnvSource(name: name))
+
+proc env*(name: string, delim: string): Option[EnvSource] =
+  ## Names an environment variable to supply an arg's value, overriding
+  ## the delimiter its raw value is split on for this arg only, instead of
+  ## inheriting `Spec.config.envDelim`. `delim = ""` means never split this
+  ## arg's env value at all, even on `\x1e` -- see
+  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
+  some(EnvSource(name: name, delim: some(delim)))
 
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
     config = newSpecConfig()): Spec =
@@ -575,7 +604,7 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   given.
   ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env = ""): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource)): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -595,10 +624,14 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   option is required or optional. An option matched more than once
   ##   can take multiple env values, split on `Spec.config.envDelim` -- see
   ##   `docs/adr/0004-required-options-env-fallback.md` and
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
+  ##   plain string names the env var alone; `env("NAME", delim)` also
+  ##   overrides the delimiter for this option only (`delim = ""` disables
+  ##   splitting entirely) -- see
+  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env = ""): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource)): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -620,7 +653,11 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   value always wins), converted/validated the same way. The raw value
   ##   is split on `Spec.config.envDelim` into as many values as this option's
   ##   position(s) can consume -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
+  ##   plain string names the env var alone; `env("NAME", delim)` also
+  ##   overrides the delimiter for this option only (`delim = ""` disables
+  ##   splitting entirely) -- see
+  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env)
 
 macro getFlagOps(typeName: string): untyped =
@@ -630,7 +667,7 @@ macro getFlagOps(typeName: string): untyped =
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, T] = initTable[string, T](), env = ""): FlagArg[T] =
+    variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource)): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -667,7 +704,11 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   `ParseError`. A flag matched more than once can take multiple env
   ##   values, split on `Spec.config.envDelim` -- see
   ##   `docs/adr/0004-required-options-env-fallback.md` and
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
+  ##   plain string names the env var alone; `env("NAME", delim)` also
+  ##   overrides the delimiter for this flag only (`delim = ""` disables
+  ##   splitting entirely) -- see
+  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
   for rawName in variants.split(Comma):
     var matches: array[3, string]

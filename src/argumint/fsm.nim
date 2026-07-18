@@ -180,7 +180,7 @@ proc probe(cursor: var EnvCursor, arg: Arg, spec: Spec): bool =
   if envName.len == 0 or not existsEnv(envName):
     return false
   if arg notin cursor.values:
-    cursor.values[arg] = splitEnvValue(getEnv(envName), spec.config.envDelim)
+    cursor.values[arg] = splitEnvValue(getEnv(envName), arg.envDelim, spec.config.envDelim)
   let consumed = cursor.consumed.getOrDefault(arg, 0)
   if consumed < cursor.values[arg].len:
     cursor.consumed[arg] = consumed + 1
@@ -545,7 +545,7 @@ proc apply(cursor: EnvCursor, spec: Spec, matches: MatchTable, seen: var HashSet
       else:
         arg.setFromEnv(cursor.values[arg])
     else:
-      arg.setFromEnv(splitEnvValue(getEnv(name), spec.config.envDelim))
+      arg.setFromEnv(splitEnvValue(getEnv(name), arg.envDelim, spec.config.envDelim))
 
   let (cmd, _) = matchedCommand(spec, matches)
   if not cmd.isNil:
@@ -582,6 +582,9 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
 
 when isMainModule:
   import std/unittest
+  # `Option` (the type) deliberately left unqualified-unimported --
+  # `options.Option[T]` instead -- see docs/gotchas.md.
+  from std/options import some, none, isSome, get
 
   type
     TestArg = ref object of Arg
@@ -590,14 +593,16 @@ when isMainModule:
       ## (which import this module, so the reverse import isn't available
       ## here).
       env: string
+      delim: options.Option[string]
       recorded: seq[string]
 
   method envName(self: TestArg): string = self.env
+  method envDelim(self: TestArg): options.Option[string] = self.delim
   method setFromEnv(self: TestArg, values: seq[string]) =
     self.recorded = values
 
-  proc newTestArg(name: string, env = ""): TestArg =
-    TestArg(kind: Optional, variants: @[name], env: env)
+  proc newTestArg(name: string, env = "", delim = none(string)): TestArg =
+    TestArg(kind: Optional, variants: @[name], env: env, delim: delim)
 
   suite "EnvCursor.probe":
     test "false when the arg has no env var configured":
@@ -626,6 +631,26 @@ when isMainModule:
       let spec = Spec(config: SpecConfig(envDelim: ":"))
       check cursor.probe(arg, spec)
       check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      check not cursor.probe(arg, spec)
+
+    test "a per-arg delim override is used instead of Spec.config.envDelim":
+      putEnv("ARGUMINT_TEST_OVERRIDE", "a;b;c")
+      defer: delEnv("ARGUMINT_TEST_OVERRIDE")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_OVERRIDE", some(";"))
+      let spec = Spec(config: SpecConfig(envDelim: ":"))
+      check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      check cursor.probe(arg, spec)
+      check not cursor.probe(arg, spec)
+
+    test "an empty per-arg delim override means the whole value is a single element":
+      putEnv("ARGUMINT_TEST_NOSPLIT", "a:b")
+      defer: delEnv("ARGUMINT_TEST_NOSPLIT")
+      var cursor: EnvCursor
+      let arg = newTestArg("--foo", "ARGUMINT_TEST_NOSPLIT", some(""))
+      let spec = Spec(config: SpecConfig(envDelim: ":"))
       check cursor.probe(arg, spec)
       check not cursor.probe(arg, spec)
 
