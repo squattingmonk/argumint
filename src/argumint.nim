@@ -117,14 +117,14 @@ proc variantGroups(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
 proc genHelp(spec: Spec, command: string): string =
   let prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
-  let usage = spec.usage.formatUsage(command, spec.width) & "\n"
+  let usage = spec.usage.formatUsage(command, spec.config.width) & "\n"
 
   var rawColWidth = 0
   for arg in spec.args:
     for vg in arg.variantGroups():
       rawColWidth = max(rawColWidth, vg.names.join(", ").len)
   let colWidth =
-    if spec.maxVariantsWidth > 0: min(rawColWidth, spec.maxVariantsWidth)
+    if spec.config.maxVariantsWidth > 0: min(rawColWidth, spec.config.maxVariantsWidth)
     else: rawColWidth
 
   let continuationIndent = "    " # deeper than the "  " row margin, so a wrapped
@@ -155,7 +155,7 @@ proc genHelp(spec: Spec, command: string): string =
             else: "{arg.help} {bracket}".fmt
         let variantLines = variants.wrapWords(colWidth, splitLongWords = false).splitLines
         if text.len > 0:
-          let helpWidth = max(spec.width - (2 + colWidth + 2), 20)
+          let helpWidth = max(spec.config.width - (2 + colWidth + 2), 20)
           let textLines = text.wrapWords(helpWidth, splitLongWords = false).splitLines
           for j in 0 ..< max(variantLines.len, textLines.len):
             let v = if j < variantLines.len: variantLines[j] else: ""
@@ -482,37 +482,49 @@ proc autoFillUsage(spec: Spec) =
     spec.addUsageLines(spec.fsm, newLines)
     spec.fsm.prepare()
 
-proc cascadeSpecDefaults(spec: Spec, width, maxVariantsWidth: int, envDelim: string) =
-  ## Sets `width`/`maxVariantsWidth`/`envDelim` on `spec` and cascades them
-  ## into every nested subcommand's spec too, so values given to the
-  ## top-level `newSpec`/`parse*` call apply uniformly throughout the whole
-  ## command tree without needing to be repeated at each `command()` call.
-  spec.width = width
-  spec.maxVariantsWidth = maxVariantsWidth
-  spec.envDelim = envDelim
-  for cmd in spec.commands.values:
-    cmd.spec.cascadeSpecDefaults(width, maxVariantsWidth, envDelim)
+proc newSpecConfig*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
+    envDelim = DefaultEnvDelim): SpecConfig =
+  ## Creates a `SpecConfig` for `newSpec`/`parse*`/`parseOrQuit*`'s `config`
+  ## param.
+  ## - `width` is the column width usage/help text wraps at. Defaults to the
+  ##   caller's detected terminal width or 80 columns when none can be
+  ##   detected (e.g., piped output with `COLUMNS` unset). Pass an explicit
+  ##   width to opt out of auto-detection.
+  ## - `maxVariantsWidth` caps the variants column's width before it wraps
+  ##   onto extra indented lines (`0` for unlimited).
+  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
+  ##   is split on to supply more than one value (`\x1e` is always tried
+  ##   first, since that's how fish auto-joins a list variable) -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ##
+  ## Hold onto the returned `SpecConfig` and pass the same instance to
+  ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
+  ## it later (e.g. from a `before` hook) and have the change apply live to
+  ## every not-yet-dispatched `Spec` in the tree -- see
+  ## `docs/adr/0013-message-args-fire-after-before.md`.
+  SpecConfig(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim)
 
-proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim): Spec =
+proc cascadeSpecConfig(spec: Spec, config: SpecConfig) =
+  ## Shares `config` by reference with `spec` and every nested subcommand's
+  ## spec, so a value given to the top-level `newSpec`/`parse*` call --  or a
+  ## later mutation of that same `SpecConfig` instance -- applies uniformly
+  ## throughout the whole command tree without needing to be repeated at
+  ## each `command()` call.
+  spec.config = config
+  for cmd in spec.commands.values:
+    cmd.spec.cascadeSpecConfig(config)
+
+proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
+    config = newSpecConfig()): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM.
   ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
   ##   for how gaps in `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be detected
-  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
-  ##   out of auto-detection.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
-  ##   extra indented lines (`0` for unlimited)
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
-  ##   split on to supply more than one value (`\x1e` is always tried first,
-  ##   since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-  ##
-  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
-  ## subcommand's spec (see `cascadeSpecDefaults`).
+  ## - `config` holds `width`/`maxVariantsWidth`/`envDelim` -- see
+  ##   `newSpecConfig`. Shared by reference with every nested subcommand's
+  ##   spec (see `cascadeSpecConfig`); mutating it later (e.g. from a
+  ##   `before` hook) applies live throughout the tree.
   ##
   ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
   ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you
@@ -524,7 +536,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "", width = termina
   result.addArgs(spec)
   result.fsm = result.genFsm()
   result.autoFillUsage()
-  result.cascadeSpecDefaults(width, maxVariantsWidth, envDelim)
+  result.cascadeSpecConfig(config)
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -581,7 +593,7 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   option's value when none is given on the command line (a CLI value
   ##   always wins), converted/validated the same way. Applies whether the
   ##   option is required or optional. An option matched more than once
-  ##   can take multiple env values, split on `Spec.envDelim` -- see
+  ##   can take multiple env values, split on `Spec.config.envDelim` -- see
   ##   `docs/adr/0004-required-options-env-fallback.md` and
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
@@ -606,7 +618,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ## - `env` optionally names an environment variable supplying this
   ##   option's value(s) when none are given on the command line (a CLI
   ##   value always wins), converted/validated the same way. The raw value
-  ##   is split on `Spec.envDelim` into as many values as this option's
+  ##   is split on `Spec.config.envDelim` into as many values as this option's
   ##   position(s) can consume -- see
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env)
@@ -653,7 +665,7 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   always wins). Each env value must name one of the flag's own
   ##   declared Variants (e.g. `--verbose`); an unrecognized name raises
   ##   `ParseError`. A flag matched more than once can take multiple env
-  ##   values, split on `Spec.envDelim` -- see
+  ##   values, split on `Spec.config.envDelim` -- see
   ##   `docs/adr/0004-required-options-env-fallback.md` and
   ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
@@ -729,10 +741,10 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ## For more information on how before/action/after hooks are used, see
   ## `docs/adr/0009-command-before-action-after-hooks.md`.
   ##
-  ## Note: `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
-  ## here: they cascade down from whatever the top-level `newSpec`/`parse*`
-  ## call is given (see `cascadeSpecDefaults`), so they only need to be
-  ## specified once regardless of how deeply nested this command is.
+  ## Note: `config` is deliberately not a parameter here: it cascades down
+  ## by reference from whatever the top-level `newSpec`/`parse*` call is
+  ## given (see `cascadeSpecConfig`), so it only needs to be specified once
+  ## regardless of how deeply nested this command is.
   result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
@@ -771,10 +783,10 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
   ## For more information on how before/action/after hooks are used, see
   ## `docs/adr/0009-command-before-action-after-hooks.md`.
   ##
-  ## Note: `width`/`maxVariantsWidth`/`envDelim` are deliberately not parameters
-  ## here: they cascade down from whatever the top-level `newSpec`/`parse*`
-  ## call is given (see `cascadeSpecDefaults`), so they only need to be
-  ## specified once regardless of how deeply nested this command is.
+  ## Note: `config` is deliberately not a parameter here: it cascades down
+  ## by reference from whatever the top-level `newSpec`/`parse*` call is
+  ## given (see `cascadeSpecConfig`), so it only needs to be specified once
+  ## regardless of how deeply nested this command is.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
     before = if before.isNil: nil else: (proc(cmdSpec: S) = before(spec, options)),
     action = if action.isNil: nil else: (proc(cmdSpec: S) = action(spec, options)),
@@ -896,8 +908,8 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   except MessageError as e:
     quit(e.msg, QuitSuccess)
 
-proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim,
+proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
+    config = newSpecConfig(),
     args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
     before: proc(spec: S) = nil,
     action: proc(spec: S) = nil,
@@ -909,16 +921,10 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width
   ##   for how gaps in `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be detected
-  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
-  ##   out of auto-detection.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
-  ##   extra indented lines (`0` for unlimited)
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
-  ##   split on to supply more than one value (`\x1e` is always tried first,
-  ##   since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## - `config` holds `width`/`maxVariantsWidth`/`envDelim` -- see
+  ##   `newSpecConfig`. Shared by reference with every nested subcommand's
+  ##   spec; mutating it later (e.g. from a `before` hook) applies live
+  ##   throughout the tree.
   ## - `args` is the command-line arguments to parse using the spec.
   ## - `command` is the name of the binary to use in help messages.
   ## - `before` fires once this `spec`'s own values are parsed
@@ -928,11 +934,8 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
-  ##
-  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
-  ## subcommand's spec (see `cascadeSpecDefaults`).
   try:
-    let builtSpec = newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim)
+    let builtSpec = newSpec(spec, usage, prolog, epilog, config)
     if not before.isNil: builtSpec.before = () => before(spec)
     if not action.isNil: builtSpec.action = () => action(spec)
     if not after.isNil: builtSpec.after = () => after(spec)
@@ -940,8 +943,8 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
-proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width = terminalWidth(),
-    maxVariantsWidth = DefaultMaxVariantsWidth, envDelim = DefaultEnvDelim,
+proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
+    config = newSpecConfig(),
     args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
     before: proc(spec: S) = nil,
     action: proc(spec: S) = nil,
@@ -954,16 +957,10 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width = ter
   ##   for how gaps in `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be detected
-  ##   (e.g., piped output with `COLUMNS` unset). Pass an explicit width to opt
-  ##   out of auto-detection.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps onto
-  ##   extra indented lines (`0` for unlimited)
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value is
-  ##   split on to supply more than one value (`\x1e` is always tried first,
-  ##   since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
+  ## - `config` holds `width`/`maxVariantsWidth`/`envDelim` -- see
+  ##   `newSpecConfig`. Shared by reference with every nested subcommand's
+  ##   spec; mutating it later (e.g. from a `before` hook) applies live
+  ##   throughout the tree.
   ## - `args` is the command-line arguments to parse using the spec.
   ## - `command` is the name of the binary to use in help messages.
   ## - `before` fires once this `spec`'s own values are parsed
@@ -973,10 +970,7 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "", width = ter
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
-  ##
-  ## `width`, `maxVariantsWidth`, and `envDelim` are cascaded to every nested
-  ## subcommand's spec (see `cascadeSpecDefaults`).
-  let builtSpec = newSpec(spec, usage, prolog, epilog, width, maxVariantsWidth, envDelim)
+  let builtSpec = newSpec(spec, usage, prolog, epilog, config)
   if not before.isNil: builtSpec.before = () => before(spec)
   if not action.isNil: builtSpec.action = () => action(spec)
   if not after.isNil: builtSpec.after = () => after(spec)

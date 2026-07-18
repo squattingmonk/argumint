@@ -33,6 +33,11 @@ type
 
   HelpArg* = ref object of MessageArg
 
+  SpecConfig* = ref object
+    width*: int ## Column width to wrap usage/help text at
+    maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
+    envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e`, which is always tried first)
+
   Spec* = ref object
     prolog*: string ## Front matter for a help message
     epilog*: string ## Back matter for a help message
@@ -43,9 +48,7 @@ type
     options*: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
     groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
     fsm*: State ## The initial state for the FSM used for parsing
-    width*: int ## Column width to wrap usage/help text at
-    maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
-    envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e`, which is always tried first)
+    config*: SpecConfig ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
     before*: proc () ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
     action*: proc () ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
     after*: proc () ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
@@ -87,14 +90,14 @@ type
 const DefaultWidth* = 80
 const DefaultMaxVariantsWidth* = 30
 const DefaultEnvDelim* = ":"
-const EnvListSep* = "\x1e" ## Always tried before `Spec.envDelim` -- see `splitEnvValue`
+const EnvListSep* = "\x1e" ## Always tried before `Spec.config.envDelim` -- see `splitEnvValue`
 
 proc splitEnvValue*(value, envDelim: string): seq[string] =
   ## Splits a raw env var's value into the (possibly several) values it
   ## supplies to Value Precedence's environment-variable tier. Always
   ## splits on `EnvListSep` (`\x1e`) if present -- how fish auto-joins a
   ## native list variable's elements for any variable name when exporting
-  ## it to a subprocess -- otherwise on `envDelim` (`Spec.envDelim`, the
+  ## it to a subprocess -- otherwise on `envDelim` (`Spec.config.envDelim`, the
   ## `PATH`-style `:` convention by default). Empty segments (a stray
   ## leading/trailing/doubled delimiter) are kept as literal values, not
   ## dropped, so an env value is never treated differently from one typed
@@ -121,7 +124,7 @@ proc raiseParseError*(msg: string) =
   raise newException(ParseError, msg)
 
 proc raiseParseError*(msg: string, command: string, spec: Spec) =
-  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.width)}".fmt)
+  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.config.width)}".fmt)
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.

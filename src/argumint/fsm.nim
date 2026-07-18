@@ -180,7 +180,7 @@ proc probe(cursor: var EnvCursor, arg: Arg, spec: Spec): bool =
   if envName.len == 0 or not existsEnv(envName):
     return false
   if arg notin cursor.values:
-    cursor.values[arg] = splitEnvValue(getEnv(envName), spec.envDelim)
+    cursor.values[arg] = splitEnvValue(getEnv(envName), spec.config.envDelim)
   let consumed = cursor.consumed.getOrDefault(arg, 0)
   if consumed < cursor.values[arg].len:
     cursor.consumed[arg] = consumed + 1
@@ -545,7 +545,7 @@ proc apply(cursor: EnvCursor, spec: Spec, matches: MatchTable, seen: var HashSet
       else:
         arg.setFromEnv(cursor.values[arg])
     else:
-      arg.setFromEnv(splitEnvValue(getEnv(name), spec.envDelim))
+      arg.setFromEnv(splitEnvValue(getEnv(name), spec.config.envDelim))
 
   let (cmd, _) = matchedCommand(spec, matches)
   if not cmd.isNil:
@@ -602,19 +602,19 @@ when isMainModule:
   suite "EnvCursor.probe":
     test "false when the arg has no env var configured":
       var cursor: EnvCursor
-      check not cursor.probe(newTestArg("--foo"), Spec(envDelim: ":"))
+      check not cursor.probe(newTestArg("--foo"), Spec(config: SpecConfig(envDelim: ":")))
 
     test "false when the configured env var isn't set":
       delEnv("ARGUMINT_TEST_UNSET")
       var cursor: EnvCursor
-      check not cursor.probe(newTestArg("--foo", "ARGUMINT_TEST_UNSET"), Spec(envDelim: ":"))
+      check not cursor.probe(newTestArg("--foo", "ARGUMINT_TEST_UNSET"), Spec(config: SpecConfig(envDelim: ":")))
 
     test "hands out a single value once, then reports exhausted":
       putEnv("ARGUMINT_TEST_SINGLE", "hello")
       defer: delEnv("ARGUMINT_TEST_SINGLE")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_SINGLE")
-      let spec = Spec(envDelim: ":")
+      let spec = Spec(config: SpecConfig(envDelim: ":"))
       check cursor.probe(arg, spec)
       check not cursor.probe(arg, spec)
 
@@ -623,7 +623,7 @@ when isMainModule:
       defer: delEnv("ARGUMINT_TEST_MULTI")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_MULTI")
-      let spec = Spec(envDelim: ":")
+      let spec = Spec(config: SpecConfig(envDelim: ":"))
       check cursor.probe(arg, spec)
       check cursor.probe(arg, spec)
       check cursor.probe(arg, spec)
@@ -635,7 +635,7 @@ when isMainModule:
       defer: delEnv("ARGUMINT_TEST_DIRECT")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_DIRECT")
-      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      let spec = Spec(config: SpecConfig(envDelim: ":"), args: @[Arg arg])
       var matches: MatchTable
       var seen: HashSet[Arg]
       var complaints: seq[Complaint]
@@ -648,7 +648,7 @@ when isMainModule:
       defer: delEnv("ARGUMINT_TEST_CONSUMED")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_CONSUMED")
-      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      let spec = Spec(config: SpecConfig(envDelim: ":"), args: @[Arg arg])
       check cursor.probe(arg, spec)
       check cursor.probe(arg, spec)
       var matches: MatchTable
@@ -663,7 +663,7 @@ when isMainModule:
       defer: delEnv("ARGUMINT_TEST_LEFTOVER")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_LEFTOVER")
-      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      let spec = Spec(config: SpecConfig(envDelim: ":"), args: @[Arg arg])
       discard cursor.probe(arg, spec) # consumes only 1 of the 3 available values
       var matches: MatchTable
       var seen: HashSet[Arg]
@@ -676,7 +676,7 @@ when isMainModule:
       defer: delEnv("ARGUMINT_TEST_SKIP")
       var cursor: EnvCursor
       let arg = newTestArg("--foo", "ARGUMINT_TEST_SKIP")
-      let spec = Spec(envDelim: ":", args: @[Arg arg])
+      let spec = Spec(config: SpecConfig(envDelim: ":"), args: @[Arg arg])
       var matches: MatchTable
       matches[Arg arg] = @[(variant: "--foo", value: "explicit", spec: spec)]
       var seen: HashSet[Arg]
