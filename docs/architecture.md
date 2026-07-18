@@ -25,7 +25,11 @@ into a graph of `State`/`Transition` objects. Each token becomes a `Matcher`
 optional/repeated branches). `backend.prepare` (`simplify` +
 `sortTransitions`) collapses shortcut chains and orders transitions by
 matcher priority (`ord(MatcherKind)`) so, e.g., positional args aren't
-greedily consumed ahead of options. The per-line lex/parse/splice loop
+greedily consumed ahead of options. `simplify` collapses shortcuts via an
+epsilon-closure per state (`shortcutClosure`) rather than iterative
+delete-and-copy, so it terminates even when shortcut edges form a cycle
+spanning more than the immediate state being simplified — see
+`docs/gotchas.md`. The per-line lex/parse/splice loop
 itself lives in `parser.addUsageLines` (shared with `autoFillUsage`, see
 below); `genFsm` calls it once for every line in `spec.usage`, then calls
 `result.prepare()` directly after.

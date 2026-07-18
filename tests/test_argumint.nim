@@ -1258,6 +1258,47 @@ suite "FSM choice deduplication":
     let s = newSpec(spec, usage = "(-a | -b | -c)\n--help")
     check s.dot.count("Opt(-a)") == 1
 
+suite "FSM shortcut cycles":
+  # A bracketed-and-repeated atom compiles to its own self-contained
+  # 2-state mutual-shortcut pair. Two adjacent such atoms in one usage line
+  # used to hang FSM construction (newSpec/prepare/simplify) forever --
+  # entirely at spec-compile time, unrelated to env vars, `.parse()`, or CLI
+  # args -- see docs/gotchas.md and GitHub issue #4.
+  test "two adjacent optional-and-repeated atoms in one usage line don't hang FSM construction":
+    let spec = (
+      a: opts[string]("--av=<a>", help = ""),
+      b: opts[string]("--bv=<b>", help = ""),
+    )
+    discard newSpec(spec, usage = "[--av=<a>]... [--bv=<b>]...")
+
+  test "the first atom doesn't need its own repeat for the hang to occur":
+    let spec = (
+      a: opt[string]("--av=<a>", default = "", help = ""),
+      b: opts[string]("--bv=<b>", help = ""),
+    )
+    discard newSpec(spec, usage = "[--av=<a>] [--bv=<b>]...")
+
+  test "three or more adjacent optional-and-repeated atoms don't hang":
+    let spec = (
+      a: opts[string]("--av=<a>", help = ""),
+      b: opts[string]("--bv=<b>", help = ""),
+      c: opts[string]("--cv=<c>", help = ""),
+    )
+    discard newSpec(spec, usage = "[--av=<a>]... [--bv=<b>]... [--cv=<c>]...")
+
+  test "two independently-repeatable env-configured options in one usage line resolve correctly, not just avoid hanging":
+    putEnv("ARGUMINT_TEST_SHORTCUT_A", "foo:bar")
+    defer: delEnv("ARGUMINT_TEST_SHORTCUT_A")
+    putEnv("ARGUMINT_TEST_SHORTCUT_B", "baz:qux")
+    defer: delEnv("ARGUMINT_TEST_SHORTCUT_B")
+    let spec = (
+      a: opts[string]("--av=<a>", env = "ARGUMINT_TEST_SHORTCUT_A", help = ""),
+      b: opts[string]("--bv=<b>", env = "ARGUMINT_TEST_SHORTCUT_B", help = ""),
+    )
+    spec.parse(usage = "[--av=<a>]... [--bv=<b>]...", args = @[], command = "prog")
+    check spec.a == @["foo", "bar"]
+    check spec.b == @["baz", "qux"]
+
 suite "Environment variables":
   test "opt: env var set, no CLI value, is used and converted like a CLI value":
     putEnv("ARGUMINT_TEST_PORT", "9090")
@@ -1450,26 +1491,17 @@ suite "Environment variables":
     check spec.tags == @["foo", "bar", "baz"]
 
   test "a per-arg delim override applies only to that arg, not the whole spec":
-    # Two separate parses, not one usage line with both args repeatable --
-    # two independently-repeatable env-configured positions in a single
-    # usage line hang the FSM walk regardless of any delim override
-    # (reproduces with plain string env= too), a pre-existing bug tracked
-    # separately from this feature.
     putEnv("ARGUMINT_TEST_A", "foo;bar")
     defer: delEnv("ARGUMINT_TEST_A")
-    let specA = (
-      a: opts[string]("--av=<a>", env = env("ARGUMINT_TEST_A", ";"), help = ""),
-    )
-    specA.parse(usage = "[--av=<a>]...", args = @[], command = "prog")
-    check specA.a == @["foo", "bar"]
-
     putEnv("ARGUMINT_TEST_B", "foo:bar")
     defer: delEnv("ARGUMINT_TEST_B")
-    let specB = (
+    let spec = (
+      a: opts[string]("--av=<a>", env = env("ARGUMINT_TEST_A", ";"), help = ""),
       b: opts[string]("--bv=<b>", env = "ARGUMINT_TEST_B", help = ""),
     )
-    specB.parse(usage = "[--bv=<b>]...", args = @[], command = "prog")
-    check specB.b == @["foo", "bar"]
+    spec.parse(usage = "[--av=<a>]... [--bv=<b>]...", args = @[], command = "prog")
+    check spec.a == @["foo", "bar"]
+    check spec.b == @["foo", "bar"]
 
   test "\\x1e still takes priority over a non-empty per-arg delim override":
     putEnv("ARGUMINT_TEST_TAGS", "foo;bar\x1ebaz;qux")

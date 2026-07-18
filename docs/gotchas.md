@@ -171,6 +171,24 @@ inside a template.
   string, which stays correct either way, and wouldn't have caught a
   regression here.
 
+- **`simplifySelf`'s old shortcut-collapsing check only ever compared against
+  the immediate `s`/`next` pair, so it couldn't detect a foreign multi-state
+  shortcut cycle merely *reached* from `s`, and looped forever.** A
+  bracketed-and-repeated atom (`[X]...`) compiles to its own self-contained
+  2-state mutual-shortcut pair (`S1 <-> S3`); two adjacent such atoms in one
+  usage line splice a live shortcut edge from the first pair's end state
+  into the second pair (`T1 <-> T3`). Expanding that edge from an unrelated
+  state correctly excluded a *direct* back-reference (`tr.next in [s,
+  next]`), but `T1`/`T3` alternate as `next` across iterations and neither
+  ever equals `s` itself — so the state kept absorbing `T1`'s shortcut, then
+  `T3`'s, forever, with `transitions.len` pinned constant the whole time
+  (confirmed via instrumentation: >2,000,000 calls on the same state). Fixed
+  by replacing the iterative delete-and-copy loop with a proper
+  epsilon-closure (`shortcutClosure`, same technique as epsilon-NFA→DFA
+  construction): every state reachable from `s` via shortcuts, computed once
+  with its own bounded visited-set, so it terminates regardless of chain
+  depth or cycle shape. See `docs/architecture.md` §2 and GitHub issue #4.
+
 - **A nested `proc` that captures an outer `var seq[T]` named `result` (a
   closure inside a proc, referencing `result` from its enclosing scope)
   fails under ORC** with "'result' is of type <seq[T]> which cannot be

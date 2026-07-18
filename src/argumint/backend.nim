@@ -352,56 +352,53 @@ proc sortTransitions(s: State, visited = newTable[State, bool]()) =
   for t in s.transitions:
     sortTransitions(t.next, visited)
 
-proc simplifySelf(s: State): bool =
-  ## Simplifies the transitions of `s`. If `s` has a shortcut to another state
-  ## `e`, will copy all transitions from `e` to `s` and remove the shortcut. If
-  ## `e` was terminal, `s` will be marked as terminal as well. Returns whether
-  ## any shortcuts were removed.
-  if s.transitions.len == 0:
-    return false
-
+proc shortcutClosure(s: State): tuple[states: seq[State], terminal: bool] =
+  ## Every state reachable from `s` via zero or more Shortcut-kind
+  ## transitions (the epsilon-closure), in discovery order, plus whether any
+  ## of them is terminal. `states` grows as it's scanned (a queue via
+  ## index, not `.pop()`), preserving the same left-to-right discovery order
+  ## `simplifySelf` used to produce, so downstream ordering (e.g. grouped
+  ## error messages) doesn't depend on `HashSet[State]`'s unspecified
+  ## iteration order. Bounded by `seen`, so this always terminates
+  ## regardless of shortcut chains or cycles -- see docs/gotchas.md.
+  var seen: HashSet[State]
+  seen.incl s
+  result.states.add s
+  result.terminal = s.terminal
   var idx = 0
-  while idx < s.transitions.len:
-    let
-      tr = s.transitions[idx]
-      next = tr.next
-    if tr.matcher.isShortcut:
-      s.transitions.delete idx
-
-      # Copy all transitions from tr.next to s that are not:
-      # - already present in s or
-      # - shortcuts to s or tr.next
-      for idx, tr in next.transitions:
-        # Don't copy any transitions that already exist
-        if tr in s.transitions:
-          continue
-
-        # Don't copy the transition if it's a shortcut to its own state or to s
-        if tr.matcher.isShortcut and tr.next in [s, next]:
-          continue
-
-        s.transitions.add tr
-        result = true
-
-      # If s has a shortcut to a terminal state e, s short be terminal as well
-      if next.terminal:
-        s.terminal = true
+  while idx < result.states.len:
+    let cur = result.states[idx]
+    for tr in cur.transitions:
+      if tr.matcher.isShortcut and tr.next notin seen:
+        seen.incl tr.next
+        result.states.add tr.next
+        if tr.next.terminal:
+          result.terminal = true
     idx.inc
 
+proc simplifySelf(s: State) =
+  ## Collapses every shortcut chain or cycle reachable from `s` directly
+  ## onto `s`'s own transitions, via `s`'s shortcut-closure.
+  let closure = s.shortcutClosure()
+  var newTransitions: seq[Transition]
+  for st in closure.states:
+    for tr in st.transitions:
+      if not tr.matcher.isShortcut and tr notin newTransitions:
+        newTransitions.add tr
+  s.transitions = newTransitions
+  s.terminal = closure.terminal
+
 proc simplify(s: State, visited = newTable[State, bool]()) =
-  ## Recursively simplifies the transitions of `s`. If `s` has a shortcut to
-  ## another state `e`, will copy all transitions from `e` to `s` and remove the
-  ## shortcut. If `e` was terminal, `s` will be marked as terminal as well.
-  ## `visited` tracks whether the state has been simplified already to avoid an
-  ## infinite loop.
+  ## Recursively simplifies the transitions of `s` -- see `simplifySelf`.
+  ## `visited` tracks whether the state has been simplified already to avoid
+  ## an infinite loop.
   if visited.hasKeyOrPut(s, true):
     return
 
   for tr in s.transitions:
     tr.next.simplify(visited)
 
-  while s.simplifySelf:
-    discard
+  s.simplifySelf()
 
 proc prepare*(s: State) =
   ## Simplifies the fsm with root node `s` and recursively sorts all transitions
