@@ -406,6 +406,33 @@ suite "Commands":
       spec.parse(usage = "ship", args = @["ship", "move"], command = "prog")
     check log == @["outer-before", "outer-after"]
 
+  test "before fires before a matched --help raises, and after still fires":
+    var log: seq[string]
+    proc appBefore(spec: tuple) = log.add "before"
+    proc appAfter(spec: tuple) = log.add "after"
+
+    let spec = (
+      name: arg("<name>", help = ""),
+      help: help(),
+    )
+    expect HelpError:
+      spec.parse(usage = "<name>\n--help", args = @["--help"], command = "prog",
+        before = appBefore, after = appAfter)
+    check log == @["before", "after"]
+
+  test "before fires before a matched message/version flag raises, and after still fires":
+    var log: seq[string]
+    proc appBefore(spec: tuple) = log.add "before"
+    proc appAfter(spec: tuple) = log.add "after"
+
+    let spec = (
+      ver: version("myapp 1.2.3"),
+    )
+    expect MessageError:
+      spec.parse(usage = "--version", args = @["--version"], command = "prog",
+        before = appBefore, after = appAfter)
+    check log == @["before", "after"]
+
   test "the [S, O] overload's options param reaches before, action, and after":
     var seenBefore, seenAction, seenAfter = ""
     let context = (label: "outer-context")
@@ -437,6 +464,24 @@ suite "Commands":
     try: spec.parse(usage = "[--help] ship", prolog = "TOP LEVEL", args = @["--help", "ship"], command = "prog")
     except HelpError as e: helpText = e.msg
     check "TOP LEVEL" in helpText
+
+  test "a nested subcommand's own matched --help fires before/after root-to-leaf, same shape as action":
+    var log: seq[string]
+    proc outerBefore(spec: tuple) = log.add "outer-before"
+    proc outerAfter(spec: tuple) = log.add "outer-after"
+    proc innerBefore(spec: tuple) = log.add "inner-before"
+    proc innerAfter(spec: tuple) = log.add "inner-after"
+
+    let move = (help: help())
+    let ship = (
+      move: command("move", move, before = innerBefore, after = innerAfter, usage = "--help", help = ""),
+    )
+    let spec = (
+      ship: command("ship", ship, before = outerBefore, after = outerAfter, help = ""),
+    )
+    expect HelpError:
+      spec.parse(usage = "ship", args = @["ship", "move", "--help"], command = "prog")
+    check log == @["outer-before", "inner-before", "inner-after", "outer-after"]
 
   test "two Commands can share one underlying proc, parameterized differently per call site":
     var log: seq[string]

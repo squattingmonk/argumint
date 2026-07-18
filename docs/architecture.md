@@ -261,24 +261,31 @@ than one grammar level.
 After a successful walk, `Spec.parse`'s final step recursively re-walks
 the *declared* Spec tree — not `pc.matches` itself, which carries no scope
 information on its own — via `dispatch(spec, pc.matches, command)`. At
-each `Spec` level: `parseOwnValues` parses that level's own non-Command
-matches (filtered by the `Match`'s `Spec` provenance); `spec.before()`
-fires, if set, now that those values are ready; `matchedCommand` finds
-whichever single Command was matched at this level, if any (at most one
-ever can be — `tokenizeArgs` hands off every remaining token to a matched
-command's own nested spec permanently, so a sibling command word can never
-be recognized afterward); if none, `spec.action()` fires (this Spec is the
-dynamic leaf for this invocation); if one, `dispatch` recurses into its
-own nested `Spec`; finally `spec.after()` fires, wrapped in a `try/finally`
-around the action-or-recursion step so it's guaranteed to run once
+each `Spec` level: `parseOwnValues` parses that level's own non-Command,
+non-`MessageArg` matches (filtered by the `Match`'s `Spec` provenance);
+`spec.before()` fires, if set, now that those values are ready;
+`parseMessageArgs` then parses (and raises on) any matched `MessageArg`/
+`HelpArg` at this level; `matchedCommand` finds whichever single Command
+was matched at this level, if any (at most one ever can be — `tokenizeArgs`
+hands off every remaining token to a matched command's own nested spec
+permanently, so a sibling command word can never be recognized afterward);
+if none, `spec.action()` fires (this Spec is the dynamic leaf for this
+invocation); if one, `dispatch` recurses into its own nested `Spec`;
+finally `spec.after()` fires, wrapped in a `try/finally` around the
+message-arg/action-or-recursion step so it's guaranteed to run once
 `before` (or its absence) has completed without raising, regardless of
-what happens afterward. Applied recursively, this gives `before` a
-root-to-leaf firing order, `action` firing exactly once at whichever level
+what happens afterward — including a `MessageArg` match, which is treated
+as this level's action-equivalent for firing purposes: it runs after
+`before` and inside the same `try/finally`, so `before`-time state changes
+are visible to it and `after` still fires as cleanup even though it raises.
+Applied recursively, this gives `before` a root-to-leaf firing order,
+`action`/a matched `MessageArg` firing exactly once at whichever level
 turns out to be the leaf, and `after` a leaf-to-root order — and, since
 each level's `after` is reached via its own `try/finally`, an ancestor
 whose `before` already ran still gets a chance to clean up even when
 something nested inside it fails, with no explicit bookkeeping. See
-`docs/adr/0009-command-before-action-after-hooks.md`.
+`docs/adr/0009-command-before-action-after-hooks.md` and
+`docs/adr/0013-message-args-fire-after-before.md`.
 
 ## `autoFillUsage`
 

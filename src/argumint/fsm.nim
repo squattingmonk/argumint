@@ -437,11 +437,27 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
   result = frontier.candidateWords(wordBeingCompleted)
 
 proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
-  ## Parses every non-Command match belonging to `spec`'s own level (per
-  ## `Match.spec` provenance -- see `push`), leaving any Command matched
-  ## at this level for `dispatch` to handle.
+  ## Parses every non-Command, non-MessageArg match belonging to `spec`'s
+  ## own level (per `Match.spec` provenance -- see `push`). Commands are
+  ## left for `dispatch`; MessageArgs are left for `parseMessageArgs`, which
+  ## runs after `before` -- see
+  ## `docs/adr/0009-command-before-action-after-hooks.md`.
   for arg in spec.args:
-    if arg.kind == Command:
+    if arg.kind == Command or arg of MessageArg:
+      continue
+    for (variant, value, matchSpec) in matches.getOrDefault(arg):
+      if matchSpec != spec:
+        continue
+      arg.parse(value, variant)
+
+proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
+  ## Parses (and raises on) any matched MessageArg/HelpArg at `spec`'s own
+  ## level. Called after `before`, inside `dispatch`'s try/finally, so a
+  ## `before`-time mutation is visible in this level's own message/help
+  ## output, and `after` still fires as a guaranteed cleanup even though
+  ## this raises instead of returning.
+  for arg in spec.args:
+    if not (arg of MessageArg):
       continue
     for (variant, value, matchSpec) in matches.getOrDefault(arg):
       if matchSpec != spec:
@@ -474,6 +490,7 @@ proc dispatch(spec: Spec, matches: MatchTable, command: string) =
   if not spec.before.isNil:
     spec.before()
   try:
+    parseMessageArgs(spec, matches, command)
     let (cmd, variant) = matchedCommand(spec, matches)
     if cmd.isNil:
       if not spec.action.isNil:
