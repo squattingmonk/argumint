@@ -131,7 +131,43 @@ suite "Negative number literals":
     spec.parse(usage = "<amount>", args = @[" -3.14"], command = "prog")
     check spec.amount == -3.14
 
-  test "a negative number without the leading space is read as an unrecognized option":
+  test "a negative number without the leading space is accepted when no option could compete for it":
+    # Previously required the leading-space escape unconditionally; fixed
+    # by ADR 0019 -- a bare `<count>` Usage Line has no Option transition
+    # to lose to, so Argument gets first (and only) crack at "-1".
     let spec = (count: arg("<count>", default = 0, help = ""))
-    expect ParseError:
-      spec.parse(usage = "<count>", args = @["-1"], command = "prog")
+    spec.parse(usage = "<count>", args = @["-1"], command = "prog")
+    check spec.count == -1
+
+suite "A Command name doesn't shadow a positional value in another alternative":
+  test "a bare command name falls back to a positional value when the command's own args aren't satisfied":
+    # ADR 0019: "ship" is a declared command name, but the "ship <name>"
+    # alternative fails here (no <name> left to consume), so backtracking
+    # should fall through to the "<file>" alternative and accept "ship" as
+    # a literal positional value instead of raising.
+    let spec = (
+      ship: command("ship", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+      file: arg("<file>", default = "", help = ""),
+    )
+    # A Command atom is self-contained -- it splices in its own nested
+    # spec's usage (declared via command()'s own `usage` param) and
+    # consumes every remaining token itself, so the outer line just names
+    # it bare ("ship"), not "ship <name>". Top-level `|` also only
+    # alternates at the atom position where it appears (`ship (a|b)`, not
+    # `(ship a)|b`), so two genuinely separate whole-line alternatives
+    # need separate Usage Lines instead.
+    spec.parse(usage = "ship\n<file>", args = @["ship"], command = "prog")
+    check spec.file == "ship"
+
+suite "An option-shaped token unrecognized by one alternative can still match a permissive alternative":
+  test "a strict alternative's unrecognized option falls through to a catch-all positional alternative":
+    # ADR 0019: "-x" isn't declared anywhere, but the "--verbose"
+    # alternative used to raise on it unconditionally during eager
+    # tokenization; it should now just fail to match and let the "<raw>..."
+    # alternative accept it as literal text instead.
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      raw: args[string]("<raw>", help = ""),
+    )
+    spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog")
+    check spec.raw == @["-x"]
