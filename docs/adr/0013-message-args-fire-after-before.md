@@ -15,9 +15,9 @@ never fired at all for that level -- the raise unwound straight out of
 `dispatch` before either hook was entered.
 
 This surfaced as a real limitation once `Spec.width`/`maxVariantsWidth`/
-`envDelim` moved to a shared, mutable `SpecConfig` ref cascaded by
+`envDelim` moved to a shared, mutable `SpecSettings` ref cascaded by
 reference to nested specs (rather than copied by value): a `before` hook
-that reconfigures `Spec.config` -- e.g. to change help-text wrapping based
+that reconfigures `Spec.settings` -- e.g. to change help-text wrapping based
 on some runtime condition -- only actually applied to *descendant* specs'
 `--help` output, not the current level's own, since the current level's
 `--help` had already raised before `before` ran.
@@ -72,7 +72,7 @@ this closes a gap rather than breaking a documented contract.
 
 ### Known, accepted limitation: `envDelim`
 
-`Spec.config.envDelim` doesn't get the same benefit. The env-var fallback
+`Spec.settings.envDelim` doesn't get the same benefit. The env-var fallback
 sweep (`fsm.nim`'s `apply`) runs to completion across the *entire* matched
 tree before `dispatch` is ever called at all -- so a `before` hook mutating
 `envDelim` has no effect on that parse's env-var handling, regardless of
@@ -95,6 +95,6 @@ after `dispatch`.
 
 ## Out of scope
 
-The `SpecConfig` ref-sharing change that motivated this fix is tracked and
+The `SpecSettings` ref-sharing change that motivated this fix is tracked and
 designed separately; this ADR only covers the hook-ordering fix, which
 stands on its own regardless of whether that follow-up lands.

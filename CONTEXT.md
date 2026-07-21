@@ -342,7 +342,7 @@ at all — a stronger instruction than everything below it, including
 is how fish auto-joins a native list variable's elements when exporting it
 to a subprocess's environment, for any variable name, not just ones fish
 special-cases like `PATH`. Otherwise, a non-empty Env Source override
-wins. Failing all of those, `Spec.config.envDelim`, which cascades to
+wins. Failing all of those, `Spec.settings.envDelim`, which cascades to
 nested Command Specs the same way `width` does and defaults to `:` (the
 `PATH`-style convention `bash`/`zsh` users already reach for). A resulting
 empty value (a stray leading/trailing/doubled delimiter) is kept as a
@@ -357,7 +357,7 @@ Option/Flag's `env` param takes one — a plain string names an env var with
 no delimiter override (the common case); the `env(name, delim)` proc names
 one with an explicit delimiter override, including the empty string,
 which means "never split this Arg's value" (see Env Delimiter). Unlike
-`Spec.config.envDelim`, an Env Source belongs to a single Arg and doesn't
+`Spec.settings.envDelim`, an Env Source belongs to a single Arg and doesn't
 cascade.
 _Avoid_: EnvSource (code-level name, fine in prose about the API itself)
 

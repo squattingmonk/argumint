@@ -1,6 +1,6 @@
 # Per-Arg env delimiter overrides via `EnvSource`
 
-`Spec.config.envDelim` (ADR 0014) is one setting shared across an entire
+`Spec.settings.envDelim` (ADR 0014) is one setting shared across an entire
 Spec tree. There was no way for a single Option/Flag whose env value has a
 different natural delimiter than the rest of the spec (e.g. a token that
 legitimately contains `:`, or a value that should never be split at all)
@@ -9,12 +9,12 @@ Arg too.
 
 ## Decision
 
-Add `EnvSource* = object` (`backend.nim`, alongside `SpecConfig`):
+Add `EnvSource* = object` (`backend.nim`, alongside `SpecSettings`):
 
 ```nim
 EnvSource* = object
   name*: string          ## required -- no meaningless "override with no name" state
-  delim*: Option[string] ## none = inherit Spec.config.envDelim
+  delim*: Option[string] ## none = inherit Spec.settings.envDelim
 ```
 
 `name` is a plain, required `string`, not `Option[string]`: an `EnvSource`
@@ -24,7 +24,7 @@ onto the `env` param itself (see below) — `Option` only appears where a
 real three-state question exists (`delim`: inherit, or override to a
 specific value, or override to "never split").
 
-Two public constructors (`argumint.nim`, alongside `newSpecConfig`):
+Two public constructors (`argumint.nim`, alongside `newSpecSettings`):
 
 ```nim
 converter toEnvSource*(name: string): Option[EnvSource] = some(EnvSource(name: name))
@@ -61,7 +61,7 @@ first:
    fish auto-joins a native list variable's elements for any variable
    name, not just ones fish special-cases like `PATH`)
 3. the Arg's own `EnvSource.delim` is `some(d)`, `d != ""` — split on `d`
-4. otherwise — split on `Spec.config.envDelim`
+4. otherwise — split on `Spec.settings.envDelim`
 
 `\x1e` sits above a non-empty per-Arg override (tier 2 over tier 3)
 because it's a factual signal that fish already exported real separate
@@ -99,6 +99,6 @@ checked before tier 2 so `\x1e` can't preempt it.
 
 ## Consequences
 
-None of this changes `Spec.config.envDelim` or `\x1e`'s existing behavior
+None of this changes `Spec.settings.envDelim` or `\x1e`'s existing behavior
 for any Arg that doesn't use `env(name, delim)` — the fully-backward-compatible
 `env = "NAME"` case still resolves exactly as before (tiers 2 and 4 only).

@@ -1,4 +1,4 @@
-# `width`/`maxVariantsWidth`/`envDelim` become a shared, mutable `SpecConfig`
+# `width`/`maxVariantsWidth`/`envDelim` become a shared, mutable `SpecSettings`
 
 `Spec.width`/`maxVariantsWidth`/`envDelim` cascaded from the top-level
 `newSpec`/`parse*`/`parseOrQuit*` call into every nested subcommand's `Spec`
@@ -14,23 +14,23 @@ for the rest of a parse.
 
 ## Decision
 
-Bundle the three fields into `SpecConfig`, a `ref object`
+Bundle the three fields into `SpecSettings`, a `ref object`
 (`src/argumint/backend.nim`):
 
 ```nim
-SpecConfig* = ref object
+SpecSettings* = ref object
   width*: int
   maxVariantsWidth*: int
   envDelim*: string
 ```
 
 `Spec.width`/`maxVariantsWidth`/`envDelim` are replaced by a single
-`Spec.config*: SpecConfig`. `newSpecConfig*` (`src/argumint.nim`) constructs
+`Spec.settings*: SpecSettings`. `newSpecSettings*` (`src/argumint.nim`) constructs
 one with the same defaults as before (`terminalWidth()`,
 `DefaultMaxVariantsWidth`, `DefaultEnvDelim`). `cascadeSpecDefaults` is
-renamed `cascadeSpecConfig` and changed from a scalar copy to a reference
-assignment — `spec.config = config`, recursively — so every `Spec` in the
-tree points at the *same* `SpecConfig` instance rather than an independent
+renamed `cascadeSpecSettings` and changed from a scalar copy to a reference
+assignment — `spec.settings = settings`, recursively — so every `Spec` in the
+tree points at the *same* `SpecSettings` instance rather than an independent
 copy of its values. Holding onto that instance and mutating it later (e.g.
 from a `before` hook) is now visible to every not-yet-dispatched `Spec` in
 the tree, including the current level's own message/help output once
@@ -41,7 +41,7 @@ that one are complementary).
 ### Clean break on `newSpec`/`parse*`/`parseOrQuit*`
 
 `width=`/`maxVariantsWidth=`/`envDelim=` are removed from these three procs'
-signatures outright, replaced by a single `config = newSpecConfig()` param.
+signatures outright, replaced by a single `settings = newSpecSettings()` param.
 `command*` is unaffected — it never took these as parameters and still
 doesn't; `config` is only ever set at the outermost `newSpec`/`parse*`/
 `parseOrQuit*` call, cascaded from there.
@@ -49,7 +49,7 @@ doesn't; `config` is only ever set at the outermost `newSpec`/`parse*`/
 This is a real, breaking change to a public API surface (confirmed against
 existing usage: roughly 15 call sites across `tests/test_argumint.nim`
 needed updating, from e.g. `newSpec(spec, maxVariantsWidth = 20)` to
-`newSpec(spec, config = newSpecConfig(maxVariantsWidth = 20))`). Consistent
+`newSpec(spec, settings = newSpecSettings(maxVariantsWidth = 20))`). Consistent
 with this project's existing precedent (ADR 0009 dropped `CommandArg.handler`
 outright, no deprecated alias) — argumint is pre-1.0 with no known external
 consumers, so there's no compatibility surface to preserve, and keeping both
@@ -64,7 +64,7 @@ mutation the way `width`/`maxVariantsWidth` do, because the env-var fallback
 sweep (`fsm.nim`'s `EnvCursor.apply`) runs to completion across the *entire*
 matched tree before `dispatch` (and therefore any hook) is ever called. A
 `before` hook mutating `config.envDelim` has no effect on that parse's own
-env-var handling. It's still bundled into the same `SpecConfig` for
+env-var handling. It's still bundled into the same `SpecSettings` for
 consistency (all three values conceptually belong together, and setting
 `envDelim` *before* calling `parse*`/`parseOrQuit*` works exactly as before),
 this is just a documented gap between the three fields' otherwise-uniform
@@ -73,11 +73,11 @@ treatment.
 ## Considered options
 
 - **Keep scalar convenience params on `newSpec`/`parse*`/`parseOrQuit*`,
-  add an optional `config: SpecConfig = nil` param for the shared/mutable
+  add an optional `settings: SpecSettings = nil` param for the shared/mutable
   case**: considered first for its lower migration cost (no existing test
   call sites would need to change). Rejected in favor of the clean break —
   see above.
-- **Leave the cascade as a value copy, expose `SpecConfig` only as a
+- **Leave the cascade as a value copy, expose `SpecSettings` only as a
   read-only snapshot**: doesn't serve the motivating use case (hook-time
   reconfiguration propagating live to the rest of the tree) at all, so
   doesn't solve the actual problem.

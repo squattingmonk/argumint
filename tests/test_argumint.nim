@@ -163,7 +163,7 @@ suite "Flags":
       help: help(),
     )
     var helpText = ""
-    try: spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
     # --priority is the primary (first-declared) group, so it keeps the
     # shared `help` text; only the divergent --boost group shows its own
@@ -177,7 +177,7 @@ suite "Flags":
       help: help(),
     )
     var helpText = ""
-    try: spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
     # --set is the primary group here, so -b/--bump (the divergent
     # blank-op group) is what shows the defineFlag-supplied blankDesc.
@@ -835,7 +835,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 20), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 20), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let firstLine = "  " & "-v, --verbose,".alignLeft(20) & "  Adjust verbosity"
@@ -852,7 +852,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 20), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 20), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let lines = helpText.splitLines
@@ -869,7 +869,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
@@ -885,7 +885,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  [action: Increment by 1]" in helpText
@@ -898,7 +898,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Reset to silent" in helpText
@@ -911,7 +911,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Ship status" in helpText
@@ -924,7 +924,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  Adjust verbosity" in helpText
@@ -933,11 +933,11 @@ suite "Messages":
   test "maxVariantsWidth defaults to 30 and is configurable":
     proc mkSpec(): auto = (verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"), help: help())
     let default = newSpec(mkSpec())
-    let narrow = newSpec(mkSpec(), config = newSpecConfig(maxVariantsWidth = 20))
-    let unlimited = newSpec(mkSpec(), config = newSpecConfig(maxVariantsWidth = 0))
-    check default.config.maxVariantsWidth == 30
-    check narrow.config.maxVariantsWidth == 20
-    check unlimited.config.maxVariantsWidth == 0
+    let narrow = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 20))
+    let unlimited = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 0))
+    check default.settings.maxVariantsWidth == 30
+    check narrow.settings.maxVariantsWidth == 20
+    check unlimited.settings.maxVariantsWidth == 0
 
     var defaultText, unlimitedText = ""
     try: default.parse(@["--help"], "prog")
@@ -952,30 +952,30 @@ suite "Messages":
   test "maxVariantsWidth cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
-    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), config = newSpecConfig(maxVariantsWidth = 20))
-    check s.config.maxVariantsWidth == 20
-    check s.commands["ship"].spec.config.maxVariantsWidth == 20
-    check s.commands["ship"].spec.commands["move"].spec.config.maxVariantsWidth == 20
+    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = newSpecSettings(maxVariantsWidth = 20))
+    check s.settings.maxVariantsWidth == 20
+    check s.commands["ship"].spec.settings.maxVariantsWidth == 20
+    check s.commands["ship"].spec.commands["move"].spec.settings.maxVariantsWidth == 20
 
-  test "a SpecConfig instance is shared by reference, not copied, across the whole tree":
+  test "a SpecSettings instance is shared by reference, not copied, across the whole tree":
     let move = (name: arg("<name>", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
-    let config = newSpecConfig(maxVariantsWidth = 20)
-    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), config = config)
-    check s.config == config
-    check s.commands["ship"].spec.config == config
-    check s.commands["ship"].spec.commands["move"].spec.config == config
+    let settings = newSpecSettings(maxVariantsWidth = 20)
+    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = settings)
+    check s.settings == settings
+    check s.commands["ship"].spec.settings == settings
+    check s.commands["ship"].spec.commands["move"].spec.settings == settings
 
-    config.maxVariantsWidth = 5
-    check s.config.maxVariantsWidth == 5
-    check s.commands["ship"].spec.commands["move"].spec.config.maxVariantsWidth == 5
+    settings.maxVariantsWidth = 5
+    check s.settings.maxVariantsWidth == 5
+    check s.commands["ship"].spec.commands["move"].spec.settings.maxVariantsWidth == 5
 
-  test "a before hook mutating shared SpecConfig affects this level's own --help, not just descendants'":
+  test "a before hook mutating shared SpecSettings affects this level's own --help, not just descendants'":
     # Exercises the ordering fix in docs/adr/0013-message-args-fire-after-before.md:
     # --help now parses after `before`, so a mutation made there is visible
     # in this level's own help output too, not only a nested command's.
-    let config = newSpecConfig(maxVariantsWidth = 0)
-    proc widenColumn(spec: tuple) = config.maxVariantsWidth = 100
+    let settings = newSpecSettings(maxVariantsWidth = 0)
+    proc widenColumn(spec: tuple) = settings.maxVariantsWidth = 100
 
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"),
@@ -983,7 +983,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(config = config, args = @["--help"], command = "prog", before = widenColumn)
+      spec.parse(settings = settings, args = @["--help"], command = "prog", before = widenColumn)
     except HelpError as e:
       helpText = e.msg
     check ("  -v, --verbose, --quiet, --boost, --dampen  Adjust verbosity") in helpText
@@ -1013,7 +1013,7 @@ suite "Messages":
     let spec = (speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help())
     var helpText = ""
     try:
-      spec.parse(args = @["--help"], command = "prog", config = newSpecConfig(width = 80))
+      spec.parse(args = @["--help"], command = "prog", settings = newSpecSettings(width = 80))
     except HelpError as e:
       helpText = e.msg
     let optionsLines = helpText.splitLines.filterIt(it.startsWith("  --speed") or it.startsWith("                   "))
@@ -1108,10 +1108,10 @@ suite "Messages":
 
   test "an explicit width overrides terminal detection":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
-    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), config = newSpecConfig(width = 80))
-    let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), config = newSpecConfig(width = 40))
-    check wide.config.width == 80
-    check narrow.config.width == 40
+    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 80))
+    let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 40))
+    check wide.settings.width == 80
+    check narrow.settings.width == 40
 
     var wideText, narrowText = ""
     try: wide.parse(@["--help"], "prog")
@@ -1127,20 +1127,20 @@ suite "Messages":
     putEnv("COLUMNS", "100")
     defer: delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.config.width == 100
+    check spec.settings.width == 100
 
   test "width defaults to terminalWidth() when COLUMNS isn't set":
     delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.config.width == terminalWidth()
+    check spec.settings.width == terminalWidth()
 
   test "width cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
-    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), config = newSpecConfig(width = 40))
-    check s.config.width == 40
-    check s.commands["ship"].spec.config.width == 40
-    check s.commands["ship"].spec.commands["move"].spec.config.width == 40
+    let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = newSpecSettings(width = 40))
+    check s.settings.width == 40
+    check s.commands["ship"].spec.settings.width == 40
+    check s.commands["ship"].spec.commands["move"].spec.settings.width == 40
 
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":
@@ -1478,7 +1478,7 @@ suite "Environment variables":
     let spec = (
       tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
-    spec.parse(usage = "[--tag=<tag>]...", config = newSpecConfig(envDelim = ","), args = @[], command = "prog")
+    spec.parse(usage = "[--tag=<tag>]...", settings = newSpecSettings(envDelim = ","), args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
 
   test "a per-arg env(name, delim) override splits on something other than the spec's envDelim":
@@ -1602,7 +1602,7 @@ suite "Environment variables":
     )
     var helpText = ""
     try:
-      spec.parse(config = newSpecConfig(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText

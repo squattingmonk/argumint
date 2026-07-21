@@ -37,7 +37,7 @@ type
 
   HelpArg* = ref object of MessageArg
 
-  SpecConfig* = ref object
+  SpecSettings* = ref object
     width*: int ## Column width to wrap usage/help text at
     maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
     envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e` and any per-Arg `EnvSource.delim` override, see `splitEnvValue`)
@@ -51,7 +51,7 @@ type
     ## all" is instead answered by wrapping this whole object in `Option`
     ## wherever it's used (e.g. `ValueArg.env`/`FlagArg.env`).
     name*: string
-    delim*: options.Option[string] ## `none` inherits `Spec.config.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
+    delim*: options.Option[string] ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
 
   Spec* = ref object
     prolog*: string ## Front matter for a help message
@@ -63,7 +63,7 @@ type
     options*: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
     groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
     fsm*: State ## The initial state for the FSM used for parsing
-    config*: SpecConfig ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
+    settings*: SpecSettings ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
     before*: proc () ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
     action*: proc () ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
     after*: proc () ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
@@ -105,7 +105,7 @@ type
 const DefaultWidth* = 80
 const DefaultMaxVariantsWidth* = 30
 const DefaultEnvDelim* = ":"
-const EnvListSep* = "\x1e" ## Tried before `Spec.config.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
+const EnvListSep* = "\x1e" ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
 
 proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDelim: string): seq[string] =
   ## Splits a raw env var's value into the (possibly several) values it
@@ -119,7 +119,7 @@ proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDel
   ##    any variable name when exporting it to a subprocess, regardless of
   ##    any configured delimiter.
   ## 3. `delimOverride` is `some(d)`, `d != ""` -- split on `d`.
-  ## 4. Otherwise -- split on `envDelim` (`Spec.config.envDelim`, the
+  ## 4. Otherwise -- split on `envDelim` (`Spec.settings.envDelim`, the
   ##    `PATH`-style `:` convention by default).
   ##
   ## Empty segments (a stray leading/trailing/doubled delimiter) are kept
@@ -149,7 +149,7 @@ proc raiseParseError*(msg: string) =
   raise newException(ParseError, msg)
 
 proc raiseParseError*(msg: string, command: string, spec: Spec) =
-  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.config.width)}".fmt)
+  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt)
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.

@@ -94,7 +94,7 @@ have the user-facing semantics.
 The raw env string is always split (`backend.splitEnvValue`) — on `\x1e`
 (ASCII Record Separator) if present, since that's how fish auto-joins a
 native list variable's elements when exporting it to a subprocess, otherwise
-on `Spec.config.envDelim` (cascades like `width`, default `:`), keeping empty
+on `Spec.settings.envDelim` (cascades like `width`, default `:`), keeping empty
 segments as literal values rather than dropping them.
 Value Precedence's environment-variable tier is consolidated into
 `fsm.nim`'s own `EnvCursor` type (embedded as `ParseContext.env`), rather than
@@ -273,8 +273,8 @@ named value, which a Positional Argument doesn't have) take an `env` param
 naming an environment variable — see the Runtime Matching section above for
 the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
-`Spec.config.width` (default `terminalWidth()`, itself falling back to
-`DefaultWidth = 80`) and `Spec.config.maxVariantsWidth` (default
+`Spec.settings.width` (default `terminalWidth()`, itself falling back to
+`DefaultWidth = 80`) and `Spec.settings.maxVariantsWidth` (default
 `DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping: `width` wraps
 usage lines (`formatUsage`) and each row's help/description text, while
 `maxVariantsWidth` caps the "variants" column (e.g. `-v, --verbose,
@@ -296,15 +296,15 @@ and zips them line-by-line against the (independently wrapped) help-text
 lines, so the help text stays inline with the first wrapped variants line.
 `0` disables the cap.
 
-`width`/`maxVariantsWidth`/`envDelim` live together on `Spec.config: SpecConfig`
+`width`/`maxVariantsWidth`/`envDelim` live together on `Spec.settings: SpecSettings`
 (`src/argumint/backend.nim`), a `ref object` built once by `newSpec*`'s
-`config = newSpecConfig()` param and shared by reference — not copied — into
-every nested subcommand's `Spec` via `cascadeSpecConfig`
+`settings = newSpecSettings()` param and shared by reference — not copied — into
+every nested subcommand's `Spec` via `cascadeSpecSettings`
 (`src/argumint.nim`). `config` is deliberately not a parameter to `command*`
 itself: since it's the same shared instance throughout the tree, it only
 needs to be set once at the top-level `newSpec`/`parse*` call regardless of
 nesting depth. Being a ref rather than three plain scalars also means a
-later mutation of that same `SpecConfig` — e.g. from a `before` hook —
+later mutation of that same `SpecSettings` — e.g. from a `before` hook —
 applies live to every not-yet-dispatched `Spec` in the tree, including the
 current level's own message/help output once `parseMessageArgs` runs after
 `before` (see `docs/adr/0013-message-args-fire-after-before.md`). `envDelim`
