@@ -8,6 +8,11 @@
 # `-v`/`--verbose` (no op) fall back to the default int-flag behavior:
 # increment by 1 each time they're seen. `--boost+=5`/`--dampen-=2` jump by a
 # fixed amount, and `--quiet=0` resets outright.
+#
+# `clamp = clamp(0..10)` pins the resulting value to 0..10 no matter how
+# many times `--boost`/`--verbose` are repeated -- silently, not by raising
+# an error -- so code reading `spec.verbosity` never has to re-check its
+# bounds.
 
 import std/strformat
 
@@ -17,7 +22,7 @@ let
   spec = (
     verbosity: flag[int](
       "-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
-      default = 0, help = "Adjust verbosity"
+      default = 0, help = "Adjust verbosity", clamp = clamp(0..10)
     ),
     help: help()
   )

@@ -2,7 +2,7 @@
 
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
-import ./argumint/[backend, completion, dot, fsm, parser, validators]
+import ./argumint/[backend, completion, dot, flagclamp, fsm, parser, validators]
 
 export completion.Shell
 
@@ -10,6 +10,13 @@ export completion.Shell
 # `parse*`/`parseOrQuit*`/`newSpec` can raise, without also reaching into
 # `argumint/backend`/`argumint/validators`/`argumint/lexer` by hand.
 export ParseError, ValidationError, HelpError, MessageError, SpecDefect, CompletionError
+
+# Ergonomics, and fixes an openSym resolution bug for custom Arg types --
+# see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
+export validators
+export flagclamp
+export backend.name
+export strutils.escape
 
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
@@ -24,6 +31,7 @@ type
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
     env: Option[EnvSource]
+    clamp: FlagClamp[T]
 
 const flagOps = CacheTable"flagOps"
 
@@ -314,6 +322,11 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
       raise newException(SpecDefect, "$# is not a known variant for the flag $#" % [name, self.name])
     let (op {.inject.}, arg {.inject.}, _) = self.ops[name]
     self.value.handleFlag(op, arg)
+    if not self.clamp.isNil:
+      self.value = self.clamp.apply(self.value)
+
+  method validatorHelp*(self: FlagArg[T]): string =
+    if self.clamp.isNil: "" else: self.clamp.help()
 
   method variantDesc*(self: FlagArg[T], variant: string): string =
     if not self.ops.hasKey(variant): return ""
@@ -343,6 +356,8 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
         raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
       let (op {.inject.}, arg {.inject.}, _) = self.ops[variantName]
       self.value.handleFlag(op, arg)
+      if not self.clamp.isNil:
+        self.value = self.clamp.apply(self.value)
 
   defineArg typeName
 
@@ -667,7 +682,8 @@ macro getFlagOps(typeName: string): untyped =
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource)): FlagArg[T] =
+    variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource),
+    clamp: FlagClamp[T] = nil): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -709,7 +725,15 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   overrides the delimiter for this flag only (`delim = ""` disables
   ##   splitting entirely) -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env)
+  ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
+  ##   silently adjusting this flag's value after every Flag Operation --
+  ##   never raises, unlike a `Validator` (which never applies to a Flag in
+  ##   the first place). `default` must already satisfy `clamp`, or spec
+  ##   construction raises `SpecDefect` -- see
+  ##   `docs/adr/0016-flag-clamp.md`.
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env, clamp: clamp)
+  if not clamp.isNil and clamp.apply(default) != default:
+    raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
   for rawName in variants.split(Comma):
     var matches: array[3, string]
     if rawName.match(FlagVariantFormat, matches):

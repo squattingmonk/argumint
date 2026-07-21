@@ -61,6 +61,37 @@ or more independent Flag Operations mutate — the Flag Operation, not the
 Flag itself, determines what happens when a particular Variant is seen.
 _Avoid_: FlagOp (code-level name), variant behavior
 
+**Flag Clamp**:
+A silent, non-raising constraint attached to a Flag, applied to its shared
+value after every Flag Operation -- CLI- or environment-triggered alike,
+since both already funnel through the same operation-application step (see
+Flag Operation). Deliberately not a Validator: a Validator raises on failure
+and never applies to a Flag in the first place (see Validator); a Flag Clamp
+instead adjusts the value in place and never raises. Built via
+`clamp(bounds: Slice[T], desc = "")` (requires `T` to support `<`;
+auto-generates help text, e.g. `clamp: 0..10`; not named `range` because
+that name collides with Validator's own `range` constructor when both are
+imported together -- confirmed by scratch compile, not assumed; `clamp`
+itself doesn't collide with `system.clamp`/`std/math.clamp`, which take a
+bare value as their first, required arg rather than this proc's `Slice[T]`)
+or `adjust(proc: proc(v: T): T, desc = "")` (any `T`, including one with no
+natural total order, e.g. `set[E]`; shows `desc` in help if given, nothing
+otherwise). A Flag's coded
+default is checked once at spec-construction time -- if applying the Clamp
+changes it, spec construction raises `SpecDefect`, since a default that
+doesn't already satisfy the author's own Clamp is a developer mistake, not
+something to silently paper over. This deliberately doesn't mirror
+Validator's own default exemption (`docs/adr/0008`): that exemption exists
+because a `ValueArg`'s default is a genuine substitution tier a sentinel
+value can hide behind, and a Flag's default has no such tier -- it's simply
+the value's initial state, mutated in place by whatever Flag Operations
+follow, so the same allowance doesn't transfer. See
+`docs/adr/0016-flag-clamp.md` for the full reasoning, including the
+rejected `range[T]`-typed-value alternative.
+_Avoid_: Flag Validator (deliberately not a Validator); capitalize when
+naming the domain concept -- lowercase `clamp` names the range-constructor
+proc specifically, a different (though related) thing
+
 **Positional Argument**:
 A value-carrying Arg whose value is determined by its position in the
 argument list. Unlike an Option, Flag, or Command, its Variant (e.g.
@@ -183,7 +214,8 @@ the Arg's type raises `ParseError`; a value that converts successfully but
 fails the Validator raises `ValidationError` instead -- two distinct
 failure points, not one. Never applies to Flag, Command, or Message
 Argument, since a Flag's value comes from author-declared Flag Operations
-rather than arbitrary user-typed text. Always checked against
+rather than arbitrary user-typed text (see Flag Clamp for the
+Flag-specific, non-raising analog). Always checked against
 the scalar element type, never a collected list, even for a multi-value
 Arg -- each match is validated individually as it arrives, though a Check
 built via `checkSeen`/`unique` may also consult Seen Values (see below).

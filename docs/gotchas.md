@@ -211,3 +211,25 @@ inside a template.
   qualified form for `Option` even though it wasn't named in the import
   list, so no separate `import std/options` is needed at all. See
   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
+
+- **A generated method's unqualified calls resolve against whatever module
+  *instantiates* the generic/template, not against `argumint.nim`'s own
+  imports.** Under this project's module-level `{.experimental: "openSym".}`
+  (see the `macrocache.value` entry above), any `defineArg`/`defineFlag`/
+  `defineFlagArg`/`defineSetFlag` instantiation -- for *any* custom type,
+  single-layer or nested inside another template -- generates methods
+  calling `self.validator.help()`/`self.validator.completions()`
+  (`validators.nim`), `self.name(...)` (`backend.nim`), and `value.escape`
+  (`strutils.escape`, inside `parseImpl`'s `ValueError` handler), and each
+  of those resolves against the *calling file's* imports at instantiation
+  time. `argumint.nim` defends against this today by re-exporting exactly
+  what's needed (`export validators`, `export flagclamp`, `export
+  backend.name`, `export strutils.escape` -- see
+  `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`), so
+  `import argumint` alone is enough for a caller registering a custom type.
+  Adding a *new* generated method that calls some other unqualified symbol
+  from a module not yet re-exported will reintroduce this exact failure
+  mode (a confusing "type mismatch"/"undeclared field" error, not an
+  obviously import-related one) for that new symbol -- the fix is another
+  narrow or wholesale `export` in `argumint.nim`, matching whichever pattern
+  that ADR uses, not a per-caller workaround.

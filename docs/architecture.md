@@ -155,7 +155,21 @@ inside a specific `of` branch — a field name can't be redeclared across two
 separate `of` branches even with an identical type in each, but a field
 declared ahead of the `case` is implicitly shared by all branches). `genHelp`
 combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
-(e.g. `[choices: foo, bar; default: foo]`).
+(e.g. `[choices: foo, bar; default: foo]`). `defineFlagArg` (see "Flags"
+below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
+the same extension point, even though a Flag never carries a `Validator` --
+delegating to its `FlagClamp[T].help()` if one is attached (see "Flag
+Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
+coded default never appears in help output regardless of whether it has a
+clamp.
+
+Every one of these generated methods, plus `parseImpl`'s own exception
+handlers, calls into `validators.nim`/`backend.nim`/`std/strutils` by their
+bare (unqualified) names -- `argumint.nim`'s top-of-file `export`
+statements are what make that resolve correctly for a caller registering
+their own custom type via `defineArg`/`defineFlag`/`defineSetFlag`, not
+just for code living inside `argumint.nim` itself. See
+`docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 
 ### Flags
 
@@ -200,6 +214,57 @@ string spelling, or a multi-element `set[E]` variant (e.g.
 `variantValues = {"--warm": {red, orange, yellow}}.toTable`). A variant may
 get its value from `variants` or `variantValues`, not both (`SpecDefect` if
 both are given); `<op>` always comes from `variants` regardless.
+
+### Flag Clamp
+
+`FlagClamp[T]` (`argumint/flagclamp.nim`) is a leaf module with no
+dependency on `backend`/`argumint`, deliberately structured to mirror
+`Validator[T]` (`validators.nim`) without being one -- see
+`docs/adr/0016-flag-clamp.md` for why the two are kept separate. It's a
+`case`-discriminated `ref object` with two kinds, built via two
+constructors: `clamp[T](bounds: Slice[T], desc = "")` (requires `T` to
+support `<`, duck-typed at the point `apply` is called, same as
+`Validator.range`) and `adjust[T](proc: proc(v: T): T, desc = "")` (any
+`T`). Not named `range` -- that collides ambiguously with `validators.range`
+the instant both modules are imported into the same file, which
+`argumint.nim` does; Nim doesn't disambiguate two identical-signature
+generic procs by the caller's expected return type, so this needed a
+distinct name, not just a preference. Named simply `clamp` -- confirmed by
+scratch compile that it doesn't collide with `system.clamp`/
+`std/math.clamp`: both of those take a bare value as their required first
+arg, a different shape from this proc's required `Slice[T]` first arg, so
+Nim's arity/type-based overload resolution never considers them for a
+`clamp(0..10)`-shaped call. `apply[T](self, value): T` performs the actual
+adjustment (`std/math.clamp` for the range kind, `self.adjustProc` for
+`adjust`), and `help[T](self): string` returns `self.desc` if set, else an
+auto-generated `"clamp: a..b"` for the range kind or `""` for `adjust` (an
+arbitrary proc has no description to generate). `help` is the same name as
+`validators.help[T](self: Validator[T])`, and unlike `range`/`clamp`
+above, this isn't a real collision: the two take different concrete
+parameter types (`FlagClamp[T]` vs `Validator[T]`), which Nim's overload
+resolution filters on before return type would ever matter, so both can be
+named `help` and coexist without ambiguity.
+
+A separate, genuinely real issue applies regardless of `FlagClamp`'s own
+naming, and applies to registering *any* custom Arg type, not just a
+`FlagClamp`-using one: see `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`
+and `docs/gotchas.md`.
+
+`flag*`'s `clamp: FlagClamp[T] = nil` param stores directly onto
+`FlagArg[T].clamp`. `defineFlagArg`'s generated `parse*`/`setFromEnv*`
+(the same two methods that call `self.value.handleFlag(op, arg)` for every
+Flag Operation, CLI- or env-sourced) each call
+`self.value = self.clamp.apply(self.value)` immediately afterward when a
+clamp is present -- so the clamp runs once per Flag Operation actually
+applied, not once per `parse*`/`setFromEnv*` invocation (`setFromEnv*` can
+apply several operations in its own loop, one per env-supplied value).
+`flag*` itself also runs `clamp.apply(default) != default` once, at spec
+construction, before returning -- since `FlagArg.value` is seeded directly
+from `default` with no separate substitution tier the way `ValueArg`'s
+default has (contrast the previous section's `defineArg[T]`, where the
+default is stored separately and never even passed through `Validator`), a
+default that doesn't already satisfy its own clamp is a `SpecDefect`, not
+something silently corrected at runtime.
 
 ### Env values, validators, help layout
 
