@@ -4,6 +4,9 @@ import std/[algorithm, hashes, pegs, sequtils, sets, strformat, strutils, sugar,
 # `options.Option[T]` instead -- see docs/gotchas.md.
 from std/options import some, none, isSome, get
 
+import ./configsource
+export configsource
+
 
 type
   ParseError* = object of CatchableError
@@ -41,6 +44,7 @@ type
     width*: int ## Column width to wrap usage/help text at
     maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
     envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e` and any per-Arg `EnvSource.delim` override, see `splitEnvValue`)
+    configSources*: seq[ConfigSource] ## Value Precedence's Config Source tier, consulted in order -- a later source's hit for the same Arg fully replaces an earlier one's, never merged (see `lookupConfigSources`)
 
   EnvSource* = object
     ## Names the environment variable configured to supply an Arg's value,
@@ -221,6 +225,23 @@ method setFromEnv*(self: Arg, values: seq[string]) {.base.} =
   ## conversion/validation as a CLI-supplied value. See
   ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
   raise newException(Defect, fmt"setFromEnv() is not defined for {self.name}")
+
+method configKey*(self: Arg): ConfigKey {.base.} =
+  ## Returns the structured path this arg's value is looked up under in
+  ## Value Precedence's Config Source tier, or `@[]` if none configured.
+  ## Base case (positional args, commands, message args) has no notion of
+  ## one; `ValueArg`/`FlagArg` override this per-type via
+  ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
+  @[]
+
+method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
+  ## Applies an already-resolved Config Source value to this arg, the same
+  ## shape as `setFromEnv` (each value in `values` applied as if it had
+  ## matched on the command line, in order, not overriding an explicit CLI
+  ## or env value -- callers are expected to check those first). Goes
+  ## through the same conversion/validation as a CLI-supplied value. See
+  ## `docs/adr/0018-config-source.md`.
+  raise newException(Defect, fmt"setFromConfig() is not defined for {self.name}")
 
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by

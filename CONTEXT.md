@@ -299,9 +299,10 @@ _Avoid_: Grammar, usage text
 The fixed order in which candidate sources are consulted to determine an
 Option's (or Flag's) final value: an explicit value from the actual
 command line, then a value from a configured environment variable, then a
-coded default. Applies uniformly regardless of whether the Option/Flag is
-required or optional in the usage grammar, and only to Option/Flag — a
-Positional Argument or Command has no environment-variable source.
+value from a registered Config Source, then a coded default. Applies
+uniformly regardless of whether the Option/Flag is required or optional in
+the usage grammar, and only to Option/Flag — a Positional Argument or
+Command has neither an environment-variable nor a Config Source source.
 
 The environment-variable tier can contribute more than one value: the raw
 env string is always split (see Env Delimiter), and each resulting value
@@ -325,11 +326,18 @@ bound it by, so every available value is applied; env is a per-Arg
 concern, not a per-Usage-Line one, so it still applies even to an Arg the
 matched Usage Line never mentions.
 
-For a Flag specifically, each value names one of the Flag's own declared
-Variants (matching its literal spelling, e.g. `--verbose`) and is applied
-via *that* Variant's own Flag Operation — unlike an ordinary Option, a
-Flag's env value was never a value in `T` to begin with, so there's
-nothing else for it to name.
+The Config Source tier shares this exact walk-driven consumption/oversupply
+mechanism with the environment-variable tier (both are driven by the same
+underlying cursor, internally), but arrives at its `seq` of candidate
+values differently — see Config Source for why it needs no delimiter step
+of its own. Consulted only when the environment-variable tier had nothing
+for that Arg; never merged with it.
+
+For a Flag specifically, each value (env- or Config-Source-sourced) names
+one of the Flag's own declared Variants (matching its literal spelling,
+e.g. `--verbose`) and is applied via *that* Variant's own Flag Operation —
+unlike an ordinary Option, a Flag's fallback-tier value was never a value
+in `T` to begin with, so there's nothing else for it to name.
 _Avoid_: Fallback order, resolution order
 
 **Env Delimiter**:
@@ -360,6 +368,48 @@ which means "never split this Arg's value" (see Env Delimiter). Unlike
 `Spec.settings.envDelim`, an Env Source belongs to a single Arg and doesn't
 cascade.
 _Avoid_: EnvSource (code-level name, fine in prose about the API itself)
+
+**Config Source**:
+Value Precedence's tier below Env Source, above the coded default: a
+registered, read-only source of Option/Flag values, consulted for any Arg
+declaring a Config Key. `SpecSettings.configSources` holds an ordered list
+of them, cascading the same way `width`/`envDelim` do; when more than one
+is registered, the last one with a hit for a given Arg's Config Key wins
+outright — never merged with an earlier hit, including for a multi-value
+Arg (mirrors Value Precedence's own top-level rule: the most specific
+present tier always wins outright, nothing anywhere merges). Built via
+`iniConfigSource(path)` (`std/parsecfg`-backed, INI) or
+`jsonConfigSource(path)` (`std/json`-backed), or a custom subclass for an
+arbitrary format — an open extension point (unlike Validator/Flag Clamp's
+closed kind sets), since "an arbitrary user-supplied format" needs genuine
+third-party subclassability. A built-in constructor reads and parses its
+file eagerly, at that construction call, in the caller's own code — before
+`parse*`/`parseOrQuit*` ever runs; a missing file or malformed syntax
+raises there as an ordinary exception, deliberately outside the
+`SpecDefect`/`ParseError`/`ValidationError`/`MessageError` taxonomy, since
+it happens before any Spec construction or parsing begins. Unlike Env
+Delimiter's central splitting (one raw string, always split), a Config
+Source hands back an already-split `seq[string]` directly — a JSON array's
+elements, or a repeated INI key's accumulated occurrences, already know
+their own value boundaries, so there's nothing to split centrally. See
+`docs/adr/0018-config-source.md`.
+_Avoid_: "config" alone (ambiguous with `SpecSettings`, the pre-existing
+Spec-wide width/maxVariantsWidth/envDelim settings bag — the two are
+unrelated); "config file" (a Config Source need not be file-backed);
+ConfigSource (code-level name, fine in prose about the API itself)
+
+**Config Key**:
+The per-Arg structured path (`seq[string]`, e.g. `@["Package", "name"]`)
+an Arg's Config Source lookup is addressed by, set via `opt*`/`opts*`/
+`flag*`'s `configKey` param (a bare string is a 1-segment path, via an
+implicit conversion). Each Config Source interprets segments its own way —
+the built-in INI adapter treats a 1-segment path as the global scope
+(before any `[section]` header) and a 2-segment path as `[section, key]`;
+the built-in JSON adapter walks one nested object level per segment. Has
+no delimiter-override concept the way Env Source does, since a Config
+Source's own values arrive already split (see Config Source) — there's
+nothing left for a delimiter to do.
+_Avoid_: ConfigKey (code-level name, fine in prose about the API itself)
 
 **Usage Line**:
 One line within a Usage String, expressing one complete alternative

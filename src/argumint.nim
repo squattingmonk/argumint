@@ -2,7 +2,7 @@
 
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
-import ./argumint/[backend, completion, dot, flagclamp, fsm, parser, validators]
+import ./argumint/[backend, completion, configsource, dot, flagclamp, fsm, parser, validators]
 
 export completion.Shell
 
@@ -15,6 +15,7 @@ export ParseError, ValidationError, HelpError, MessageError, SpecDefect, Complet
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
 export validators
 export flagclamp
+export configsource
 export backend.name
 export strutils.escape
 
@@ -24,6 +25,7 @@ type
     default: seq[T]
     validator: Validator[T]
     env: Option[EnvSource]
+    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineArg`.
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
@@ -32,6 +34,7 @@ type
     ops: OrderedTableRef[string, FlagOp[T]]
     env: Option[EnvSource]
     clamp: FlagClamp[T]
+    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineFlagArg`.
 
 const flagOps = CacheTable"flagOps"
 
@@ -156,6 +159,7 @@ proc genHelp(spec: Spec, command: string): string =
             if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
             if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
             if arg.envName.len > 0: annotations.add "env: {arg.envName}".fmt
+            if arg.configKey.len > 0: annotations.add "configKey: {arg.configKey.join(\".\")}".fmt
             if groups.len > 1 and vg.desc.len > 0: annotations.add "action: {vg.desc}".fmt
             let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
             if bracket.len == 0: arg.help
@@ -304,6 +308,24 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
     for value in values:
       self.parseImpl(value, self.envName)
 
+  method configKey*(self: ValueArg[T, false]): ConfigKey = self.cfgKey
+
+  method configKey*(self: ValueArg[T, true]): ConfigKey = self.cfgKey
+
+  method setFromConfig*(self: ValueArg[T, false], values: seq[string]) =
+    # multi=false's overwrite-on-each-call already gives last-value-wins.
+    # `$self.cfgKey` (bare `$`, not `strutils.join`) as the error-context
+    # string -- see docs/adr/0018-config-source.md for why this avoids a
+    # new docs/adr/0017-style openSym re-export.
+    for value in values:
+      self.parseImpl(value, $self.cfgKey)
+
+  method setFromConfig*(self: ValueArg[T, true], values: seq[string]) =
+    # `multi = true`'s append-on-each-call behavior already gives the
+    # usual multi-value Match Accumulation rule for free.
+    for value in values:
+      self.parseImpl(value, $self.cfgKey)
+
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
   ## its own template (rather than an overload of either), and
@@ -351,6 +373,18 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     # of defaulting to self.variants[0]. Named variantName, not value --
     # handleFlag above already injects `value` into this scope. Uses `%`,
     # not `fmt` (see docs/gotchas.md).
+    for variantName in values:
+      if not self.ops.hasKey(variantName):
+        raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
+      let (op {.inject.}, arg {.inject.}, _) = self.ops[variantName]
+      self.value.handleFlag(op, arg)
+      if not self.clamp.isNil:
+        self.value = self.clamp.apply(self.value)
+
+  method configKey*(self: FlagArg[T]): ConfigKey = self.cfgKey
+
+  method setFromConfig*(self: FlagArg[T], values: seq[string]) =
+    # Identical body to setFromEnv* above -- see docs/adr/0018-config-source.md.
     for variantName in values:
       if not self.ops.hasKey(variantName):
         raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
@@ -510,7 +544,7 @@ proc autoFillUsage(spec: Spec) =
     spec.fsm.prepare()
 
 proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
-    envDelim = DefaultEnvDelim): SpecSettings =
+    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[]): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param.
   ## - `width` is the column width usage/help text wraps at. Defaults to the
@@ -526,13 +560,19 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   ##   single Option/Flag can override this delimiter (or opt out of
   ##   splitting entirely) via `env*`'s two-arg form -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
+  ## - `configSources` is Value Precedence's Config Source tier -- an
+  ##   ordered list of `ConfigSource`s (e.g. `iniConfigSource(path)`,
+  ##   `jsonConfigSource(path)`, or a custom subclass), consulted in order
+  ##   for any Option/Flag declaring a `configKey`. A later source's hit
+  ##   fully replaces an earlier one's, never merged. See
+  ##   `docs/adr/0018-config-source.md`.
   ##
   ## Hold onto the returned `SpecSettings` and pass the same instance to
   ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
   ## it later (e.g. from a `before` hook) and have the change apply live to
   ## every not-yet-dispatched `Spec` in the tree -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
-  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim)
+  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim, configSources: configSources)
 
 proc cascadeSpecSettings(spec: Spec, settings: SpecSettings) =
   ## Shares `settings` by reference with `spec` and every nested subcommand's
@@ -619,7 +659,7 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   given.
   ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource)): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -644,9 +684,14 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   overrides the delimiter for this option only (`delim = ""` disables
   ##   splitting entirely) -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env)
+  ## - `configKey` optionally names a structured path (e.g. `configKey("Package",
+  ##   "name")`, or a bare string for a 1-segment path) supplying this
+  ##   option's value from a registered Config Source when neither a CLI
+  ##   nor an env value is given -- consulted below env in Value Precedence,
+  ##   above the coded default. See `docs/adr/0018-config-source.md`.
+  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource)): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
@@ -673,7 +718,12 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   overrides the delimiter for this option only (`delim = ""` disables
   ##   splitting entirely) -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env)
+  ## - `configKey` optionally names a structured path supplying this
+  ##   option's value(s) from a registered Config Source when none are
+  ##   given on the command line or via env -- consulted below env in
+  ##   Value Precedence, above the coded default. See
+  ##   `docs/adr/0018-config-source.md`.
+  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
@@ -683,7 +733,7 @@ macro getFlagOps(typeName: string): untyped =
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
     variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource),
-    clamp: FlagClamp[T] = nil): FlagArg[T] =
+    clamp: FlagClamp[T] = nil, configKey: ConfigKey = @[]): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant.
   ## - `variants` is a comma-separated list where each item takes the form
@@ -731,7 +781,13 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##   the first place). `default` must already satisfy `clamp`, or spec
   ##   construction raises `SpecDefect` -- see
   ##   `docs/adr/0016-flag-clamp.md`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env, clamp: clamp)
+  ## - `configKey` optionally names a structured path supplying this
+  ##   flag's value from a registered Config Source when none is given on
+  ##   the command line or via env -- each value must name one of the
+  ##   flag's own declared Variants, same as `env`. Consulted below env in
+  ##   Value Precedence, above the coded default. See
+  ##   `docs/adr/0018-config-source.md`.
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env, clamp: clamp, cfgKey: configKey)
   if not clamp.isNil and clamp.apply(default) != default:
     raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
   for rawName in variants.split(Comma):

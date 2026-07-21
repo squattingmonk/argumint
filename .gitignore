@@ -4,6 +4,9 @@
 /src/argumint/validators
 /src/argumint/flagclamp
 /src/argumint/fsm
+/src/argumint/configsource.out
+/src/argumint/configsource/ini
+/src/argumint/configsource/json
 /tests/test_*
 !/tests/test_*.nim
 /examples/*

@@ -61,10 +61,12 @@ them.
 
 Carried over from ADR 0013: `envDelim` doesn't benefit from hook-time
 mutation the way `width`/`maxVariantsWidth` do, because the env-var fallback
-sweep (`fsm.nim`'s `EnvCursor.apply`) runs to completion across the *entire*
-matched tree before `dispatch` (and therefore any hook) is ever called. A
-`before` hook mutating `config.envDelim` has no effect on that parse's own
-env-var handling. It's still bundled into the same `SpecSettings` for
+sweep (`fsm.nim`'s `applyFallbacks`, since `docs/adr/0018-config-source.md`
+generalized this from the original `EnvCursor.apply`) runs to completion
+across the *entire* matched tree before `dispatch` (and therefore any hook)
+is ever called. A `before` hook mutating `settings.envDelim` has no effect
+on that parse's own env-var handling. It's still bundled into the same
+`SpecSettings` for
 consistency (all three values conceptually belong together, and setting
 `envDelim` *before* calling `parse*`/`parseOrQuit*` works exactly as before),
 this is just a documented gap between the three fields' otherwise-uniform

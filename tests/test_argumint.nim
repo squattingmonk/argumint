@@ -1,7 +1,9 @@
-import std/[algorithm, os, sequtils, strutils, tables, terminal, unittest]
+import std/[algorithm, options, os, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/backend
+import argumint/configsource/ini
+import argumint/configsource/json
 import argumint/fsm
 import argumint/lexer
 import argumint/validators
@@ -48,6 +50,23 @@ type Color = enum
 defineSetFlag(Color)
 
 const warmColors = {red, green}
+
+type
+  FakeConfigSource = ref object of ConfigSource
+    ## A minimal in-memory ConfigSource for exercising Value Precedence's
+    ## Config Source tier without real file I/O -- see `fakeSource`.
+    data: seq[(ConfigKey, seq[string])]
+    lookups: int ## Counts `lookup` calls -- see the "queried at most once" regression test.
+
+method lookup(self: FakeConfigSource, key: ConfigKey): Option[seq[string]] =
+  self.lookups.inc
+  for (k, v) in self.data:
+    if k == key:
+      return some(v)
+  none(seq[string])
+
+proc fakeSource(pairs: varargs[(ConfigKey, seq[string])]): ConfigSource =
+  FakeConfigSource(data: @pairs)
 
 suite "Positional args":
   test "parse scalar values and fall back to defaults when absent":
@@ -1607,3 +1626,304 @@ suite "Environment variables":
       helpText = e.msg
     check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText
     check "Verbosity [env: ARGUMINT_TEST_VERBOSE]" in helpText
+
+suite "Config Source":
+  test "opt: config value set, no CLI/env value, is used and converted like a CLI value":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "opt: an explicit CLI value overrides the config value":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @["--port=1234"], command = "prog")
+    check spec.port == 1234
+
+  test "opt: an env value overrides the config value":
+    putEnv("ARGUMINT_TEST_PORT", "9090")
+    defer: delEnv("ARGUMINT_TEST_PORT")
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["7070"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, env = "ARGUMINT_TEST_PORT", configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "opt: a config value still goes through the option's validator":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["99999"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = "port", validator = range(1..65535), help = ""),
+    )
+    expect ValidationError:
+      spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+
+  test "opt: neither CLI, env, nor config set falls back to the coded default":
+    let settings = newSpecSettings(configSources = @[fakeSource()])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 8080
+
+  test "flag: config value names a variant, applied via that variant's own op; CLI flag overrides":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("verbose"), @["--verbose"]))])
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", settings = settings, args = @[], command = "prog")
+    check spec.verbosity == 1
+
+    let spec2 = (
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = ""),
+    )
+    spec2.parse(usage = "[--verbose]...", settings = settings, args = @["--verbose"], command = "prog")
+    check spec2.verbosity == 1 # CLI's own increment op wins; config is skipped entirely
+
+  test "flag: a config value naming no declared variant raises ParseError":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("verbose"), @["--verbse"]))]) # typo
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "[--verbose]...", settings = settings, args = @[], command = "prog")
+
+  test "flag: repeatable position consumes multiple config-named variants, composing via each one's own op":
+    let settings = newSpecSettings(configSources = @[
+      fakeSource((configKey("verbose"), @["--verbose", "--verbose", "--verbose"]))
+    ])
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", settings = settings, args = @[], command = "prog")
+    check spec.verbosity == 3
+
+  test "a required option's config value satisfies the requirement":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "--port=<port>", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "a required flag's config value satisfies the requirement":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("verbose"), @["--verbose"]))])
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = ""),
+    )
+    spec.parse(usage = "--verbose", settings = settings, args = @[], command = "prog")
+    check spec.verbosity == 1
+
+  test "an option required twice needs two config values, and errors if given only one":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @[], command = "prog")
+
+  test "an option required twice has both occurrences satisfied by config's own multi-value seq":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090", "9091"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @[], command = "prog")
+    check spec.port == 9091 # scalar Match Accumulation: last value wins
+
+  test "an option required twice errors when given one more config value than it has slots for":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090", "9091", "9092"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @[], command = "prog")
+
+  test "a config-configured option reachable only via a repeatable [options] doesn't hang":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[options]", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "a Config Source probed-and-missed during the walk (via [options]) is queried at most once":
+    # Regression test: `[options]`'s catch-all exploratory-probes every
+    # declared option, including ones with no matching CLI token -- this
+    # used to cause `applyTier`'s post-walk sweep to call `resolve` a
+    # second time for an Arg that was already tried-and-missed during the
+    # walk (ValueCursor.tried was set, but applyTier only checked
+    # cursor.consumed, which a miss never populates). Fixed by also
+    # checking `cursor.tried` before resolving again -- see
+    # docs/adr/0018-config-source.md.
+    let source = FakeConfigSource(data: @[]) # never has anything -- every lookup is a miss
+    let settings = newSpecSettings(configSources = @[ConfigSource source])
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, help = ""),
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[options]", settings = settings, args = @["--verbose"], command = "prog")
+    check spec.port == 0
+    check source.lookups <= 1
+
+  test "opts: config supplies multiple values natively, no delimiter splitting involved":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("tags"), @["foo", "bar", "baz"]))])
+    let spec = (
+      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
+    check spec.tags == @["foo", "bar", "baz"]
+
+  test "an Arg whose position is never reached this walk still gets every available config value applied":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["1234", "5678"]))])
+    let spec = (
+      a: arg("<a>", help = ""),
+      b: arg("<b>", help = ""),
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "<a>\n[options] <b>", settings = settings, args = @["foo"], command = "prog")
+    check spec.port == 5678 # neither line 2 nor [options] was ever walked; every value still applies
+
+  test "a top-level config-configured option's value still applies when a nested command is also invoked":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
+    let move = (name: arg("<name>", help = ""))
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+      ship: command("ship", move, usage = "<name>", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>] ship", settings = settings, args = @["ship", "Titanic"], command = "prog")
+    check spec.port == 9090
+    check move.name == "Titanic"
+
+  test "the same Arg reachable at both an ancestor and a nested command's grammar isn't double-applied from its config value":
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("tags"), @["foo"]))])
+    let tag = opts[string]("--tag=<tag>", configKey = "tags", help = "")
+    let ship = (tag: tag)
+    let spec = (
+      tag: tag,
+      ship: command("ship", ship, usage = "[--tag=<tag>]", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>] ship", settings = settings, args = @["ship"], command = "prog")
+    check tag == @["foo"]
+
+  test "layering: a later Config Source's hit fully replaces an earlier one's, never merges (scalar)":
+    let settings = newSpecSettings(configSources = @[
+      fakeSource((configKey("port"), @["9090"])),
+      fakeSource((configKey("port"), @["7070"])),
+    ])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 7070
+
+  test "layering: a later Config Source's hit fully replaces an earlier one's, never merges (multi-value)":
+    let settings = newSpecSettings(configSources = @[
+      fakeSource((configKey("tags"), @["a", "b"])),
+      fakeSource((configKey("tags"), @["c"])),
+    ])
+    let spec = (
+      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
+    check spec.tags == @["c"]
+
+  test "layering: a later source without the key doesn't hide an earlier hit":
+    let settings = newSpecSettings(configSources = @[
+      fakeSource((configKey("port"), @["9090"])),
+      fakeSource(),
+    ])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "a before hook mutating configSources has no effect on the current parse, same carve-out as envDelim":
+    # applyFallbacks (where Config Source values actually get applied) runs
+    # to completion, for every level in the tree, entirely before dispatch
+    # -- and thus before any before/action/after hook -- ever fires (see
+    # fsm.parse*). A before hook mutating settings.configSources is
+    # therefore always too late to affect the parse already in progress,
+    # exactly the same carve-out Spec.settings.envDelim already has
+    # (architecture.md's "Env var mechanics"). The mutation *is* visible to
+    # a later, separate parse() call reusing the same held SpecSettings.
+    let settings = newSpecSettings()
+    proc addLocalSource(spec: tuple) =
+      settings.configSources.add fakeSource((configKey("port"), @["9090"]))
+
+    let inner = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    let spec = (
+      ship: command("ship", inner, before = addLocalSource, help = ""),
+    )
+    spec.parse(usage = "ship", settings = settings, args = @["ship"], command = "prog")
+    check inner.port == 0 # too late for this parse -- addLocalSource's mutation lands after applyFallbacks already ran
+
+    let inner2 = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    let spec2 = (
+      ship: command("ship", inner2, help = ""),
+    )
+    spec2.parse(usage = "ship", settings = settings, args = @["ship"], command = "prog")
+    check inner2.port == 9090 # a later parse() call does see it -- same held SpecSettings ref
+
+  test "[configKey: X] appears in help text for opt and flag, combined with other annotations":
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = configKey("server", "port"), help = "Port"),
+      verbosity: flag[int]("--verbose", default = 0, configKey = "verbose", help = "Verbosity"),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Port [default: 8080; configKey: server.port]" in helpText
+    check "Verbosity [configKey: verbose]" in helpText
+
+  test "end-to-end: iniConfigSource supplies a value from a real INI file":
+    let path = getTempDir() / "argumint_test_config.ini"
+    writeFile(path, "[server]\nport=9090\n")
+    defer: removeFile(path)
+    let settings = newSpecSettings(configSources = @[iniConfigSource(path)])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = configKey("server", "port"), help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 9090
+
+  test "end-to-end: jsonConfigSource supplies multiple values from a real JSON file":
+    let path = getTempDir() / "argumint_test_config.json"
+    writeFile(path, """{"tags": ["foo", "bar", "baz"]}""")
+    defer: removeFile(path)
+    let settings = newSpecSettings(configSources = @[jsonConfigSource(path)])
+    let spec = (
+      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
+    check spec.tags == @["foo", "bar", "baz"]
+
+  test "exploratory: a mixed CLI+config-satisfied repeated position silently drops the config contribution":
+    # Documents current, pre-existing (not introduced by Config Source --
+    # already true of CLI-vs-env mixing) behavior rather than promising a
+    # contract: `applyFallbacks`'s post-walk sweep skips an Arg entirely
+    # once it has *any* real CLI match (`arg in matches`), even though the
+    # walk itself already let a Config Source value stand in for a
+    # *different* occurrence of the same repeated position (via `probe`,
+    # which succeeds without recording a `pc.matches` entry). The grammar
+    # is satisfied (the walk reaches a terminal state), but the
+    # config-supplied occurrence's value is silently never applied -- no
+    # error, no second value. If this changes in the future, this test
+    # should be updated to match, not deleted.
+    let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["2222", "3333"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
+    )
+    spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @["--port=1111"], command = "prog")
+    check spec.port == 1111 # not 3333 -- the config-satisfied second position never actually applied

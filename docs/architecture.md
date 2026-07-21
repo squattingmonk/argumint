@@ -76,50 +76,78 @@ each `Arg`'s `parse` method to actually convert/store values.
 
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
-machinery, via `EnvCursor.apply`: for every `Arg` in `spec.args` with a
-non-empty `envName` that *wasn't* explicitly matched (`arg notin matches`)
-and whose env var `existsEnv`, it calls `arg.setFromEnv(...)` to apply the
-env value through the same conversion/validation path a CLI value would
-take. Doing this after `walk` rather than folding it into the FSM means an
-option only reachable via `[options]` (never explicitly attempted during
-matching) still picks up its env var, and `arg notin matches` gives an
-explicit CLI value precedence for free with no extra bookkeeping. See
-`docs/adr/0004-required-options-env-fallback.md` and `docs/adr/0005-env-
-supplied-multi-value-options-and-flags.md` for the design decisions behind
-the env-fallback tier; CONTEXT.md's Value Precedence / Env Delimiter entries
-have the user-facing semantics.
+machinery, via `applyFallbacks`: for every `Arg` in `spec.args` that
+*wasn't* explicitly matched (`arg notin matches`), it tries the
+environment-variable tier, then — only if that had nothing — the Config
+Source tier, calling `arg.setFromEnv(...)`/`arg.setFromConfig(...)` to
+apply whichever tier's value through the same conversion/validation path a
+CLI value would take. Doing this after `walk` rather than folding it into
+the FSM means an option only reachable via `[options]` (never explicitly
+attempted during matching) still picks up a fallback value, and `arg notin
+matches` gives an explicit CLI value precedence for free with no extra
+bookkeeping. See `docs/adr/0004-required-options-env-fallback.md`,
+`docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
+`docs/adr/0018-config-source.md` for the design decisions behind the two
+fallback tiers; CONTEXT.md's Value Precedence / Env Delimiter / Config
+Source entries have the user-facing semantics.
 
-### Env var mechanics
+### Env var / Config Source mechanics
 
-The raw env string is always split (`backend.splitEnvValue`) — on `\x1e`
-(ASCII Record Separator) if present, since that's how fish auto-joins a
-native list variable's elements when exporting it to a subprocess, otherwise
-on `Spec.settings.envDelim` (cascades like `width`, default `:`), keeping empty
-segments as literal values rather than dropping them.
-Value Precedence's environment-variable tier is consolidated into
-`fsm.nim`'s own `EnvCursor` type (embedded as `ParseContext.env`), rather than
-loose fields/procs: `EnvCursor.probe` is consulted from `match`'s `Option`
-branch during the walk, lazily splitting/caching an Arg's env value and
-handing out the next unconsumed value each time that Arg's matcher is
-visited. Nothing decides in advance how many times that can happen — it
-falls out entirely from however many times `walk` actually visits that
-matcher: a real repeat (`...`, or reachable only through `[options]`) loops
-back and keeps consuming until the list runs out; the same Arg named more
-than once in one Usage Line with no `...` is just two separate matcher
-instances, and the cursor is consulted twice either way.
+Value Precedence's environment-variable and Config Source tiers share one
+mechanism, `fsm.nim`'s `ValueCursor` type (embedded twice on
+`ParseContext`, as `env` and `configValues`), rather than two independent
+implementations. `ValueCursor.probe` is consulted from `match`'s `Option`
+branch during the walk — CLI token first, then `pc.env.probe`, then (only
+if env had nothing) `pc.configValues.probe` — lazily resolving and caching
+an Arg's available values (via a tier-specific `resolve` closure,
+`resolveEnv`/`resolveConfig`) and handing out the next unconsumed value
+each time that Arg's matcher is visited. `resolve` runs at most once per
+Arg per cursor (cached in `ValueCursor.tried`, including a miss) — cheap
+either way for env (`existsEnv`), but load-bearing for Config Source, since
+a user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
+decides in advance how many times a matcher gets visited — it falls out
+entirely from however many times `walk` actually visits it: a real repeat
+(`...`, or reachable only through `[options]`) loops back and keeps
+consuming until the list runs out; the same Arg named more than once in one
+Usage Line with no `...` is just two separate matcher instances, and the
+cursor is consulted twice either way.
 
-After a successful walk, `Spec.parse`'s post-walk sweep (`EnvCursor.apply`)
-applies exactly as many values as the walk consumed for each Arg (cached on
-the same `EnvCursor`); if values are left over (the env var had more than
-the grammar had positions for), that's a `ParseError` — `"unexpected
-option"`/`"unexpected flag"`, the same wording already used for a genuinely
-excess CLI token — rather than a silent truncation to a prefix of the
-values. An Arg whose matcher was never consulted at all this walk (reachable
-only through a different, unmatched Usage Line of the same spec) has no
-walk-derived count to bound it by, so every available value is applied. For
-`flag`, each value names one of the Arg's own declared Variants (matching
-`self.ops`' keys exactly) and is applied via *that* Variant's own Flag
-Operation, not forced through `=`.
+The two tiers differ only in how they arrive at that per-Arg `seq[string]`
+of candidate values. `resolveEnv`: the raw env string is always split
+(`backend.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
+since that's how fish auto-joins a native list variable's elements when
+exporting it to a subprocess, otherwise on `Spec.settings.envDelim`
+(cascades like `width`, default `:`), keeping empty segments as literal
+values rather than dropping them. `resolveConfig`: `arg.configKey` is
+looked up via `lookupConfigSources(spec.settings.configSources, key)`,
+which already returns an assembled `seq[string]` (the last layered source
+with a hit for that key, in full — see CONTEXT.md's Config Source entry
+for why there's no delimiter-splitting step here at all).
+
+After a successful walk, `Spec.parse`'s post-walk sweep (`applyFallbacks`,
+via the per-Arg, per-tier helper `applyTier`) applies exactly as many
+values as the walk consumed for each Arg from whichever tier supplied them
+(cached on that tier's own `ValueCursor`), falling through to the
+Config Source tier only when the env tier had nothing at all for that Arg;
+if values are left over (the tier had more than the grammar had positions
+for), that's a `ParseError` — `"unexpected option"`/`"unexpected flag"`,
+the same wording already used for a genuinely excess CLI token — rather
+than a silent truncation to a prefix of the values. An Arg whose matcher
+was never consulted at all this walk (reachable only through a different,
+unmatched Usage Line of the same spec) has no walk-derived count to bound
+it by, so every available value from whichever tier resolves is applied.
+For `flag`, each value (from either tier) names one of the Arg's own
+declared Variants (matching `self.ops`' keys exactly) and is applied via
+*that* Variant's own Flag Operation, not forced through `=`.
+
+A pre-existing nuance, not introduced by the Config Source tier: since
+`applyFallbacks` gates on `arg notin matches` per-Arg (not per-position),
+an Arg reachable at more than one position in the matched Usage Line where
+*some* positions matched a real CLI token and others were satisfied by a
+fallback tier *during the walk* (via `probe`, which never writes to
+`pc.matches`) has its walk-time fallback contribution silently dropped —
+`applyFallbacks` never even looks at it, since the Arg already has a real
+match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 
 ## 4. Value conversion (`src/argumint.nim`, top)
 
@@ -296,22 +324,26 @@ and zips them line-by-line against the (independently wrapped) help-text
 lines, so the help text stays inline with the first wrapped variants line.
 `0` disables the cap.
 
-`width`/`maxVariantsWidth`/`envDelim` live together on `Spec.settings: SpecSettings`
-(`src/argumint/backend.nim`), a `ref object` built once by `newSpec*`'s
-`settings = newSpecSettings()` param and shared by reference — not copied — into
-every nested subcommand's `Spec` via `cascadeSpecSettings`
-(`src/argumint.nim`). `config` is deliberately not a parameter to `command*`
-itself: since it's the same shared instance throughout the tree, it only
-needs to be set once at the top-level `newSpec`/`parse*` call regardless of
-nesting depth. Being a ref rather than three plain scalars also means a
-later mutation of that same `SpecSettings` — e.g. from a `before` hook —
-applies live to every not-yet-dispatched `Spec` in the tree, including the
-current level's own message/help output once `parseMessageArgs` runs after
-`before` (see `docs/adr/0013-message-args-fire-after-before.md`). `envDelim`
-is the one exception: the env-var fallback sweep (`EnvCursor.apply`, §3)
-runs to completion across the whole tree before `dispatch`/any hook is ever
-called, so a hook-time mutation to `envDelim` has no effect on that parse's
-env-var handling, even though it's cascaded the same way for consistency.
+`width`/`maxVariantsWidth`/`envDelim`/`configSources` live together on
+`Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
+built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
+by reference — not copied — into every nested subcommand's `Spec` via
+`cascadeSpecSettings` (`src/argumint.nim`). `settings` is deliberately not
+a parameter to `command*` itself: since it's the same shared instance
+throughout the tree, it only needs to be set once at the top-level
+`newSpec`/`parse*` call regardless of nesting depth. Being a ref rather
+than four plain fields also means a later mutation of that same
+`SpecSettings` — e.g. from a `before` hook — applies live to every
+not-yet-dispatched `Spec` in the tree, including the current level's own
+message/help output once `parseMessageArgs` runs after `before` (see
+`docs/adr/0013-message-args-fire-after-before.md`). `envDelim` and
+`configSources` are the exceptions: both fallback tiers' resolution
+(`applyFallbacks`, §3) runs to completion across the whole tree before
+`dispatch`/any hook is ever called, so a hook-time mutation to either has
+no effect on that parse's fallback-tier handling, even though both are
+cascaded the same way for consistency (see
+`docs/adr/0018-config-source.md`'s "Corrected claim" section for the
+Config Source case specifically).
 
 Converters `toT*[T](arg: ValueArg[T, false]): T` and `toSeqT*[T](arg:
 ValueArg[T, true]): seq[T]` return the field's value transparently at
