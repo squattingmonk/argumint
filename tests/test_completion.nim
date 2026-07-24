@@ -64,6 +64,27 @@ suite "Command completion and subcommand descent":
   test "descends into a matched subcommand's own spliced FSM automatically":
     check built.completeArgs(@["commit", "--am"], "prog") == @["--amend"]
 
+suite "A Command name shadowing a positional value stays live for completion":
+  # ADR 0019: "ship" is a declared command name, but the "<file>" Usage
+  # Line is a genuinely separate alternative that can also accept it as a
+  # literal positional value -- completion after a fully-typed "ship"
+  # should still explore both, not just the one Command descended into.
+  let ship = (
+    name: arg[string]("<name>", validator = choice(["titanic", "bismarck"])),
+  )
+  let spec = (
+    ship: command("ship", ship, usage = "<name>"),
+    file: arg[string]("<file>"),
+    verbose: flag("--verbose"),
+  )
+  let built = newSpec(spec, usage = "ship\n<file> [--verbose]")
+
+  test "completion after \"ship\" offers both the nested command's own candidates and what follows a literal <file> value":
+    let result = built.completeArgs(@["ship", ""], "prog")
+    check "titanic" in result
+    check "bismarck" in result
+    check "--verbose" in result
+
 suite "Catch-all repeatability and cycle safety":
   # `--verbose` is explicitly named (so excluded from the catch-all and
   # non-repeatable); `--moored` is reachable only via `[options]` (so

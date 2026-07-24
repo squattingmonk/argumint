@@ -63,16 +63,82 @@ catch-all's default differs from an explicitly-named Arg's.
 
 ## 3. Runtime matching (`fsm.nim`)
 
-Actual `os.commandLineParams()` (or passed-in `args`) are first tokenized
-into `CmdLineToken`s (`tokenizeArgs`, order-independent w.r.t. options vs.
-positionals, with `--` ending option parsing and short-option clusters like
-`-abc` expanded). `walk` then recursively tries the FSM's transitions
-against the token stream, backtracking via a copied `ParseContext` (`fresh =
-pc`) on each branch attempt, accumulating the best-effort error `messages`
-from the deepest failed path so error messages point at the most specific
-match attempt, not just "invalid arguments". A successful walk populates
-`pc.matches: OrderedTable[Arg, seq[Match]]`, which is then fed back into
-each `Arg`'s `parse` method to actually convert/store values.
+Actual `os.commandLineParams()` (or passed-in `args`) are first split into
+`RawToken`s (`tokenizeArgs`) via *shape-only* recognition — no `Spec`
+lookups at all: does a token look like `-o`/`--opt`/`-o=val`/`--opt=val`/a
+`-xyz`-shaped cluster candidate, or is it a literal `--`? This is the only
+thing that's genuinely position-independent; everything else about a raw
+token's meaning depends on which `Spec` governs this position, which is
+only known once the walk has actually gotten there (see below).
+
+`walk` then recursively tries the FSM's transitions against the token
+stream, backtracking via a copied `ParseContext` (`fresh = pc`) on each
+branch attempt, accumulating the best-effort error `messages` from the
+deepest failed path so error messages point at the most specific match
+attempt, not just "invalid arguments". Classification of *what a `RawToken`
+actually is* — Command, Option/Flag (and which one), or plain positional
+text — is decided lazily, inline, by `match`'s own `Command`/`Option`/
+`Options`/`Argument` branches, each checking a token's fitness for *itself*
+against `pc.spec` (the Spec currently in scope for this specific walk
+attempt, already updated by a matched `Command` transition) rather than
+trusting a precomputed global answer:
+
+- **Command** checks the raw string against `pc.spec.commands` directly —
+  only at the very next position, never scanning further (a Command
+  matcher never looks past position 0).
+- **Option**/**Options** resolves cluster-splitting/attached-`=value`
+  syntax against `pc.spec.options`, scanning forward past tokens that
+  don't classify as *this specific* Arg; if a shape doesn't resolve to any
+  declared option at all, the matcher simply doesn't match — no
+  exception — leaving the token for a different matcher to try.
+- **Argument** scans forward past tokens that classify as a real
+  Option/Flag (`State.prepare`'s priority sort, `Option < Options <
+  Command < Argument`, see §2, already gave a real competing sibling
+  transition first crack at the same token), accepting the first token
+  that classifies as either plain positional text *or* a Command — a real
+  Command matcher only ever looks at position 0, so nothing further down
+  the scan could have legitimately claimed a Command-shaped token either,
+  and skipping ahead in search of a later Positional would consume a
+  repeating `<file>...`-style self-loop's values out of the order they
+  were typed in. `classify`'s `Positional` and `Command` results carry the
+  same `consumed`/`remainder` shape for the same raw token, so there's
+  nothing left to distinguish once the scan has decided to stop — both
+  are handled by one `of Positional, Command:` arm.
+
+This is why a word that happens to be a declared Command name can still be
+used as a plain positional value in a *different* Usage Line, why a
+negative number like `-1` is accepted as a positional value with no
+disambiguation needed when nothing else could claim it, and why an
+option-shaped token unrecognized by one Usage Line can still fall through
+to a more permissive alternative instead of raising immediately — none of
+these require special-casing, they fall out of deferring the decision to
+the same backtracking machinery that already exists for everything else.
+`ParseContext` being a plain value `object` (not a `ref`) is what makes
+this safe without a separate cache: a failed branch attempt's guesses are
+simply discarded along with the rest of its `fresh` copy, and a different
+attempt that revisits the same raw position starts from its own
+independent copy and reclassifies independently.
+
+One place still needed decoupling despite that: `walk`'s merge step, which
+records the deepest failed branch's spec/command for the final error
+message, used to write into the *same* `ParseContext.spec`/`.command`
+fields a later sibling transition's own `fresh` copy starts from — harmless
+before this change (a failed Command descent could never be followed by a
+sibling Argument attempt reusing the same leftover token), but reachable
+now. `ParseContext` has dedicated `errorSpec`/`errorCommand` fields for
+this, written only by the merge step and read only when formatting the
+final failure message, so `.spec`/`.command` stay reserved for live walk
+state. See `docs/adr/0019-lazy-token-classification.md`.
+
+A literal `--` is recognized in the same eager shape pass and, the first
+time the walk encounters it on a given path, sets `pc.optsEnd = true`
+(dropped, never handed to any matcher as a value) — from then on, on that
+path, Option/Options/Command stop resolving shapes/names entirely and
+every remaining token is available to Argument only, exactly as before.
+
+A successful walk populates `pc.matches: OrderedTable[Arg, seq[Match]]`,
+which is then fed back into each `Arg`'s `parse` method to actually
+convert/store values.
 
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
@@ -379,9 +445,10 @@ non-`MessageArg` matches (filtered by the `Match`'s `Spec` provenance);
 `spec.before()` fires, if set, now that those values are ready;
 `parseMessageArgs` then parses (and raises on) any matched `MessageArg`/
 `HelpArg` at this level; `matchedCommand` finds whichever single Command
-was matched at this level, if any (at most one ever can be — `tokenizeArgs`
-hands off every remaining token to a matched command's own nested spec
-permanently, so a sibling command word can never be recognized afterward);
+was matched at this level, if any (at most one ever can be — a matched
+`Command` transition permanently updates `pc.spec` to the nested spec for
+the rest of the walk, so a sibling command word can never be recognized
+afterward);
 if none, `spec.action()` fires (this Spec is the dynamic leaf for this
 invocation); if one, `dispatch` recurses into its own nested `Spec`;
 finally `spec.after()` fires, wrapped in a `try/finally` around the
@@ -457,9 +524,10 @@ awaiting its value (`pendingOptionalArgs`), completes that Arg's own
 `completions()` instead (populated from a `Validator`'s enumerable
 candidates — see `validators.completions`/`Arg.completions`). Candidate
 words are read from `spec.options` (the canonical bare-spelling → `Arg`
-map `tokenizeArgs` itself uses), not `Arg.variants` directly — the latter,
-for an Optional-kind `ValueArg` (`opt`/`opts`), still carries any
-declaration-time `=<placeholder>` suffix used only for help-text rendering.
+map `match`'s `Option`/`Options` branches themselves resolve against), not
+`Arg.variants` directly — the latter, for an Optional-kind `ValueArg`
+(`opt`/`opts`), still carries any declaration-time `=<placeholder>` suffix
+used only for help-text rendering.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell
 adapter (`Shell = bash | zsh | fish`) that just shells out to
