@@ -53,6 +53,15 @@ suite "SpecLexer":
       tkArgument, tkRepeat, tkEof
     ]
 
+  test "End-of-Options Marker, bare or bracket-wrapped":
+    check tokenize("--") == @[tkOptsEnd, tkEof]
+    check tokenize("[--]") == @[tkOptsEnd, tkEof]
+    check tokenize("[ -- ]") == @[tkOptsEnd, tkEof]
+
+  test "a long option is unaffected by the End-of-Options Marker patterns":
+    check tokenize("--option") == @[tkLongOption, tkEof]
+    check tokenize("--verbose") == @[tkLongOption, tkEof]
+
   test "raises SpecDefect on an unexpected character":
     var lex: SpecLexer
     lex.open("$bad")

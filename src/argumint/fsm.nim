@@ -238,6 +238,13 @@ proc match(m: Matcher, pc: var ParseContext): bool =
   of Shortcut:
     # A shortcut consumes no tokens and always indicates success.
     result = true
+  of OptsEnd:
+    # Always matches, forcing pc.optsEnd regardless of whether a literal
+    # `--` is actually there to consume -- see ADR 0020.
+    if pc.tokens.len > 0:
+      discard pc.consumeOptsEnd(0)
+    pc.optsEnd = true
+    result = true
   of Argument:
     # Skip Option/Flag-classified tokens (order-independent -- see ADR
     # 0019). A Command-classified token is accepted as literal text just
@@ -430,6 +437,7 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[string] =
               for v in pc.spec.bareVariants(opt): v
         of Command: tr.matcher.cmd.variants
         of Argument: tr.matcher.arg.completions()
+        of OptsEnd: newSeq[string]() # invisible -- see ADR 0020 point 8
         of Shortcut: newSeq[string]()
       for c in candidates:
         if c.startsWith(prefix) and c notin result:

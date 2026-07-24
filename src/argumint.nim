@@ -866,7 +866,7 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
   ## given (see `cascadeSpecSettings`), so it only needs to be specified once
   ## regardless of how deeply nested this command is.
-  result = CommandArg(kind: Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
+  result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
     result.spec.before = () => before(spec)

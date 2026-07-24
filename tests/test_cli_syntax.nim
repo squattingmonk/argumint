@@ -120,6 +120,54 @@ suite "-- end of options":
     check spec.verbose == true
     check spec.files == @["-x", "--verbose", "file.txt"]
 
+suite "Usage-string End-of-Options Marker":
+  test "a real matcher declared before the marker still wins priority over it when nothing is typed":
+    # [options] -- <file>...: without a literal --, [options]'s own
+    # catch-all gets first crack (real matchers are tried before OptsEnd
+    # at a shared state) -- see docs/adr/0020-usage-string-end-of-options-marker.md point 3.
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      files: args[string]("<file>", help = ""),
+    )
+    spec.parse(usage = "[options] -- <file>...", args = @["--verbose", "file.txt"], command = "prog")
+    check spec.verbose == true
+    check spec.files == @["file.txt"]
+
+  test "a literal -- still forces the split even with a real matcher declared before the marker":
+    let spec = (
+      verbose: flag("--verbose", help = ""),
+      files: args[string]("<file>", help = ""),
+    )
+    spec.parse(usage = "[options] -- <file>...", args = @["--", "--verbose", "file.txt"], command = "prog")
+    check spec.verbose == false
+    check spec.files == @["--verbose", "file.txt"]
+
+  test "the marker forces the split unconditionally, even with nothing else competing for the token":
+    let spec = (
+      name: arg("<name>", help = ""),
+      rest: args[string]("<rest>", help = ""),
+    )
+    spec.parse(usage = "<name> -- <rest>...", args = @["x", "--verbose", "y"], command = "prog")
+    check spec.name == "x"
+    check spec.rest == @["--verbose", "y"]
+
+  test "typing -- twice on the CLI against a spec with only one declared marker: the second -- is a plain positional value":
+    # Contrast with test_argumint.nim's "SpecDefect: a second -- in the
+    # same Usage Line" -- that's about *declaring* -- twice in the usage
+    # string (rejected at construction time); this is about *typing* it
+    # twice against a spec that only ever declared it once. The first
+    # literal -- is consumed by the marker's own Matcher; the second is
+    # handled entirely by the pre-existing consumeOptsEnd/classify
+    # machinery (ADR 0019) once optsEnd is already true, unrelated to the
+    # new grammar-level Matcher.
+    let spec = (
+      a: arg("<a>", help = ""),
+      rest: args[string]("<rest>", help = ""),
+    )
+    spec.parse(usage = "<a> -- <rest>...", args = @["foo", "--", "bar", "--", "baz"], command = "prog")
+    check spec.a == "foo"
+    check spec.rest == @["bar", "--", "baz"]
+
 suite "Negative number literals":
   test "a leading space disambiguates a negative int from a short option":
     let spec = (count: arg("<count>", default = 0, help = ""))

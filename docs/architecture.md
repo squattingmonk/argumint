@@ -21,7 +21,9 @@ is auto-generated from the declared args (see "autoFillUsage" below).
 The usage string (e.g. `[-r] <src>... <dest>`) is tokenized by `SpecLexer`
 and recursively-descent parsed (`atom`/`sequence`/`choice` in `parser.nim`)
 into a graph of `State`/`Transition` objects. Each token becomes a `Matcher`
-(`Argument`, `Option`, `Options`, `Command`, or `Shortcut` for
+(`Argument`, `Option`, `Options`, `Command`, `OptsEnd` for a usage-string
+End-of-Options Marker (`--`) -- see
+`docs/adr/0020-usage-string-end-of-options-marker.md` -- or `Shortcut` for
 optional/repeated branches). `backend.prepare` (`simplify` +
 `sortTransitions`) collapses shortcut chains and orders transitions by
 matcher priority (`ord(MatcherKind)`) so, e.g., positional args aren't
@@ -93,8 +95,9 @@ trusting a precomputed global answer:
   exception — leaving the token for a different matcher to try.
 - **Argument** scans forward past tokens that classify as a real
   Option/Flag (`State.prepare`'s priority sort, `Option < Options <
-  Command < Argument`, see §2, already gave a real competing sibling
-  transition first crack at the same token), accepting the first token
+  Command < Argument < OptsEnd < Shortcut`, see §2, already gave a real
+  competing sibling transition first crack at the same token), accepting
+  the first token
   that classifies as either plain positional text *or* a Command — a real
   Command matcher only ever looks at position 0, so nothing further down
   the scan could have legitimately claimed a Command-shaped token either,

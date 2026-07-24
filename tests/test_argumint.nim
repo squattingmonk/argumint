@@ -630,6 +630,89 @@ suite "Commands":
     spec.parse(usage = "<name>...", args = @["a", "b", "c"], command = "prog")
     check spec.names == @["a", "b", "c"]
 
+suite "End-of-Options Marker":
+  test "SpecDefect: an Option after -- in the same Usage Line":
+    expect SpecDefect:
+      discard newSpec((
+        name: arg("<name>", help = ""),
+        speed: opt("--speed=<speed>", default = 1, help = ""),
+      ), usage = "<name> -- --speed=<speed>")
+
+  test "SpecDefect: a Flag after -- in the same Usage Line":
+    expect SpecDefect:
+      discard newSpec((
+        name: arg("<name>", help = ""),
+        verbose: flag("--verbose", help = ""),
+      ), usage = "<name> -- --verbose")
+
+  test "SpecDefect: [options] after -- in the same Usage Line":
+    expect SpecDefect:
+      discard newSpec((
+        name: arg("<name>", help = ""),
+        verbose: flag("--verbose", help = ""),
+      ), usage = "<name> -- [options]")
+
+  test "SpecDefect: a Command after -- in the same Usage Line":
+    expect SpecDefect:
+      discard newSpec((
+        name: arg("<name>", help = ""),
+        foo: command("foo", (), help = ""),
+      ), usage = "<name> -- foo")
+
+  test "SpecDefect: a dead-code atom nested inside a bracket or paren group after -- still blocks it":
+    for usage in ["<name> -- [--verbose]", "<name> -- (--verbose)"]:
+      expect SpecDefect:
+        discard newSpec((
+          name: arg("<name>", help = ""),
+          verbose: flag("--verbose", help = ""),
+        ), usage = usage)
+
+  test "SpecDefect: a second -- in the same Usage Line":
+    expect SpecDefect:
+      discard newSpec((
+        a: arg("<a>", help = ""),
+        b: arg("<b>", help = ""),
+        c: arg("<c>", help = ""),
+      ), usage = "<a> -- <b> -- <c>")
+
+  test "SpecDefect: -- repeated with '...'":
+    expect SpecDefect:
+      discard newSpec((), usage = "--...")
+
+  test "a Positional Argument (bare or grouped) may follow -- without tripping the check":
+    let spec = (
+      name: arg("<name>", help = ""),
+      rest: args[string]("<rest>", help = ""),
+    )
+    spec.parse(usage = "<name> -- <rest>...", args = @["x", "y", "z"], command = "prog")
+    check spec.name == "x"
+    check spec.rest == @["y", "z"]
+
+  test "bare -- <arg>... requires at least one arg after the marker":
+    let spec = (rest: args[string]("<rest>", help = ""))
+    expect ParseError:
+      spec.parse(usage = "-- <rest>...", args = @[], command = "prog")
+
+  test "[-- <arg>...] makes the whole marker-plus-args group skippable":
+    let spec = (rest: args[string]("<rest>", help = "", default = @["untouched"]))
+    spec.parse(usage = "[-- <rest>...]", args = @[], command = "prog")
+    check spec.rest == @["untouched"]
+
+  test "[--] and [ -- ] alone parse identically to bare --":
+    # No Option/Flag declared at all here -- otherwise autoFillUsage would
+    # silently append a competing "[options]" alternative for it (since
+    # it'd be unreachable via this usage string), which legitimately wins
+    # matcher priority over the marker and would confound this check.
+    for usage in ["-- <name>", "[--] <name>", "[ -- ] <name>"]:
+      block:
+        let spec = (name: arg("<name>", help = ""))
+        spec.parse(usage = usage, args = @["x"], command = "prog")
+        check spec.name == "x"
+      block:
+        let spec = (name: arg("<name>", help = ""))
+        spec.parse(usage = usage, args = @["--", "x"], command = "prog")
+        check spec.name == "x"
+
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
     parse((), args = @[], command = "prog")

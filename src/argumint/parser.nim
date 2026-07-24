@@ -28,7 +28,7 @@ type
       ## `Transition` it started out on -- see `Matcher`'s own doc comment
       ## (`backend.nim`) for why that distinction matters.
 
-const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption}
+const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption, tkOptsEnd}
 
 proc next(p: SpecParser) =
   ## Advance the spec parser to the next token.
@@ -51,9 +51,9 @@ proc eat(p: SpecParser, kinds: set[SpecTokenKind]): SpecToken =
   result = p.tok
   p.next
 
-proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool]
+proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]
 
-proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool]): Arg =
+proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]): Arg =
   ## If `child` is nothing but a single Option or Argument matcher straight
   ## from `a` to `b` (not repeated via `...`, not part of a larger sequence
   ## or a bracket/`[options]` construct -- those all leave more than one
@@ -63,13 +63,13 @@ proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool]): Arg =
     if tr.next == child.b:
       result = tr.matcher.underlyingArg
 
-proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool] =
+proc choice(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool] =
   ## Constructs a choice (e.g., `this | that`). Note `this` is still a choice.
-  var children = newSeq[tuple[a: State, b: State, hasCommand: bool]]()
-  children.add p.atom(seenCommand)
+  var children = newSeq[tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]]()
+  children.add p.atom(seenCommand, seenOptsEnd)
   while p.peek {tkChoice}:
     p.next()
-    children.add p.atom(seenCommand)
+    children.add p.atom(seenCommand, seenOptsEnd)
 
   if children.len == 1:
     return children[0]
@@ -79,9 +79,11 @@ proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComm
     b = newState()
     seenArgs: HashSet[Arg]
     hasCommand = false
+    hasOptsEnd = false
 
   for child in children:
     hasCommand = hasCommand or child.hasCommand
+    hasOptsEnd = hasOptsEnd or child.hasOptsEnd
     # Matching compares Arg identity, not variant string, so a later
     # alternative for an Arg a previous one already covers is redundant.
     let arg = child.trivialArg
@@ -92,15 +94,16 @@ proc choice(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComm
     a.addShortcut(child.a)
     child.b.addShortcut(b)
 
-  return (a, b, hasCommand)
+  return (a, b, hasCommand, hasOptsEnd)
 
-proc sequence(p: SpecParser, required = true, seenCommand = false): tuple[a: State, b: State, hasCommand: bool] =
+proc sequence(p: SpecParser, required = true, seenCommand = false, seenOptsEnd = false): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool] =
   ## Constructs a new sequence (e.g., `this that`). If `required` is `true`, the
   ## sequence must have child nodes.
   var
     a = newState()
     b = a
     hasCmd = seenCommand
+    hasOpts = seenOptsEnd
 
   proc add(x, y: State) =
     # Add all transitions in x to b, then set b to y.
@@ -109,23 +112,34 @@ proc sequence(p: SpecParser, required = true, seenCommand = false): tuple[a: Sta
     b = y
 
   if required:
-    let child = p.choice(hasCmd) # child.a == a == b
+    let child = p.choice(hasCmd, hasOpts) # child.a == a == b
     add(child.a, child.b) # child.a == a, child.b == b
     hasCmd = hasCmd or child.hasCommand
+    hasOpts = hasOpts or child.hasOptsEnd
 
   while p.peek CanAtom:
-    let child = p.choice(hasCmd)
+    let child = p.choice(hasCmd, hasOpts)
     add(child.a, child.b)
     hasCmd = hasCmd or child.hasCommand
-  return (a, b, hasCmd)
+    hasOpts = hasOpts or child.hasOptsEnd
+  return (a, b, hasCmd, hasOpts)
 
-proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasCommand: bool] =
+proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool] =
   ## Generates a partial FSM for the next token if it represents or begins an
   ## atom. Returns a beginning and ending state for the atom.
   result.a = newState()
   if seenCommand:
-    p.tok.error("Nothing may follow a Command earlier in the same Usage Line -- a matched Command consumes every remaining argument, so anything after it can never be reached; use '(a | b)' for alternatives, or move it into the earlier Command's own usage")
+    p.tok.error("Nothing may follow a Command earlier in the same Usage " &
+      "Line -- a matched Command consumes every remaining argument, so " &
+      "anything after it can never be reached; use '(a | b)' for " &
+      "alternatives, or move it into the earlier Command's own usage")
   let token = p.eat CanAtom
+  if seenOptsEnd and token.kind notin {tkArgument, tkParensOpen, tkBracketOpen}:
+    token.error("Only a Positional Argument may follow the End-of-Options " &
+      "Marker ('--') earlier in the same Usage Line -- an Option, Flag, " &
+      "[options], Command, or a second '--' can never be reached there, " &
+      "since a matched Marker forces every later token to be treated as " &
+      "a positional value")
   case token.kind
   of tkArgument:
     if token.literal notin p.spec.arguments:
@@ -169,11 +183,14 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
       s.addShortcut(result.b)
     result.a.add(cmd.spec.fsm, newCmdMatcher(cmd))
     result.hasCommand = true
+  of tkOptsEnd:
+    result.b = result.a.add(newOptsEndMatcher())
+    result.hasOptsEnd = true
   of tkParensOpen:
-    result = p.sequence(seenCommand = seenCommand)
+    result = p.sequence(seenCommand = seenCommand, seenOptsEnd = seenOptsEnd)
     discard p.eat {tkParensClose}
   of tkBracketOpen:
-    result = p.sequence(seenCommand = seenCommand)
+    result = p.sequence(seenCommand = seenCommand, seenOptsEnd = seenOptsEnd)
     result.a.addShortcut(result.b)
     discard p.eat {tkBracketClose}
   else:
@@ -181,7 +198,15 @@ proc atom(p: SpecParser, seenCommand: bool): tuple[a: State, b: State, hasComman
 
   if p.peek {tkRepeat}:
     if result.hasCommand:
-      token.error("A Command cannot be repeated with '...' -- a matched Command consumes every remaining argument, so a second repetition can never be reached; give the Command's own nested Usage Line a repeatable atom instead if you want to match multiple values there")
+      token.error("A Command cannot be repeated with '...' -- a matched " &
+        "Command consumes every remaining argument, so a second " &
+        "repetition can never be reached; give the Command's own nested " &
+        "Usage Line a repeatable atom instead if you want to match " &
+        "multiple values there")
+    if result.hasOptsEnd:
+      token.error("The End-of-Options Marker ('--') cannot be repeated " &
+        "with '...' -- the position it marks can never be meaningfully " &
+        "re-entered")
     result.b.addShortcut(result.a)
     p.next()
 
@@ -206,7 +231,7 @@ proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
     p.lex.open(line)
     defer: p.lex.close()
     p.tok = p.lex.next()
-    let (s, e, _) = p.sequence(false)
+    let (s, e, _, _) = p.sequence(false)
     if not p.peek {tkEof}:
       p.tok.error(fmt"Unexpected token {p.tok.literal.escape} ({p.tok.kind})")
     # Only now, with the whole line parsed, is explicitOptions final --

@@ -178,6 +178,22 @@ Option or Flag named explicitly on one Usage Line is still reachable
 through the catch-all on a different Usage Line in the same Usage String.
 _Avoid_: `[options]`, options wildcard
 
+**End-of-Options Marker**:
+The `--` construct in a Usage Line, forcing every later token on that
+matched path to be treated as a Positional Argument's value — even one
+that's option- or command-shaped, and even if the user never actually
+types a literal `--` there. Distinct from a literal `--` typed on the
+actual command line, which already has this same forcing effect
+unconditionally, at any position, regardless of whether any Usage Line
+declares the marker at all; the marker's own purpose is for a generated
+`Usage:` line to show the convention where it's meaningful. Only a
+Positional Argument may follow it within the same Usage Line — an
+Option, Flag, Options Catch-all, Command, or a second End-of-Options
+Marker would be permanently unreachable there, so each is rejected at
+spec-construction time the same way a second Command is (see Command).
+See `docs/adr/0020-usage-string-end-of-options-marker.md`.
+_Avoid_: double-dash, `--`, terminator
+
 **Repetition**:
 The `...` suffix in a Usage Line, marking an explicitly-named Positional
 Argument, Option, or Flag as matchable more than once. Without it, an

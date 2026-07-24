@@ -83,8 +83,10 @@ type
     matcher*: Matcher
     next*: State
 
+  # Declaration order doubles as match priority (`priority`/
+  # `sortTransitions`, below)
   MatcherKind* {.pure.} = enum
-    Option, Options, Command, Argument, Shortcut
+    Option, Options, Command, Argument, OptsEnd, Shortcut
 
   Matcher* = ref object
     ## A `ref` so a Matcher created for a `[options]` atom (see `parser.atom`'s
@@ -253,6 +255,7 @@ proc name*(m: Matcher): string {.inline.} =
   ## variant of its arg, but some matchers have special names.
   case m.kind
   of Shortcut: "*"
+  of OptsEnd: "--"
   of Command: fmt"Cmd({m.cmd.name})"
   of Argument: fmt"Arg({m.arg.name})"
   of Option: fmt"Opt({m.opt.name})"
@@ -284,6 +287,11 @@ proc excludeOptions*(m: Matcher, exclude: HashSet[Arg]) =
 proc newShortcut*(): Matcher =
   ## Returns a new shortcut `Matcher`. A shortcut will always match.
   Matcher(kind: Shortcut)
+
+proc newOptsEndMatcher*(): Matcher =
+  ## Returns a new end-of-options-marker `Matcher`. Always matches -- see
+  ## `docs/adr/0020-usage-string-end-of-options-marker.md`.
+  Matcher(kind: OptsEnd)
 
 proc newArgMatcher*(arg: Arg): Matcher =
   ## Creates a new `Matcher` for an argument `arg`.
@@ -353,6 +361,7 @@ proc collectArgs(s: State, args: var HashSet[Arg], visited = newTable[State, boo
       for opt in tr.matcher.opts:
         args.incl opt
     of Command: args.incl tr.matcher.cmd
+    of OptsEnd: discard
     of Shortcut: discard
     tr.next.collectArgs(args, visited)
 

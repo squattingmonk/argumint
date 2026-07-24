@@ -22,6 +22,7 @@ type
     tkLongOption = "long option (e.g., --option)"
     tkAnyOption = "[options] keyword"
     tkOptionValue = "option value (e.g., =<val>)"
+    tkOptsEnd = "end-of-options marker (e.g., --)"
 
   SpecToken* = object
     kind*: SpecTokenKind ## The kind of token
@@ -38,6 +39,8 @@ let
     (tkShortOptions, peg"{'-' [a-zA-Z0-9][a-zA-Z0-9]+}"),
     (tkShortOption, peg"{'-' [a-zA-Z0-9]}"),
     (tkLongOption, peg"{'--' \w (\w / ('-' \w))+}"),
+    (tkOptsEnd, peg"{'[' \s* '--' \s* ']'}"),
+    (tkOptsEnd, peg"{'--'} !(\w / '-')"),
     (tkArgument, peg"{'<' \w (\w / ('-' \w))* '>'}"),
     (tkArgument, peg"{[A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*} ![a-z]"),
     (tkCommand, peg"{(\w / '-')+}"),

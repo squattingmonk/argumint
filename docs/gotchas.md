@@ -212,6 +212,32 @@ inside a template.
   list, so no separate `import std/options` is needed at all. See
   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
 
+- **A `##` doc comment as the first statement inside a `{.pure.}` enum's
+  body broke expected-type-based disambiguation for a same-named value in
+  a *different* enum**, discovered adding `OptsEnd` to `MatcherKind`
+  (`docs/adr/0020-usage-string-end-of-options-marker.md`). `MatcherKind`
+  and `ArgKind` both declare a `Command` value; `CommandArg(kind: Command,
+  ...)` (`argumint.nim`) relies on the field's known type (`ArgKind`) to
+  pick the right one, since neither enum's values are otherwise in scope
+  unqualified (both are `{.pure.}`). Writing:
+  ```nim
+  MatcherKind* {.pure.} = enum
+    ## Declaration order doubles as match priority ...
+    Option, Options, Command, Argument, OptsEnd, Shortcut
+  ```
+  made that same call resolve to `MatcherKind.Command` instead, failing
+  with "type mismatch: got 'MatcherKind' for 'Command' but expected
+  'ArgKind = enum'" — a different value silently winning, not an
+  ambiguity error. Moving the identical prose to a plain `#` comment
+  *above* the `enum` line (outside its body) fixed it with no other
+  change. Root cause not fully diagnosed (plausibly the doc comment
+  changes how the enum's node is represented during `sem`, shifting
+  which candidate a same-named lookup with a known expected type prefers)
+  — treat any `##` comment as the first statement inside a `{.pure.}`
+  enum sharing a value name with another enum in scope as suspect, and
+  verify with a scratch compile rather than assuming comment placement
+  inside an enum body is inert.
+
 - **A generated method's unqualified calls resolve against whatever module
   *instantiates* the generic/template, not against `argumint.nim`'s own
   imports.** Under this project's module-level `{.experimental: "openSym".}`
@@ -233,3 +259,42 @@ inside a template.
   obviously import-related one) for that new symbol -- the fix is another
   narrow or wholesale `export` in `argumint.nim`, matching whichever pattern
   that ADR uses, not a per-caller workaround.
+
+- **This same `openSym` mechanism also bit a non-generated, ordinary
+  generic proc**: `command*[S]`'s body has always written the object
+  constructor field bare, `CommandArg(kind: Command, ...)` -- relying on
+  the field's known type (`ArgKind`) to disambiguate `Command` from
+  `MatcherKind`'s own same-named value (see the `##`-doc-comment entry
+  above; both enums are declared in `backend.nim`). This resolved fine as
+  long as `command*` was only ever instantiated from within
+  `argumint.nim` itself. Adding `OptsEnd` to `MatcherKind` (unrelated to
+  `Command` itself) was enough to make a *test file* instantiation --
+  `tests/test_argumint.nim`, which does `import argumint/backend`
+  directly, alongside `import argumint` -- resolve the same bare
+  `Command` to `MatcherKind.Command` instead, failing with the same "type
+  mismatch: got 'MatcherKind' for 'Command' but expected 'ArgKind =
+  enum'". Per the manual's [openSym
+  page](https://nim-lang.org/docs/manual_experimental.html#injected-symbols-in-generic-procs-and-templates),
+  this is exactly what `openSym` does: an unqualified symbol inside a
+  generic body is "open," re-resolved against *the instantiating scope*
+  each time, not "closed" to whatever it captured when `argumint.nim`
+  itself was sem-checked.
+  **`bind Command` at the top of the proc body, tried as a fix, did
+  *not* work** -- confirmed by scratch-reverting the real fix and
+  swapping it in: the error persisted verbatim. `bind` only forces a
+  symbol to close over whatever it resolves to via ordinary *lexical*
+  scope lookup at the point of the `bind` statement itself; it doesn't
+  carry forward the expected-type context (the `CommandArg.kind: ArgKind`
+  field type) that normally disambiguates two same-named enum values in
+  an object-constructor position. Since `Command` is ambiguous by *name*
+  alone at that point (no expected type attached to a bare `bind
+  Command` statement), `bind` just closes over whichever candidate
+  ordinary ambiguous-lookup rules hand it -- which is not guaranteed to
+  be the one an expected-type-directed lookup would have picked, and
+  here handed back the wrong enum. The actual fix is to remove the
+  ambiguity outright: qualify the constructor call itself, `kind:
+  ArgKind.Command`. `bind` is the right tool when the *symbol itself* is
+  unambiguous and the goal is only to stop it being re-resolved at
+  instantiation time (e.g. locking a helper proc name); it's the wrong
+  tool when the symbol is ambiguous *by name* regardless of timing, since
+  there's no unambiguous single thing to bind to without type context.

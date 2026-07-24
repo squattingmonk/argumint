@@ -37,6 +37,21 @@ suite "Option/value completion":
   test "an unrecognized already-typed word yields no candidates, never raises":
     check built.completeArgs(@["--unknown", ""], "prog") == newSeq[string]()
 
+suite "End-of-Options Marker is invisible to completion":
+  test "-- is never offered as a candidate, even right at the marker's own position":
+    let spec = (
+      verbose: flag("--verbose"),
+      files: args[string]("<file>"),
+    )
+    let built = newSpec(spec, usage = "[options] -- <file>...")
+    # Right after [options] is exhausted, live states include both the
+    # repeat-loop-back (more options) and the marker's own transition --
+    # neither `--verbose` completions nor `--` itself should ever include
+    # a bare "--" candidate, since typing it is never required (ADR 0020
+    # point 8).
+    check "--" notin built.completeArgs(@[""], "prog")
+    check "--" notin built.completeArgs(@["--verbose", ""], "prog")
+
 suite "Command completion and subcommand descent":
   let add = (
     files: args[string]("<file>"),
