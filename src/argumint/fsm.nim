@@ -41,15 +41,29 @@ type
   ParseContext = object
     depth: int            ## The depth of the current fsm path
     maxDepth: int         ## The depth of the deepest fsm path prior to the current one
-    spec: Spec            ## The spec for the parsed command (used to generate usage and help messages)
-    command: string       ## The command string up to the current subcommand
+    spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
+    command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
+    errorSpec: Spec       ## Spec for the deepest fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
+    errorCommand: string  ## See `errorSpec`
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
-    tokens: seq[CmdLineToken]     ## The arguments left to be parsed
+    tokens: seq[RawToken]     ## The arguments left to be parsed
+    optsEnd: bool          ## Whether this path has crossed a literal `--` -- see ADR 0019
     matches: MatchTable   ## A table of processed matches
     env: ValueCursor        ## Value Precedence's environment-variable tier -- see `ValueCursor`
     configValues: ValueCursor ## Value Precedence's Config Source tier -- see `ValueCursor`
 
-  CmdLineToken = object
+  RawToken = object
+    ## A raw command-line token, classified only as far as pure string shape
+    ## can tell without consulting a `Spec` -- see ADR 0019.
+    raw: string     ## The literal token as typed
+    optShape: bool  ## True if `raw` looks like `-o`/`--opt`/`-o=val`/
+      ## `--opt=val`, or a `-xyz`-shaped cluster candidate
+
+  Classification = object
+    ## What a `RawToken` actually is, resolved lazily against a `Spec` --
+    ## see `classify`, ADR 0019. `consumed`/`remainder` feed `consume`.
+    consumed: int
+    remainder: string
     case kind: ArgKind
     of Command:
       cmd: CommandArg
@@ -90,93 +104,85 @@ proc unknownOptionMsg(unknownVariant: string, spec: Spec): string =
         result.add fmt"; did you mean {knownVariant}?"
         break
 
-proc tokenizeArgs(spec: Spec, args: seq[string], command: string, start = 0): seq[CmdLineToken] =
-  ## Parses `args` into a series of `CmdLineToken`s that can be acted on by the
-  ## FSM navigator. In the case of an unrecognized command or option or a
-  ## non-flag option that is missing a value, a `ParseError` is thrown.
-  var
-    pos = start
-    optsEnd = false
+proc isOptShape(raw: string): bool =
+  ## Pure string-shape recognition needing no `Spec` -- see ADR 0019.
+  raw =~ OptionFormat or raw =~ OptionValueFormat or
+    (raw.len > 2 and raw[0] == '-' and raw[1] != '-')
 
-  while pos < args.len:
-    # `--` signals the end of options and commands; everything else will be
-    # treated as an argument.
-    if args[pos] == "--" and not optsEnd:
-      optsEnd = true
-    elif optsEnd:
-      result.add CmdLineToken(kind: Positional, argVal: args[pos])
-    # Check if it's a known command
-    elif args[pos] in spec.commands:
-      let
-        variant = args[pos]
-        cmd = spec.commands[variant]
-      result.add CmdLineToken(kind: Command, cmd: cmd, cmdName: variant)
-      for token in tokenizeArgs(cmd.spec, args, fmt"{command} {variant}", pos + 1):
-        result.add token
-      return
-    # Check for `-o` or `--option`
-    elif args[pos] =~ OptionFormat:
-      let variant = args[pos]
+proc tokenizeArgs(args: seq[string], start = 0): seq[RawToken] =
+  ## Splits `args[start..]` into `RawToken`s by shape only -- never touches
+  ## `Spec`, never raises -- see ADR 0019.
+  for i in start ..< args.len:
+    result.add RawToken(raw: args[i], optShape: args[i].isOptShape)
+
+proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Classification =
+  ## Decides what `tokens[pos]` is against `spec`'s tables -- the lazy half
+  ## of ADR 0019. Never raises: an unresolved option-shaped token falls
+  ## through to the `Positional` fallback at the bottom.
+  let token = tokens[pos]
+  if optsEnd:
+    return Classification(kind: Positional, argVal: token.raw, consumed: 1)
+  if token.raw in spec.commands:
+    return Classification(kind: Command, cmd: spec.commands[token.raw], cmdName: token.raw, consumed: 1)
+  if token.optShape:
+    # Bare `-o`/`--option`; an Optional's value comes from the next token.
+    if token.raw =~ OptionFormat:
+      let variant = token.raw
       if variant in spec.options:
         let option = spec.options[variant]
         case option.kind
         of Flag:
-          result.add CmdLineToken(kind: Flag, flag: option, flagName: variant)
+          return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1)
         of Optional:
-          pos.inc
-          if pos >= args.len:
-            raiseParseError(unknownOptionMsg(variant, spec), command, spec)
-          result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: args[pos])
-        else:
-          assert false
-      else:
-        raiseParseError(unknownOptionMsg(variant, spec), command, spec)
-    # Check for `-o=val` or `--option=value`
-    elif args[pos] =~ OptionValueFormat:
-      let
-        variant = matches[0]
-        sep = matches[1]
-        value = matches[2]
-      if variant notin spec.options:
-        raiseParseError(unknownOptionMsg(variant, spec), command, spec)
-      if spec.options[variant].kind != Optional:
-        raiseParseError(fmt"{variant} cannot take a value", command, spec)
-      result.add CmdLineToken(kind: Optional, opt: spec.options[variant], optName: variant, optVal: value, optSep: sep)
-    # A leading `-` followed by more than one character that isn't itself a
-    # long option is a cluster of short options (`-abc`), possibly folding a
-    # value onto the last one (`-abo=value`, `-abovalue`).
-    elif args[pos].len > 2 and args[pos][0] == '-' and args[pos][1] != '-':
-      let cluster = args[pos]
-      var idx = 1
-      while idx < cluster.len:
-        let variant = "-" & cluster[idx]
-        if variant notin spec.options:
-          raiseParseError(unknownOptionMsg(variant, spec), command, spec)
+          if pos + 1 < tokens.len:
+            return Classification(kind: Optional, opt: option, optName: variant, optVal: tokens[pos + 1].raw, consumed: 2)
+        else: discard
+    # `-o=val` / `--option=value`.
+    elif token.raw =~ OptionValueFormat:
+      let (variant, sep, value) = (matches[0], matches[1], matches[2])
+      if variant in spec.options and spec.options[variant].kind == Optional:
+        return Classification(kind: Optional, opt: spec.options[variant], optName: variant, optSep: sep, optVal: value, consumed: 1)
+    # A cluster of short options (`-abc`). Only the first letter resolves
+    # here -- a Flag leaves the rest as `remainder` for `consume` to
+    # reinsert; an Optional swallows the rest as its value. See ADR 0019
+    # point 2 on why this can't be decided eagerly.
+    elif token.raw.len > 2 and token.raw[0] == '-' and token.raw[1] != '-':
+      let variant = "-" & token.raw[1]
+      if variant in spec.options:
         let option = spec.options[variant]
+        let folded = token.raw.substr(2)
         case option.kind
         of Flag:
-          result.add CmdLineToken(kind: Flag, flag: option, flagName: variant)
-          idx.inc
+          return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1,
+            remainder: (if folded.len > 0: "-" & folded else: ""))
         of Optional:
-          let folded = cluster.substr(idx + 1)
           if folded.len == 0:
-            pos.inc
-            if pos >= args.len:
-              raiseParseError(fmt"missing value for {variant}", command, spec)
-            result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: args[pos])
+            if pos + 1 < tokens.len:
+              return Classification(kind: Optional, opt: option, optName: variant, optVal: tokens[pos + 1].raw, consumed: 2)
           elif fmt"{variant}{folded}" =~ OptionValueFormat:
-            result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optSep: matches[1], optVal: matches[2])
+            return Classification(kind: Optional, opt: option, optName: variant, optSep: matches[1], optVal: matches[2], consumed: 1)
           else:
-            result.add CmdLineToken(kind: Optional, opt: option, optName: variant, optVal: folded)
-          break
-        else: assert false
-    # It must be a positional argument
-    else:
-      if spec.arguments.len == 0:
-        raiseParseError(fmt"unexpected argument {args[pos]}", command, spec)
-      result.add CmdLineToken(kind: Positional, argVal: args[pos])
+            return Classification(kind: Optional, opt: option, optName: variant, optVal: folded, consumed: 1)
+        else: discard
+  Classification(kind: Positional, argVal: token.raw, consumed: 1)
 
-    pos.inc
+proc consume(pc: var ParseContext, pos: int, c: Classification) =
+  ## Removes/reinserts the raw token(s) an accepted `Classification`
+  ## accounts for at `pos` -- see `classify`'s cluster branch, ADR 0019.
+  pc.tokens.delete pos
+  if c.consumed == 2:
+    pc.tokens.delete pos # the value that was tokens[pos + 1]
+  elif c.remainder.len > 0:
+    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape), pos)
+
+proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
+  ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
+  ## past the end of options -- see ADR 0019. Returns whether it did so,
+  ## so callers can re-examine `pos` without incrementing.
+  if not pc.optsEnd and pc.tokens[pos].raw == "--":
+    pc.tokens.delete pos
+    pc.optsEnd = true
+    result = true
 
 proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "") =
   ## Adds a matched arg's seen variant and value to the table of matches,
@@ -233,63 +239,62 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     # A shortcut consumes no tokens and always indicates success.
     result = true
   of Argument:
-    # Skip non-Positional tokens so option/argument order doesn't matter;
-    # a Command token ends the search (nothing follows a command, ADR 0010).
+    # Skip Option/Flag-classified tokens (order-independent -- see ADR
+    # 0019). A Command-classified token is accepted as literal text just
+    # like a Positional one -- the scan must not skip past it looking
+    # further ahead, see ADR 0019 point 6 on why that breaks ordering.
     var pos = 0
     while pos < pc.tokens.len:
-      let token = pc.tokens[pos]
-      case token.kind
-      of Positional:
-        pc.matches.push(m.arg, pc.spec, m.arg.name, token.argVal)
-        pc.tokens.delete pos
+      if pc.consumeOptsEnd(pos):
+        continue
+      let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
+      case c.kind
+      of Positional, Command:
+        pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw)
+        pc.consume(pos, c)
         result = true
         break
-      of Command:
-        break
       else:
-        discard
-      pos.inc
+        pos.inc
     if not result and pc.matches.getOrDefault(m.arg).len == 0:
       # Only report a genuinely-unmatched arg -- if this arg already matched
       # at least once (a satisfied `<arg>...` repeat), a failed attempt at
       # *another* repeat isn't a real deficiency worth reporting.
       pc.messages.add ("missing argument", m.arg.name)
   of Command:
-    # If the next token is a matching command token, consume it and return true.
-    # Otherwise return false.
-    if pc.tokens.len > 0:
-      let token = pc.tokens[0]
-      case token.kind
-      of Command:
-        if token.cmd == m.cmd:
-          pc.matches.push(m.cmd, pc.spec, token.cmdName)
-          pc.command = fmt"{pc.command} {token.cmdName}"
-          pc.spec = m.cmd.spec
-          pc.tokens.delete 0
-          result = true
-      else:
-        discard
+    # If the next token classifies as this specific command, consume it and
+    # return true. Otherwise return false -- a Command matcher never scans
+    # past position 0 (see `docs/architecture.md`).
+    if pc.tokens.len > 0 and not pc.consumeOptsEnd(0):
+      let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
+      if c.kind == Command and c.cmd == m.cmd:
+        pc.matches.push(m.cmd, pc.spec, c.cmdName)
+        pc.command = fmt"{pc.command} {c.cmdName}"
+        pc.spec = m.cmd.spec
+        pc.consume(0, c)
+        result = true
     if not result:
       pc.messages.add ("missing command", m.cmd.name)
   of Option:
-    # Skip non-matching tokens so option/arg order doesn't matter; a
-    # Command token ends the search unmatched (ADR 0010).
+    # Skip tokens that don't classify as *this* opt so option/arg order
+    # doesn't matter -- see the Argument branch above on why a
+    # Command-classified token doesn't need special-casing here either.
     var pos = 0
     while pos < pc.tokens.len:
-      let token = pc.tokens[pos]
-      case token.kind
+      if pc.consumeOptsEnd(pos):
+        continue
+      let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
+      case c.kind
       of Optional:
-        if token.opt == m.opt:
-          pc.matches.push(token.opt, pc.spec, token.optName, token.optVal)
-          pc.tokens.delete pos
+        if c.opt == m.opt:
+          pc.matches.push(c.opt, pc.spec, c.optName, c.optVal)
+          pc.consume(pos, c)
           return true
       of Flag:
-        if token.flag == m.opt:
-          pc.matches.push(token.flag, pc.spec, token.flagName)
-          pc.tokens.delete pos
+        if c.flag == m.opt:
+          pc.matches.push(c.flag, pc.spec, c.flagName)
+          pc.consume(pos, c)
           return true
-      of Command:
-        break
       else:
         discard
       pos.inc
@@ -307,6 +312,11 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       return true
 
     pc.messages.add ("missing option", m.opt.name)
+    # Did-you-mean suggestion for an unresolved option-shaped leftover --
+    # see ADR 0019 point 4 on why this lives here, not in tokenization.
+    if pc.tokens.len > 0 and pc.tokens[0].optShape and
+        classify(pc.spec, pc.tokens, 0, pc.optsEnd).kind == Positional:
+      pc.messages.add ("unexpected option", unknownOptionMsg(pc.tokens[0].raw, pc.spec))
   of Options:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
     for opt in m.opts:
@@ -336,22 +346,27 @@ proc walk(s: State, pc: var ParseContext): bool =
         pc = fresh
         return true
       elif tr.next.terminal and fresh.tokens.len > 0 and pc.messages.len == 0:
-        let token = fresh.tokens[0]
-        case token.kind
+        # Word the complaint from classify()'s best-effort answer now that
+        # nothing claimed this token -- see ADR 0019.
+        let c = classify(fresh.spec, fresh.tokens, 0, fresh.optsEnd)
+        case c.kind
         of Command:
-          fresh.messages.add ("unexpected command", token.cmdName)
-        of Positional:
-          fresh.messages.add ("unexpected argument", token.argVal)
-        of Optional:
-          fresh.messages.add ("unexpected option", fmt"{token.optName}{token.optSep}{token.optVal}")
+          fresh.messages.add ("unexpected command", c.cmdName)
         of Flag:
-          fresh.messages.add ("unexpected flag", token.flagName)
+          fresh.messages.add ("unexpected flag", c.flagName)
+        of Optional:
+          fresh.messages.add ("unexpected option", fmt"{c.optName}{c.optSep}{c.optVal}")
+        of Positional:
+          if fresh.tokens[0].optShape:
+            fresh.messages.add ("unexpected option", unknownOptionMsg(fresh.tokens[0].raw, fresh.spec))
+          else:
+            fresh.messages.add ("unexpected argument", c.argVal)
 
     if fresh.depth >= pc.maxDepth or pc.messages.len == 0:
       pc.maxDepth = fresh.depth
-      pc.spec = fresh.spec
+      pc.errorSpec = fresh.spec
       pc.messages = fresh.messages
-      pc.command = fresh.command
+      pc.errorCommand = fresh.command
 
 type
   Frontier = seq[tuple[state: State, pc: ParseContext]]
@@ -388,7 +403,7 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
 proc bareVariants(spec: Spec, arg: Arg): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
   ## `arg` (e.g. "--log-level", never "--log-level=<level>"). Reads
-  ## `spec.options`, the same canonical bare-name -> Arg map `tokenizeArgs`
+  ## `spec.options`, the same canonical bare-name -> Arg map `classify`
   ## itself looks up against, rather than re-deriving stripping logic from
   ## `arg.variants` -- for an Optional-kind `ValueArg` (`opt`/`args`),
   ## `variants` stores the *declared* string verbatim, including any
@@ -445,9 +460,9 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
   ## `words` is the word currently being completed (possibly `""` if the
   ## cursor follows a space with nothing typed for this word yet); every
   ## earlier element is already complete. Never raises -- an unparseable
-  ## prefix simply yields no candidates, leaving the shell's own
-  ## file-completion fallback to take over. See
-  ## `docs/adr/0012-fsm-driven-shell-completion.md`.
+  ## prefix simply yields no candidates (`collectFrontier` just finds no
+  ## live transitions for it), leaving the shell's own file-completion
+  ## fallback to take over. See `docs/adr/0012-fsm-driven-shell-completion.md`.
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
@@ -457,12 +472,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
     let committed = priorWords[0 ..< priorWords.high]
     var frontier: Frontier
     var seen: HashSet[State]
-    try:
-      var pc = ParseContext(spec: spec, command: command,
-        tokens: spec.tokenizeArgs(committed, command))
-      collectFrontier(spec.fsm, pc, frontier, seen)
-    except ParseError:
-      return @[]
+    var pc = ParseContext(spec: spec, command: command, tokens: tokenizeArgs(committed))
+    collectFrontier(spec.fsm, pc, frontier, seen)
     let pending = frontier.pendingOptionalArgs(priorWords[^1])
     if pending.len > 0:
       for arg in pending:
@@ -474,12 +485,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
   # Case (a): ordinary "what word can come next" completion.
   var frontier: Frontier
   var seen: HashSet[State]
-  try:
-    var pc = ParseContext(spec: spec, command: command,
-      tokens: spec.tokenizeArgs(priorWords, command))
-    collectFrontier(spec.fsm, pc, frontier, seen)
-  except ParseError:
-    return @[]
+  var pc = ParseContext(spec: spec, command: command, tokens: tokenizeArgs(priorWords))
+  collectFrontier(spec.fsm, pc, frontier, seen)
   result = frontier.candidateWords(wordBeingCompleted)
 
 proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
@@ -516,10 +523,10 @@ proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
 proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, variant: string] =
   ## The Command actually matched at this spec's own level for this
   ## invocation, if any -- `cmd` is nil if this spec is the dynamic leaf.
-  ## At most one Command can ever be matched per spec level: `tokenizeArgs`
-  ## hands off every remaining token to a matched command's own nested
-  ## spec permanently, so a sibling command word can never be recognized
-  ## afterward.
+  ## At most one Command can ever be matched per spec level: `match`'s own
+  ## `Command` branch permanently reassigns `pc.spec` to the matched
+  ## command's own nested spec, so a sibling command word can never be
+  ## recognized afterward.
   for arg in spec.args:
     if arg.kind != Command:
       continue
@@ -645,9 +652,10 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if args.len > 0 and args[0] == "__complete":
     raise newException(CompletionError, spec.completeArgs(args[1 ..< args.len], command).join("\n"))
 
-  var pc = ParseContext(spec: spec, command: command, tokens: spec.tokenizeArgs(args, command))
+  var pc = ParseContext(spec: spec, command: command, errorSpec: spec, errorCommand: command,
+    tokens: tokenizeArgs(args))
   if not spec.fsm.walk(pc):
-    raiseParseError(formatComplaints(pc.messages), pc.command, pc.spec)
+    raiseParseError(formatComplaints(pc.messages), pc.errorCommand, pc.errorSpec)
 
   var fallbackComplaints: seq[Complaint]
   var fallbackSeen: HashSet[Arg]

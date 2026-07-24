@@ -83,17 +83,27 @@ against `pc.spec` (the Spec currently in scope for this specific walk
 attempt, already updated by a matched `Command` transition) rather than
 trusting a precomputed global answer:
 
-- **Command** checks the raw string against `pc.spec.commands` directly.
+- **Command** checks the raw string against `pc.spec.commands` directly —
+  only at the very next position, never scanning further (a Command
+  matcher never looks past position 0).
 - **Option**/**Options** resolves cluster-splitting/attached-`=value`
-  syntax against `pc.spec.options`; if the shape doesn't resolve to any
+  syntax against `pc.spec.options`, scanning forward past tokens that
+  don't classify as *this specific* Arg; if a shape doesn't resolve to any
   declared option at all, the matcher simply doesn't match — no
   exception — leaving the token for a different matcher to try.
-- **Argument** accepts the first available raw token outright, no shape
-  check at all. This is safe because `State.prepare`'s priority sort
-  (`Option < Options < Command < Argument`, see §2) already tries
-  Option/Command transitions at the same grammar position first —
-  Argument only gets a turn once those have already failed to claim the
-  token.
+- **Argument** scans forward past tokens that classify as a real
+  Option/Flag (`State.prepare`'s priority sort, `Option < Options <
+  Command < Argument`, see §2, already gave a real competing sibling
+  transition first crack at the same token), accepting the first token
+  that classifies as either plain positional text *or* a Command — a real
+  Command matcher only ever looks at position 0, so nothing further down
+  the scan could have legitimately claimed a Command-shaped token either,
+  and skipping ahead in search of a later Positional would consume a
+  repeating `<file>...`-style self-loop's values out of the order they
+  were typed in. `classify`'s `Positional` and `Command` results carry the
+  same `consumed`/`remainder` shape for the same raw token, so there's
+  nothing left to distinguish once the scan has decided to stop — both
+  are handled by one `of Positional, Command:` arm.
 
 This is why a word that happens to be a declared Command name can still be
 used as a plain positional value in a *different* Usage Line, why a
@@ -107,8 +117,18 @@ the same backtracking machinery that already exists for everything else.
 this safe without a separate cache: a failed branch attempt's guesses are
 simply discarded along with the rest of its `fresh` copy, and a different
 attempt that revisits the same raw position starts from its own
-independent copy and reclassifies independently. See
-`docs/adr/0019-lazy-token-classification.md`.
+independent copy and reclassifies independently.
+
+One place still needed decoupling despite that: `walk`'s merge step, which
+records the deepest failed branch's spec/command for the final error
+message, used to write into the *same* `ParseContext.spec`/`.command`
+fields a later sibling transition's own `fresh` copy starts from — harmless
+before this change (a failed Command descent could never be followed by a
+sibling Argument attempt reusing the same leftover token), but reachable
+now. `ParseContext` has dedicated `errorSpec`/`errorCommand` fields for
+this, written only by the merge step and read only when formatting the
+final failure message, so `.spec`/`.command` stay reserved for live walk
+state. See `docs/adr/0019-lazy-token-classification.md`.
 
 A literal `--` is recognized in the same eager shape pass and, the first
 time the walk encounters it on a given path, sets `pc.optsEnd = true`

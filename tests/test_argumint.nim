@@ -673,11 +673,14 @@ suite "Empty specs":
 
 suite "Errors":
   test "raise ParseError for unrecognized options":
+    # ADR 0019: an option-shaped token undeclared anywhere in the spec is
+    # only rejected when nothing else could take it -- this spec has no
+    # positional arg at all, so "--nope" has nowhere left to fall through to.
     let spec = (
-      name: arg("<name>", help = ""),
+      verbose: flag("--verbose", help = ""),
     )
     expect ParseError:
-      spec.parse(usage = "<name>", args = @["--nope"], command = "prog")
+      spec.parse(args = @["--nope"], command = "prog")
 
   test "unrecognized long options off by 1 character can trigger a suggestion":
     let spec = (
@@ -766,7 +769,7 @@ suite "parse(tuple)":
   test "raises ParseError on bad CLI input instead of quitting":
     let spec = (name: arg("<name>", help = ""))
     expect ParseError:
-      spec.parse(usage = "<name>", args = @["--nope"], command = "prog")
+      spec.parse(usage = "<name>", args = @[], command = "prog")
 
   test "raises SpecDefect on a malformed spec instead of quitting":
     expect SpecDefect:

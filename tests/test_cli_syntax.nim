@@ -159,6 +159,14 @@ suite "A Command name doesn't shadow a positional value in another alternative":
     spec.parse(usage = "ship\n<file>", args = @["ship"], command = "prog")
     check spec.file == "ship"
 
+  test "when a bare command name falls back to a positional value, seen values' order is maintained":
+    let spec = (
+      ship: command("ship", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+      file: args("<file>", default = "", help = ""),
+    )
+    spec.parse(usage = "ship\n<file>...", args = @["foo", "ship", "bar"], command = "prog")
+    check spec.file == @["foo", "ship", "bar"]
+
 suite "An option-shaped token unrecognized by one alternative can still match a permissive alternative":
   test "a strict alternative's unrecognized option falls through to a catch-all positional alternative":
     # ADR 0019: "-x" isn't declared anywhere, but the "--verbose"

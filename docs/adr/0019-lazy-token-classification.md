@@ -81,12 +81,61 @@ transition attempt), while keeping *pure string-shape* recognition eager.
    against `pc.spec.options`/`pc.spec.commands`, or not) — an unresolved
    option-shaped token surfaces here, at the same point every other kind
    of match failure already goes through, instead of raising a special
-   early exception from inside classification.
+   early exception from inside classification. The did-you-mean
+   suggestion `tokenizeArgs` used to attach when raising now lives beside
+   `match`'s own pre-existing "missing option" complaint in the `Option`
+   branch, since that's the only point that still runs for a spec with no
+   Argument/`[options]` catch-all fallback to defer to (a plain choice of
+   individually-named options, e.g. `(-h | --help)`, never reaches
+   `walk`'s "leftover token" complaint at all — the `Option` matcher
+   itself just fails outright for each alternative).
 5. **The leading-space escape hatch for negative numbers is kept**, not
    removed — it becomes unnecessary for the plain case this fixes, but
    stays available to force a literal interpretation at a position where
    a real Option genuinely does compete with an Argument for the same
    token.
+6. **A Command-classified token is accepted by `Argument` as literal text,
+   the same as a Positional one, rather than hard-stopping the scan** —
+   another correction found during implementation, not anticipated by the
+   original design. The pre-existing `Argument`/`Option` matchers'
+   "skip past irrelevant tokens" scans used to `break` outright on a
+   Command-kind token (a leftover invariant from the days when
+   `tokenizeArgs` had already committed that token to Command,
+   permanently, for the whole parse — the `break` was load-bearing then
+   because *nothing* could later reinterpret it). Under lazy
+   classification that assumption no longer holds: whether a
+   Command-shaped word "belongs" to some other transition is exactly the
+   fact gap 1 says can't be known in advance, and since a real Command
+   matcher only ever looks at position 0 (ADR 0010), a Command-shaped
+   token can never be legitimately claimed by a transition further down
+   the scan either — there's nothing to defer to by stopping. The scan
+   still must not skip *past* a Command-classified token in search of a
+   later Positional, though: doing so would consume a repeating
+   `<file>...`-style self-loop's values out of the order they were typed
+   in (`["ship", "bar"]` would yield `bar` before `ship`). So the scan
+   stops the instant it sees one (only Optional/Flag-classified tokens are
+   skipped past, same as before) and accepts it as literal text right
+   there — the `argVal`/`consumed`/`remainder` shape `consume` reads is
+   identical between a `Positional` and a `Command` classification of the
+   same raw token, and the scan can only ever reach one or the other,
+   never both, in a single call, so there's no remaining behavioral
+   difference to keep them as separate cases for. `match`'s `Argument`
+   branch handles `of Positional, Command:` as one arm.
+7. **Error-context bookkeeping had to be decoupled from live matching
+   state** — `walk`'s pre-existing merge step, which records the deepest
+   failed branch's `spec`/`command` for the final error message, used to
+   write directly into the same `ParseContext.spec`/`.command` fields the
+   *next* sibling transition attempt starts its own fresh copy from. This
+   was harmless before (gap 1 made "a failed Command descent, followed by
+   a sibling Argument attempt on the same leftover token" unreachable),
+   but fixing gap 1 makes it reachable — and without decoupling, the
+   sibling attempt would silently classify against the wrong (too-deep)
+   spec and, worse, tag its match with the wrong spec in `MatchTable`, so
+   the value it set would never be picked up. `ParseContext` gained
+   dedicated `errorSpec`/`errorCommand` fields, written only by this merge
+   step and read only when formatting the final failure message; `.spec`/
+   `.command` now stay reserved for live walk state, untouched by a
+   sibling's failure.
 
 ## Out of scope
 
