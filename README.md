@@ -98,6 +98,8 @@ examples/<name>.nim`:
   debugging a usage string's compiled grammar.
 - `config_bootstrap.nim` — bootstrapping a Config Source from a
   `--config=<file>` option via a `before` hook.
+- `flagfile_bootstrap.nim` — GNU-style `@file` flagfile expansion as a plain
+  pre-parse `seq[string]` transform, no library support needed.
 
 ## Learning more
 
