@@ -103,6 +103,8 @@ examples/<name>.nim`:
 
 ## Learning more
 
+- [API docs](https://squattingmonk.github.io/argumint/) — generated with `nim
+  doc` (`nimble docs` builds them locally into `htmldocs/`).
 - [`CONTEXT.md`](CONTEXT.md) — the domain vocabulary (Spec, Arg, Variant,
   Validator, Value Precedence, etc.) used throughout the docs and code.
 - [`docs/architecture.md`](docs/architecture.md) — how spec construction, FSM
