@@ -265,13 +265,13 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
   ## version if you want to write your own converter to parse a string into a
   ## `T`.
-  method parse*(self: ValueArg[T, false], value: string, variant = "") =
+  method parse(self: ValueArg[T, false], value: string, variant = "") =
     self.parseImpl(value, variant)
 
-  method parse*(self: ValueArg[T, true], value: string, variant = "") =
+  method parse(self: ValueArg[T, true], value: string, variant = "") =
     self.parseImpl(value, variant)
 
-  method defaultStr*(self: ValueArg[T, false]): string =
+  method defaultStr(self: ValueArg[T, false]): string =
     ## Returns `self`'s default value stringified, or "" if it's still `T`'s
     ## zero value (e.g. "", 0, or false) -- the fallback used when no
     ## default was given (see `arg*`). Requires `T` to support `default(T)`
@@ -282,53 +282,53 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
     else:
       ""
 
-  method defaultStr*(self: ValueArg[T, true]): string =
+  method defaultStr(self: ValueArg[T, true]): string =
     ## Returns `self`'s default values comma-joined, or "" if there are none.
     if self.default.len > 0:
       self.default.mapIt($it).join(", ")
     else:
       ""
 
-  method validatorHelp*(self: ValueArg[T, false]): string =
+  method validatorHelp(self: ValueArg[T, false]): string =
     if self.validator.isNil: "" else: self.validator.help()
 
-  method validatorHelp*(self: ValueArg[T, true]): string =
+  method validatorHelp(self: ValueArg[T, true]): string =
     if self.validator.isNil: "" else: self.validator.help()
 
-  method completions*(self: ValueArg[T, false]): seq[string] =
+  method completions(self: ValueArg[T, false]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
 
-  method completions*(self: ValueArg[T, true]): seq[string] =
+  method completions(self: ValueArg[T, true]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
 
-  method envName*(self: ValueArg[T, false]): string =
+  method envName(self: ValueArg[T, false]): string =
     if self.env.isSome: self.env.get.name else: ""
 
-  method envName*(self: ValueArg[T, true]): string =
+  method envName(self: ValueArg[T, true]): string =
     if self.env.isSome: self.env.get.name else: ""
 
-  method envDelim*(self: ValueArg[T, false]): Option[string] =
+  method envDelim(self: ValueArg[T, false]): Option[string] =
     if self.env.isSome: self.env.get.delim else: none(string)
 
-  method envDelim*(self: ValueArg[T, true]): Option[string] =
+  method envDelim(self: ValueArg[T, true]): Option[string] =
     if self.env.isSome: self.env.get.delim else: none(string)
 
-  method setFromEnv*(self: ValueArg[T, false], values: seq[string]) =
+  method setFromEnv(self: ValueArg[T, false], values: seq[string]) =
     # multi=false's overwrite-on-each-call already gives last-value-wins.
     for value in values:
       self.parseImpl(value, self.envName)
 
-  method setFromEnv*(self: ValueArg[T, true], values: seq[string]) =
+  method setFromEnv(self: ValueArg[T, true], values: seq[string]) =
     # `multi = true`'s append-on-each-call behavior already gives the
     # usual multi-value Match Accumulation rule for free.
     for value in values:
       self.parseImpl(value, self.envName)
 
-  method configKey*(self: ValueArg[T, false]): ConfigKey = self.cfgKey
+  method configKey(self: ValueArg[T, false]): ConfigKey = self.cfgKey
 
-  method configKey*(self: ValueArg[T, true]): ConfigKey = self.cfgKey
+  method configKey(self: ValueArg[T, true]): ConfigKey = self.cfgKey
 
-  method setFromConfig*(self: ValueArg[T, false], values: seq[string]) =
+  method setFromConfig(self: ValueArg[T, false], values: seq[string]) =
     # multi=false's overwrite-on-each-call already gives last-value-wins.
     # `$self.cfgKey` (bare `$`, not `strutils.join`) as the error-context
     # string -- see docs/adr/0018-config-source.md for why this avoids a
@@ -336,7 +336,7 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
     for value in values:
       self.parseImpl(value, $self.cfgKey)
 
-  method setFromConfig*(self: ValueArg[T, true], values: seq[string]) =
+  method setFromConfig(self: ValueArg[T, true], values: seq[string]) =
     # `multi = true`'s append-on-each-call behavior already gives the
     # usual multi-value Match Accumulation rule for free.
     for value in values:
@@ -354,7 +354,7 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
   proc handleFlag(value {.inject.}: var T, op {.inject.}: string, arg {.inject.}: T) =
     flagHandler
 
-  method parse*(self: FlagArg[T], _: string, variant = "") =
+  method parse(self: FlagArg[T], _: string, variant = "") =
     let name = self.name(variant)
     if not self.ops.hasKey(name):
       raise newException(SpecDefect, "$# is not a known variant for the flag $#" % [name, self.name])
@@ -363,10 +363,10 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
 
-  method validatorHelp*(self: FlagArg[T]): string =
+  method validatorHelp(self: FlagArg[T]): string =
     if self.clamp.isNil: "" else: self.clamp.help()
 
-  method variantDesc*(self: FlagArg[T], variant: string): string =
+  method variantDesc(self: FlagArg[T], variant: string): string =
     if not self.ops.hasKey(variant): return ""
     let (vOp, vArg, vDesc) = self.ops[variant]
     if vDesc.len > 0: return vDesc
@@ -376,13 +376,13 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     of "-=": "Decrease by " & $vArg
     else: blankDesc
 
-  method envName*(self: FlagArg[T]): string =
+  method envName(self: FlagArg[T]): string =
     if self.env.isSome: self.env.get.name else: ""
 
-  method envDelim*(self: FlagArg[T]): Option[string] =
+  method envDelim(self: FlagArg[T]): Option[string] =
     if self.env.isSome: self.env.get.delim else: none(string)
 
-  method setFromEnv*(self: FlagArg[T], values: seq[string]) =
+  method setFromEnv(self: FlagArg[T], values: seq[string]) =
     # Each value names a declared Variant and is applied via that Variant's
     # own Flag Operation -- see ADR 0005. Looked up against self.ops
     # directly (not self.name) so an empty value raises ParseError instead
@@ -397,9 +397,9 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
       if not self.clamp.isNil:
         self.value = self.clamp.apply(self.value)
 
-  method configKey*(self: FlagArg[T]): ConfigKey = self.cfgKey
+  method configKey(self: FlagArg[T]): ConfigKey = self.cfgKey
 
-  method setFromConfig*(self: FlagArg[T], values: seq[string]) =
+  method setFromConfig(self: FlagArg[T], values: seq[string]) =
     # Identical body to setFromEnv* above -- see docs/adr/0018-config-source.md.
     for variantName in values:
       if not self.ops.hasKey(variantName):
