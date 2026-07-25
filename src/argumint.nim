@@ -1,3 +1,19 @@
+## `argumint`'s public API: declare a spec as a tuple of `arg`/`args`/`opt`/
+## `opts`/`flag`/`command`/`help`/`message`/`version` values, then build and
+## parse it with `newSpec`/`parse*`/`parseOrQuit*`. A usage string (given
+## explicitly or auto-filled from the declared args -- see `autoFillUsage`)
+## is compiled into an FSM (`argumint/backend`, `argumint/lexer`,
+## `argumint/parser`) that drives actual matching (`argumint/fsm`) --
+## docopt-style patterns like `[-r] <src>... <dest>` or mutually exclusive
+## options fall out of that FSM's grammar rather than hand-written
+## validation code.
+##
+## See the README for a quickstart and `examples/naval_fate.nim` for a full
+## worked example with subcommands. `CONTEXT.md` defines this library's
+## vocabulary (Spec, Arg, Variant, Validator, Value Precedence, ...) and
+## `docs/architecture.md` traces the spec-construction -> FSM-compilation ->
+## runtime-matching -> value-conversion pipeline file by file.
+
 {.experimental: "openSym".}
 
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]

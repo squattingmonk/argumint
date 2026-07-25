@@ -1,3 +1,13 @@
+## `Validator[T]` combinators for `arg*`/`args*`/`opt*`/`opts*`'s
+## `validator` param: `choice`/`range`/`check`/`checkIt`/`unique` build leaf
+## validators, `checkSeen`/`checkSeenIt` see prior matches for the same Arg
+## (see `docs/adr/0007-history-aware-validators.md`), and `all`/`any`
+## compose them (see
+## `docs/adr/0006-composable-validators-all-and-any.md`). A validator never
+## runs against a coded default, only a value actually supplied by the
+## user/env/config -- see
+## `docs/adr/0008-validators-dont-run-against-defaults.md`.
+
 import std/[sequtils, strformat, strutils, sugar]
 
 import ./lexer
@@ -31,7 +41,7 @@ type
 proc choice*[T](choices: openArray[T], desc = ""): Validator[T] =
   ## Returns a `Validator` that checks if a value is in `choices`. `desc`,
   ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. "choices: foo, bar, baz" / "got X but expected one of [...]").
+  ## (e.g. "choices: foo, bar, baz" / "got X but expected one of foo, bar").
   Validator[T](kind: vkChoice, choices: @choices, desc: desc)
 
 proc range*[T](range: Slice[T], desc = ""): Validator[T] =

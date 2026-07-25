@@ -1,3 +1,12 @@
+## The FSM's data model (`Spec`, `Arg` and its subtypes, `State`,
+## `Transition`, `Matcher`) shared by `argumint/lexer`, `argumint/parser`,
+## and `argumint/fsm`, plus the `{.base.}` methods (`parse*`, `envName*`,
+## `configKey*`, ...) a custom `Arg` subtype must override to plug into
+## parsing, env fallback, and Config Source lookup -- see
+## `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`. `ValueArg`/
+## `FlagArg` (`argumint.nim`) are the built-in implementations of that
+## interface.
+
 import std/[algorithm, hashes, pegs, sequtils, sets, strformat, strutils, sugar, tables, wordwrap]
 
 # `Option` (the type) deliberately left unqualified-unimported --
@@ -108,9 +117,9 @@ type
     else:
       discard
 
-const DefaultWidth* = 80
-const DefaultMaxVariantsWidth* = 30
-const DefaultEnvDelim* = ":"
+const DefaultWidth* = 80 ## `newSpecSettings`'s default `width` when no terminal width can be auto-detected (e.g. piped output with `COLUMNS` unset)
+const DefaultMaxVariantsWidth* = 30 ## `newSpecSettings`'s default `maxVariantsWidth`
+const DefaultEnvDelim* = ":" ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention
 const EnvListSep* = "\x1e" ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
 
 proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDelim: string): seq[string] =
@@ -152,9 +161,13 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
   result = lines.join("\n")
 
 proc raiseParseError*(msg: string) =
+  ## Raises `ParseError` with `msg` verbatim, no usage block appended -- use
+  ## the `(msg, command, spec)` overload when a usage block should follow.
   raise newException(ParseError, msg)
 
 proc raiseParseError*(msg: string, command: string, spec: Spec) =
+  ## Raises `ParseError` with `msg` followed by `spec.usage` formatted via
+  ## `formatUsage` -- the shape most parse-time failures use.
   raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt)
 
 proc name*(self: Arg, variant = ""): string =
@@ -166,9 +179,18 @@ proc hash*(self: Arg): Hash =
   hash(self.name)
 
 method parse*(self: Arg, value: string, variant = "") {.base.} =
+  ## Converts/validates/stores a matched `value` (raw command-line/env/config
+  ## string) onto `self`, or otherwise fires `self`'s side effect for the
+  ## variant that matched -- `ValueArg`/`FlagArg`/`MessageArg` (`argumint.nim`)
+  ## all override this. Base case is unreachable for every built-in Arg
+  ## subtype except `HelpArg`, which instead overrides the `(command, spec)`
+  ## overload below since it needs the enclosing spec to render help text.
   raise newException(Defect, fmt"parse() is not defined for {self.name(variant)}")
 
 method parse*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
+  ## Like the single-`value` overload above, but for an Arg (only `HelpArg`,
+  ## in practice) whose side effect needs the enclosing `spec`/`command` --
+  ## e.g. to render a full help message -- rather than a matched value.
   raise newException(Defect, fmt"parse() is not defined for {self.name(variant)}")
 
 method defaultStr*(self: Arg): string {.base.} =

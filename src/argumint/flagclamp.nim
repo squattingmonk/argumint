@@ -1,3 +1,8 @@
+## `FlagClamp[T]` for `flag*`'s `clamp` param: `clamp` pins a value to a
+## `Slice[T]` and `adjust` runs an arbitrary proc, both applied silently
+## (never raising, unlike a `Validator`) after every Flag Operation. See
+## `docs/adr/0016-flag-clamp.md`.
+
 import std/math
 
 type
