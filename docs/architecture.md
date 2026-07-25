@@ -480,10 +480,14 @@ would re-lex/re-parse every line, including ones already built moments
 earlier), the newly-appended lines are spliced directly onto the existing
 `spec.fsm` root via the same `parser.addUsageLines` `genFsm` itself uses,
 then `spec.fsm.prepare()` runs once more over the combined graph.
-`addUsageLines` itself recomputes the root's `terminal` flag after splicing
-(true only if the root still has no transitions at all), so neither caller
-needs to know that a spec which started with a fully empty `usage` string
-left that flag `true` and now needs it cleared. This runs regardless of
+`addUsageLines` itself recomputes the root's `terminal` flag after
+splicing, so neither caller needs to know that a spec which started with a
+fully empty `usage` string left that flag `true` and now needs it cleared
+-- but also so that a root whose *existing, already-simplified* usage line
+was itself fully skippable (e.g. `[-- <arg>...]`) keeps that earned
+`terminal = true` instead of losing it just because a new line got spliced
+on top (see `docs/gotchas.md`'s "terminal flag" entry, issue #6). This runs
+regardless of
 whether `usage` was left blank or passed in explicitly, and the fill-in rule
 differs by category:
 

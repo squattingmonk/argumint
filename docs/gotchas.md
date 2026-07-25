@@ -153,23 +153,46 @@ inside a template.
   correct and even visibly mutated the (wrong, orphaned) object when traced.
 
 - **A `State`'s `terminal` flag, once set, doesn't un-set itself when more
-  transitions are spliced onto it later.** `genFsm` (`parser.nim`) builds a
-  spec's root by calling `addUsageLines`, which marks the root `terminal =
-  true` only when it ends up with no transitions at all (an empty `usage`
-  string -- nothing to match). `autoFillUsage` (`argumint.nim`) can later
-  discover unreachable args/commands/options for that same spec and call
-  `addUsageLines` again on that *same* root object to splice on real
-  transitions (rather than re-parsing already-built lines from scratch) --
-  if the stale `terminal = true` from the first call weren't cleared, the
-  FSM would wrongly accept "no more input" at a root that now requires real
-  args. Fixed by having `addUsageLines` itself unconditionally recompute
-  `root.terminal = root.transitions.len == 0` as its last step, rather than
-  leaving each caller to remember this invariant on its own. Caught by a
-  test that actually calls `.parse()` against a spec built from `usage = ""`
-  and auto-filled (`tests/test_argumint.nim`'s `"autoFillUsage"` suite) --
-  the pre-existing tests there only asserted on the rendered `s.usage`
-  string, which stays correct either way, and wouldn't have caught a
-  regression here.
+  transitions are spliced onto it later -- but recomputing it from scratch
+  on every splice is *also* wrong, because "scratch" means different things
+  depending on whether `root` is fresh or already simplified.** `genFsm`
+  (`parser.nim`) builds a spec's root by calling `addUsageLines`, which
+  marks the root `terminal = true` only when it ends up with no transitions
+  at all (an empty `usage` string -- nothing to match). `autoFillUsage`
+  (`argumint.nim`) can later discover unreachable args/commands/options for
+  that same spec and call `addUsageLines` again on that *same* root object
+  to splice on real transitions (rather than re-parsing already-built lines
+  from scratch) -- if a stale `terminal = true` left over from an earlier
+  *empty-`lines`* call weren't cleared, the FSM would wrongly accept "no
+  more input" at a root that now requires real args.
+
+  The first fix for that (recomputing `root.terminal = root.transitions.len
+  == 0` unconditionally as `addUsageLines`'s last step) introduced a second
+  bug (issue #6): by the time `autoFillUsage` runs, `root` is usually
+  `spec.fsm` *after* `genFsm`'s own `prepare()`/`simplify()` pass has
+  already folded a fully-skippable usage line (e.g. `[-- <arg>...]`) down
+  into `root.terminal = true` with its Shortcut "skip" edge removed
+  entirely (`simplifySelf`, `backend.nim`) -- at that point `root.terminal`
+  is no longer stale bookkeeping, it's an earned fact with no other trace of
+  it left in the graph to rediscover. Unconditionally recomputing from
+  `transitions.len` alone clobbers that fact back to `false` the moment any
+  new line (e.g. an auto-filled `(-h | --help)`) is spliced on, since real
+  transitions already exist. Fixed by snapshotting `hadTransitions =
+  root.transitions.len > 0` and `wasTerminal = root.terminal` *before* the
+  splice loop runs, then computing `root.terminal = root.transitions.len ==
+  0 or (hadTransitions and wasTerminal)`: the `hadTransitions` guard is what
+  distinguishes "stale flag on a root that started genuinely empty" (must
+  clear) from "earned flag on a root that already carried real, simplified
+  content" (must survive).
+
+  Caught by tests that actually call `.parse()` with zero args, not just
+  ones asserting on the rendered `s.usage` string (which stays correct
+  either way and wouldn't catch a regression here): `tests/test_argumint.nim`'s
+  `"autoFillUsage"` suite has one covering an empty-`usage`-then-filled
+  spec, and a second (`"splicing onto an already-skippable line preserves
+  skippability (#6)"`) covering all four `autoFillUsage` splice categories
+  (MessageArgs, commands, positionals, `[options]`) against a pre-existing
+  skippable line.
 
 - **`simplifySelf`'s old shortcut-collapsing check only ever compared against
   the immediate `s`/`next` pair, so it couldn't detect a foreign multi-state

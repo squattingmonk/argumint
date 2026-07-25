@@ -1317,6 +1317,47 @@ suite "autoFillUsage":
     let s = newSpec(spec, usage = "")
     check s.usage == "[options] ship"
 
+  test "splicing onto an already-skippable line preserves skippability (#6)":
+    ## Regression coverage for every autoFillUsage category (see
+    ## docs/gotchas.md's "terminal flag" entry) -- each spec below has an
+    ## explicit usage line that's itself fully skippable, plus one more Arg
+    ## left unreferenced so autoFillUsage must splice a second line onto the
+    ## already-built-and-simplified root. A zero-arg parse must still
+    ## succeed via the first line's skip path in every case.
+    block: # MessageArgs (help())
+      let spec = (
+        rest: args[string]("<rest>", help = "", default = @["untouched"]),
+        help: help(),
+      )
+      spec.parse(usage = "[-- <rest>...]", args = @[], command = "prog")
+      check spec.rest == @["untouched"]
+
+    block: # unreachable commands
+      let spec = (
+        verbose: flag("--verbose", help = "", default = false),
+        ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
+      )
+      spec.parse(usage = "[--verbose]", args = @[], command = "prog")
+      check spec.verbose == false
+
+    block: # unreachable positionals
+      let spec = (
+        verbose: flag("--verbose", help = "", default = false),
+        a: arg("<a>", help = ""),
+        b: arg("<b>", help = ""),
+      )
+      spec.parse(usage = "[--verbose]", args = @[], command = "prog")
+      check spec.verbose == false
+
+    block: # standalone [options] fallback
+      let spec = (
+        rest: args[string]("<rest>", help = "", default = @["untouched"]),
+        verbose: flag("--verbose", help = "", default = false),
+      )
+      spec.parse(usage = "[<rest>...]", args = @[], command = "prog")
+      check spec.rest == @["untouched"]
+      check spec.verbose == false
+
 suite "FSM choice deduplication":
   test "an auto-filled (-h | --help) line collapses to a single edge, both spellings still parse":
     let spec = (name: arg("<name>", help = ""), help: help())

@@ -216,14 +216,12 @@ proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
   ## (the initial build) and `autoFillUsage` (`argumint.nim`, which splices
   ## auto-generated lines onto an already-built `spec.fsm` instead of
   ## re-parsing the whole usage string from scratch). Recomputes `root.
-  ## terminal` from scratch afterwards (true only if `root` still has no
-  ## transitions at all -- e.g. `lines` was empty, meaning this spec/
-  ## subcommand takes no further input, like `command("status", (), ...)`)
-  ## rather than leaving it as a stateful flag: `root` may already carry a
-  ## stale `terminal = true` from an earlier call with an empty `lines` (a
-  ## spec whose `usage` started out completely empty, later auto-filled by
-  ## `autoFillUsage`), and nothing else would clear it once real lines get
-  ## spliced on.
+  ## terminal` afterwards rather than leaving it a stateful flag -- see
+  ## docs/gotchas.md's "terminal flag" entry for why this needs both a
+  ## before-splice snapshot and an after-splice transition count, not just
+  ## the latter.
+  let hadTransitions = root.transitions.len > 0
+  let wasTerminal = root.terminal
   let p = SpecParser(spec: spec)
   for line in lines:
     p.explicitOptions.clear()
@@ -241,7 +239,7 @@ proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
       matcher.excludeOptions(p.explicitOptions)
     root.addShortcut(s)
     e.terminal = true
-  root.terminal = root.transitions.len == 0
+  root.terminal = root.transitions.len == 0 or (hadTransitions and wasTerminal)
 
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
