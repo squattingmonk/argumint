@@ -96,6 +96,8 @@ examples/<name>.nim`:
 - `serve.nim` — options with validators and env var fallback.
 - `dot.nim` — rendering a spec's FSM as a Graphviz `.dot` file, for
   debugging a usage string's compiled grammar.
+- `config_bootstrap.nim` — bootstrapping a Config Source from a
+  `--config=<file>` option via a `before` hook.
 
 ## Learning more
 

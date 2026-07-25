@@ -12,6 +12,7 @@
 /examples/*
 !/examples/*.nim
 !/examples/*.nims
+!/examples/config_bootstrap.json
 /scripts/*.png
 
 # Nim build artifacts
