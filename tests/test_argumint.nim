@@ -1,4 +1,4 @@
-import std/[algorithm, options, os, sequtils, strutils, tables, terminal, unittest]
+import std/[algorithm, json, options, os, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/backend
@@ -117,6 +117,31 @@ suite "Optional args":
     )
     expect ValidationError:
       spec.parse(usage = "[--speed=<speed>]", args = @["--speed=999"], command = "prog")
+
+  test "raise ValidationError for a value outside the validator's choice set":
+    let spec = (
+      color: opt("--color=<color>", default = "red", validator = choice(["red", "green", "blue"]), help = ""),
+    )
+    expect ValidationError:
+      spec.parse(usage = "[--color=<color>]", args = @["--color=purple"], command = "prog")
+
+  test "all() rejects a value failing either composed validator, end-to-end through parse()":
+    let spec = (
+      num: opt("--num=<num>", default = 0, validator = all(range(0..10), checkIt[int](it mod 2 == 0, "must be even")), help = ""),
+    )
+    var caught = ""
+    try:
+      spec.parse(usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
+    except ValidationError as e:
+      caught = e.msg
+    check "must be even" in caught
+
+  test "unique() end-to-end rejects a value repeated across two matches of the same multi-value option":
+    let spec = (
+      tags: opts[string]("--tag=<tag>", validator = unique[string](), help = ""),
+    )
+    expect ValidationError:
+      spec.parse(usage = "[--tag=<tag>]...", args = @["--tag=a", "--tag=a"], command = "prog")
 
   test "opts[T] with no default given defaults to empty":
     let spec = (
@@ -373,6 +398,30 @@ suite "Commands":
     )
     spec.parse(usage = "ship", args = @["ship", "move", "Titanic"], command = "prog")
     check log == @["outer-before", "inner-before", "inner-action", "inner-after", "outer-after"]
+
+  test "before/action/after ordering generalizes past 2 levels of nesting":
+    var log: seq[string]
+    proc before1(spec: tuple) = log.add "before1"
+    proc after1(spec: tuple) = log.add "after1"
+    proc before2(spec: tuple) = log.add "before2"
+    proc after2(spec: tuple) = log.add "after2"
+    proc before3(spec: tuple) = log.add "before3"
+    proc action3(spec: tuple) = log.add "action3"
+    proc after3(spec: tuple) = log.add "after3"
+
+    let leaf = (name: arg("<name>", help = ""))
+    let mid = (
+      delete: command("delete", leaf, before = before3, action = action3, after = after3, usage = "<name>", help = ""),
+    )
+    let outer = (
+      branch: command("branch", mid, before = before2, after = after2, help = ""),
+    )
+    let spec = (
+      remote: command("remote", outer, before = before1, after = after1, help = ""),
+    )
+    spec.parse(usage = "remote", args = @["remote", "branch", "delete", "origin"], command = "prog")
+    check log == @["before1", "before2", "before3", "action3", "after3", "after2", "after1"]
+    check leaf.name == "origin" # confirms 3-level structural resolution, not just hook order
 
   test "action fires when a command is invoked bare, but not when it routes to a subcommand":
     var shipActionFired = false
@@ -2035,6 +2084,31 @@ suite "Config Source":
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
+
+  test "end-to-end: a Config Source file missing the configured key falls through to the coded default":
+    let path = getTempDir() / "argumint_test_config_missing.ini"
+    writeFile(path, "[server]\nhost=example.com\n")
+    defer: removeFile(path)
+    let settings = newSpecSettings(configSources = @[iniConfigSource(path)])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = configKey("server", "port"), help = ""),
+    )
+    spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+    check spec.port == 8080
+
+  test "a malformed INI config file raises an ordinary ValueError at construction, before any parse() call":
+    let path = getTempDir() / "argumint_test_config_malformed.ini"
+    writeFile(path, "[unterminated\n")
+    defer: removeFile(path)
+    expect ValueError:
+      discard iniConfigSource(path)
+
+  test "a malformed JSON config file raises an ordinary JsonParsingError at construction, before any parse() call":
+    let path = getTempDir() / "argumint_test_config_malformed.json"
+    writeFile(path, """{"unterminated": """)
+    defer: removeFile(path)
+    expect JsonParsingError:
+      discard jsonConfigSource(path)
 
   test "exploratory: a mixed CLI+config-satisfied repeated position silently drops the config contribution":
     # Documents current, pre-existing (not introduced by Config Source --

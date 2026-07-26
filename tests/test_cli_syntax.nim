@@ -187,6 +187,24 @@ suite "Negative number literals":
     spec.parse(usage = "<count>", args = @["-1"], command = "prog")
     check spec.count == -1
 
+  test "a bare short option shadows a same-spelled negative number when both are declared":
+    let spec = (
+      one: flag("-1", help = ""),
+      count: arg("<count>", default = 0, help = ""),
+    )
+    spec.parse(usage = "-1 | <count>", args = @["-1"], command = "prog")
+    check spec.one == true
+    check spec.count == 0 # untouched -- "-1" matched the declared flag, not the positional
+
+  test "the leading-space escape still disambiguates to the positional even with a competing short option declared":
+    let spec = (
+      one: flag("-1", help = ""),
+      count: arg("<count>", default = 0, help = ""),
+    )
+    spec.parse(usage = "-1 | <count>", args = @[" -1"], command = "prog")
+    check spec.count == -1
+    check spec.one == false # untouched -- the escape kept "-1" from matching the flag
+
 suite "A Command name doesn't shadow a positional value in another alternative":
   test "a bare command name falls back to a positional value when the command's own args aren't satisfied":
     # ADR 0019: "ship" is a declared command name, but the "ship <name>"
