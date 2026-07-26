@@ -84,7 +84,7 @@ typed fields — no stringly-typed lookup by flag name.
   automatically.
 - **Shell completion** — dynamic, FSM-driven `bash`/`zsh`/`fish` completion
   generated from the same spec that drives parsing, so completions can never
-  drift out of sync with what actually parses.
+  drift out of sync with what actually parses. See `examples/completion.nim`.
 
 ## Examples
 
@@ -104,6 +104,9 @@ examples/<name>.nim`:
   `--config=<file>` option via a `before` hook.
 - `flagfile_bootstrap.nim` — GNU-style `@file` flagfile expansion as a plain
   pre-parse `seq[string]` transform, no library support needed.
+- `completion.nim` — generating a `bash`/`zsh`/`fish` completion script on
+  demand, and guarding expensive pre-parse setup against completion
+  requests with `isCompletionRequest()`.
 
 ## Learning more
 
