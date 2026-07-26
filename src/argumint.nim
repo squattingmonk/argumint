@@ -451,10 +451,16 @@ template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
     of "*=": value = value * arg
     else: raise newException(SpecDefect, "set flags only support =, +=, -=, and *= operations")
 
-method parse*(self: MessageArg, _: string, variant = "") =
+method parse(self: MessageArg, _: string, variant = "") =
+  ## Raises `MessageError` with `self.message`, short-circuiting the rest
+  ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
+  ## `message*`/`version*`).
   raise newException(MessageError, self.message)
 
-method parse*(self: HelpArg, command: string, spec: Spec, variant = "") =
+method parse(self: HelpArg, command: string, spec: Spec, variant = "") =
+  ## Raises `HelpError` with `spec`'s generated help text for `command`,
+  ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
+  ## deliver it directly (see `help*`).
   raise newException(HelpError, spec.genHelp(command))
 
 # ------------------------------------------------------------------------------
@@ -481,7 +487,7 @@ converter toT*[T](arg: FlagArg[T]): T =
 
 proc addArg(spec: Spec, arg: Arg, varName: string) =
   if arg.variants.len < 1:
-    raise newException(SpecDefect, fmt"Error: arg {varName} must have at least one variant")
+    raise newException(SpecDefect, fmt"arg {varName} must have at least one variant")
   spec.args.add(arg)
   if spec.groups.hasKeyOrPut(arg.group, @[arg]):
     spec.groups[arg.group].add(arg)
@@ -492,19 +498,19 @@ proc addArg(spec: Spec, arg: Arg, varName: string) =
       # Matches `<arg>`
       if variant =~ PositionalVariantFormat:
         if spec.arguments.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"Error: argument {matches[0]} already defined")
+          raise newException(SpecDefect, fmt"argument {matches[0]} already defined")
       else:
-        raise newException(SpecDefect, fmt"Error: invalid positional arg variant for {varName}: {variant}")
+        raise newException(SpecDefect, fmt"invalid positional arg variant for {varName}: {variant}")
     of Optional, Flag:
       # Matches `-o[=<foo>]` or `--option[=<foo>]` but removes any help vars
       if variant =~ OptionalVariantFormat:
         if spec.options.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"Error: option {matches[0]} already defined")
+          raise newException(SpecDefect, fmt"option {matches[0]} already defined")
       else:
-        raise newException(SpecDefect, fmt"Error: invalid optional arg variant for {varName}: {variant}")
+        raise newException(SpecDefect, fmt"invalid optional arg variant for {varName}: {variant}")
     of Command:
       if spec.commands.hasKeyOrPut(variant, CommandArg(arg)):
-        raise newException(SpecDefect, fmt"Error: command {variant} already defined")
+        raise newException(SpecDefect, fmt"command {variant} already defined")
 
 proc addArgs(self: Spec, spec: tuple) =
   for varName, arg in spec.fieldPairs:
@@ -513,7 +519,7 @@ proc addArgs(self: Spec, spec: tuple) =
     elif arg is tuple:
       self.addArgs(arg)
     else:
-      raise newException(SpecDefect, fmt"Error: all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
+      raise newException(SpecDefect, fmt"all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
 
 proc autoFillUsage(spec: Spec) =
   ## Fills in usage lines for whatever's unreachable (commands, positional
@@ -743,7 +749,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
 
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
-    raise newException(Defect, fmt"{typeName} is not a supported type for flags")
+    raise newException(SpecDefect, fmt"{typeName} is not a supported type for flags")
   result = flagOps[$typeName]
 
 proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
@@ -827,7 +833,7 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
         let op = matches[1]
         if op notin getFlagOps($T):
           let escapedOp = strutils.escape(op)
-          raise newException(Defect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
+          raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
         let desc = variantHelp.getOrDefault(matches[0], "")
         if result.ops.hasKeyOrPut(matches[0], (op: matches[1], arg: arg, desc: desc)):
