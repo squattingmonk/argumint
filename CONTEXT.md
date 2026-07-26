@@ -124,7 +124,8 @@ Command tree — an ancestor's Before Hook always fires before any Command
 nested inside it fires its own. Pairs with After Hook to wrap dispatch
 into whatever's nested inside a Spec (e.g. setup/teardown shared
 infrastructure a nested Command shouldn't have to redo); pairs with Action
-for a Spec's own leaf-level logic. See
+for a Spec's own leaf-level logic. Receives a Hook Info value alongside
+the Spec's own parsed values. See
 `docs/adr/0009-command-before-action-after-hooks.md`.
 _Avoid_: handler (the removed, single-callback predecessor to this trio),
 pre-hook, callback
@@ -138,7 +139,8 @@ per-invocation, not by how the Spec was declared: the same Command
 invoked bare fires its own Action, while the same Command invoked with a
 further subcommand instead defers to whatever Action fires deeper, only
 wrapping it via Before Hook/After Hook. Never fires alongside a Command
-matched at the same level. See Before Hook, After Hook.
+matched at the same level. Receives a Hook Info value alongside the
+Spec's own parsed values. See Before Hook, After Hook.
 _Avoid_: handler (the removed predecessor); don't use "action" to mean
 Command itself — see Command's own _Avoid_ note
 
@@ -153,8 +155,22 @@ completed without raising, regardless of what happens afterward — this is
 what lets an ancestor's After Hook still perform cleanup (e.g. closing a
 file handle a Before Hook opened) even when something nested inside it
 fails; falls out of ordinary nested `try`/`finally`, no bookkeeping of its
-own. See Before Hook, Action.
+own. Receives a Hook Info value alongside the Spec's own parsed values.
+See Before Hook, Action.
 _Avoid_: handler (the removed predecessor), post-hook, cleanup callback
+
+**Hook Info**:
+The `HookInfo` value every Before Hook/Action/After Hook receives, carrying
+every Arg matched across the whole invocation (not just the receiving
+hook's own Spec level) — a view onto the FSM walk `parse*`/`parseOrQuit*`
+already performed, not a re-walk. `showsMessage(info)` answers the
+concrete motivating question — whether this invocation's dispatch will
+short-circuit into a Message Argument's output — but the raw matched-Arg
+list generalizes beyond that one check. Computed once per invocation and
+threaded unchanged through the whole dispatch tree, so an ancestor Command's
+Before Hook can see a descendant's about-to-fire Message Argument match.
+See `docs/adr/0021-hook-info-matched-args.md`.
+_Avoid_: hook context, hook args
 
 **Message Argument**:
 An Arg whose match, via any of its Variants, displays a fixed message and

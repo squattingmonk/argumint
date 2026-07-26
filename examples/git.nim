@@ -8,11 +8,11 @@ import std/strformat
 
 import argumint
 
-proc cmdAdd(spec: tuple) =
+proc cmdAdd(spec: tuple, info: HookInfo) =
   for file in spec.files:
     echo fmt"Staging {file}"
 
-proc cmdCommit(spec: tuple) =
+proc cmdCommit(spec: tuple, info: HookInfo) =
   let action = if spec.amend: "Amending" else: "Committing"
   echo fmt"{action} with message: {spec.message}"
 

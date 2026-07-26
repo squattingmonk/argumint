@@ -27,14 +27,14 @@ import std/strformat
 import argumint
 import argumint/validators
 
-proc cmdShipNew(spec: tuple) =
+proc cmdShipNew(spec: tuple, info: HookInfo) =
   for name in spec.names:
     echo fmt"Ship {name} has been built"
 
-proc cmdShipMove(spec: tuple) =
+proc cmdShipMove(spec: tuple, info: HookInfo) =
   echo fmt"Moving ship {spec.name} to ({spec.x}, {spec.y}) at {spec.speed} knots"
 
-proc cmdShipShoot(spec: tuple) =
+proc cmdShipShoot(spec: tuple, info: HookInfo) =
   echo fmt"Firing on ({spec.x}, {spec.y})"
 
 proc mineKind(spec: tuple): string =
@@ -42,10 +42,10 @@ proc mineKind(spec: tuple): string =
   elif spec.drifting: "drifting mine"
   else: "mine"
 
-proc cmdMineSet(spec: tuple) =
+proc cmdMineSet(spec: tuple, info: HookInfo) =
   echo fmt"Laying a {spec.mineKind} at ({spec.x}, {spec.y})"
 
-proc cmdMineRemove(spec: tuple) =
+proc cmdMineRemove(spec: tuple, info: HookInfo) =
   echo fmt"Removing a {spec.mineKind} from ({spec.x}, {spec.y})"
 
 let

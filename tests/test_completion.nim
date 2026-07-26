@@ -146,9 +146,9 @@ suite "__complete entry point":
       logLevel: opt("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
     )
     let built = newSpec(spec, usage = "[options]")
-    built.before = proc() = hookFired = true
-    built.action = proc() = hookFired = true
-    built.after = proc() = hookFired = true
+    built.before = proc(info: HookInfo) = hookFired = true
+    built.action = proc(info: HookInfo) = hookFired = true
+    built.after = proc(info: HookInfo) = hookFired = true
 
     var caught = ""
     try:

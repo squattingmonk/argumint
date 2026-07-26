@@ -68,6 +68,16 @@ type
     name*: string
     delim*: options.Option[string] ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
 
+  HookInfo* = object
+    matched*: seq[Arg] ## Every Arg matched during this invocation, across
+      ## every spec level in the dispatch chain (not just the receiving
+      ## hook's own level) -- a view onto `fsm.nim`'s internal `MatchTable`
+      ## computed once from the walk `parse*` already performs, not a
+      ## re-walk. E.g. `info.matched.anyIt(it of MessageArg)` (or
+      ## `showsMessage(info)` below) to detect a Message/Help request from
+      ## a `before` hook and skip expensive setup for it -- see
+      ## `docs/adr/0021-hook-info-matched-args.md`.
+
   Spec* = ref object
     prolog*: string ## Front matter for a help message
     epilog*: string ## Back matter for a help message
@@ -79,9 +89,9 @@ type
     groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
     fsm*: State ## The initial state for the FSM used for parsing
     settings*: SpecSettings ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
-    before*: proc () ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
-    action*: proc () ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
-    after*: proc () ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
+    before*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
+    action*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
+    after*: proc (info: HookInfo) ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has
@@ -179,6 +189,16 @@ proc name*(self: Arg, variant = ""): string =
 proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
   hash(self.name)
+
+proc showsMessage*(info: HookInfo): bool =
+  ## True if `info.matched` includes a Message Argument (Help or a plain
+  ## `message()`/`version()`) -- i.e. this invocation's dispatch will
+  ## short-circuit into printing a message and exiting rather than
+  ## reaching a real `action`.
+  for arg in info.matched:
+    if arg of MessageArg:
+      return true
+  false
 
 method parse*(self: Arg, value: string, variant = "") {.base.} =
   ## Converts/validates/stores a matched `value` (raw command-line/env/config

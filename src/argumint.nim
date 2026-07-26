@@ -35,6 +35,11 @@ export configsource
 export backend.name
 export strutils.escape
 
+# `before`/`action`/`after` hooks' `info: HookInfo` parameter -- see
+# docs/adr/0021-hook-info-matched-args.md.
+export backend.HookInfo
+export backend.showsMessage
+
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
     value: Option[seq[T]]
@@ -861,9 +866,9 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
       raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
-    before: proc(spec: S) = nil,
-    action: proc(spec: S) = nil,
-    after: proc(spec: S) = nil): CommandArg =
+    before: proc(spec: S, info: HookInfo) = nil,
+    action: proc(spec: S, info: HookInfo) = nil,
+    after: proc(spec: S, info: HookInfo) = nil): CommandArg =
   ## - `variants` is a comma-separated list of names by which the command can be
   ##   called by the user.
   ## - `spec` is a spec tuple representing all possible args this command takes.
@@ -880,6 +885,11 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ## - `action` fires after `before`, but only if this command is the dynamic
   ##   leaf (no nested command was also matched)
   ## - `after` fires after this command's own `before`/`action`/nested dispatch.
+  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
+  ##   during this whole invocation (not just this command's own level) --
+  ##   e.g. `info.showsMessage` to skip expensive hook work for a
+  ##   `--help`/`--version`/message request. See
+  ##   `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## For more information on how before/action/after hooks are used, see
   ## `docs/adr/0009-command-before-action-after-hooks.md`.
@@ -891,16 +901,16 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
-    result.spec.before = () => before(spec)
+    result.spec.before = (info: HookInfo) => before(spec, info)
   if not action.isNil:
-    result.spec.action = () => action(spec)
+    result.spec.action = (info: HookInfo) => action(spec, info)
   if not after.isNil:
-    result.spec.after = () => after(spec)
+    result.spec.after = (info: HookInfo) => after(spec, info)
 
 proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
-    before: proc(spec: S, opts: O) = nil,
-    action: proc(spec: S, opts: O) = nil,
-    after: proc(spec: S, opts: O) = nil): CommandArg =
+    before: proc(spec: S, opts: O, info: HookInfo) = nil,
+    action: proc(spec: S, opts: O, info: HookInfo) = nil,
+    after: proc(spec: S, opts: O, info: HookInfo) = nil): CommandArg =
   ## - `variants` is a comma-separated list of names by which the command can be
   ##   called by the user.
   ## - `spec` is a spec tuple representing all possible args this command takes.
@@ -922,6 +932,11 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
   ## - `action` fires after `before`, but only if this command is the dynamic
   ##   leaf (no nested command was also matched)
   ## - `after` fires after this command's own `before`/`action`/nested dispatch.
+  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
+  ##   during this whole invocation (not just this command's own level) --
+  ##   e.g. `info.showsMessage` to skip expensive hook work for a
+  ##   `--help`/`--version`/message request. See
+  ##   `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## For more information on how before/action/after hooks are used, see
   ## `docs/adr/0009-command-before-action-after-hooks.md`.
@@ -931,9 +946,9 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
   ## given (see `cascadeSpecSettings`), so it only needs to be specified once
   ## regardless of how deeply nested this command is.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
-    before = if before.isNil: nil else: (proc(cmdSpec: S) = before(spec, options)),
-    action = if action.isNil: nil else: (proc(cmdSpec: S) = action(spec, options)),
-    after = if after.isNil: nil else: (proc(cmdSpec: S) = after(spec, options)))
+    before = if before.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = before(spec, options, info)),
+    action = if action.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = action(spec, options, info)),
+    after = if after.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = after(spec, options, info)))
 
 proc help*(variants = "-h, --help", help = "Display this help message", group = "Options", hidden = false): HelpArg =
   ## Creates a flag which, when matched, displays an auto-generated help message
@@ -1054,9 +1069,9 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
 proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
     args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
-    before: proc(spec: S) = nil,
-    action: proc(spec: S) = nil,
-    after: proc(spec: S) = nil) =
+    before: proc(spec: S, info: HookInfo) = nil,
+    action: proc(spec: S, info: HookInfo) = nil,
+    after: proc(spec: S, info: HookInfo) = nil) =
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
@@ -1074,14 +1089,18 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## - `action` fires after `before`, but only if this spec is the dynamic leaf
   ##   (no nested command was matched)
   ## - `after` fires after this spec's own `before`/`action`/nested dispatch.
+  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
+  ##   during this whole invocation -- e.g. `info.showsMessage` to skip
+  ##   expensive hook work for a `--help`/`--version`/message request. See
+  ##   `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
   try:
     let builtSpec = newSpec(spec, usage, prolog, epilog, settings)
-    if not before.isNil: builtSpec.before = () => before(spec)
-    if not action.isNil: builtSpec.action = () => action(spec)
-    if not after.isNil: builtSpec.after = () => after(spec)
+    if not before.isNil: builtSpec.before = (info: HookInfo) => before(spec, info)
+    if not action.isNil: builtSpec.action = (info: HookInfo) => action(spec, info)
+    if not after.isNil: builtSpec.after = (info: HookInfo) => after(spec, info)
     builtSpec.parseOrQuit(args, command)
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
@@ -1089,9 +1108,9 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
 proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
     args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
-    before: proc(spec: S) = nil,
-    action: proc(spec: S) = nil,
-    after: proc(spec: S) = nil) =
+    before: proc(spec: S, info: HookInfo) = nil,
+    action: proc(spec: S, info: HookInfo) = nil,
+    after: proc(spec: S, info: HookInfo) = nil) =
   ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in
   ## one step. Raises `SpecDefect` (malformed spec), or `ParseError`/
   ## `ValidationError`/`HelpError`/`MessageError` (parse failure) -- use
@@ -1110,13 +1129,17 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## - `action` fires after `before`, but only if this spec is the dynamic leaf
   ##   (no nested command was matched)
   ## - `after` fires after this spec's own `before`/`action`/nested dispatch.
+  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
+  ##   during this whole invocation -- e.g. `info.showsMessage` to skip
+  ##   expensive hook work for a `--help`/`--version`/message request. See
+  ##   `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
   let builtSpec = newSpec(spec, usage, prolog, epilog, settings)
-  if not before.isNil: builtSpec.before = () => before(spec)
-  if not action.isNil: builtSpec.action = () => action(spec)
-  if not after.isNil: builtSpec.after = () => after(spec)
+  if not before.isNil: builtSpec.before = (info: HookInfo) => before(spec, info)
+  if not action.isNil: builtSpec.action = (info: HookInfo) => action(spec, info)
+  if not after.isNil: builtSpec.after = (info: HookInfo) => after(spec, info)
   builtSpec.parse(args, command)
 
 proc dot*(spec: Spec): string =

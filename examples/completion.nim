@@ -7,10 +7,17 @@
 # - Installing a completion script: the `completion <shell>` subcommand
 #   below prints one via `spec.completionScript(shell, binaryName)`, meant
 #   to be sourced from the user's shell startup files.
-# - Guarding expensive pre-parse setup (a DB connection, config loading)
-#   with `isCompletionRequest()`, since every TAB press re-invokes the
-#   whole binary as a fresh process -- simulated below with
-#   `connectToDatabase()`.
+# - Guarding expensive setup (a DB connection, config loading), simulated
+#   below with `connectToDatabase()`. This is wired as a `before` hook
+#   (see docs/adr/0009-command-before-action-after-hooks.md) rather than
+#   run directly in `main()`, and checks `info.showsMessage` (see
+#   docs/adr/0021-hook-info-matched-args.md) to skip it for a `--help`
+#   request. `before` already never fires at all for a `__complete`
+#   request -- that short-circuits before dispatch even starts -- so one
+#   hook covers both cases. `isCompletionRequest()` still matters
+#   separately for setup that has to happen *before* `parseOrQuit*` is
+#   even callable, e.g. before the `Spec` itself is constructed; this
+#   example has no such setup, so it isn't used below.
 #
 # Try it after compiling:
 #   nim c examples/completion.nim
@@ -47,10 +54,10 @@ proc connectToDatabase() =
   # of the script.
   stderr.writeLine "Connecting to the database..."
 
-proc cmdDeploy(spec: tuple) =
+proc cmdDeploy(spec: tuple, info: HookInfo) =
   echo fmt"Deploying to {spec.env}"
 
-proc cmdCompletion(spec: tuple) =
+proc cmdCompletion(spec: tuple, info: HookInfo) =
   echo built.completionScript(parseEnum[Shell](spec.shell), "completion")
 
 let
@@ -74,7 +81,8 @@ let
   )
 
 built = newSpec(spec, prolog = "A tiny CLI demonstrating dynamic shell completion")
+built.before = proc(info: HookInfo) =
+  if not info.showsMessage:
+    connectToDatabase()
 
-if not isCompletionRequest():
-  connectToDatabase()
 built.parseOrQuit()

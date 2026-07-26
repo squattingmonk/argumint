@@ -442,21 +442,24 @@ commits the winning branch back) — this is what lets dispatch scope a
 match to the correct level even when the same `Arg` is reachable at more
 than one grammar level.
 
-After a successful walk, `Spec.parse`'s final step recursively re-walks
-the *declared* Spec tree — not `pc.matches` itself, which carries no scope
-information on its own — via `dispatch(spec, pc.matches, command)`. At
-each `Spec` level: `parseOwnValues` parses that level's own non-Command,
-non-`MessageArg` matches (filtered by the `Match`'s `Spec` provenance);
-`spec.before()` fires, if set, now that those values are ready;
-`parseMessageArgs` then parses (and raises on) any matched `MessageArg`/
-`HelpArg` at this level; `matchedCommand` finds whichever single Command
-was matched at this level, if any (at most one ever can be — a matched
-`Command` transition permanently updates `pc.spec` to the nested spec for
-the rest of the walk, so a sibling command word can never be recognized
-afterward);
-if none, `spec.action()` fires (this Spec is the dynamic leaf for this
+After a successful walk, `Spec.parse` builds a `HookInfo(matched:
+seq[Arg])` from `pc.matches` -- every Arg with at least one match, across
+every level, computed once from the walk already performed (not a second
+walk) -- then recursively re-walks the *declared* Spec tree -- not
+`pc.matches` itself, which carries no scope information on its own -- via
+`dispatch(spec, pc.matches, command, info)`, threading `info` unchanged
+through every recursive call. At each `Spec` level: `parseOwnValues`
+parses that level's own non-Command, non-`MessageArg` matches (filtered by
+the `Match`'s `Spec` provenance); `spec.before(info)` fires, if set, now
+that those values are ready; `parseMessageArgs` then parses (and raises
+on) any matched `MessageArg`/`HelpArg` at this level; `matchedCommand`
+finds whichever single Command was matched at this level, if any (at most
+one ever can be — a matched `Command` transition permanently updates
+`pc.spec` to the nested spec for the rest of the walk, so a sibling
+command word can never be recognized afterward);
+if none, `spec.action(info)` fires (this Spec is the dynamic leaf for this
 invocation); if one, `dispatch` recurses into its own nested `Spec`;
-finally `spec.after()` fires, wrapped in a `try/finally` around the
+finally `spec.after(info)` fires, wrapped in a `try/finally` around the
 message-arg/action-or-recursion step so it's guaranteed to run once
 `before` (or its absence) has completed without raising, regardless of
 what happens afterward — including a `MessageArg` match, which is treated
@@ -471,6 +474,17 @@ whose `before` already ran still gets a chance to clean up even when
 something nested inside it fails, with no explicit bookkeeping. See
 `docs/adr/0009-command-before-action-after-hooks.md` and
 `docs/adr/0013-message-args-fire-after-before.md`.
+
+Since `info` is a single value computed once and threaded unchanged
+through the whole recursion, `info.matched` (and its `showsMessage(info)`
+convenience -- true if any matched Arg is a `MessageArg`) is a flat view
+across the *whole* matched dispatch chain, not scoped to the receiving
+hook's own level -- an ancestor Command's `before` can see
+`info.showsMessage: true` even when the actual matched `HelpArg` belongs
+to a nested Command's Spec several levels down. This lets a `before` hook
+skip expensive setup (a DB connection, config loading) for a
+`--help`/`--version`/message invocation without a second FSM walk. See
+`docs/adr/0021-hook-info-matched-args.md`.
 
 ## `autoFillUsage`
 

@@ -22,7 +22,7 @@ let spec = (
   help: help()
 )
 
-proc reparseWithConfig(s: typeof(spec)) =
+proc reparseWithConfig(s: typeof(spec), info: HookInfo) =
   if s.config.len == 0:
     return
   let settings = newSpecSettings(configSources = @[jsonConfigSource(s.config)])

@@ -543,24 +543,34 @@ proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, var
       if matchSpec == spec:
         return (cmd, variant)
 
-proc dispatch(spec: Spec, matches: MatchTable, command: string) =
+proc matchedArgs(matches: MatchTable): seq[Arg] =
+  ## Every Arg with at least one match in `matches`, across every spec
+  ## level -- the raw data behind `HookInfo.matched` (`backend.nim`).
+  for arg, ms in matches:
+    if ms.len > 0:
+      result.add arg
+
+proc dispatch(spec: Spec, matches: MatchTable, command: string, info: HookInfo) =
   ## Recursively dispatches `spec` and, if a Command was matched at its own
   ## level, whichever nested spec that routes to -- firing `before`/
   ## `action`/`after` per `docs/adr/0009-command-before-action-after-hooks.md`.
+  ## `info` is computed once by `parse*` and threaded through unchanged, so
+  ## every level's hooks see the same whole-invocation view -- see
+  ## `docs/adr/0021-hook-info-matched-args.md`.
   parseOwnValues(spec, matches, command)
   if not spec.before.isNil:
-    spec.before()
+    spec.before(info)
   try:
     parseMessageArgs(spec, matches, command)
     let (cmd, variant) = matchedCommand(spec, matches)
     if cmd.isNil:
       if not spec.action.isNil:
-        spec.action()
+        spec.action(info)
     else:
-      dispatch(cmd.spec, matches, "{command} {variant}".fmt)
+      dispatch(cmd.spec, matches, "{command} {variant}".fmt, info)
   finally:
     if not spec.after.isNil:
-      spec.after()
+      spec.after(info)
 
 proc formatComplaints(messages: seq[Complaint]): string =
   ## Groups same-kind complaints (e.g. two unmatched commands) into one line
@@ -671,7 +681,8 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if fallbackComplaints.len > 0:
     raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
 
-  dispatch(spec, pc.matches, command)
+  let info = HookInfo(matched: matchedArgs(pc.matches))
+  dispatch(spec, pc.matches, command, info)
 
 when isMainModule:
   import std/unittest

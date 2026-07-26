@@ -371,7 +371,7 @@ suite "[options] catch-all":
 suite "Commands":
   test "a matched subcommand's action fires with its own parsed values":
     var moved = ""
-    proc cmdMove(spec: tuple) =
+    proc cmdMove(spec: tuple, info: HookInfo) =
       moved = spec.name
 
     let move = (name: arg("<name>", help = ""))
@@ -383,11 +383,11 @@ suite "Commands":
 
   test "before runs root-to-leaf, action fires once at the leaf, after runs leaf-to-root":
     var log: seq[string]
-    proc outerBefore(spec: tuple) = log.add "outer-before"
-    proc outerAfter(spec: tuple) = log.add "outer-after"
-    proc innerBefore(spec: tuple) = log.add "inner-before"
-    proc innerAction(spec: tuple) = log.add "inner-action"
-    proc innerAfter(spec: tuple) = log.add "inner-after"
+    proc outerBefore(spec: tuple, info: HookInfo) = log.add "outer-before"
+    proc outerAfter(spec: tuple, info: HookInfo) = log.add "outer-after"
+    proc innerBefore(spec: tuple, info: HookInfo) = log.add "inner-before"
+    proc innerAction(spec: tuple, info: HookInfo) = log.add "inner-action"
+    proc innerAfter(spec: tuple, info: HookInfo) = log.add "inner-after"
 
     let inner = (name: arg("<name>", help = ""))
     let outer = (
@@ -401,13 +401,13 @@ suite "Commands":
 
   test "before/action/after ordering generalizes past 2 levels of nesting":
     var log: seq[string]
-    proc before1(spec: tuple) = log.add "before1"
-    proc after1(spec: tuple) = log.add "after1"
-    proc before2(spec: tuple) = log.add "before2"
-    proc after2(spec: tuple) = log.add "after2"
-    proc before3(spec: tuple) = log.add "before3"
-    proc action3(spec: tuple) = log.add "action3"
-    proc after3(spec: tuple) = log.add "after3"
+    proc before1(spec: tuple, info: HookInfo) = log.add "before1"
+    proc after1(spec: tuple, info: HookInfo) = log.add "after1"
+    proc before2(spec: tuple, info: HookInfo) = log.add "before2"
+    proc after2(spec: tuple, info: HookInfo) = log.add "after2"
+    proc before3(spec: tuple, info: HookInfo) = log.add "before3"
+    proc action3(spec: tuple, info: HookInfo) = log.add "action3"
+    proc after3(spec: tuple, info: HookInfo) = log.add "after3"
 
     let leaf = (name: arg("<name>", help = ""))
     let mid = (
@@ -426,8 +426,8 @@ suite "Commands":
   test "action fires when a command is invoked bare, but not when it routes to a subcommand":
     var shipActionFired = false
     var moveActionFired = false
-    proc shipAction(spec: tuple) = shipActionFired = true
-    proc moveAction(spec: tuple) = moveActionFired = true
+    proc shipAction(spec: tuple, info: HookInfo) = shipActionFired = true
+    proc moveAction(spec: tuple, info: HookInfo) = moveActionFired = true
 
     let move1 = ()
     let ship1 = (move: command("move", move1, action = moveAction, help = ""))
@@ -447,9 +447,9 @@ suite "Commands":
 
   test "before/action/after passed to the top-level parse* call fire around the whole tree":
     var log: seq[string]
-    proc appBefore(spec: tuple) = log.add "app-before"
-    proc appAction(spec: tuple) = log.add "app-action"
-    proc appAfter(spec: tuple) = log.add "app-after"
+    proc appBefore(spec: tuple, info: HookInfo) = log.add "app-before"
+    proc appAction(spec: tuple, info: HookInfo) = log.add "app-action"
+    proc appAfter(spec: tuple, info: HookInfo) = log.add "app-after"
 
     let spec = (name: arg("<name>", help = ""))
     spec.parse(usage = "<name>", args = @["Titanic"], command = "prog",
@@ -458,10 +458,10 @@ suite "Commands":
 
   test "an ancestor's after still runs when a nested command's own before raises":
     var log: seq[string]
-    proc outerBefore(spec: tuple) = log.add "outer-before"
-    proc outerAfter(spec: tuple) = log.add "outer-after"
-    proc innerBefore(spec: tuple) = raise newException(CatchableError, "boom")
-    proc innerAfter(spec: tuple) = log.add "inner-after"
+    proc outerBefore(spec: tuple, info: HookInfo) = log.add "outer-before"
+    proc outerAfter(spec: tuple, info: HookInfo) = log.add "outer-after"
+    proc innerBefore(spec: tuple, info: HookInfo) = raise newException(CatchableError, "boom")
+    proc innerAfter(spec: tuple, info: HookInfo) = log.add "inner-after"
 
     let inner = ()
     let outer = (
@@ -474,10 +474,13 @@ suite "Commands":
       spec.parse(usage = "ship", args = @["ship", "move"], command = "prog")
     check log == @["outer-before", "outer-after"]
 
-  test "before fires before a matched --help raises, and after still fires":
+  test "before fires before a matched --help raises, and after still fires, with info.showsMessage true":
     var log: seq[string]
-    proc appBefore(spec: tuple) = log.add "before"
-    proc appAfter(spec: tuple) = log.add "after"
+    var seenShowsMessage = false
+    proc appBefore(spec: tuple, info: HookInfo) =
+      log.add "before"
+      seenShowsMessage = info.showsMessage
+    proc appAfter(spec: tuple, info: HookInfo) = log.add "after"
 
     let spec = (
       name: arg("<name>", help = ""),
@@ -487,11 +490,15 @@ suite "Commands":
       spec.parse(usage = "<name>\n--help", args = @["--help"], command = "prog",
         before = appBefore, after = appAfter)
     check log == @["before", "after"]
+    check seenShowsMessage
 
-  test "before fires before a matched message/version flag raises, and after still fires":
+  test "before fires before a matched message/version flag raises, and after still fires, with info.showsMessage true":
     var log: seq[string]
-    proc appBefore(spec: tuple) = log.add "before"
-    proc appAfter(spec: tuple) = log.add "after"
+    var seenShowsMessage = false
+    proc appBefore(spec: tuple, info: HookInfo) =
+      log.add "before"
+      seenShowsMessage = info.showsMessage
+    proc appAfter(spec: tuple, info: HookInfo) = log.add "after"
 
     let spec = (
       ver: version("myapp 1.2.3"),
@@ -500,13 +507,36 @@ suite "Commands":
       spec.parse(usage = "--version", args = @["--version"], command = "prog",
         before = appBefore, after = appAfter)
     check log == @["before", "after"]
+    check seenShowsMessage
+
+  test "info.showsMessage is false for an ordinary, non-message parse":
+    var seenShowsMessage = true
+    proc appBefore(spec: tuple, info: HookInfo) = seenShowsMessage = info.showsMessage
+
+    let spec = (
+      name: arg("<name>", help = ""),
+    )
+    spec.parse(usage = "<name>", args = @["Titanic"], command = "prog", before = appBefore)
+    check not seenShowsMessage
+
+  test "info.matched contains the Arg objects matched during this invocation":
+    var seenMatched: seq[Arg]
+    proc appBefore(spec: tuple, info: HookInfo) = seenMatched = info.matched
+
+    let spec = (
+      name: arg("<name>", help = ""),
+      verbose: flag("--verbose", help = ""),
+    )
+    spec.parse(usage = "[--verbose] <name>", args = @["--verbose", "Titanic"], command = "prog", before = appBefore)
+    check Arg(spec.name) in seenMatched
+    check Arg(spec.verbose) in seenMatched
 
   test "the [S, O] overload's options param reaches before, action, and after":
     var seenBefore, seenAction, seenAfter = ""
     let context = (label: "outer-context")
-    proc cmdBefore(spec: tuple, opts: tuple) = seenBefore = opts.label
-    proc cmdAction(spec: tuple, opts: tuple) = seenAction = opts.label
-    proc cmdAfter(spec: tuple, opts: tuple) = seenAfter = opts.label
+    proc cmdBefore(spec: tuple, opts: tuple, info: HookInfo) = seenBefore = opts.label
+    proc cmdAction(spec: tuple, opts: tuple, info: HookInfo) = seenAction = opts.label
+    proc cmdAfter(spec: tuple, opts: tuple, info: HookInfo) = seenAfter = opts.label
 
     let inner = ()
     let spec = (
@@ -535,10 +565,10 @@ suite "Commands":
 
   test "a nested subcommand's own matched --help fires before/after root-to-leaf, same shape as action":
     var log: seq[string]
-    proc outerBefore(spec: tuple) = log.add "outer-before"
-    proc outerAfter(spec: tuple) = log.add "outer-after"
-    proc innerBefore(spec: tuple) = log.add "inner-before"
-    proc innerAfter(spec: tuple) = log.add "inner-after"
+    proc outerBefore(spec: tuple, info: HookInfo) = log.add "outer-before"
+    proc outerAfter(spec: tuple, info: HookInfo) = log.add "outer-after"
+    proc innerBefore(spec: tuple, info: HookInfo) = log.add "inner-before"
+    proc innerAfter(spec: tuple, info: HookInfo) = log.add "inner-after"
 
     let move = (help: help())
     let ship = (
@@ -551,20 +581,40 @@ suite "Commands":
       spec.parse(usage = "ship", args = @["ship", "move", "--help"], command = "prog")
     check log == @["outer-before", "inner-before", "inner-after", "outer-after"]
 
+  test "an ancestor command's before sees info.showsMessage true when a nested command's --help matches":
+    # The 'ship' router's own before never sees a matched MessageArg at its
+    # own spec level -- --help belongs to the nested 'move' spec several
+    # levels down -- but info.matched is a flat view across the whole
+    # matched dispatch chain, so info.showsMessage is still true here. See
+    # docs/adr/0021-hook-info-matched-args.md.
+    var outerSawShowsMessage = false
+    proc outerBefore(spec: tuple, info: HookInfo) = outerSawShowsMessage = info.showsMessage
+
+    let move = (help: help())
+    let ship = (
+      move: command("move", move, usage = "--help", help = ""),
+    )
+    let spec = (
+      ship: command("ship", ship, before = outerBefore, help = ""),
+    )
+    expect HelpError:
+      spec.parse(usage = "ship", args = @["ship", "move", "--help"], command = "prog")
+    check outerSawShowsMessage
+
   test "two Commands can share one underlying proc, parameterized differently per call site":
     var log: seq[string]
     proc cmdToggle(spec: tuple, on: bool) =
       log.add (if on: "on" else: "off")
 
     let spec1 = (
-      start: command("start", (), action = (proc(spec: tuple) = cmdToggle(spec, true)), help = ""),
-      stop: command("stop", (), action = (proc(spec: tuple) = cmdToggle(spec, false)), help = ""),
+      start: command("start", (), action = (proc(spec: tuple, info: HookInfo) = cmdToggle(spec, true)), help = ""),
+      stop: command("stop", (), action = (proc(spec: tuple, info: HookInfo) = cmdToggle(spec, false)), help = ""),
     )
     spec1.parse(usage = "(start | stop)", args = @["start"], command = "prog")
 
     let spec2 = (
-      start: command("start", (), action = (proc(spec: tuple) = cmdToggle(spec, true)), help = ""),
-      stop: command("stop", (), action = (proc(spec: tuple) = cmdToggle(spec, false)), help = ""),
+      start: command("start", (), action = (proc(spec: tuple, info: HookInfo) = cmdToggle(spec, true)), help = ""),
+      stop: command("stop", (), action = (proc(spec: tuple, info: HookInfo) = cmdToggle(spec, false)), help = ""),
     )
     spec2.parse(usage = "(start | stop)", args = @["stop"], command = "prog")
 
@@ -634,7 +684,7 @@ suite "Commands":
     # Compiling `a\nb` must not raise SpecDefect, and each route must reach
     # the shared underlying command.
     var log: seq[string]
-    proc bAction(spec: tuple) = log.add "b"
+    proc bAction(spec: tuple, info: HookInfo) = log.add "b"
 
     block:
       let bCmd = command("b", (), action = bAction, help = "")
@@ -1129,7 +1179,7 @@ suite "Messages":
     # --help now parses after `before`, so a mutation made there is visible
     # in this level's own help output too, not only a nested command's.
     let settings = newSpecSettings(maxVariantsWidth = 0)
-    proc widenColumn(spec: tuple) = settings.maxVariantsWidth = 100
+    proc widenColumn(spec: tuple, info: HookInfo) = settings.maxVariantsWidth = 100
 
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"),
@@ -1773,8 +1823,8 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_PORT", "9090:9091:9092") # one more value than the two slots below need
     defer: delEnv("ARGUMINT_TEST_PORT")
     var log: seq[string]
-    proc outerBefore(spec: tuple) = log.add "outer-before"
-    proc outerAfter(spec: tuple) = log.add "outer-after"
+    proc outerBefore(spec: tuple, info: HookInfo) = log.add "outer-before"
+    proc outerAfter(spec: tuple, info: HookInfo) = log.add "outer-after"
 
     let inner = (
       port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
@@ -2028,7 +2078,7 @@ suite "Config Source":
     # (architecture.md's "Env var mechanics"). The mutation *is* visible to
     # a later, separate parse() call reusing the same held SpecSettings.
     let settings = newSpecSettings()
-    proc addLocalSource(spec: tuple) =
+    proc addLocalSource(spec: tuple, info: HookInfo) =
       settings.configSources.add fakeSource((configKey("port"), @["9090"]))
 
     let inner = (
