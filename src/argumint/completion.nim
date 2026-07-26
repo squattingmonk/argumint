@@ -50,7 +50,35 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
     of fish:
       fmt"""
       function __{binaryName}_complete
-        {binaryName} __complete (commandline -opc) (commandline -ct)
+        # `commandline -opc`, unlike bash's $COMP_WORDS or zsh's $words,
+        # includes the invoked command name itself as its first element --
+        # drop it the same way the bash/zsh branches above do via
+        # `[@]:1`, or it leaks into every __complete call as a bogus
+        # leading word.
+        set -l tokens (commandline -opc)
+        set -l cur (commandline -ct)
+        # Unlike bash's $COMP_WORDBREAKS, fish never splits an =/:-joined
+        # option+value into two words on its own (argumint accepts either
+        # separator -- see OptionalVariantFormat), so a pending
+        # "--opt=<TAB>"/"--opt:<TAB>" would otherwise arrive as one opaque,
+        # unmatchable word. Split it by hand into the bare option name and
+        # its (possibly empty) pending value.
+        if string match -qr '^-[^=:]*[=:]' -- $cur
+          set -l name (string replace -r '[=:].*' '' -- $cur)
+          set -l prefix (string replace -r '^([^=:]*[=:]).*' '$1' -- $cur)
+          set -l value (string replace -r '^[^=:]*[=:]' '' -- $cur)
+          # fish's own -a candidate filter compares each returned line
+          # literally against $cur (the whole "--opt=" token typed so
+          # far), not just the value -- unlike bash/zsh, which isolate
+          # the value automatically. Re-prepend the option+separator so
+          # a bare value candidate like "debug" survives that filter as
+          # "--opt=debug".
+          for candidate in ({binaryName} __complete $tokens[2..-1] $name $value)
+            echo "$prefix$candidate"
+          end
+        else
+          {binaryName} __complete $tokens[2..-1] $cur
+        end
       end
       complete -c {binaryName} -f -a '(__{binaryName}_complete)'
       """
