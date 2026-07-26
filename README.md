@@ -74,6 +74,10 @@ typed fields — no stringly-typed lookup by flag name.
 - **Env var fallback** — an option or flag can fall back to an environment
   variable (including multi-value, delimiter-aware fallback) when not given
   on the command line.
+- **Config Source fallback** — an option or flag can also fall back to a
+  registered, read-only Config Source (built-in INI/JSON adapters, or your
+  own) below env vars and above the coded default. See
+  `examples/config_bootstrap.nim`.
 - **Auto-generated, wrapped help** — usage lines and per-arg help text are
   generated from the spec and wrapped to a configurable width; `[default:
   ...]` and validator constraints are folded into the help text
