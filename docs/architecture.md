@@ -16,15 +16,17 @@ Each arg is indexed into `spec.arguments` (positional, keyed by `<name>`),
 (subcommands, keyed by the command word). If no `usage` string is given, one
 is auto-generated from the declared args (see "autoFillUsage" below).
 
-## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`)
+## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`/`fsmgraph.nim`)
 
 The usage string (e.g. `[-r] <src>... <dest>`) is tokenized by `SpecLexer`
 and recursively-descent parsed (`atom`/`sequence`/`choice` in `parser.nim`)
-into a graph of `State`/`Transition` objects. Each token becomes a `Matcher`
+into a graph of `State`/`Transition` objects (their data model lives in
+`backend.nim`; the construction/simplification operations below live in
+`fsmgraph.nim`). Each token becomes a `Matcher`
 (`Argument`, `Option`, `Options`, `Command`, `OptsEnd` for a usage-string
 End-of-Options Marker (`--`) -- see
 `docs/adr/0020-usage-string-end-of-options-marker.md` -- or `Shortcut` for
-optional/repeated branches). `backend.prepare` (`simplify` +
+optional/repeated branches). `fsmgraph.prepare` (`simplify` +
 `sortTransitions`) collapses shortcut chains and orders transitions by
 matcher priority (`ord(MatcherKind)`) so, e.g., positional args aren't
 greedily consumed ahead of options. `simplify` collapses shortcuts via an
@@ -473,7 +475,7 @@ something nested inside it fails, with no explicit bookkeeping. See
 ## `autoFillUsage`
 
 `newSpec` builds the FSM first, then calls `autoFillUsage` to patch any
-gaps: it uses `backend.referencedArgs` to collect every `Arg` actually
+gaps: it uses `fsmgraph.referencedArgs` to collect every `Arg` actually
 referenced by a matcher, then appends usage lines for whatever isn't
 reachable. Rather than rebuilding the FSM from scratch a second time (which
 would re-lex/re-parse every line, including ones already built moments

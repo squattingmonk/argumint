@@ -124,7 +124,7 @@ inside a template.
 
 - **`hash(x: ref T)` requires `-d:nimPreviewHashRef`.** `HashSet[State]`/
   `Table[State, ...]` (used by `collectFrontier`, and pre-existing in
-  `backend.nim`'s `terminals`/`collectArgs`/`sortTransitions`) only compile
+  `fsmgraph.nim`'s `terminals`/`collectArgs`/`sortTransitions`) only compile
   because `config.nims` sets this flag project-wide (see CLAUDE.md). A
   scratch file compiled *outside* this project's directory tree (e.g. in
   `/tmp`) won't pick up `config.nims` automatically and fails with a
@@ -172,7 +172,7 @@ inside a template.
   `spec.fsm` *after* `genFsm`'s own `prepare()`/`simplify()` pass has
   already folded a fully-skippable usage line (e.g. `[-- <arg>...]`) down
   into `root.terminal = true` with its Shortcut "skip" edge removed
-  entirely (`simplifySelf`, `backend.nim`) -- at that point `root.terminal`
+  entirely (`simplifySelf`, `fsmgraph.nim`) -- at that point `root.terminal`
   is no longer stale bookkeeping, it's an earned fact with no other trace of
   it left in the graph to rediscover. Unconditionally recomputing from
   `transitions.len` alone clobbers that fact back to `false` the moment any

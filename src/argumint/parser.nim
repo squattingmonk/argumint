@@ -4,7 +4,7 @@
 
 import std/[pegs, sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, lexer]
+import ./[backend, fsmgraph, lexer]
 export lexer.SpecDefect
 
 type

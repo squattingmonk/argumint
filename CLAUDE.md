@@ -64,10 +64,11 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    assembles them into a `Spec` (`backend.nim`), auto-generating a usage
    string from the declared args if none was given.
 2. **Usage-string compilation → FSM** (`lexer.nim` → `parser.nim` →
-   `backend.nim`): the usage string is tokenized and recursively-descent
-   parsed into a graph of `State`/`Transition` objects, one `Matcher` per
-   token kind (`Argument`, `Option`, `Options`, `Command`, `OptsEnd`,
-   `Shortcut`).
+   `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
+   recursively-descent parsed into a graph of `State`/`Transition` objects
+   (data model in `backend.nim`, graph construction/simplification in
+   `fsmgraph.nim`), one `Matcher` per token kind (`Argument`, `Option`,
+   `Options`, `Command`, `OptsEnd`, `Shortcut`).
 3. **Runtime matching** (`fsm.nim`): command-line args are tokenized and
    walked against the FSM with backtracking, then a post-walk sweep applies
    any configured environment-variable fallbacks.

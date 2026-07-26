@@ -18,7 +18,7 @@
 
 import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
-import ./argumint/[backend, completion, configsource, dot, flagclamp, fsm, parser, validators]
+import ./argumint/[backend, completion, configsource, dot, flagclamp, fsm, fsmgraph, parser, validators]
 
 export completion.Shell
 

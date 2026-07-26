@@ -8,7 +8,7 @@ import std/[editdistance, os, pegs, sets, strformat, strutils, sugar, tables]
 # file -- see docs/gotchas.md.
 from std/options import some, none, isSome, get
 
-import ./[backend, configsource, parser]
+import ./[backend, configsource, fsmgraph, parser]
 export ParseError, SpecDefect, CompletionError
 
 
