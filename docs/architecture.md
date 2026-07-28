@@ -552,12 +552,31 @@ map `match`'s `Option`/`Options` branches themselves resolve against), not
 (`opt`/`opts`), still carries any declaration-time `=<placeholder>` suffix
 used only for help-text rendering.
 
+Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
+a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
+`help` is populated only for an Arg's own name (option/flag/command
+candidates, via `fsm.describeVariants`), never for one of its enumerated
+*values* (an `Argument` matcher's `completions()`, or a pending option's
+own `completions()`), which always carry `help == ""` — there's no
+per-value description in the data model to draw from. `describeVariants`
+sources each variant's description from `Arg.variantDesc(variant)`
+(`backend.nim`) when an Arg's variants genuinely diverge in what they do
+(e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
+back to the Arg's shared `.help` otherwise — mirroring `argumint.
+variantGroups`'s own grouping rule (used by `genHelp`) so completion's
+descriptions agree with what help text would actually show.
+
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell
 adapter (`Shell = bash | zsh | fish`) that just shells out to
-`<binaryName> __complete <words...>` and feeds newline-separated stdout
-into that shell's own reply mechanism — it needs almost nothing about the
-`Spec`'s own contents, since completion is resolved dynamically by the
-binary itself. `parseOrQuit*` gives `CompletionError` (a `MessageError`
+`<binaryName> __complete <words...>` and feeds stdout into that shell's own
+reply mechanism — it needs almost nothing about the `Spec`'s own contents,
+since completion is resolved dynamically by the binary itself. Stdout is
+one candidate per line, each `"value\thelp"` (`help` possibly empty, tab
+always present); fish and zsh render `help` in their own completion menu
+(fish natively, since a tab-separated line is its own candidate+description
+convention; zsh via `compadd -d`), while bash — which has no per-candidate
+description slot at all — strips it before building its word list. See ADR
+0022 for why. `parseOrQuit*` gives `CompletionError` (a `MessageError`
 peer of `HelpError`) its own `echo`-based handling rather than reusing the
 shared `except MessageError as e: quit(e.msg, QuitSuccess)` branch: `quit`'s
 non-nimscript/js implementation writes to stderr, not stdout, which a shell

@@ -407,6 +407,17 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
       else:
         collectFrontier(tr.next, fresh, acc, seen)
 
+type
+  CompletionCandidate* = tuple[value: string, help: string]
+    ## One shell-completion candidate -- `value` is the literal word offered,
+    ## `help` is a short description (possibly `""`) for shells that can
+    ## render one (fish, zsh) -- see `docs/adr/0022-completion-candidate-
+    ## help-text.md`. `help` is only ever non-empty for an Arg's own name
+    ## (option/flag/command); a *value* candidate (an enumerable
+    ## positional's or Choice validator's own values) always carries `""`,
+    ## since there's no per-value description in the data model to draw
+    ## from -- see architecture.md §6.
+
 proc bareVariants(spec: Spec, arg: Arg): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
   ## `arg` (e.g. "--log-level", never "--log-level=<level>"). Reads
@@ -420,28 +431,61 @@ proc bareVariants(spec: Spec, arg: Arg): seq[string] =
   for k, v in spec.options:
     if v == arg: result.add k
 
-proc candidateWords(frontier: Frontier, prefix: string): seq[string] =
+proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate] =
+  ## Pairs each of `arg`'s own `variants` with its most useful description.
+  ## `arg.variantDesc(v)` (e.g. a flag's auto-generated "Increase by 5", or
+  ## a `variantHelp` override -- see `flag*`) is only trusted when `arg`'s
+  ## variants genuinely diverge in what they do, i.e. `variantDesc` returns
+  ## more than one distinct value across them; otherwise every variant
+  ## shares `arg.help`. This mirrors `argumint.variantGroups`'s own
+  ## "collapse to one group whenever every variant agrees" rule (used by
+  ## `genHelp`) -- without it, an ordinary flag with no divergent variants
+  ## (e.g. a bare bool `flag("--verbose", help = "Be noisy")`) would show
+  ## its type's auto-generated blank-op description ("Toggle the value")
+  ## instead of its own `help`, since `variantDesc`'s base case for a
+  ## non-divergent flag still returns that blank description, not `""`.
+  var descs: seq[string]
+  for v in variants:
+    descs.add arg.variantDesc(v)
+  let divergent = descs.toHashSet.len > 1
+  for i, v in variants:
+    let desc = descs[i]
+    result.add (v, if divergent and desc.len > 0: desc else: arg.help)
+
+proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
+    candidates: openArray[CompletionCandidate], prefix: string) =
+  ## Appends each of `candidates` whose `.value` starts with `prefix` and
+  ## hasn't already been seen (via `seen`, keyed on `.value` alone) into
+  ## `result`, preserving first-seen-wins order -- the dedup rule shared by
+  ## `candidateWords` and `completeArgs*`'s own pending-value branch.
+  for c in candidates:
+    if c.value.startsWith(prefix) and c.value notin seen:
+      seen.incl c.value
+      result.add c
+
+proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate] =
   ## Reads every live frontier state's own outgoing transitions for literal
   ## next-word spellings (option/flag variants, command variants, or an
   ## enumerable positional's `completions()`), keeping only ones starting
   ## with `prefix` and deduplicating while preserving first-seen (== FSM
   ## priority/declaration) order.
+  var seen: HashSet[string]
   for (state, pc) in frontier:
     for tr in state.transitions:
       let candidates =
         case tr.matcher.kind
-        of Option: pc.spec.bareVariants(tr.matcher.opt)
+        of Option: describeVariants(tr.matcher.opt, pc.spec.bareVariants(tr.matcher.opt))
         of Options:
           collect:
             for opt in tr.matcher.opts:
-              for v in pc.spec.bareVariants(opt): v
-        of Command: tr.matcher.cmd.variants
-        of Argument: tr.matcher.arg.completions()
-        of OptsEnd: newSeq[string]() # invisible -- see ADR 0020 point 8
-        of Shortcut: newSeq[string]()
-      for c in candidates:
-        if c.startsWith(prefix) and c notin result:
-          result.add c
+              for c in describeVariants(opt, pc.spec.bareVariants(opt)): c
+        of Command: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
+        of Argument:
+          collect:
+            for v in tr.matcher.arg.completions(): (v, "")
+        of OptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
+        of Shortcut: newSeq[CompletionCandidate]()
+      result.addUnseen(seen, candidates, prefix)
 
 proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
   ## Every distinct `Optional`-kind (value-taking, not `Flag`) Arg reachable
@@ -462,7 +506,7 @@ proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
           seenArgs.incl arg
           result.add arg
 
-proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string] =
+proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
   ## Returns shell-completion candidates for `words` -- everything typed
   ## after the `__complete` marker (see `parse*`). The last element of
   ## `words` is the word currently being completed (possibly `""` if the
@@ -470,7 +514,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
   ## earlier element is already complete. Never raises -- an unparseable
   ## prefix simply yields no candidates (`collectFrontier` just finds no
   ## live transitions for it), leaving the shell's own file-completion
-  ## fallback to take over. See `docs/adr/0012-fsm-driven-shell-completion.md`.
+  ## fallback to take over. See `docs/adr/0012-fsm-driven-shell-completion.md`
+  ## and `docs/adr/0022-completion-candidate-help-text.md`.
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
@@ -484,10 +529,11 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[string]
     collectFrontier(spec.fsm, pc, frontier, seen)
     let pending = frontier.pendingOptionalArgs(priorWords[^1])
     if pending.len > 0:
+      var seenValues: HashSet[string]
       for arg in pending:
-        for c in arg.completions():
-          if c.startsWith(wordBeingCompleted) and c notin result:
-            result.add c
+        let candidates = collect:
+          for c in arg.completions(): (c, "")
+        result.addUnseen(seenValues, candidates, wordBeingCompleted)
       return result
 
   # Case (a): ordinary "what word can come next" completion.
@@ -666,9 +712,13 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## `docs/adr/0012-fsm-driven-shell-completion.md`): short-circuits before
   ## any real FSM matching, env fallback, or dispatch (so no `before`/
   ## `action`/`after` hook fires), raising `CompletionError` with the
-  ## newline-joined candidates as its `msg`.
+  ## candidates as its `msg` -- one per line, each `"value\thelp"` (`help`
+  ## possibly empty, but the tab always present -- see
+  ## `docs/adr/0022-completion-candidate-help-text.md`).
   if args.len > 0 and args[0] == "__complete":
-    raise newException(CompletionError, spec.completeArgs(args[1 ..< args.len], command).join("\n"))
+    let lines = collect:
+      for c in spec.completeArgs(args[1 ..< args.len], command): "{c.value}\t{c.help}".fmt
+    raise newException(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(spec: spec, command: command, errorSpec: spec, errorCommand: command,
     tokens: tokenizeArgs(args))

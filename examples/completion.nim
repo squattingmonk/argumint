@@ -1,5 +1,6 @@
 # This example demonstrates argumint's dynamic, FSM-driven shell completion
-# (see docs/adr/0012-fsm-driven-shell-completion.md). Real completion
+# (see docs/adr/0012-fsm-driven-shell-completion.md and
+# docs/adr/0022-completion-candidate-help-text.md). Real completion
 # requests (`<binary> __complete <partial words...>`) are intercepted
 # automatically by `parseOrQuit*` -- nothing below handles `__complete`
 # itself. The two things an author wires up by hand:
@@ -34,6 +35,13 @@
 #   completion completion fish | source    # fish has no <() -- pipe into source
 #   completion --log-level=<TAB>           # debug info warn error
 #   completion dep<TAB>                    # deploy
+#
+# In a live fish or zsh shell (not bash, which has no way to render one),
+# each candidate's own `help = "..."` text shows up alongside it in the
+# completion menu -- e.g. TAB-completing `completion <TAB>` shows
+# "deploy  Deploy to an environment" and "completion  Print a completion
+# script for the given shell", not just the bare words. See
+# docs/adr/0022-completion-candidate-help-text.md.
 
 import std/strformat
 import std/strutils

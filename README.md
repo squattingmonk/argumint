@@ -84,7 +84,9 @@ typed fields — no stringly-typed lookup by flag name.
   automatically.
 - **Shell completion** — dynamic, FSM-driven `bash`/`zsh`/`fish` completion
   generated from the same spec that drives parsing, so completions can never
-  drift out of sync with what actually parses. See `examples/completion.nim`.
+  drift out of sync with what actually parses. `fish` and `zsh` also show
+  each candidate's help text inline as you complete it; `bash` has no
+  equivalent to render one into. See `examples/completion.nim`.
 
 ## Examples
 

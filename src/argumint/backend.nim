@@ -24,11 +24,13 @@ type
   MessageError* = object of CatchableError
   HelpError* = object of MessageError
   CompletionError* = object of MessageError
-    ## Carries the newline-joined shell-completion candidates for a
-    ## `__complete` request (see `fsm.parse*`). A peer of `HelpError`, not a
-    ## subtype of it -- reuses `parseOrQuit*`'s existing `except
-    ## MessageError as e: quit(e.msg, QuitSuccess)` branch for free. See
-    ## `docs/adr/0012-fsm-driven-shell-completion.md`.
+    ## Carries the shell-completion candidates for a `__complete` request
+    ## (see `fsm.parse*`) as its `msg`, one candidate per line, each
+    ## formatted `"value\thelp"` (`help` may be empty, but the tab is always
+    ## present -- see `docs/adr/0022-completion-candidate-help-text.md`). A
+    ## peer of `HelpError`, not a subtype of it -- reuses `parseOrQuit*`'s
+    ## existing `except MessageError as e: quit(e.msg, QuitSuccess)` branch
+    ## for free. See `docs/adr/0012-fsm-driven-shell-completion.md`.
 
   ArgKind* {.pure.} = enum
     Command ## A subcommand (e.g., `clone`)

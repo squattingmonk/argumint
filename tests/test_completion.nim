@@ -1,14 +1,24 @@
 # Tests for dynamic shell completion (`fsm.completeArgs*`, the `__complete`
 # entry point, and `completion.genCompletionScript*`) -- see
-# `docs/adr/0012-fsm-driven-shell-completion.md`.
+# `docs/adr/0012-fsm-driven-shell-completion.md` and
+# `docs/adr/0022-completion-candidate-help-text.md`.
 
-import std/[os, strutils, unittest]
+import std/[os, sequtils, strutils, unittest]
 
 import argumint
 import argumint/backend
 import argumint/completion
 import argumint/fsm
 import argumint/validators
+
+proc values(candidates: seq[CompletionCandidate]): seq[string] =
+  candidates.mapIt(it.value)
+
+proc find(candidates: seq[CompletionCandidate], value: string): CompletionCandidate =
+  for c in candidates:
+    if c.value == value:
+      return c
+  raise newException(ValueError, "no candidate named " & value)
 
 suite "Option/value completion":
   let spec = (
@@ -18,16 +28,20 @@ suite "Option/value completion":
   let built = newSpec(spec, usage = "[options]")
 
   test "an option's bare name is offered, not its declared placeholder suffix":
-    check built.completeArgs(@["--lo"], "prog") == @["--log-level"]
+    check built.completeArgs(@["--lo"], "prog").values == @["--log-level"]
 
   test "a pending option's value is completed from its Choice validator":
-    check built.completeArgs(@["--log-level", ""], "prog") == @["debug", "info", "warn", "error"]
+    check built.completeArgs(@["--log-level", ""], "prog").values == @["debug", "info", "warn", "error"]
 
   test "a pending option's value completion is prefix-filtered":
-    check built.completeArgs(@["--log-level", "d"], "prog") == @["debug"]
+    check built.completeArgs(@["--log-level", "d"], "prog").values == @["debug"]
+
+  test "a pending option's value completion carries no help text":
+    for c in built.completeArgs(@["--log-level", ""], "prog"):
+      check c.help == ""
 
   test "a Flag never triggers pending-value completion, even mid-command-line":
-    let result = built.completeArgs(@["--amend", ""], "prog")
+    let result = built.completeArgs(@["--amend", ""], "prog").values
     check "--log-level" in result
     check "--amend" in result
     # if --amend had wrongly been treated as pending a value, this would
@@ -35,7 +49,7 @@ suite "Option/value completion":
     check "debug" notin result
 
   test "an unrecognized already-typed word yields no candidates, never raises":
-    check built.completeArgs(@["--unknown", ""], "prog") == newSeq[string]()
+    check built.completeArgs(@["--unknown", ""], "prog") == newSeq[CompletionCandidate]()
 
 suite "End-of-Options Marker is invisible to completion":
   test "-- is never offered as a candidate, even right at the marker's own position":
@@ -49,8 +63,8 @@ suite "End-of-Options Marker is invisible to completion":
     # neither `--verbose` completions nor `--` itself should ever include
     # a bare "--" candidate, since typing it is never required (ADR 0020
     # point 8).
-    check "--" notin built.completeArgs(@[""], "prog")
-    check "--" notin built.completeArgs(@["--verbose", ""], "prog")
+    check "--" notin built.completeArgs(@[""], "prog").values
+    check "--" notin built.completeArgs(@["--verbose", ""], "prog").values
 
 suite "Command completion and subcommand descent":
   let add = (
@@ -68,16 +82,16 @@ suite "Command completion and subcommand descent":
   let built = newSpec(spec)
 
   test "a command's variant is offered by prefix":
-    check built.completeArgs(@["comm"], "prog") == @["commit"]
+    check built.completeArgs(@["comm"], "prog").values == @["commit"]
 
   test "nothing typed yet offers every top-level option/command":
-    let result = built.completeArgs(@[""], "prog")
+    let result = built.completeArgs(@[""], "prog").values
     check "--verbose" in result
     check "add" in result
     check "commit" in result
 
   test "descends into a matched subcommand's own spliced FSM automatically":
-    check built.completeArgs(@["commit", "--am"], "prog") == @["--amend"]
+    check built.completeArgs(@["commit", "--am"], "prog").values == @["--amend"]
 
 suite "A Command name shadowing a positional value stays live for completion":
   # ADR 0019: "ship" is a declared command name, but the "<file>" Usage
@@ -95,7 +109,7 @@ suite "A Command name shadowing a positional value stays live for completion":
   let built = newSpec(spec, usage = "ship\n<file> [--verbose]")
 
   test "completion after \"ship\" offers both the nested command's own candidates and what follows a literal <file> value":
-    let result = built.completeArgs(@["ship", ""], "prog")
+    let result = built.completeArgs(@["ship", ""], "prog").values
     check "titanic" in result
     check "bismarck" in result
     check "--verbose" in result
@@ -111,15 +125,15 @@ suite "Catch-all repeatability and cycle safety":
   let built = newSpec(spec, usage = "--verbose [options]")
 
   test "the required option is offered first":
-    check built.completeArgs(@[""], "prog") == @["--verbose"]
+    check built.completeArgs(@[""], "prog").values == @["--verbose"]
 
   test "a catch-all-only option keeps being offered, and doesn't hang":
-    check built.completeArgs(@["--verbose", ""], "prog") == @["--moored"]
-    check built.completeArgs(@["--verbose", "--moored", ""], "prog") == @["--moored"]
-    check built.completeArgs(@["--verbose", "--moored", "--moored", ""], "prog") == @["--moored"]
+    check built.completeArgs(@["--verbose", ""], "prog").values == @["--moored"]
+    check built.completeArgs(@["--verbose", "--moored", ""], "prog").values == @["--moored"]
+    check built.completeArgs(@["--verbose", "--moored", "--moored", ""], "prog").values == @["--moored"]
 
   test "an already-consumed, explicitly-named non-repeatable option stops appearing":
-    let result = built.completeArgs(@["--verbose", "--moored", ""], "prog")
+    let result = built.completeArgs(@["--verbose", "--moored", ""], "prog").values
     check "--verbose" notin result
 
 suite "Env-var fallback during completion":
@@ -130,17 +144,60 @@ suite "Env-var fallback during completion":
   let built = newSpec(spec, usage = "--port=<port> [--other]")
 
   test "without env, only the still-required option is offered":
-    check built.completeArgs(@[""], "prog") == @["--port"]
+    check built.completeArgs(@[""], "prog").values == @["--port"]
 
   test "with env satisfying the required option, completion advances past it":
     putEnv("ARGUMINT_TEST_COMPLETION_PORT", "9090")
     try:
-      check "--other" in built.completeArgs(@[""], "prog")
+      check "--other" in built.completeArgs(@[""], "prog").values
     finally:
       delEnv("ARGUMINT_TEST_COMPLETION_PORT")
 
+suite "Completion candidates carry help text":
+  test "an option's completion candidate carries its help text":
+    let spec = (
+      logLevel: opt("--log-level=<level>", help = "Logging verbosity"),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    check built.completeArgs(@[""], "prog").find("--log-level").help == "Logging verbosity"
+
+  test "a flag's completion candidate carries its help text":
+    let spec = (
+      verbose: flag("--verbose", help = "Be noisy"),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    check built.completeArgs(@[""], "prog").find("--verbose").help == "Be noisy"
+
+  test "a command's completion candidate carries its help text":
+    let sub = (files: args[string]("<file>"))
+    let spec = (
+      add: command("add", sub, help = "Add files to the index"),
+    )
+    let built = newSpec(spec)
+    check built.completeArgs(@[""], "prog").find("add").help == "Add files to the index"
+
+  test "a flag with divergent per-variant ops carries each variant's own variantDesc, not its shared help":
+    let spec = (
+      rank: flag[int]("--boost+=5, --dampen-=2", default = 0, help = "Adjust rank"),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    let candidates = built.completeArgs(@[""], "prog")
+    check candidates.find("--boost").help == "Increase by 5"
+    check candidates.find("--dampen").help == "Decrease by 2"
+
+  test "an option's own help never leaks onto its Choice-validator value candidates":
+    let spec = (
+      logLevel: opt("--log-level=<level>", help = "Logging verbosity",
+        validator = choice(["debug", "info", "warn", "error"])),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    let candidates = built.completeArgs(@["--log-level", ""], "prog")
+    check candidates.len > 0
+    for c in candidates:
+      check c.help == ""
+
 suite "__complete entry point":
-  test "raises CompletionError with newline-joined candidates and fires no hooks":
+  test "raises CompletionError with tab-separated candidate/help lines and fires no hooks":
     var hookFired = false
     let spec = (
       logLevel: opt("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
@@ -155,8 +212,20 @@ suite "__complete entry point":
       built.parse(args = @["__complete", "--lo"], command = "test")
     except CompletionError as e:
       caught = e.msg
-    check caught == "--log-level"
+    check caught == "--log-level\t"
     check not hookFired
+
+  test "a candidate's help text rides along after its own tab":
+    let spec = (
+      logLevel: opt("--log-level=<level>", help = "Logging verbosity"),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    var caught = ""
+    try:
+      built.parse(args = @["__complete", "--lo"], command = "test")
+    except CompletionError as e:
+      caught = e.msg
+    check caught == "--log-level\tLogging verbosity"
 
 suite "genCompletionScript":
   let spec = (
@@ -169,3 +238,9 @@ suite "genCompletionScript":
       let script = built.completionScript(shell, "mycli")
       check "mycli" in script
       check "__complete" in script
+
+  test "bash strips help text before offering candidates, since it has no description slot":
+    check "cut -f1" in built.completionScript(bash, "mycli")
+
+  test "zsh renders help text via compadd -d":
+    check "compadd -d" in built.completionScript(zsh, "mycli")
