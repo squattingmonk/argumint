@@ -19,10 +19,17 @@ work, without hand-written validation code.
 
 ## Installation
 
-argumint uses [Atlas](https://github.com/nim-lang/atlas) for dependency
-management rather than a classic `nimble.lock`. From your project's root:
+argumint is available on [Nimble's package
+list](https://github.com/nim-lang/packages):
 
+```shell
+nimble install argumint
 ```
+
+If you'd rather use [Atlas](https://github.com/nim-lang/atlas) for dependency
+management:
+
+```shell
 atlas use https://github.com/squattingmonk/argumint
 ```
 
@@ -45,7 +52,7 @@ for file in spec.src:
   echo fmt"Copying {file} to {spec.dest} (recursive: {spec.recursive})"
 ```
 
-```
+```shell
 $ ./cp -r foo.txt bar.txt dest/
 Copying foo.txt to dest/ (recursive: true)
 Copying bar.txt to dest/ (recursive: true)
