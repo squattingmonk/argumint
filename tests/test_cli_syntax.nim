@@ -114,7 +114,7 @@ suite "-- end of options":
   test "arguments after -- are positional even if they look like options":
     let spec = (
       verbose: flag("--verbose", help = ""),
-      files: args[string]("<file>", help = ""),
+      files: args("<file>", help = ""),
     )
     spec.parse(usage = "[--verbose] [<file>...]", args = @["--verbose", "--", "-x", "--verbose", "file.txt"], command = "prog")
     check spec.verbose == true
@@ -127,7 +127,7 @@ suite "Usage-string End-of-Options Marker":
     # at a shared state) -- see docs/adr/0020-usage-string-end-of-options-marker.md point 3.
     let spec = (
       verbose: flag("--verbose", help = ""),
-      files: args[string]("<file>", help = ""),
+      files: args("<file>", help = ""),
     )
     spec.parse(usage = "[options] -- <file>...", args = @["--verbose", "file.txt"], command = "prog")
     check spec.verbose == true
@@ -136,7 +136,7 @@ suite "Usage-string End-of-Options Marker":
   test "a literal -- still forces the split even with a real matcher declared before the marker":
     let spec = (
       verbose: flag("--verbose", help = ""),
-      files: args[string]("<file>", help = ""),
+      files: args("<file>", help = ""),
     )
     spec.parse(usage = "[options] -- <file>...", args = @["--", "--verbose", "file.txt"], command = "prog")
     check spec.verbose == false
@@ -145,7 +145,7 @@ suite "Usage-string End-of-Options Marker":
   test "the marker forces the split unconditionally, even with nothing else competing for the token":
     let spec = (
       name: arg("<name>", help = ""),
-      rest: args[string]("<rest>", help = ""),
+      rest: args("<rest>", help = ""),
     )
     spec.parse(usage = "<name> -- <rest>...", args = @["x", "--verbose", "y"], command = "prog")
     check spec.name == "x"
@@ -162,7 +162,7 @@ suite "Usage-string End-of-Options Marker":
     # new grammar-level Matcher.
     let spec = (
       a: arg("<a>", help = ""),
-      rest: args[string]("<rest>", help = ""),
+      rest: args("<rest>", help = ""),
     )
     spec.parse(usage = "<a> -- <rest>...", args = @["foo", "--", "bar", "--", "baz"], command = "prog")
     check spec.a == "foo"
@@ -241,7 +241,7 @@ suite "An option-shaped token unrecognized by one alternative can still match a 
     # alternative accept it as literal text instead.
     let spec = (
       verbose: flag("--verbose", help = ""),
-      raw: args[string]("<raw>", help = ""),
+      raw: args("<raw>", help = ""),
     )
     spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog")
     check spec.raw == @["-x"]

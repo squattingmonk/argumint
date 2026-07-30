@@ -40,7 +40,7 @@ proc expandFlagfiles(args: seq[string]): seq[string] =
   result = expand(args)
 
 let spec = (
-  src: args[string]("<src>", help = "The source file(s) to copy"),
+  src: args("<src>", help = "The source file(s) to copy"),
   dest: arg("<dest>", help = "The destination to copy to"),
   recursive: flag("-r, --recursive", help = "Whether to recurse into subdirectories"),
   help: help()

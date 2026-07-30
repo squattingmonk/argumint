@@ -55,7 +55,7 @@ suite "End-of-Options Marker is invisible to completion":
   test "-- is never offered as a candidate, even right at the marker's own position":
     let spec = (
       verbose: flag("--verbose"),
-      files: args[string]("<file>"),
+      files: args("<file>"),
     )
     let built = newSpec(spec, usage = "[options] -- <file>...")
     # Right after [options] is exhausted, live states include both the
@@ -68,10 +68,10 @@ suite "End-of-Options Marker is invisible to completion":
 
 suite "Command completion and subcommand descent":
   let add = (
-    files: args[string]("<file>"),
+    files: args("<file>"),
   )
   let commit = (
-    message: arg[string]("<message>"),
+    message: arg("<message>"),
     amend: flag("--amend"),
   )
   let spec = (
@@ -99,11 +99,11 @@ suite "A Command name shadowing a positional value stays live for completion":
   # literal positional value -- completion after a fully-typed "ship"
   # should still explore both, not just the one Command descended into.
   let ship = (
-    name: arg[string]("<name>", validator = choice(["titanic", "bismarck"])),
+    name: arg("<name>", validator = choice(["titanic", "bismarck"])),
   )
   let spec = (
     ship: command("ship", ship, usage = "<name>"),
-    file: arg[string]("<file>"),
+    file: arg("<file>"),
     verbose: flag("--verbose"),
   )
   let built = newSpec(spec, usage = "ship\n<file> [--verbose]")
@@ -169,7 +169,7 @@ suite "Completion candidates carry help text":
     check built.completeArgs(@[""], "prog").find("--verbose").help == "Be noisy"
 
   test "a command's completion candidate carries its help text":
-    let sub = (files: args[string]("<file>"))
+    let sub = (files: args("<file>"))
     let spec = (
       add: command("add", sub, help = "Add files to the index"),
     )

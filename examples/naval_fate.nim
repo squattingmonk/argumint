@@ -50,7 +50,7 @@ proc cmdMineRemove(spec: tuple, info: HookInfo) =
 
 let
   shipNew = (
-    names: args[string]("<name>", help = "Name(s) of the new ship(s)"),
+    names: args("<name>", help = "Name(s) of the new ship(s)"),
     help: help()
   )
 

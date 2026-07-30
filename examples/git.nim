@@ -18,12 +18,12 @@ proc cmdCommit(spec: tuple, info: HookInfo) =
 
 let
   add = (
-    files: args[string]("<file>", help = "Files to stage"),
+    files: args("<file>", help = "Files to stage"),
     help: help(),
   )
 
   commit = (
-    message: arg[string]("<message>", help = "Commit message"),
+    message: arg("<message>", help = "Commit message"),
     amend: flag("--amend", help = "Amend the previous commit"),
     help: help(),
   )

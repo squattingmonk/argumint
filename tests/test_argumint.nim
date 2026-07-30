@@ -84,14 +84,14 @@ suite "Positional args":
 
   test "parse multiple values without corrupting earlier elements (ORC regression)":
     let spec = (
-      files: args[string]("<file>", help = ""),
+      files: args("<file>", help = ""),
     )
     spec.parse(usage = "<file>...", args = @["a", "b", "c", "d"], command = "prog")
     check spec.files == @["a", "b", "c", "d"]
 
   test "args[T] with no default given defaults to empty":
     let spec = (
-      files: args[string]("<file>", help = ""),
+      files: args("<file>", help = ""),
     )
     spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == newSeq[string]()
@@ -159,14 +159,14 @@ suite "Optional args":
 
   test "unique() end-to-end rejects a value repeated across two matches of the same multi-value option":
     let spec = (
-      tags: opts[string]("--tag=<tag>", validator = unique[string](), help = ""),
+      tags: opts("--tag=<tag>", validator = unique[string](), help = ""),
     )
     expect ValidationError:
       spec.parse(usage = "[--tag=<tag>]...", args = @["--tag=a", "--tag=a"], command = "prog")
 
   test "opts[T] with no default given defaults to empty":
     let spec = (
-      tags: opts[string]("--tag=<tag>", help = ""),
+      tags: opts("--tag=<tag>", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == newSeq[string]()
@@ -379,7 +379,7 @@ suite "[options] catch-all":
     check spec.verbosity == 3
 
   test "[options]... lets a catch-all-only multi-value opt accumulate":
-    let spec = (tags: opts[string]("--tag=<tag>", help = ""))
+    let spec = (tags: opts("--tag=<tag>", help = ""))
     spec.parse(usage = "[options]...", args = @["--tag=a", "--tag=b"], command = "prog")
     check spec.tags == @["a", "b"]
 
@@ -389,7 +389,7 @@ suite "[options] catch-all":
     check spec.verbosity == 3
 
   test "bare [options] (no ...) lets a catch-all-only multi-value opt accumulate":
-    let spec = (tags: opts[string]("--tag=<tag>", help = ""))
+    let spec = (tags: opts("--tag=<tag>", help = ""))
     spec.parse(usage = "[options]", args = @["--tag=a", "--tag=b"], command = "prog")
     check spec.tags == @["a", "b"]
 
@@ -684,7 +684,7 @@ suite "Commands":
     check log == @["on", "off"]
 
   test "the same Arg reachable at both an ancestor and a nested command's grammar gets each occurrence attributed to the right level":
-    let tag = opts[string]("--tag=<tag>", help = "")
+    let tag = opts("--tag=<tag>", help = "")
     let ship = (tag: tag)
     let spec = (
       tag: tag,
@@ -788,7 +788,7 @@ suite "Commands":
         ), usage = usage)
 
   test "a repeated non-Command atom is unaffected":
-    let spec = (names: args[string]("<name>", help = ""))
+    let spec = (names: args("<name>", help = ""))
     spec.parse(usage = "<name>...", args = @["a", "b", "c"], command = "prog")
     check spec.names == @["a", "b", "c"]
 
@@ -844,19 +844,19 @@ suite "End-of-Options Marker":
   test "a Positional Argument (bare or grouped) may follow -- without tripping the check":
     let spec = (
       name: arg("<name>", help = ""),
-      rest: args[string]("<rest>", help = ""),
+      rest: args("<rest>", help = ""),
     )
     spec.parse(usage = "<name> -- <rest>...", args = @["x", "y", "z"], command = "prog")
     check spec.name == "x"
     check spec.rest == @["y", "z"]
 
   test "bare -- <arg>... requires at least one arg after the marker":
-    let spec = (rest: args[string]("<rest>", help = ""))
+    let spec = (rest: args("<rest>", help = ""))
     expect ParseError:
       spec.parse(usage = "-- <rest>...", args = @[], command = "prog")
 
   test "[-- <arg>...] makes the whole marker-plus-args group skippable":
-    let spec = (rest: args[string]("<rest>", help = "", default = @["untouched"]))
+    let spec = (rest: args("<rest>", help = "", default = @["untouched"]))
     spec.parse(usage = "[-- <rest>...]", args = @[], command = "prog")
     check spec.rest == @["untouched"]
 
@@ -969,7 +969,7 @@ suite "Errors":
 
   test "a satisfied repeated positional isn't reported missing when a later arg is":
     let spec = (
-      src: args[string]("<src>", help = ""),
+      src: args("<src>", help = ""),
       dest: arg("<dest>", help = ""),
     )
     var caught = ""
@@ -1488,7 +1488,7 @@ suite "autoFillUsage":
     ## succeed via the first line's skip path in every case.
     block: # MessageArgs (help())
       let spec = (
-        rest: args[string]("<rest>", help = "", default = @["untouched"]),
+        rest: args("<rest>", help = "", default = @["untouched"]),
         help: help(),
       )
       spec.parse(usage = "[-- <rest>...]", args = @[], command = "prog")
@@ -1513,7 +1513,7 @@ suite "autoFillUsage":
 
     block: # standalone [options] fallback
       let spec = (
-        rest: args[string]("<rest>", help = "", default = @["untouched"]),
+        rest: args("<rest>", help = "", default = @["untouched"]),
         verbose: flag("--verbose", help = "", default = false),
       )
       spec.parse(usage = "[<rest>...]", args = @[], command = "prog")
@@ -1574,23 +1574,23 @@ suite "FSM shortcut cycles":
   # args -- see docs/gotchas.md and GitHub issue #4.
   test "two adjacent optional-and-repeated atoms in one usage line don't hang FSM construction":
     let spec = (
-      a: opts[string]("--av=<a>", help = ""),
-      b: opts[string]("--bv=<b>", help = ""),
+      a: opts("--av=<a>", help = ""),
+      b: opts("--bv=<b>", help = ""),
     )
     discard newSpec(spec, usage = "[--av=<a>]... [--bv=<b>]...")
 
   test "the first atom doesn't need its own repeat for the hang to occur":
     let spec = (
-      a: opt[string]("--av=<a>", default = "", help = ""),
-      b: opts[string]("--bv=<b>", help = ""),
+      a: opt("--av=<a>", default = "", help = ""),
+      b: opts("--bv=<b>", help = ""),
     )
     discard newSpec(spec, usage = "[--av=<a>] [--bv=<b>]...")
 
   test "three or more adjacent optional-and-repeated atoms don't hang":
     let spec = (
-      a: opts[string]("--av=<a>", help = ""),
-      b: opts[string]("--bv=<b>", help = ""),
-      c: opts[string]("--cv=<c>", help = ""),
+      a: opts("--av=<a>", help = ""),
+      b: opts("--bv=<b>", help = ""),
+      c: opts("--cv=<c>", help = ""),
     )
     discard newSpec(spec, usage = "[--av=<a>]... [--bv=<b>]... [--cv=<c>]...")
 
@@ -1600,8 +1600,8 @@ suite "FSM shortcut cycles":
     putEnv("ARGUMINT_TEST_SHORTCUT_B", "baz:qux")
     defer: delEnv("ARGUMINT_TEST_SHORTCUT_B")
     let spec = (
-      a: opts[string]("--av=<a>", env = "ARGUMINT_TEST_SHORTCUT_A", help = ""),
-      b: opts[string]("--bv=<b>", env = "ARGUMINT_TEST_SHORTCUT_B", help = ""),
+      a: opts("--av=<a>", env = "ARGUMINT_TEST_SHORTCUT_A", help = ""),
+      b: opts("--bv=<b>", env = "ARGUMINT_TEST_SHORTCUT_B", help = ""),
     )
     spec.parse(usage = "[--av=<a>]... [--bv=<b>]...", args = @[], command = "prog")
     check spec.a == @["foo", "bar"]
@@ -1757,7 +1757,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo:bar:baz")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+      tags: opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
@@ -1766,7 +1766,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo::bar")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+      tags: opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo", "", "bar"]
@@ -1775,7 +1775,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo:bar\x1ebaz:qux")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+      tags: opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo:bar", "baz:qux"]
@@ -1784,7 +1784,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo,bar,baz")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
+      tags: opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = newSpecSettings(envDelim = ","), args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
@@ -1793,7 +1793,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo;bar;baz")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
+      tags: opts("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
@@ -1804,8 +1804,8 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_B", "foo:bar")
     defer: delEnv("ARGUMINT_TEST_B")
     let spec = (
-      a: opts[string]("--av=<a>", env = env("ARGUMINT_TEST_A", ";"), help = ""),
-      b: opts[string]("--bv=<b>", env = "ARGUMINT_TEST_B", help = ""),
+      a: opts("--av=<a>", env = env("ARGUMINT_TEST_A", ";"), help = ""),
+      b: opts("--bv=<b>", env = "ARGUMINT_TEST_B", help = ""),
     )
     spec.parse(usage = "[--av=<a>]... [--bv=<b>]...", args = @[], command = "prog")
     check spec.a == @["foo", "bar"]
@@ -1815,7 +1815,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TAGS", "foo;bar\x1ebaz;qux")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
-      tags: opts[string]("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
+      tags: opts("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo;bar", "baz;qux"]
@@ -1824,7 +1824,7 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_TOKEN", "a:b\x1ec")
     defer: delEnv("ARGUMINT_TEST_TOKEN")
     let spec = (
-      token: opt[string]("--token=<token>", env = env("ARGUMINT_TEST_TOKEN", ""), help = ""),
+      token: opt("--token=<token>", env = env("ARGUMINT_TEST_TOKEN", ""), help = ""),
     )
     spec.parse(usage = "[--token=<token>]", args = @[], command = "prog")
     check spec.token == "a:b\x1ec"
@@ -1864,7 +1864,7 @@ suite "Environment variables":
   test "the same Arg reachable at both an ancestor and a nested command's grammar isn't double-applied from its env var":
     putEnv("ARGUMINT_TEST_TAGS", "foo")
     defer: delEnv("ARGUMINT_TEST_TAGS")
-    let tag = opts[string]("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = "")
+    let tag = opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = "")
     let ship = (tag: tag)
     let spec = (
       tag: tag,
@@ -2061,7 +2061,7 @@ suite "Config Source":
   test "opts: config supplies multiple values natively, no delimiter splitting involved":
     let settings = newSpecSettings(configSources = @[fakeSource((configKey("tags"), @["foo", "bar", "baz"]))])
     let spec = (
-      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+      tags: opts("--tag=<tag>", configKey = "tags", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
@@ -2089,7 +2089,7 @@ suite "Config Source":
 
   test "the same Arg reachable at both an ancestor and a nested command's grammar isn't double-applied from its config value":
     let settings = newSpecSettings(configSources = @[fakeSource((configKey("tags"), @["foo"]))])
-    let tag = opts[string]("--tag=<tag>", configKey = "tags", help = "")
+    let tag = opts("--tag=<tag>", configKey = "tags", help = "")
     let ship = (tag: tag)
     let spec = (
       tag: tag,
@@ -2115,7 +2115,7 @@ suite "Config Source":
       fakeSource((configKey("tags"), @["c"])),
     ])
     let spec = (
-      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+      tags: opts("--tag=<tag>", configKey = "tags", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
     check spec.tags == @["c"]
@@ -2193,7 +2193,7 @@ suite "Config Source":
     defer: removeFile(path)
     let settings = newSpecSettings(configSources = @[jsonConfigSource(path)])
     let spec = (
-      tags: opts[string]("--tag=<tag>", configKey = "tags", help = ""),
+      tags: opts("--tag=<tag>", configKey = "tags", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
