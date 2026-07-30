@@ -653,11 +653,15 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, false] =
-  ## Creates a positional argument with a value of type `T`.
+proc arg*[T: not seq](variants: string, default: T = default(T), help = "", group = "Arguments", hidden = false, validator: Validator[T] = noValidator[T]()): ValueArg[T, false] =
+  ## Creates a positional argument with a value of type `T`. If given, `default`
+  ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
+  ## bare-call overload below) unless set explicitly -- e.g. `arg[int]("<n>")`.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
-  ## - `default` is the default value of the argument if not given by the user.
+  ## - `default` is the default value of the argument if not given by the
+  ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
+  ##   `false`).
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -668,14 +672,20 @@ proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arg
   ##   given.
   ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator)
 
-proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, true] =
+proc arg*(variants: string, default: string = "", help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, false] =
+  ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
+  ## without an explicit bracket (e.g. `arg("<name>")`). See `arg[T]` above
+  ## for full parameter docs.
+  arg[string](variants, default, help, group, hidden, validator)
+
+proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", hidden = false, validator: Validator[T] = noValidator[T]()): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
+  ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
+  ## `string` (see the bare-call overload below) unless set explicitly.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value(s) of the argument if not given by the
-  ##   user; defaults to empty, so `args[string]("<src>", ...)` alone is
-  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
-  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
+  ##   user; defaults to an empty seq.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -686,12 +696,22 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   given.
   ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
-  ## Creates an optional argument with a value of type `T`.
+proc args*(variants: string, default: seq[string] = @[], help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, true] =
+  ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
+  ## without an explicit bracket (e.g. `args("<src>")`). See `args[T]` above
+  ## for full parameter docs.
+  args[string](variants, default, help, group, hidden, validator)
+
+proc opt*[T: not seq](variants: string, default: T = default(T), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
+  ## Creates an optional argument with a value of type `T`. If given, `default`
+  ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
+  ## bare-call overload below) unless set explicitly -- e.g. `opt[int]("-n")`.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
   ##   may optionally include a help var (e.g., `--option=<value>`).
-  ## - `default` is the default value of the option if not given by the user.
+  ## - `default` is the default value of the option if not given by the
+  ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
+  ##   `false`).
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -718,15 +738,21 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
   ##   above the coded default. See `docs/adr/0018-config-source.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, true] =
+proc opt*(variants: string, default: string = "", help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[string, false] =
+  ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
+  ## without an explicit bracket (e.g. `opt("--name")`). See `opt[T]` above
+  ## for full parameter docs.
+  opt[string](variants, default, help, group, hidden, validator, env, configKey)
+
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
+  ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
+  ## `string` (see the bare-call overload below) unless set explicitly.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
   ##   may optionally include a help var (e.g., `--option=<value>`).
   ## - `default` is the default value(s) of the option if not given by the
-  ##   user; defaults to empty, so `opts[string]("--src", ...)` alone is
-  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
-  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
+  ##   user; defaults to an empty seq.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -752,17 +778,25 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   `docs/adr/0018-config-source.md`.
   ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
+proc opts*(variants: string, default: seq[string] = @[], help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[string, true] =
+  ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
+  ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
+  ## for full parameter docs.
+  opts[string](variants, default, help, group, hidden, validator, env, configKey)
+
 macro getFlagOps(typeName: string): untyped =
   if $typeName notin flagOps:
     raise newException(SpecDefect, fmt"{typeName} is not a supported type for flags")
   result = flagOps[$typeName]
 
-proc flag*[T](variants: string, default: T = false, help = "", group = "Options",
+proc flag*[T](variants: string, default: T = default(T), help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
     variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource),
-    clamp: FlagClamp[T] = nil, configKey: ConfigKey = @[]): FlagArg[T] =
+    clamp: FlagClamp[T] = noClamp[T](), configKey: ConfigKey = @[]): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
-  ## instead changes value based on the seen variant.
+  ## instead changes value based on the seen variant. If given, `default` can
+  ## be used to infer `T`; otherwise, `T` defaults to `bool` (see the bare-call
+  ## overload below) unless set explicitly -- e.g. `flag[int]("--boost")`.
   ## - `variants` is a comma-separated list where each item takes the form
   ##   `<flag>[<op><value>]`, where:
   ##   - `<flag>` is in the format `-f` or `--flag`. This will be what the user
@@ -775,7 +809,8 @@ proc flag*[T](variants: string, default: T = false, help = "", group = "Options"
   ##     - `+=`: for int flags only, increments any existing value by `<value>`.
   ##     - `-=`: for int flags only, decrements any existing value by `<value>`.
   ##   - `<value>` is the value the flag represents
-  ## - `default` is the default value of the flag if not given by the user.
+  ## - `default` is the default value of the flag if not given by the user;
+  ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`).
   ## - `group` determines how flags are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   ## - `variantHelp` optionally overrides the auto-generated per-variant
@@ -999,6 +1034,19 @@ defineFlag bool, "Toggle the value":
   of "": value = not arg
   of "=": value = arg
   else: raise newException(SpecDefect, fmt"boolean flags only support = operations")
+
+# flag*(bool) lives here, not beside flag*[T] above, because its body calls
+# flag[bool](...) eagerly -- that instantiation needs "bool" already
+# registered in flagOps by the defineFlag call just above (see
+# docs/gotchas.md).
+proc flag*(variants: string, default: bool = false, help = "", group = "Options",
+    hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
+    variantValues: Table[string, bool] = initTable[string, bool](), env: Option[EnvSource] = none(EnvSource),
+    clamp: FlagClamp[bool] = noClamp[bool](), configKey: ConfigKey = @[]): FlagArg[bool] =
+  ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
+  ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
+  ## above for full parameter docs.
+  flag[bool](variants, default, help, group, hidden, variantHelp, variantValues, env, clamp, configKey)
 
 defineFlag int, "Increment by 1":
   ## Builds a flag handler for an integer. If `op` is blank, the default

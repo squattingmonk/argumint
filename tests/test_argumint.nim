@@ -103,6 +103,27 @@ suite "Positional args":
     spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == @["a", "b"]
 
+  test "arg() with no T and no default falls back to the bare-call string shorthand":
+    let spec = (
+      name: arg("<name>", help = ""),
+    )
+    spec.parse(usage = "[<name>]", args = @[], command = "prog")
+    check spec.name == ""
+
+  test "arg[T] with an explicit T and no default falls back to default(T)":
+    let spec = (
+      count: arg[int]("<n>", help = ""),
+    )
+    spec.parse(usage = "[<n>]", args = @[], command = "prog")
+    check spec.count == 0
+
+  test "args() with no T and no default falls back to the bare-call string shorthand":
+    let spec = (
+      files: args("<file>", help = ""),
+    )
+    spec.parse(usage = "[<file>...]", args = @[], command = "prog")
+    check spec.files == newSeq[string]()
+
 suite "Optional args":
   test "parse `--option=value` and validate it":
     let spec = (
@@ -157,6 +178,27 @@ suite "Optional args":
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["a", "b"]
 
+  test "opt() with no T and no default falls back to the bare-call string shorthand":
+    let spec = (
+      name: opt("--name=<name>", help = ""),
+    )
+    spec.parse(usage = "[--name=<name>]", args = @[], command = "prog")
+    check spec.name == ""
+
+  test "opt[T] with an explicit T and no default falls back to default(T)":
+    let spec = (
+      speed: opt[float]("--speed=<speed>", help = ""),
+    )
+    spec.parse(usage = "[--speed=<speed>]", args = @[], command = "prog")
+    check spec.speed == 0.0
+
+  test "opts() with no T and no default falls back to the bare-call string shorthand":
+    let spec = (
+      tags: opts("--tag=<tag>", help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == newSeq[string]()
+
 suite "Flags":
   test "bool flags toggle from their default":
     let spec = (
@@ -178,6 +220,27 @@ suite "Flags":
     )
     spec.parse(usage = "[--priority]", args = @["--priority"], command = "prog")
     check spec.p == high
+
+  test "flag[T] with an explicit T and no default falls back to default(T), same as arg/opt/args/opts":
+    let spec = (
+      verbosity: flag[int]("--verbose", help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
+    check spec.verbosity == 0
+
+  test "flag[T] with no default falls back to default(T) for a custom enum type too":
+    let spec = (
+      p: flag[Priority]("--priority=high", help = ""),
+    )
+    spec.parse(usage = "[--priority]", args = @[], command = "prog")
+    check spec.p == low
+
+  test "flag[bool](...) explicit bracket form works the same as the bare bool overload":
+    let spec = (
+      verbose: flag[bool]("--verbose", help = ""),
+    )
+    spec.parse(usage = "[--verbose]", args = @["--verbose"], command = "prog")
+    check spec.verbose == true
 
   test "SpecDefect raised when variantHelp references an unknown variant":
     expect SpecDefect:

@@ -13,6 +13,32 @@ inside a template.
   no-`default`-given scalar case. Distinct names sidestep overload resolution
   entirely; this mirrors the `defineArg`/`defineFlag` naming split below.
 
+- **A generic proc's defaulted parameter can be rescued for a bracket-less
+  call by a sibling non-generic overload -- but only if none of its *other*
+  defaulted parameters use a bare `nil` literal for a distinct generic
+  instantiation type.** `arg*`/`opt*`/`args*`/`opts*`'s `validator:
+  Validator[T] = nil` and `flag*`'s `clamp: FlagClamp[T] = nil` each need
+  `T` concretized just to build that parameter's *type* -- for a
+  bracket-less, no-`default` call, nothing else pins `T` down, so this
+  fails with a hard `cannot instantiate: 'T'` that aborts compilation
+  before overload resolution ever gets to prefer a matching non-generic
+  sibling proc, confirmed via scratch compile regardless of declaration
+  order. The fix is narrower than "avoid all `T`-dependent parameters",
+  though: `variantValues: Table[string, T] = initTable[string, T]()` is
+  never poisonous, because its default is a *call*, not a literal. Swapping
+  `nil` for a call-based equivalent -- `noValidator[T](): Validator[T] =
+  nil` (`argumint/validators`), `noClamp[T](): FlagClamp[T] = nil`
+  (`argumint/flagclamp`) -- removes the poison entirely, and a generic
+  proc (`default(T)`) plus a concrete sibling overload (e.g. `arg*`'s
+  bare-string form, `flag*`'s bare-bool form) then correctly resolves the
+  bracket-less call to the concrete overload. See
+  `docs/adr/0024-flag-arg-opt-default-t-and-bare-call.md`.
+  One more wrinkle specific to `flag*`: its bare-bool overload's body calls
+  `flag[bool](...)` eagerly, which needs `"bool"` already registered in the
+  compile-time `flagOps` table by `defineFlag bool, ...` -- so that overload
+  has to be declared textually *after* that `defineFlag` call, not next to
+  `flag*[T]` up with the other constructors.
+
 - **`defineArg`/`defineFlag`/`defineFlagArg` are three separately-named
   templates, not one template overloaded three ways**, even though
   `defineArg[T](typeName, flagHandler)` and `defineFlag[T](typeName,

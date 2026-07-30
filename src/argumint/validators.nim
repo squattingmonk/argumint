@@ -38,6 +38,11 @@ type
     of vkAll, vkAny:
       validators: seq[Validator[T]]
 
+proc noValidator*[T](): Validator[T] = nil
+  ## A call-based `nil` `Validator[T]`, for constructors that need `T`
+  ## resolvable without a bracket -- a bare `nil` literal default doesn't
+  ## work there. See `docs/gotchas.md`.
+
 proc choice*[T](choices: openArray[T], desc = ""): Validator[T] =
   ## Returns a `Validator` that checks if a value is in `choices`. `desc`,
   ## if given, is shown instead of the auto-generated help/failure text

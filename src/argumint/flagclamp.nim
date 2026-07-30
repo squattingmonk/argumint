@@ -19,6 +19,11 @@ type
     of fckAdjust:
       adjustProc: proc (v: T): T
 
+proc noClamp*[T](): FlagClamp[T] = nil
+  ## A call-based `nil` `FlagClamp[T]`, for constructors that need `T`
+  ## resolvable without a bracket -- a bare `nil` literal default doesn't
+  ## work there. See `docs/gotchas.md`.
+
 proc clamp*[T](bounds: Slice[T], desc = ""): FlagClamp[T] =
   ## Returns a `FlagClamp` that pins a Flag's value to `bounds` after every
   ## Flag Operation, silently -- never raises. Requires `T` to support `<`
