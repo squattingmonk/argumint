@@ -653,11 +653,15 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, false] =
-  ## Creates a positional argument with a value of type `T`.
+proc arg*[T: not seq](variants: string, default: T = default(T), help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, false] =
+  ## Creates a positional argument with a value of type `T`. If given, `default`
+  ## can be used to infer `T`; otherwise, `T` must be set explicitly.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
-  ## - `default` is the default value of the argument if not given by the user.
+  ## - `default` is the default value of the argument if not given by the
+  ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
+  ##   `false`), so `T` must be given explicitly if it can't be inferred from
+  ##   `default` -- e.g. either `arg[int]("<n>")` or `arg("<n>", default = 0)`.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -670,12 +674,13 @@ proc arg*[T: not seq](variants: string, default: T = "", help = "", group = "Arg
 
 proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", hidden = false, validator: Validator[T] = nil): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
+  ## If given, `default` can be used to infer `T`; otherwise, `T` must be set
+  ## explicitly.
   ## - `variants` is a comma-separated list of names by which the argument is
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value(s) of the argument if not given by the
-  ##   user; defaults to empty, so `args[string]("<src>", ...)` alone is
-  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
-  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
+  ##   user; defaults to an empty seq. Cannot be `@[]` unless `T` is explicitly
+  ##   set, since `T` cannot be inferred from `@[]`.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -686,12 +691,16 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   given.
   ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
 
-proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
-  ## Creates an optional argument with a value of type `T`.
+proc opt*[T: not seq](variants: string, default: T = default(T), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
+  ## Creates an optional argument with a value of type `T`. If given, `default`
+  ## can be used to infer `T`; otherwise, `T` must be set explicitly.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
   ##   may optionally include a help var (e.g., `--option=<value>`).
-  ## - `default` is the default value of the option if not given by the user.
+  ## - `default` is the default value of the option if not given by the
+  ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
+  ##   `false`), so `T` must be given explicitly if it can't be inferred from
+  ##   `default` -- e.g. either `opt[int]("<n>")` or `opt("<n>", default = 0)`.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
@@ -720,13 +729,14 @@ proc opt*[T: not seq](variants: string, default: T = "", help = "", group = "Opt
 
 proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = nil, env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
+  ## If given, `default` can be used to infer `T`; otherwise, `T` must be set
+  ## explicitly.
   ## - `variants` is a comma-separated list of names by which the option is
   ##   presented to the user. These must take the form `-o` or `--option` and
   ##   may optionally include a help var (e.g., `--option=<value>`).
   ## - `default` is the default value(s) of the option if not given by the
-  ##   user; defaults to empty, so `opts[string]("--src", ...)` alone is
-  ##   enough -- unlike a bare `@[]`, which has no element type for Nim to
-  ##   infer `T` from, `newSeq[T]()` here is tied to `T` directly.
+  ##   user; defaults to an empty seq. Cannot be `@[]` unless `T` is explicitly
+  ##   set, since `T` cannot be inferred from `@[]`.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages

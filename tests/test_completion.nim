@@ -22,7 +22,7 @@ proc find(candidates: seq[CompletionCandidate], value: string): CompletionCandid
 
 suite "Option/value completion":
   let spec = (
-    logLevel: opt("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
+    logLevel: opt[string]("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
     amend: flag("--amend"),
   )
   let built = newSpec(spec, usage = "[options]")
@@ -138,7 +138,7 @@ suite "Catch-all repeatability and cycle safety":
 
 suite "Env-var fallback during completion":
   let spec = (
-    port: opt("--port=<port>", env = "ARGUMINT_TEST_COMPLETION_PORT"),
+    port: opt[string]("--port=<port>", env = "ARGUMINT_TEST_COMPLETION_PORT"),
     other: flag("--other"),
   )
   let built = newSpec(spec, usage = "--port=<port> [--other]")
@@ -156,7 +156,7 @@ suite "Env-var fallback during completion":
 suite "Completion candidates carry help text":
   test "an option's completion candidate carries its help text":
     let spec = (
-      logLevel: opt("--log-level=<level>", help = "Logging verbosity"),
+      logLevel: opt[string]("--log-level=<level>", help = "Logging verbosity"),
     )
     let built = newSpec(spec, usage = "[options]")
     check built.completeArgs(@[""], "prog").find("--log-level").help == "Logging verbosity"
@@ -187,7 +187,7 @@ suite "Completion candidates carry help text":
 
   test "an option's own help never leaks onto its Choice-validator value candidates":
     let spec = (
-      logLevel: opt("--log-level=<level>", help = "Logging verbosity",
+      logLevel: opt[string]("--log-level=<level>", help = "Logging verbosity",
         validator = choice(["debug", "info", "warn", "error"])),
     )
     let built = newSpec(spec, usage = "[options]")
@@ -200,7 +200,7 @@ suite "__complete entry point":
   test "raises CompletionError with tab-separated candidate/help lines and fires no hooks":
     var hookFired = false
     let spec = (
-      logLevel: opt("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
+      logLevel: opt[string]("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
     )
     let built = newSpec(spec, usage = "[options]")
     built.before = proc(info: HookInfo) = hookFired = true
@@ -217,7 +217,7 @@ suite "__complete entry point":
 
   test "a candidate's help text rides along after its own tab":
     let spec = (
-      logLevel: opt("--log-level=<level>", help = "Logging verbosity"),
+      logLevel: opt[string]("--log-level=<level>", help = "Logging verbosity"),
     )
     let built = newSpec(spec, usage = "[options]")
     var caught = ""
@@ -229,7 +229,7 @@ suite "__complete entry point":
 
 suite "genCompletionScript":
   let spec = (
-    logLevel: opt("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
+    logLevel: opt[string]("--log-level=<level>", validator = choice(["debug", "info", "warn", "error"])),
   )
   let built = newSpec(spec, usage = "[options]")
 

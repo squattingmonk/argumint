@@ -144,7 +144,7 @@ suite "Usage-string End-of-Options Marker":
 
   test "the marker forces the split unconditionally, even with nothing else competing for the token":
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg[string]("<name>", help = ""),
       rest: args[string]("<rest>", help = ""),
     )
     spec.parse(usage = "<name> -- <rest>...", args = @["x", "--verbose", "y"], command = "prog")
@@ -161,7 +161,7 @@ suite "Usage-string End-of-Options Marker":
     # machinery (ADR 0019) once optsEnd is already true, unrelated to the
     # new grammar-level Matcher.
     let spec = (
-      a: arg("<a>", help = ""),
+      a: arg[string]("<a>", help = ""),
       rest: args[string]("<rest>", help = ""),
     )
     spec.parse(usage = "<a> -- <rest>...", args = @["foo", "--", "bar", "--", "baz"], command = "prog")
@@ -212,7 +212,7 @@ suite "A Command name doesn't shadow a positional value in another alternative":
     # should fall through to the "<file>" alternative and accept "ship" as
     # a literal positional value instead of raising.
     let spec = (
-      ship: command("ship", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+      ship: command("ship", (name: arg("<name>", default = "", help = "")), usage = "<name>", help = ""),
       file: arg("<file>", default = "", help = ""),
     )
     # A Command atom is self-contained -- it splices in its own nested
@@ -227,7 +227,7 @@ suite "A Command name doesn't shadow a positional value in another alternative":
 
   test "when a bare command name falls back to a positional value, seen values' order is maintained":
     let spec = (
-      ship: command("ship", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+      ship: command("ship", (name: arg("<name>", default = "", help = "")), usage = "<name>", help = ""),
       file: args("<file>", default = "", help = ""),
     )
     spec.parse(usage = "ship\n<file>...", args = @["foo", "ship", "bar"], command = "prog")

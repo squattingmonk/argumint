@@ -16,7 +16,7 @@ import argumint
 import argumint/configsource/json
 
 let spec = (
-  config: opt("--config=<file>", help = "Path to a JSON config file, consulted before --host/--port defaults"),
+  config: opt("--config=<file>", default = "", help = "Path to a JSON config file, consulted before --host/--port defaults"),
   host: opt("--host=<host>", default = "localhost", configKey = "host", help = "Host to bind to"),
   port: opt("--port=<port>", default = 8080, configKey = "port", help = "Port to listen on"),
   help: help()

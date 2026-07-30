@@ -103,6 +103,20 @@ suite "Positional args":
     spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == @["a", "b"]
 
+  test "arg[T] with an explicit T and no default falls back to default(T), same as args[T]/opts[T]":
+    let spec = (
+      n: arg[int]("<n>", help = ""),
+    )
+    spec.parse(usage = "[<n>]", args = @[], command = "prog")
+    check spec.n == 0
+
+  test "arg[T] with no default falls back to default(T) for a custom enum type too":
+    let spec = (
+      p: arg[Priority]("<p>", help = ""),
+    )
+    spec.parse(usage = "[<p>]", args = @[], command = "prog")
+    check spec.p == low
+
 suite "Optional args":
   test "parse `--option=value` and validate it":
     let spec = (
@@ -156,6 +170,13 @@ suite "Optional args":
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["a", "b"]
+
+  test "opt[T] with an explicit T and no default falls back to default(T), same as args[T]/opts[T]":
+    let spec = (
+      speed: opt[float]("--speed=<speed>", help = ""),
+    )
+    spec.parse(usage = "[--speed=<speed>]", args = @[], command = "prog")
+    check spec.speed == 0.0
 
 suite "Flags":
   test "bool flags toggle from their default":
@@ -332,7 +353,7 @@ suite "[options] catch-all":
 
   test "an option named explicitly on one Usage Line is still reachable via [options] on another":
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
       format: opt("--format=<value>", default = "", help = ""),
     )
     let usage = "--format=<value>\n[options] <name>"
@@ -345,7 +366,7 @@ suite "[options] catch-all":
 
   test "an option named explicitly (as part of a cluster) on one Usage Line is still reachable via [options] on another":
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
       verbose: flag("-v", help = ""),
       quiet: flag("-q", help = ""),
     )
@@ -374,7 +395,7 @@ suite "Commands":
     proc cmdMove(spec: tuple, info: HookInfo) =
       moved = spec.name
 
-    let move = (name: arg("<name>", help = ""))
+    let move = (name: arg("<name>", default = "", help = ""))
     let spec = (
       ship: command("ship", move, action = cmdMove, usage = "<name>", help = ""),
     )
@@ -389,7 +410,7 @@ suite "Commands":
     proc innerAction(spec: tuple, info: HookInfo) = log.add "inner-action"
     proc innerAfter(spec: tuple, info: HookInfo) = log.add "inner-after"
 
-    let inner = (name: arg("<name>", help = ""))
+    let inner = (name: arg("<name>", default = "", help = ""))
     let outer = (
       move: command("move", inner, before = innerBefore, action = innerAction, after = innerAfter, usage = "<name>", help = ""),
     )
@@ -409,7 +430,7 @@ suite "Commands":
     proc action3(spec: tuple, info: HookInfo) = log.add "action3"
     proc after3(spec: tuple, info: HookInfo) = log.add "after3"
 
-    let leaf = (name: arg("<name>", help = ""))
+    let leaf = (name: arg("<name>", default = "", help = ""))
     let mid = (
       delete: command("delete", leaf, before = before3, action = action3, after = after3, usage = "<name>", help = ""),
     )
@@ -451,7 +472,7 @@ suite "Commands":
     proc appAction(spec: tuple, info: HookInfo) = log.add "app-action"
     proc appAfter(spec: tuple, info: HookInfo) = log.add "app-after"
 
-    let spec = (name: arg("<name>", help = ""))
+    let spec = (name: arg("<name>", default = "", help = ""))
     spec.parse(usage = "<name>", args = @["Titanic"], command = "prog",
       before = appBefore, action = appAction, after = appAfter)
     check log == @["app-before", "app-action", "app-after"]
@@ -483,7 +504,7 @@ suite "Commands":
     proc appAfter(spec: tuple, info: HookInfo) = log.add "after"
 
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
       help: help(),
     )
     expect HelpError:
@@ -514,7 +535,7 @@ suite "Commands":
     proc appBefore(spec: tuple, info: HookInfo) = seenShowsMessage = info.showsMessage
 
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
     )
     spec.parse(usage = "<name>", args = @["Titanic"], command = "prog", before = appBefore)
     check not seenShowsMessage
@@ -524,7 +545,7 @@ suite "Commands":
     proc appBefore(spec: tuple, info: HookInfo) = seenMatched = info.matched
 
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
       verbose: flag("--verbose", help = ""),
     )
     spec.parse(usage = "[--verbose] <name>", args = @["--verbose", "Titanic"], command = "prog", before = appBefore)
@@ -636,8 +657,8 @@ suite "Commands":
     # so `bar` can never be reached.
     expect SpecDefect:
       discard newSpec((
-        foo: command("foo", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
-        bar: command("bar", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
+        foo: command("foo", (name: arg("<name>", default = "", help = "")), usage = "<name>", help = ""),
+        bar: command("bar", (name: arg("<name>", default = "", help = "")), usage = "<name>", help = ""),
       ), usage = "foo bar")
 
   test "SpecDefect: a Command followed by a plain positional from the outer spec":
@@ -646,7 +667,7 @@ suite "Commands":
     expect SpecDefect:
       discard newSpec((
         foo: command("foo", (), help = ""),
-        name: arg("<name>", help = ""),
+        name: arg("<name>", default = "", help = ""),
       ), usage = "foo <name>")
 
   test "SpecDefect: a Command inside a bracket or paren group still blocks what follows":
@@ -733,28 +754,28 @@ suite "End-of-Options Marker":
   test "SpecDefect: an Option after -- in the same Usage Line":
     expect SpecDefect:
       discard newSpec((
-        name: arg("<name>", help = ""),
+        name: arg("<name>", default = "", help = ""),
         speed: opt("--speed=<speed>", default = 1, help = ""),
       ), usage = "<name> -- --speed=<speed>")
 
   test "SpecDefect: a Flag after -- in the same Usage Line":
     expect SpecDefect:
       discard newSpec((
-        name: arg("<name>", help = ""),
+        name: arg("<name>", default = "", help = ""),
         verbose: flag("--verbose", help = ""),
       ), usage = "<name> -- --verbose")
 
   test "SpecDefect: [options] after -- in the same Usage Line":
     expect SpecDefect:
       discard newSpec((
-        name: arg("<name>", help = ""),
+        name: arg("<name>", default = "", help = ""),
         verbose: flag("--verbose", help = ""),
       ), usage = "<name> -- [options]")
 
   test "SpecDefect: a Command after -- in the same Usage Line":
     expect SpecDefect:
       discard newSpec((
-        name: arg("<name>", help = ""),
+        name: arg("<name>", default = "", help = ""),
         foo: command("foo", (), help = ""),
       ), usage = "<name> -- foo")
 
@@ -762,16 +783,16 @@ suite "End-of-Options Marker":
     for usage in ["<name> -- [--verbose]", "<name> -- (--verbose)"]:
       expect SpecDefect:
         discard newSpec((
-          name: arg("<name>", help = ""),
+          name: arg("<name>", default = "", help = ""),
           verbose: flag("--verbose", help = ""),
         ), usage = usage)
 
   test "SpecDefect: a second -- in the same Usage Line":
     expect SpecDefect:
       discard newSpec((
-        a: arg("<a>", help = ""),
-        b: arg("<b>", help = ""),
-        c: arg("<c>", help = ""),
+        a: arg("<a>", default = "", help = ""),
+        b: arg("<b>", default = "", help = ""),
+        c: arg("<c>", default = "", help = ""),
       ), usage = "<a> -- <b> -- <c>")
 
   test "SpecDefect: -- repeated with '...'":
@@ -780,7 +801,7 @@ suite "End-of-Options Marker":
 
   test "a Positional Argument (bare or grouped) may follow -- without tripping the check":
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
       rest: args[string]("<rest>", help = ""),
     )
     spec.parse(usage = "<name> -- <rest>...", args = @["x", "y", "z"], command = "prog")
@@ -804,11 +825,11 @@ suite "End-of-Options Marker":
     # matcher priority over the marker and would confound this check.
     for usage in ["-- <name>", "[--] <name>", "[ -- ] <name>"]:
       block:
-        let spec = (name: arg("<name>", help = ""))
+        let spec = (name: arg("<name>", default = "", help = ""))
         spec.parse(usage = usage, args = @["x"], command = "prog")
         check spec.name == "x"
       block:
-        let spec = (name: arg("<name>", help = ""))
+        let spec = (name: arg("<name>", default = "", help = ""))
         spec.parse(usage = usage, args = @["--", "x"], command = "prog")
         check spec.name == "x"
 
@@ -885,11 +906,11 @@ suite "Errors":
 
   test "raise SpecDefect for a malformed positional variant":
     expect SpecDefect:
-      discard newSpec((bad: arg("bad", help = "")))
+      discard newSpec((bad: arg("bad", default = "", help = "")))
 
   test "raise SpecDefect for a duplicate arg name":
     expect SpecDefect:
-      discard newSpec((a: arg("<x>", help = ""), b: arg("<x>", help = "")))
+      discard newSpec((a: arg("<x>", default = "", help = ""), b: arg("<x>", default = "", help = "")))
 
   test "an [options]-only flag failing doesn't produce a duplicate message":
     let spec = (
@@ -907,7 +928,7 @@ suite "Errors":
   test "a satisfied repeated positional isn't reported missing when a later arg is":
     let spec = (
       src: args[string]("<src>", help = ""),
-      dest: arg("<dest>", help = ""),
+      dest: arg[string]("<dest>", help = ""),
     )
     var caught = ""
     try:
@@ -932,7 +953,7 @@ suite "Errors":
 
   test "a single missing requirement renders without a | separator":
     let spec = (
-      name: arg("<name>", help = ""),
+      name: arg("<name>", default = "", help = ""),
     )
     var caught = ""
     try:
@@ -944,24 +965,24 @@ suite "Errors":
 
 suite "parse(tuple)":
   test "parses a valid tuple in one step, same as newSpec + Spec.parse":
-    let spec = (name: arg("<name>", help = ""))
+    let spec = (name: arg("<name>", default = "", help = ""))
     spec.parse(usage = "<name>", args = @["ship"], command = "prog")
     check spec.name == "ship"
 
   test "raises ParseError on bad CLI input instead of quitting":
-    let spec = (name: arg("<name>", help = ""))
+    let spec = (name: arg("<name>", default = "", help = ""))
     expect ParseError:
       spec.parse(usage = "<name>", args = @[], command = "prog")
 
   test "raises SpecDefect on a malformed spec instead of quitting":
     expect SpecDefect:
-      let spec = (bad: arg("bad", help = ""))
+      let spec = (bad: arg("bad", default = "", help = ""))
       spec.parse(args = @[], command = "prog")
 
 suite "Messages":
   test "help() raises HelpError with the generated help text":
     let spec = (
-      name: arg("<name>", help = "who to greet"),
+      name: arg("<name>", default = "", help = "who to greet"),
       help: help(),
     )
     expect HelpError:
@@ -1000,8 +1021,8 @@ suite "Messages":
     let spec = (
       verbose: flag("--verbose", help = "Verbose", group = "Global Options"),
       speed: opt("--speed=<speed>", default = 1, help = "Speed"),
-      file: arg("<file>", help = "The file"),
-      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
+      file: arg("<file>", default = "", help = "The file"),
+      cmd: command("cmd", (x: arg("<x>", default = "", help = "x")), help = "A subcommand"),
       help: help(),
     )
     var helpText = ""
@@ -1017,8 +1038,8 @@ suite "Messages":
     let spec = (
       verbose: flag("--verbose", help = "", group = "Global Options"),
       speed: opt("--speed=<speed>", default = 1, help = "Speed"),
-      file: arg("<file>", help = "The file"),
-      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
+      file: arg("<file>", default = "", help = "The file"),
+      cmd: command("cmd", (x: arg("<x>", default = "", help = "x")), help = "A subcommand"),
       help: help(),
     )
     var helpText = ""
@@ -1154,7 +1175,7 @@ suite "Messages":
     check ("  -v, --verbose, --quiet, --boost, --dampen  Adjust verbosity") in unlimitedText
 
   test "maxVariantsWidth cascades from the root spec into nested subcommand specs":
-    let move = (name: arg("<name>", help = ""), help: help())
+    let move = (name: arg("<name>", default = "", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
     let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = newSpecSettings(maxVariantsWidth = 20))
     check s.settings.maxVariantsWidth == 20
@@ -1162,7 +1183,7 @@ suite "Messages":
     check s.commands["ship"].spec.commands["move"].spec.settings.maxVariantsWidth == 20
 
   test "a SpecSettings instance is shared by reference, not copied, across the whole tree":
-    let move = (name: arg("<name>", help = ""), help: help())
+    let move = (name: arg("<name>", default = "", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
     let settings = newSpecSettings(maxVariantsWidth = 20)
     let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = settings)
@@ -1230,7 +1251,7 @@ suite "Messages":
     let spec = (
       speed: opt("--speed=<speed>", default = 10, help = "Speed in knots"),
       x: arg("<x>", default = 0, help = "x grid reference"),
-      name: arg("<name>", help = "who to greet"),
+      name: arg[string]("<name>", help = "who to greet"),
       files: args("<file>", default = @["a.txt", "b.txt"], help = "Files"),
       verbose: flag("--verbose", help = "Verbose output"),
       help: help(),
@@ -1261,6 +1282,20 @@ suite "Messages":
     check "x grid reference [default" notin helpText
     check "Speed in knots [default" notin helpText
     check "Verbosity [default" notin helpText
+
+  test "help text suppresses [default: X] for arg[T]/opt[T]'s own default(T) fallback, not just an explicit default = 0":
+    let spec = (
+      x: arg[int]("<x>", help = "x grid reference"),
+      speed: opt[float]("--speed=<speed>", help = "Speed in knots"),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(usage = "<x> [--speed=<speed>]\n--help", args = @["--help"], command = "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "x grid reference [default" notin helpText
+    check "Speed in knots [default" notin helpText
 
   test "help text shows [default: X] alone when help is empty":
     let spec = (speed: opt("--speed=<speed>", default = 5, help = ""), help: help())
@@ -1339,7 +1374,7 @@ suite "Messages":
     check spec.settings.width == terminalWidth()
 
   test "width cascades from the root spec into nested subcommand specs":
-    let move = (name: arg("<name>", help = ""), help: help())
+    let move = (name: arg("<name>", default = "", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
     let s = newSpec((ship: command("ship", ship, help = "Ship commands"), help: help()), settings = newSpecSettings(width = 40))
     check s.settings.width == 40
@@ -1349,8 +1384,8 @@ suite "Messages":
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":
     let spec = (
-      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
-      mine: command("mine", (y: arg("<y>", help = "")), help = "Mine"),
+      ship: command("ship", (x: arg("<x>", default = "", help = "")), help = "Ship"),
+      mine: command("mine", (y: arg("<y>", default = "", help = "")), help = "Mine"),
       help: help(),
       version: version("1.0.0"),
     )
@@ -1362,31 +1397,31 @@ suite "autoFillUsage":
   test "multiple unreachable commands are consolidated into one alternation line, not one per command":
     let spec = (
       verbose: flag("--verbose", help = ""),
-      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
-      mine: command("mine", (y: arg("<y>", help = "")), help = "Mine"),
+      ship: command("ship", (x: arg("<x>", default = "", help = "")), help = "Ship"),
+      mine: command("mine", (y: arg("<y>", default = "", help = "")), help = "Mine"),
     )
     let s = newSpec(spec)
     check s.usage == "[options] (ship | mine)"
 
   test "positional args are only filled in when none of them are reachable":
     let spec = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
     )
     let s = newSpec(spec, usage = "")
     check "<a>" in s.usage and "<b>" in s.usage
 
     let spec2 = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
     )
     let s2 = newSpec(spec2, usage = "<a>")
     check s2.usage == "<a>"
 
   test "a spec auto-filled from a fully empty usage string actually parses, not just displays correctly":
     let spec = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
     )
     let s = newSpec(spec, usage = "")
     s.parse(@["x", "y"], "prog")
@@ -1394,8 +1429,8 @@ suite "autoFillUsage":
     check spec.b == "y"
 
     let spec2 = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
     )
     let s2 = newSpec(spec2, usage = "")
     expect ParseError:
@@ -1411,7 +1446,7 @@ suite "autoFillUsage":
   test "an appended command line is prefixed with [options] when needed":
     let spec = (
       verbose: flag("--verbose", default = false, help = ""),
-      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
+      ship: command("ship", (x: arg("<x>", default = "", help = "")), help = "Ship"),
     )
     let s = newSpec(spec, usage = "")
     check s.usage == "[options] ship"
@@ -1434,7 +1469,7 @@ suite "autoFillUsage":
     block: # unreachable commands
       let spec = (
         verbose: flag("--verbose", help = "", default = false),
-        ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
+        ship: command("ship", (x: arg("<x>", default = "", help = "")), help = "Ship"),
       )
       spec.parse(usage = "[--verbose]", args = @[], command = "prog")
       check spec.verbose == false
@@ -1442,8 +1477,8 @@ suite "autoFillUsage":
     block: # unreachable positionals
       let spec = (
         verbose: flag("--verbose", help = "", default = false),
-        a: arg("<a>", help = ""),
-        b: arg("<b>", help = ""),
+        a: arg("<a>", default = "", help = ""),
+        b: arg("<b>", default = "", help = ""),
       )
       spec.parse(usage = "[--verbose]", args = @[], command = "prog")
       check spec.verbose == false
@@ -1459,7 +1494,7 @@ suite "autoFillUsage":
 
 suite "FSM choice deduplication":
   test "an auto-filled (-h | --help) line collapses to a single edge, both spellings still parse":
-    let spec = (name: arg("<name>", help = ""), help: help())
+    let spec = (name: arg("<name>", default = "", help = ""), help: help())
     let s = newSpec(spec, usage = "<name>")
     check s.dot.count("Opt(-h)") == 1
     expect HelpError:
@@ -1779,8 +1814,8 @@ suite "Environment variables":
     putEnv("ARGUMINT_TEST_PORT", "1234:5678")
     defer: delEnv("ARGUMINT_TEST_PORT")
     let spec = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
       port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
     )
     spec.parse(usage = "<a>\n[options] <b>", args = @["foo"], command = "prog")
@@ -1789,7 +1824,7 @@ suite "Environment variables":
   test "a top-level env-configured option's env var still applies when a nested command is also invoked":
     putEnv("ARGUMINT_TEST_PORT", "9090")
     defer: delEnv("ARGUMINT_TEST_PORT")
-    let move = (name: arg("<name>", help = ""))
+    let move = (name: arg("<name>", default = "", help = ""))
     let spec = (
       port: opt("--port=<port>", default = 0, env = "ARGUMINT_TEST_PORT", help = ""),
       ship: command("ship", move, usage = "<name>", help = ""),
@@ -2006,8 +2041,8 @@ suite "Config Source":
   test "an Arg whose position is never reached this walk still gets every available config value applied":
     let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["1234", "5678"]))])
     let spec = (
-      a: arg("<a>", help = ""),
-      b: arg("<b>", help = ""),
+      a: arg("<a>", default = "", help = ""),
+      b: arg("<b>", default = "", help = ""),
       port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
     )
     spec.parse(usage = "<a>\n[options] <b>", settings = settings, args = @["foo"], command = "prog")
@@ -2015,7 +2050,7 @@ suite "Config Source":
 
   test "a top-level config-configured option's value still applies when a nested command is also invoked":
     let settings = newSpecSettings(configSources = @[fakeSource((configKey("port"), @["9090"]))])
-    let move = (name: arg("<name>", help = ""))
+    let move = (name: arg("<name>", default = "", help = ""))
     let spec = (
       port: opt("--port=<port>", default = 0, configKey = "port", help = ""),
       ship: command("ship", move, usage = "<name>", help = ""),
