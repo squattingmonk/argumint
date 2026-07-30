@@ -96,6 +96,12 @@ typed fields — no stringly-typed lookup by flag name.
 
 ## Features
 
+- **Familiar CLI syntax** — long (`--option`) and short (`-o`) options, short
+  option folding (`-vx` for `-v -x`), and every common way to attach a value:
+  `-f File`, `-fFile`, `-f=File`, `-f:File` (and the long-form equivalents
+  `--file File`, `--file=File`, `--file:File`).
+- Fully type-safe. Common value types (`string`, `int`, `float`, `bool` and
+  `char`) are supported out of the box, and it's easy to add support for more.
 - **[Positional args, options](#declaring-arguments-and-options)**,
   **[flags](#declaring-flags)**, and **[commands](#commands)** — declared
   uniformly as fields of one spec tuple, freely combinable in a usage string.
