@@ -107,7 +107,7 @@ let
     ship: command("ship", ship, help = "Ship commands"),
     mine: command("mine", mine, help = "Mine commands"),
     help: help(),
-    version: version("Naval Fate 2.0.0")
+    version: version("-v, --version", "Naval Fate 2.0.0")
   )
 
 spec.parseOrQuit(prolog = "Naval Fate")

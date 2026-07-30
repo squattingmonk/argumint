@@ -995,27 +995,26 @@ proc help*(variants = "-h, --help", help = "Display this help message", group = 
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
 
-proc message*(text: string, variants: string, help = "", group = "Options", hidden = false): MessageArg =
+proc message*(variants: string, text: string, help = "", group = "Options", hidden = false): MessageArg =
   ## Creates a flag which, when matched, displays `text` and exits
   ## successfully instead of parsing further arguments.
-  ## - `text` is the message to display when the flag is matched.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-o` or `--option`.
+  ## - `text` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   MessageArg(kind: Flag, variants: variants.split(Comma), message: text, help: help, group: group, hidden: hidden)
 
-proc version*(version: string, variants = "-v, --version", help = "Display version information", group = "Options", hidden = false): MessageArg =
-  ## Creates a flag which, when matched, displays `version` and exits
-  ## successfully instead of parsing further arguments.
-  ## - `version` is the message to display when the flag is matched.
+proc version*(variants: string, version: string, help = "Display version information", group = "Options", hidden = false): MessageArg =
+  ## Thin wrapper around `message` for the common case of a version flag.
   ## - `variants` is a comma-separated list of names by which the flag is
-  ##   presented to the user. These must take the form `-o` or `--option`.
+  ##   presented to the user. These must take the form `-v` or `--version`.
+  ## - `version` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
-  message(version, variants, help, group, hidden)
+  message(variants, version, help, group, hidden)
 
 # ------------------------------------------------------------------------------
 # Here is where we define the datatypes supported out of the box.

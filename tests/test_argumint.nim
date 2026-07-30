@@ -564,7 +564,7 @@ suite "Commands":
     proc appAfter(spec: tuple, info: HookInfo) = log.add "after"
 
     let spec = (
-      ver: version("myapp 1.2.3"),
+      ver: version("--version", "myapp 1.2.3"),
     )
     expect MessageError:
       spec.parse(usage = "--version", args = @["--version"], command = "prog",
@@ -1032,7 +1032,7 @@ suite "Messages":
 
   test "version() raises MessageError with the configured text":
     let spec = (
-      ver: version("myapp 1.2.3"),
+      ver: version("--version", "myapp 1.2.3"),
     )
     var caught = ""
     try:
@@ -1415,7 +1415,7 @@ suite "autoFillUsage":
       ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
       mine: command("mine", (y: arg("<y>", help = "")), help = "Mine"),
       help: help(),
-      version: version("1.0.0"),
+      version: version("-v, --version", "1.0.0"),
     )
     let s = newSpec(spec, usage = "ship")
     check "mine" in s.usage
