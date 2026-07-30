@@ -70,10 +70,10 @@ proc cmdCompletion(spec: tuple, info: HookInfo) =
 
 let
   deploy = (
-    env: arg("<env>", default = "", validator = choice(["staging", "production"]), help = "Environment to deploy to"),
+    env: arg("<env>", validator = choice(["staging", "production"]), help = "Environment to deploy to"),
   )
   completionCmd = (
-    shell: arg("<shell>", default = "", validator = choice(["bash", "zsh", "fish"]), help = "Shell to print a completion script for"),
+    shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"]), help = "Shell to print a completion script for"),
   )
   spec = (
     logLevel: opt(

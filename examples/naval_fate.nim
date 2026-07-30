@@ -55,7 +55,7 @@ let
   )
 
   shipMove = (
-    name: arg("<name>", default = "", help = "Ship to move"),
+    name: arg("<name>", help = "Ship to move"),
     x: arg("<x>", default = 0, help = "x grid reference"),
     y: arg("<y>", default = 0, help = "y grid reference"),
     speed: opt("--speed=<kn>", default = 10, validator = range(1..100), help = "Speed in knots"),

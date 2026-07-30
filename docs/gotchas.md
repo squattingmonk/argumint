@@ -13,32 +13,6 @@ inside a template.
   no-`default`-given scalar case. Distinct names sidestep overload resolution
   entirely; this mirrors the `defineArg`/`defineFlag` naming split below.
 
-- **A generic proc's `default: T = "literal"` parameter isn't just a
-  convenience default -- it's load-bearing for every *other* parameter
-  whose type also depends on `T`.** `arg*`/`opt*` (`src/argumint.nim`) also
-  declare `validator: Validator[T] = nil`. Nim elaborates parameter
-  defaults left-to-right, and a defaulted parameter whose *type* is a
-  distinct generic instantiation (`Validator[T]`, not bare `T`) needs `T`
-  concretized before that type can be built at all -- for a call with no
-  explicit `[T]` and no `default` argument (`arg("<name>")`), the *only*
-  reason this works today is that `default: T = ""` is a concrete literal,
-  letting Nim resolve `T = string` from it before it ever has to build
-  `Validator[T]`. Reordering the parameters so `validator` comes *before*
-  `default` breaks this same, already-shipped call
-  (`Error: cannot instantiate: 'T'`) -- confirmed via scratch compile.
-  Discovered while investigating whether `default: T = ""` could become
-  `default: T = default(T)` (so `opt[float](...)` with no default would
-  yield `0.0`, matching `args[T]()`/`opts[T]()`'s `newSeq[T]()`): swapping
-  in the circular `default(T)` removes the only thing anchoring `T` for the
-  bracket-less call, so `Validator[T]` can't concretize for *any* candidate
-  -- this fails identically whether `arg`/`opt` stay a single proc or gain
-  a second overload aimed at rescuing the bracket-less case (overload
-  declaration order doesn't matter; the generic candidate's own
-  instantiation fails before overload resolution gets to prefer anything
-  else). See `docs/adr/0023-arg-opt-default-t-fallback.md` for the decision
-  this forced -- `arg`/`opt` no longer support the bare, no-`T`-no-`default`
-  shorthand at all, matching `args`/`opts`, which never could either.
-
 - **`defineArg`/`defineFlag`/`defineFlagArg` are three separately-named
   templates, not one template overloaded three ways**, even though
   `defineArg[T](typeName, flagHandler)` and `defineFlag[T](typeName,
