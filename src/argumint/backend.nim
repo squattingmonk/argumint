@@ -124,8 +124,10 @@ type
       arg*: Arg
     of Option:
       opt*: Arg
+      variant*: string
     of Options:
       opts*: seq[Arg]
+      variants*: seq[string]
     of Command:
       cmd*: CommandArg
     else:
@@ -290,3 +292,8 @@ method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
   ## through the same conversion/validation as a CLI-supplied value. See
   ## `docs/adr/0018-config-source.md`.
   raise newException(Defect, fmt"setFromConfig() is not defined for {self.name}")
+
+method aliases*(self: Arg, a, b: string): bool {.base.} =
+  ## Returns whether `a` and `b` are aliases for `self`. Overridden by
+  ## `FlagOp[T]`.
+  return a == b or a in self.variants and b in self.variants

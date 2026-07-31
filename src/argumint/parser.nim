@@ -53,15 +53,21 @@ proc eat(p: SpecParser, kinds: set[SpecTokenKind]): SpecToken =
 
 proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]
 
-proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]): Arg =
+proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool]): tuple[arg: Arg, variant: string] =
   ## If `child` is nothing but a single Option or Argument matcher straight
   ## from `a` to `b` (not repeated via `...`, not part of a larger sequence
   ## or a bracket/`[options]` construct -- those all leave more than one
-  ## transition on `a`), returns the Arg it matches. Otherwise nil.
+  ## transition on `a`), returns the Arg it matches and the variant it was
+  ## declared with (`""` for Argument, which has no variant concept). `arg`
+  ## is nil for anything else, including an Options-kind cluster (`-abc`)
+  ## -- not reducible to one Arg/variant, so `choice` never dedups it away.
   if child.a.transitions.len == 1 and child.b.transitions.len == 0:
     let tr = child.a.transitions[0]
     if tr.next == child.b:
-      result = tr.matcher.underlyingArg
+      case tr.matcher.kind
+      of Option: result = (tr.matcher.opt, tr.matcher.variant)
+      of Argument: result = (tr.matcher.arg, "")
+      else: discard
 
 proc choice(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool] =
   ## Constructs a choice (e.g., `this | that`). Note `this` is still a choice.
@@ -77,20 +83,22 @@ proc choice(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State
   var
     a = newState()
     b = newState()
-    seenArgs: HashSet[Arg]
+    seen = newSeq[tuple[arg: Arg, variant: string]]()
     hasCommand = false
     hasOptsEnd = false
 
   for child in children:
     hasCommand = hasCommand or child.hasCommand
     hasOptsEnd = hasOptsEnd or child.hasOptsEnd
-    # Matching compares Arg identity, not variant string, so a later
-    # alternative for an Arg a previous one already covers is redundant.
-    let arg = child.trivialArg
+    # A later alternative is redundant only if some earlier one already
+    # covers its exact (Arg, variant) via Arg.aliases -- so same-class Flag
+    # variants (-v/--verbose) still collapse, but different-class ones
+    # (--boost/--dampen) stay independently reachable.
+    let (arg, variant) = child.trivialArg
     if arg != nil:
-      if arg in seenArgs:
+      if seen.anyIt(it.arg == arg and arg.aliases(it.variant, variant)):
         continue
-      seenArgs.incl arg
+      seen.add (arg, variant)
     a.addShortcut(child.a)
     child.b.addShortcut(b)
 
@@ -150,7 +158,7 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
       token.error(fmt"Undeclared option: {token.literal}")
     let opt = p.spec.options[token.literal]
     p.explicitOptions.incl opt
-    result.b = result.a.add(newOptMatcher(opt))
+    result.b = result.a.add(newOptMatcher(opt, token.literal))
     if p.peek {tkOptionValue}:
       p.next()
   of tkShortOptions:
@@ -164,7 +172,7 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
         token.error(fmt"Undeclared option in {token.literal}: {name}")
       let opt = p.spec.options[name]
       p.explicitOptions.incl opt
-      result.b = result.b.add(newOptMatcher(opt))
+      result.b = result.b.add(newOptMatcher(opt, name))
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:

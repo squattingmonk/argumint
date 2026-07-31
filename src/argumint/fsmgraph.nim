@@ -62,15 +62,23 @@ proc newArgMatcher*(arg: Arg): Matcher =
   assert arg.kind == Positional
   Matcher(kind: Argument, arg: arg)
 
-proc newOptMatcher*(opt: Arg): Matcher =
-  ## Creates a new `Matcher` for an option or flag `opt`.
+proc newOptMatcher*(opt: Arg, variant = ""): Matcher =
+  ## Creates a new `Matcher` for an option or flag `opt`. `variant` is the
+  ## variant `opt` was indexed with on the usage line.
   assert opt.kind in [Optional, Flag]
-  Matcher(kind: Option, opt: opt)
+  Matcher(kind: Option, opt: opt, variant: variant)
+
+proc newOptsMatcher*(opts: openArray[Arg], variants: seq[string]): Matcher =
+  ## Creates a new `Matcher` for an option or flag in `opts`. `variants` are the
+  ## variants used to denote each option or flag (currently used only by short
+  ## option cluster matchers).
+  assert opts.allIt(it.kind in [Optional, Flag])
+  assert opts.len == variants.len
+  Matcher(kind: Options, opts: @opts, variants: variants)
 
 proc newOptsMatcher*(opts: openArray[Arg]): Matcher =
   ## Creates a new `Matcher` for an option or flag in `opts`.
-  assert opts.allIt(it.kind in [Optional, Flag])
-  Matcher(kind: Options, opts: @opts)
+  newOptsMatcher(opts, newSeq[string](opts.len))
 
 proc newCmdMatcher*(cmd: CommandArg): Matcher =
   ## Creates a new `Matcher` for a command `cmd`.

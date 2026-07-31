@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, sets, strformat, strutils, sugar, tables]
+import std/[editdistance, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead, since a bare `import std/options` breaks
@@ -299,9 +299,15 @@ proc match(m: Matcher, pc: var ParseContext): bool =
           return true
       of Flag:
         if c.flag == m.opt:
-          pc.matches.push(c.flag, pc.spec, c.flagName)
-          pc.consume(pos, c)
-          return true
+          # If m.variant == "", this flag was reached through the [options]
+          # catch-all. Otherwise, we want to see if the seen variant is an alias
+          # for the one in the usage line.
+          if m.variant == "" or m.variant == c.flagName or m.opt.aliases(m.variant, c.flagName):
+            pc.matches.push(c.flag, pc.spec, c.flagName)
+            pc.consume(pos, c)
+            return true
+          else:
+            break
       else:
         discard
       pos.inc
@@ -318,7 +324,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     if pc.configValues.probe(m.opt, () => resolveConfig(m.opt, spec)):
       return true
 
-    pc.messages.add ("missing option", m.opt.name)
+    pc.messages.add ("missing option", if m.variant.len > 0: m.variant else: m.opt.name)
     # Did-you-mean suggestion for an unresolved option-shaped leftover --
     # see ADR 0019 point 4 on why this lives here, not in tokenization.
     if pc.tokens.len > 0 and pc.tokens[0].optShape and
@@ -326,15 +332,15 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       pc.messages.add ("unexpected option", unknownOptionMsg(pc.tokens[0].raw, pc.spec))
   of Options:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
-    for opt in m.opts:
+    for (opt, variant) in zip(m.opts, m.variants):
       # Probe only -- a failed probe's own message isn't user-facing, so
       # roll pc.messages back and add our own complaint instead.
       let before = pc.messages.len
-      if newOptMatcher(opt).match(pc):
+      if newOptMatcher(opt, variant).match(pc):
         result = true
       else:
         pc.messages.setLen(before)
-        if not result: pc.messages.add ("missing option", opt.name)
+        if not result: pc.messages.add ("missing option", if variant.len > 0: variant else: opt.name)
 
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
