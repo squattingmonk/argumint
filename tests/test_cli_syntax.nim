@@ -110,6 +110,107 @@ suite "Folding a value option at the end of a cluster":
     check spec.o == "b"
     check spec.b == false
 
+suite "Short-option cluster in a Usage Line":
+  # Issue #9: an explicit cluster (`-abc`) is sugar for the sequence
+  # `-a -b -c` -- every letter is mandatory, not "any one is enough". See
+  # docs/adr/0025-short-option-cluster-required-sequence.md.
+  test "-abc requires all three letters":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "-abc", args = @["-abc"], command = "prog")
+    check spec.a == true
+    check spec.b == true
+    check spec.c == true
+
+  test "a partial cluster raises ParseError instead of silently succeeding":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "-abc", args = @["-ab"], command = "prog")
+
+  test "[-abc] is all-or-nothing: the full set still matches":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "[-abc]", args = @["-abc"], command = "prog")
+    check spec.a == true
+    check spec.b == true
+    check spec.c == true
+
+  test "[-abc] is all-or-nothing: none of them also matches":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "[-abc]", args = @[], command = "prog")
+    check spec.a == false
+    check spec.b == false
+    check spec.c == false
+
+  test "[-abc] is all-or-nothing: a partial set raises ParseError":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "[-abc]", args = @["-a"], command = "prog")
+
+  test "-abc... repeats the whole cluster as a unit, not letter by letter":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "-abc...", args = @["-a", "-b", "-c", "-a", "-b", "-c"], command = "prog")
+    check spec.a == true
+    check spec.b == true
+    check spec.c == true
+
+  test "-abc... still requires every letter within each repetition":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    expect ParseError:
+      spec.parse(usage = "-abc...", args = @["-a", "-a", "-b", "-c"], command = "prog")
+
+  test "-abc... doesn't require repetitions to be clean back-to-back passes":
+    # An unconsumed letter from one repetition just waits for the matcher
+    # whose turn it is to come back around and claim it -- order-independence
+    # (docs/architecture.md's forward-scan behavior) applies across
+    # repetitions, not just within a single pass.
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "-abc...", args = @["-a", "-a", "-b", "-b", "-c", "-c"], command = "prog")
+    check spec.a == true
+    check spec.b == true
+    check spec.c == true
+
+  test "-abc... accepts a fully scrambled ordering as long as the counts balance":
+    let spec = (
+      a: flag("-a", default = false, help = ""),
+      b: flag("-b", default = false, help = ""),
+      c: flag("-c", default = false, help = ""),
+    )
+    spec.parse(usage = "-abc...", args = @["-c", "-a", "-b", "-a", "-c", "-b"], command = "prog")
+    check spec.a == true
+    check spec.b == true
+    check spec.c == true
+
 suite "-- end of options":
   test "arguments after -- are positional even if they look like options":
     let spec = (
