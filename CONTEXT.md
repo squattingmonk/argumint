@@ -194,6 +194,26 @@ Option or Flag named explicitly on one Usage Line is still reachable
 through the catch-all on a different Usage Line in the same Usage String.
 _Avoid_: `[options]`, options wildcard
 
+**Short-Option Cluster**:
+Several single-letter Option/Flag Variants folded onto one dash in a Usage
+Line (e.g. `-abc`), a compact spelling for writing them out as a Sequence
+(`-a -b -c`) -- each remains an ordinary explicitly-named atom, all
+mandatory, single-match unless the whole Cluster carries its own
+Repetition marker (which repeats the Cluster as one unit, not per letter).
+Bracketing a Cluster (`[-abc]`) doesn't change this, beyond making the
+whole thing optional-as-a-unit like any other bracketed multi-atom group --
+a partial Cluster is never accepted. Only Variants with a single-letter
+spelling can appear in one; an Option/Flag with no short Variant has no
+folded form and is written out normally. Distinct from the runtime
+tokenizer's cluster-splitting of an actual command-line token
+(`docs/architecture.md` §3), which folds/unfolds `-abc`-shaped input
+regardless of whether the governing Usage Line spells those options as a
+Cluster or writes them out individually -- a Usage Line's Cluster is an
+authoring-time shorthand for the Usage Line itself, not a statement about
+how input tokens are shaped. See
+`docs/adr/0025-short-option-cluster-required-sequence.md`.
+_Avoid_: option folding, stacked options, `-abc` shorthand
+
 **End-of-Options Marker**:
 The `--` construct in a Usage Line, forcing every later token on that
 matched path to be treated as a Positional Argument's value — even one

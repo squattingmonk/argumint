@@ -154,15 +154,17 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
     if p.peek {tkOptionValue}:
       p.next()
   of tkShortOptions:
-    var options = newSeq[Arg]()
-    for idx, c in token.literal.substr(1):
+    # Sugar for the sequence `-a -b -c` -- chains one Option matcher per
+    # letter instead of one shared Options matcher, so every letter is its
+    # own mandatory, single-match atom (see docs/adr/0025).
+    result.b = result.a
+    for c in token.literal.substr(1):
       let name = fmt"-{c}"
       if name notin p.spec.options:
         token.error(fmt"Undeclared option in {token.literal}: {name}")
-      options.add p.spec.options[name]
-    for opt in options:
+      let opt = p.spec.options[name]
       p.explicitOptions.incl opt
-    result.b = result.a.add(newOptsMatcher(options))
+      result.b = result.b.add(newOptMatcher(opt))
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:
