@@ -219,17 +219,21 @@ one an independent, complete pattern — the whole string means "the command
 line must match this line, *or* this one, *or* this one." Within a single
 Usage Line, these tokens combine into a grammar:
 
-| Syntax | Meaning |
-| --- | --- |
-| `command` | A literal word naming a [command](#commands) (e.g. `ship`). |
-| `<name>` / `NAME` | A [positional argument](#declaring-arguments-and-options). |
+| Syntax            | Meaning                                                                                     |
+| ---               | ---                                                                                         |
+| `command`         | A literal word naming a [command](#commands) (e.g. `ship`).                                 |
+| `<name>` / `NAME` | A [positional argument](#declaring-arguments-and-options).                                  |
 | `-o` / `--option` | An [option or flag](#declaring-arguments-and-options), by any one of its declared variants. |
-| `[...]` | Everything inside is optional. |
-| `(...)` | Groups tokens, usually so `\|` or `...` applies to the group. |
-| `a \| b` | Exactly one of `a` or `b` — mutually exclusive alternatives. |
-| `...` | The atom before it (an arg, option, or group) can repeat. |
-| `[options]` | Catch-all for any option/flag not named elsewhere on this line. |
-| `--` | End-of-options marker: everything after it is a positional value. |
+| `-abc`            | A cluster of short options (sugar for `-a -b -c`)                                           |
+| `[...]`           | Everything inside is optional.                                                              |
+| `(...)`           | Groups tokens, usually so `\|` or `...` applies to the group.                               |
+| `a \| b`          | Exactly one of `a` or `b` — mutually exclusive alternatives.                                |
+| `...`             | The atom before it (an arg, option, or group) can repeat.                                   |
+| `[options]`       | Catch-all for any option/flag not named elsewhere on this line.                             |
+| `--`              | End-of-options marker: everything after it is a positional value.                           |
+
+Note: unlike docopt, atoms inside `[]` are not independently optional (e.g.,
+`[-a -b -c]` is not equivalent to `[-a] [-b] [-c]`).
 
 Every name in a usage string is checked against the `Arg`s you've actually
 declared, once, at spec construction — a typo like `--verbos` when you
