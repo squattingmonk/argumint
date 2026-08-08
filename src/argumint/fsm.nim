@@ -438,7 +438,7 @@ type
     ## since there's no per-value description in the data model to draw
     ## from -- see architecture.md §6.
 
-proc bareVariants(spec: Spec, arg: Arg): seq[string] =
+proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
   ## `arg` (e.g. "--log-level", never "--log-level=<level>"). Reads
   ## `spec.options`, the same canonical bare-name -> Arg map `classify`
@@ -448,8 +448,21 @@ proc bareVariants(spec: Spec, arg: Arg): seq[string] =
   ## `=<placeholder>` suffix used only for help-text rendering (`FlagArg`
   ## already stores bare names at construction time, so this is a no-op for
   ## it, but reusing one rule for both is simpler than branching by kind).
+  ##
+  ## When `variant` is non-empty, only variants equal to or an `arg.aliases`
+  ## of it are returned (mirrors `match`'s own `Flag` branch -- `aliases`
+  ## never reports a variant as its own alias, so `k == variant` is checked
+  ## separately) -- so a specific `Option`-kind transition (`candidateWords`)
+  ## offers just its own Flag Operation Class (e.g. `-u`'s completion never
+  ## includes `-d`'s), rather than every variant `arg` has anywhere on the
+  ## usage line. A no-op for non-Flag Args, whose base `aliases` always
+  ## returns true for any two of their own variants. Leave `variant` blank
+  ## for a catch-all context (e.g. `[options]`'s `Options`-kind matcher, or
+  ## `pendingOptionalArgs`'s "was this bare word typed at all" check) where
+  ## every variant genuinely applies.
   for k, v in spec.options:
-    if v == arg: result.add k
+    if v == arg and (variant.len == 0 or k == variant or arg.aliases(variant, k)):
+      result.add k
 
 proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate] =
   ## Pairs each of `arg`'s own `variants` with its most useful description.
@@ -494,7 +507,7 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
     for tr in state.transitions:
       let candidates =
         case tr.matcher.kind
-        of Option: describeVariants(tr.matcher.opt, pc.spec.bareVariants(tr.matcher.opt))
+        of Option: describeVariants(tr.matcher.opt, pc.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
         of Options:
           collect:
             for opt in tr.matcher.opts:
