@@ -136,6 +136,38 @@ suite "Catch-all repeatability and cycle safety":
     let result = built.completeArgs(@["--verbose", "--moored", ""], "prog").values
     check "--verbose" notin result
 
+suite "Flag Operation Class-aware completion":
+  # A Flag's variants can partition into "classes" by (op, value) --
+  # `Arg.aliases` says so (issue #8) -- so completion must offer only the
+  # class actually reachable at a given position, not every variant the
+  # Arg has anywhere on the usage line. See `fsm.bareVariants`.
+  let spec = (
+    direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
+  )
+  let built = newSpec(spec, usage = "(--up | --down) (--left | --right)")
+
+  test "only the first position's own class is offered before anything is typed":
+    check built.completeArgs(@[""], "prog").values == @["--up", "--down"]
+
+  test "satisfying the first position advances to the second, without re-offering the first":
+    check built.completeArgs(@["--down", ""], "prog").values == @["--left", "--right"]
+    check built.completeArgs(@["--up", ""], "prog").values == @["--left", "--right"]
+
+  test "a plain (non-choice) sequence behaves the same way":
+    let spec2 = (
+      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+    )
+    let built2 = newSpec(spec2, usage = "-u -d")
+    check built2.completeArgs(@[""], "prog").values == @["-u"]
+    check built2.completeArgs(@["-u", ""], "prog").values == @["-d"]
+
+  test "same-class variants stay mutually offered at their one position":
+    let spec3 = (
+      verbosity: flag("-v, --verbose", default = false, help = ""),
+    )
+    let built3 = newSpec(spec3, usage = "-v")
+    check built3.completeArgs(@[""], "prog").values == @["-v", "--verbose"]
+
 suite "Env-var fallback during completion":
   let spec = (
     port: opt("--port=<port>", env = "ARGUMINT_TEST_COMPLETION_PORT"),

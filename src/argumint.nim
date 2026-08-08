@@ -53,6 +53,7 @@ type
   FlagArg[T] = ref object of Arg
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
+    aliases: TableRef[string, seq[string]]
     env: Option[EnvSource]
     clamp: FlagClamp[T]
     cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineFlagArg`.
@@ -413,6 +414,17 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
       self.value.handleFlag(op, arg)
       if not self.clamp.isNil:
         self.value = self.clamp.apply(self.value)
+
+  method aliases(self: FlagArg[T], a, b: string): bool =
+    ## Returns whether `a` and `b` are aliases of the same `FlagOp` for
+    ## `self`. `a`/`b` are guaranteed by every call site to both already be
+    ## declared variants of `self` -- never a foreign string -- so `a == b`
+    ## is answered directly rather than by a `self.aliases` lookup (that
+    ## table only ever maps a variant to its *other* class-mates, per its
+    ## own construction). Otherwise, a variant is an alias to another if
+    ## their `FlagOp` shares an op and an arg. The `FlagOp`'s desc does not
+    ## matter.
+    a == b or (self.aliases.hasKey(a) and b in self.aliases[a])
 
   defineArg typeName
 
@@ -791,8 +803,8 @@ macro getFlagOps(typeName: string): untyped =
 
 proc flag*[T](variants: string, default: T = default(T), help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, T] = initTable[string, T](), env: Option[EnvSource] = none(EnvSource),
-    clamp: FlagClamp[T] = noClamp[T](), configKey: ConfigKey = @[]): FlagArg[T] =
+    variantValues: Table[string, T] = initTable[string, T](), clamp: FlagClamp[T] = noClamp[T](), 
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant. If given, `default` can
   ## be used to infer `T`; otherwise, `T` defaults to `bool` (see the bare-call
@@ -825,6 +837,12 @@ proc flag*[T](variants: string, default: T = default(T), help = "", group = "Opt
   ##   natural string spelling. A variant may set its value here or in
   ##   `variants`, not both; either way, an unrecognized key or specifying
   ##   both raises `SpecDefect`. `<op>` always comes from `variants`.
+  ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
+  ##   silently adjusting this flag's value after every Flag Operation --
+  ##   never raises, unlike a `Validator` (which never applies to a Flag in
+  ##   the first place). `default` must already satisfy `clamp`, or spec
+  ##   construction raises `SpecDefect` -- see
+  ##   `docs/adr/0016-flag-clamp.md`.
   ## - `env` optionally names an environment variable supplying this
   ##   flag's value when none is given on the command line (a CLI flag
   ##   always wins). Each env value must name one of the flag's own
@@ -837,19 +855,15 @@ proc flag*[T](variants: string, default: T = default(T), help = "", group = "Opt
   ##   overrides the delimiter for this flag only (`delim = ""` disables
   ##   splitting entirely) -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
-  ##   silently adjusting this flag's value after every Flag Operation --
-  ##   never raises, unlike a `Validator` (which never applies to a Flag in
-  ##   the first place). `default` must already satisfy `clamp`, or spec
-  ##   construction raises `SpecDefect` -- see
-  ##   `docs/adr/0016-flag-clamp.md`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
   ##   the command line or via env -- each value must name one of the
   ##   flag's own declared Variants, same as `env`. Consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help, group: group, hidden: hidden, ops: newOrderedTable[string, FlagOp[T]](), env: env, clamp: clamp, cfgKey: configKey)
+  result = FlagArg[T]( kind: Flag, variants: @[], value: default, help: help,
+    group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: configKey,
+    ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
   if not clamp.isNil and clamp.apply(default) != default:
     raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
   for rawName in variants.split(Comma):
@@ -899,6 +913,15 @@ proc flag*[T](variants: string, default: T = default(T), help = "", group = "Opt
     if key notin result.ops:
       let escapedKey = strutils.escape(key)
       raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
+
+  # A flag variant is the alias of another variant if its FlagOp shares both op
+  # and arg (desc isn't considered).
+  for variant, variantOp in result.ops.pairs:
+    for alias, aliasOp in result.ops.pairs:
+      if variant != alias and (variantOp.op, variantOp.arg) == (aliasOp.op, aliasOp.arg):
+        if result.aliases.hasKeyOrPut(variant, @[alias]):
+          result.aliases[variant].add alias
+
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
     before: proc(spec: S, info: HookInfo) = nil,
@@ -1040,12 +1063,12 @@ defineFlag bool, "Toggle the value":
 # docs/gotchas.md).
 proc flag*(variants: string, default: bool = false, help = "", group = "Options",
     hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, bool] = initTable[string, bool](), env: Option[EnvSource] = none(EnvSource),
-    clamp: FlagClamp[bool] = noClamp[bool](), configKey: ConfigKey = @[]): FlagArg[bool] =
+    variantValues: Table[string, bool] = initTable[string, bool](), clamp: FlagClamp[bool] = noClamp[bool](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
   ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
   ## above for full parameter docs.
-  flag[bool](variants, default, help, group, hidden, variantHelp, variantValues, env, clamp, configKey)
+  flag[bool](variants, default, help, group, hidden, variantHelp, variantValues, clamp, env, configKey)
 
 defineFlag int, "Increment by 1":
   ## Builds a flag handler for an integer. If `op` is blank, the default
