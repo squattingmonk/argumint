@@ -314,11 +314,12 @@ proc match(m: Matcher, pc: var ParseContext): bool =
         if c.flag == m.opt:
           # If m.variant == "", this flag was reached through the [options]
           # catch-all. Otherwise, we want to see if the seen variant is an
-          # alias for the one in the usage line. A mismatch just skips (falls
-          # through to pos.inc below) rather than blocking the scan --
+          # alias for the one in the usage line (aliases() is reflexive, so
+          # this also covers an exact literal match). A mismatch just skips
+          # (falls through to pos.inc below) rather than blocking the scan --
           # composition order is handled downstream by `RawToken.idx`, not by
           # forcing this scan to find tokens in grammar-declaration order.
-          if m.variant == "" or m.variant == c.flagName or m.opt.aliases(m.variant, c.flagName):
+          if m.variant == "" or m.opt.aliases(m.variant, c.flagName):
             pc.matches.push(c.flag, pc.spec, c.flagName, idx = pc.tokens[pos].idx)
             pc.consume(pos, c)
             return true
@@ -449,10 +450,9 @@ proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## already stores bare names at construction time, so this is a no-op for
   ## it, but reusing one rule for both is simpler than branching by kind).
   ##
-  ## When `variant` is non-empty, only variants equal to or an `arg.aliases`
-  ## of it are returned (mirrors `match`'s own `Flag` branch -- `aliases`
-  ## never reports a variant as its own alias, so `k == variant` is checked
-  ## separately) -- so a specific `Option`-kind transition (`candidateWords`)
+  ## When `variant` is non-empty, only variants that are `arg.aliases` of it
+  ## are returned (`aliases` is reflexive, so this covers an exact literal
+  ## match too) -- so a specific `Option`-kind transition (`candidateWords`)
   ## offers just its own Flag Operation Class (e.g. `-u`'s completion never
   ## includes `-d`'s), rather than every variant `arg` has anywhere on the
   ## usage line. A no-op for non-Flag Args, whose base `aliases` always
@@ -461,7 +461,7 @@ proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## `pendingOptionalArgs`'s "was this bare word typed at all" check) where
   ## every variant genuinely applies.
   for k, v in spec.options:
-    if v == arg and (variant.len == 0 or k == variant or arg.aliases(variant, k)):
+    if v == arg and (variant.len == 0 or arg.aliases(variant, k)):
       result.add k
 
 proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate] =

@@ -295,5 +295,10 @@ method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
 
 method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## Returns whether `a` and `b` are aliases for `self`. Overridden by
-  ## `FlagOp[T]`.
-  return a == b or a in self.variants and b in self.variants
+  ## `FlagArg[T]`, which restricts this to variants sharing an Op class.
+  ## Every call site guarantees `a` and `b` are both already-declared
+  ## variants of `self` -- never a foreign string -- so this doesn't
+  ## re-derive that from `self.variants`; a plain (non-Flag) Arg has no
+  ## notion of classes, so any two of its own variants are unconditionally
+  ## aliases of one another.
+  true

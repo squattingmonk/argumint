@@ -97,6 +97,18 @@ suite "Flag Operation Class exclusivity (issue #8)":
     spec2.parse(usage = "(--up | --down)", args = @["--down"], command = "prog")
     check spec2.direction == -1
 
+  test "a literal variant repeated within one choice group collapses to a single reachable position":
+    # `Arg.aliases` is reflexive (`backend.nim`/`argumint.nim`), so
+    # `choice()`'s dedup (`parser.nim`) also catches an exact duplicate
+    # spelling now, not just a distinct same-class variant. A non-deduped
+    # duplicate is otherwise functionally invisible -- either alternative
+    # matches "--up" the same way -- so this checks the FSM's dot graph
+    # directly rather than parse()/completeArgs() output.
+    let spec = (
+      direction: flag[int]("--up=1, --down=-1", default = 0, help = ""),
+    )
+    check spec.dot(usage = "(--up | --up)").count(" -> ") == 1
+
   test "a repeated multi-class group composes operations in true CLI order, not branch-declaration order":
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
