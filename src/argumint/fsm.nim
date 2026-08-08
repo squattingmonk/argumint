@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[editdistance, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
+import std/[algorithm, editdistance, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead, since a bare `import std/options` breaks
@@ -13,7 +13,11 @@ export ParseError, SpecDefect, CompletionError
 
 
 type
-  Match = tuple[variant: string, value: string, spec: Spec]
+  Match = tuple[variant: string, value: string, spec: Spec, idx: int]
+    ## `idx` is the original CLI argv position of the token this match
+    ## consumed -- see `RawToken.idx`. Composition (`parseOwnValues`) sorts
+    ## by it instead of relying on push order, which is grammar-position
+    ## order, not typed order.
   MatchTable = OrderedTable[Arg, seq[Match]]
   Complaint = tuple[kind: string, subject: string]
     ## A failure reason, e.g. `("missing option", "-v")`. Kept structured
@@ -58,6 +62,10 @@ type
     raw: string     ## The literal token as typed
     optShape: bool  ## True if `raw` looks like `-o`/`--opt`/`-o=val`/
       ## `--opt=val`, or a `-xyz`-shaped cluster candidate
+    idx: int        ## Original position in the CLI argv -- a peeled
+      ## cluster remainder inherits its parent token's `idx` rather than
+      ## getting a fresh one. Lets Flag Operation composition sort by true
+      ## typed order instead of grammar/push order -- see `parseOwnValues`.
 
   Classification = object
     ## What a `RawToken` actually is, resolved lazily against a `Spec` --
@@ -113,7 +121,7 @@ proc tokenizeArgs(args: seq[string], start = 0): seq[RawToken] =
   ## Splits `args[start..]` into `RawToken`s by shape only -- never touches
   ## `Spec`, never raises -- see ADR 0019.
   for i in start ..< args.len:
-    result.add RawToken(raw: args[i], optShape: args[i].isOptShape)
+    result.add RawToken(raw: args[i], optShape: args[i].isOptShape, idx: i)
 
 proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Classification =
   ## Decides what `tokens[pos]` is against `spec`'s tables -- the lazy half
@@ -169,11 +177,14 @@ proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Class
 proc consume(pc: var ParseContext, pos: int, c: Classification) =
   ## Removes/reinserts the raw token(s) an accepted `Classification`
   ## accounts for at `pos` -- see `classify`'s cluster branch, ADR 0019.
+  let idx = pc.tokens[pos].idx
   pc.tokens.delete pos
   if c.consumed == 2:
     pc.tokens.delete pos # the value that was tokens[pos + 1]
   elif c.remainder.len > 0:
-    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape), pos)
+    # Inherits the parent token's idx -- it's the same physical CLI
+    # argument, just partially consumed. See `RawToken.idx`.
+    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape, idx: idx), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
   ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
@@ -184,16 +195,18 @@ proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
     pc.optsEnd = true
     result = true
 
-proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "") =
+proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "", idx = 0) =
   ## Adds a matched arg's seen variant and value to the table of matches,
   ## tagged with the Spec it was matched under (`spec`, i.e. the spec
   ## level whose own grammar this match's Matcher belongs to) -- needed so
   ## `dispatch` (`Spec.parse`'s tail) can tell apart two independent real
   ## matches of the same `Arg` reachable at two different grammar levels
   ## from one match seen twice. See
-  ## `docs/adr/0009-command-before-action-after-hooks.md`.
-  if matches.hasKeyOrPut(arg, @[(variant, value, spec)]):
-    matches[arg].add (variant, value, spec)
+  ## `docs/adr/0009-command-before-action-after-hooks.md`. `idx` is the
+  ## originating token's `RawToken.idx`, or `0` for a Command match (never
+  ## composed, so its ordering doesn't matter -- see `Match`).
+  if matches.hasKeyOrPut(arg, @[(variant, value, spec, idx)]):
+    matches[arg].add (variant, value, spec, idx)
 
 proc resolveEnv(arg: Arg, spec: Spec): options.Option[seq[string]] =
   ## Resolver for `ValueCursor.probe`'s env tier -- see architecture.md's
@@ -257,7 +270,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
       case c.kind
       of Positional, Command:
-        pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw)
+        pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw, pc.tokens[pos].idx)
         pc.consume(pos, c)
         result = true
         break
@@ -275,7 +288,7 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     if pc.tokens.len > 0 and not pc.consumeOptsEnd(0):
       let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
       if c.kind == Command and c.cmd == m.cmd:
-        pc.matches.push(m.cmd, pc.spec, c.cmdName)
+        pc.matches.push(m.cmd, pc.spec, c.cmdName, idx = pc.tokens[0].idx)
         pc.command = fmt"{pc.command} {c.cmdName}"
         pc.spec = m.cmd.spec
         pc.consume(0, c)
@@ -294,20 +307,21 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       case c.kind
       of Optional:
         if c.opt == m.opt:
-          pc.matches.push(c.opt, pc.spec, c.optName, c.optVal)
+          pc.matches.push(c.opt, pc.spec, c.optName, c.optVal, pc.tokens[pos].idx)
           pc.consume(pos, c)
           return true
       of Flag:
         if c.flag == m.opt:
           # If m.variant == "", this flag was reached through the [options]
-          # catch-all. Otherwise, we want to see if the seen variant is an alias
-          # for the one in the usage line.
+          # catch-all. Otherwise, we want to see if the seen variant is an
+          # alias for the one in the usage line. A mismatch just skips (falls
+          # through to pos.inc below) rather than blocking the scan --
+          # composition order is handled downstream by `RawToken.idx`, not by
+          # forcing this scan to find tokens in grammar-declaration order.
           if m.variant == "" or m.variant == c.flagName or m.opt.aliases(m.variant, c.flagName):
-            pc.matches.push(c.flag, pc.spec, c.flagName)
+            pc.matches.push(c.flag, pc.spec, c.flagName, idx = pc.tokens[pos].idx)
             pc.consume(pos, c)
             return true
-          else:
-            break
       else:
         discard
       pos.inc
@@ -558,7 +572,11 @@ proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
   for arg in spec.args:
     if arg.kind == Command or arg of MessageArg:
       continue
-    for (variant, value, matchSpec) in matches.getOrDefault(arg):
+    # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
+    # order -- Flag Operations are stateful and often non-commutative (e.g.
+    # `clamp`), so composition must follow the order the user actually typed
+    # them in, regardless of which usage-line position matched which token.
+    for (variant, value, matchSpec, _) in matches.getOrDefault(arg).sortedByIt(it.idx):
       if matchSpec != spec:
         continue
       arg.parse(value, variant)
@@ -572,7 +590,8 @@ proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
   for arg in spec.args:
     if not (arg of MessageArg):
       continue
-    for (variant, value, matchSpec) in matches.getOrDefault(arg):
+    # See `parseOwnValues` on sorting by `Match.idx` instead of push order.
+    for (variant, value, matchSpec, _) in matches.getOrDefault(arg).sortedByIt(it.idx):
       if matchSpec != spec:
         continue
       if arg of HelpArg:
@@ -591,7 +610,7 @@ proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, var
     if arg.kind != Command:
       continue
     let cmd = CommandArg(arg)
-    for (variant, _, matchSpec) in matches.getOrDefault(cmd):
+    for (variant, _, matchSpec, _) in matches.getOrDefault(cmd):
       if matchSpec == spec:
         return (cmd, variant)
 
@@ -930,7 +949,7 @@ when isMainModule:
       let spec = specWithConfig(args = @[Arg arg])
       var env, configValues: ValueCursor
       var matches: MatchTable
-      matches[Arg arg] = @[(variant: "--foo", value: "explicit", spec: spec)]
+      matches[Arg arg] = @[(variant: "--foo", value: "explicit", spec: spec, idx: 0)]
       var seen: HashSet[Arg]
       var complaints: seq[Complaint]
       applyFallbacks(env, configValues, spec, matches, seen, complaints)
