@@ -4,29 +4,29 @@
 ## `fsm.nim` compared only `Arg` identity, never which specific variant was
 ## typed.
 ##
-## Fix: a Flag's variants partition into "classes" by identical (op, value)
-## spec text (`Arg.aliases`, `argumint.nim`); `Matcher.variant` records
-## which class a transition represents; `parser.choice()`'s dedup keys on
-## `(Arg, class)` instead of bare `Arg`, so differently-classed alternatives
-## stay independently reachable.
+## Fix: a Flag's variants partition into FlagOp Alias sets by identical
+## (op, value) spec text (`Arg.aliases`, `argumint.nim`); `Matcher.variant`
+## records which alias set a transition represents; `parser.choice()`'s
+## dedup keys on `(Arg, variant)` via `Arg.aliases` instead of bare `Arg`,
+## so non-aliased alternatives stay independently reachable.
 ##
-## A same-Arg-mismatched-class token no longer blocks a scan -- it's
-## skipped, like any other non-match (order-independent, per ADR 0019).
-## What keeps composition correct despite that is `RawToken.idx`: every
-## match remembers the original CLI argv position of the token it
-## consumed, and `parseOwnValues`/`parseMessageArgs` apply a Flag's matched
-## operations sorted by that index instead of by push/grammar-declaration
-## order. This is what makes Flag Operations (often non-commutative, e.g.
-## with `clamp`) compose in true typed order regardless of which
-## usage-line position happened to match which token -- see several tests
-## below asserting the *same* usage line gives *different* results for
-## different CLI orderings.
+## A same-Arg non-aliased token no longer blocks a scan -- it's skipped,
+## like any other non-match (order-independent, per ADR 0019). What keeps
+## composition correct despite that is `RawToken.idx`: every match
+## remembers the original CLI argv position of the token it consumed, and
+## `parseOwnValues`/`parseMessageArgs` apply a Flag's matched operations
+## sorted by that index instead of by push/grammar-declaration order. This
+## is what makes Flag Operations (often non-commutative, e.g. with
+## `clamp`) compose in true typed order regardless of which usage-line
+## position happened to match which token -- see several tests below
+## asserting the *same* usage line gives *different* results for different
+## CLI orderings.
 ##
 ## Two tests exercise the fix through a short-option cluster
 ## (`MatcherKind.Options`/`newOptsMatcher`) instead of a plain Option/Flag
 ## atom, since `fsm.match`'s `of Options:` branch is a separate code path.
 ## One test guards a regression the fix's first draft introduced: `of
-## Flag:`'s class check must only fire for the *same* Arg, not any
+## Flag:`'s alias check must only fire for the *same* Arg, not any
 ## unrelated Flag, or order-independent scanning (ADR 0019) breaks for two
 ## distinct Flags.
 
@@ -34,8 +34,8 @@ import std/[strutils, unittest]
 
 import argumint
 
-suite "Flag Operation Class exclusivity (issue #8)":
-  test "a differently-classed variant at a later required position is rejected, not silently absorbed":
+suite "FlagOp Alias exclusivity (issue #8)":
+  test "a non-aliased variant at a later required position is rejected, not silently absorbed":
     let spec = (
       direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
     )
@@ -88,7 +88,7 @@ suite "Flag Operation Class exclusivity (issue #8)":
     spec2.parse(usage = "-u -d", args = @["-d", "-u"], command = "prog")
     check spec2.verbosity == 5 # 1 - 2 = -1 -> clamp 0; 0 + 5 = 5
 
-  test "each distinct-class variant in a choice group stays independently reachable":
+  test "each non-aliased variant in a choice group stays independently reachable":
     let spec1 = (direction: flag[int]("--up=1, --down=-1", default = 0, help = ""))
     spec1.parse(usage = "(--up | --down)", args = @["--up"], command = "prog")
     check spec1.direction == 1
@@ -100,7 +100,7 @@ suite "Flag Operation Class exclusivity (issue #8)":
   test "a literal variant repeated within one choice group collapses to a single reachable position":
     # `Arg.aliases` is reflexive (`backend.nim`/`argumint.nim`), so
     # `choice()`'s dedup (`parser.nim`) also catches an exact duplicate
-    # spelling now, not just a distinct same-class variant. A non-deduped
+    # spelling now, not just a distinct non-aliased variant. A non-deduped
     # duplicate is otherwise functionally invisible -- either alternative
     # matches "--up" the same way -- so this checks the FSM's dot graph
     # directly rather than parse()/completeArgs() output.
@@ -109,7 +109,7 @@ suite "Flag Operation Class exclusivity (issue #8)":
     )
     check spec.dot(usage = "(--up | --up)").count(" -> ") == 1
 
-  test "a repeated multi-class group composes operations in true CLI order, not branch-declaration order":
+  test "a repeated group of multiple FlagOp Aliases composes operations in true CLI order, not branch-declaration order":
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
         default = 1, help = "", clamp = clamp(0..10)),
@@ -118,7 +118,7 @@ suite "Flag Operation Class exclusivity (issue #8)":
       args = @["--dampen", "--boost", "-v"], command = "prog")
     check spec.verbosity == 6 # 1 -2=-1 -> clamp 0; +5=5; +1(-v)=6
 
-  test "same-class variants remain fully interchangeable at separate required positions, not just within one choice":
+  test "FlagOp Alias variants remain fully interchangeable at separate required positions, not just within one choice":
     let spec = (
       verbosity: flag[int]("-v, --verbose", default = 0, help = ""),
     )
@@ -126,10 +126,10 @@ suite "Flag Operation Class exclusivity (issue #8)":
     check spec.verbosity == 2
 
   test "two entirely distinct Flag Args stay order-independent regardless of CLI order":
-    # Not about Flag Operation Class -- guards ADR 0019's order-independent
-    # scanning for two DIFFERENT Args, which the fix's first draft broke
-    # (its `of Flag:` block-check fired on any unrelated Flag token, not
-    # just a same-Arg mismatched class).
+    # Not about FlagOp Alias exclusivity -- guards ADR 0019's
+    # order-independent scanning for two DIFFERENT Args, which the fix's
+    # first draft broke (its `of Flag:` block-check fired on any unrelated
+    # Flag token, not just a same-Arg non-aliased variant).
     let spec = (
       a: flag("--aa", default = false, help = ""),
       b: flag("--bb", default = false, help = ""),
@@ -138,7 +138,7 @@ suite "Flag Operation Class exclusivity (issue #8)":
     check spec.a == true
     check spec.b == true
 
-  test "a short-option cluster composes two different classes of one Flag in true left-to-right order":
+  test "a short-option cluster composes two non-aliased FlagOps of one Flag in true left-to-right order":
     # `-du` is one tkShortOptions atom in the usage string, which the
     # parser desugars into one chained `newOptMatcher(opt, variant)` per
     # letter (see docs/adr/0025 and issue #9) -- so this is really two
@@ -152,14 +152,14 @@ suite "Flag Operation Class exclusivity (issue #8)":
 
   test "a cluster's peeled remainder can be left orphaned even though every position matches something":
     # "-dq" is one cluster token; classify() peels its first letter ("-d",
-    # dampen class) off at a time, leaving a remainder ("-q") reinserted
-    # for a later matcher to claim. The separate "-u" position now skips
-    # right past that peeled "-d" (order-independent) and matches the
-    # literal "-u" token; the "(-d | -q)" position then can only ever
-    # claim "-dq"'s peeled "-d" -- but usage has no third position to
-    # absorb the leftover "-q" remainder, so it's reported as an
-    # unexpected leftover token. Not about Flag Operation Class exclusivity
-    # itself, but a structural token-budget gap the class-skip change
+    # the dampen FlagOp) off at a time, leaving a remainder ("-q")
+    # reinserted for a later matcher to claim. The separate "-u" position
+    # now skips right past that peeled "-d" (order-independent) and
+    # matches the literal "-u" token; the "(-d | -q)" position then can
+    # only ever claim "-dq"'s peeled "-d" -- but usage has no third
+    # position to absorb the leftover "-q" remainder, so it's reported as
+    # an unexpected leftover token. Not about FlagOp Alias exclusivity
+    # itself, but a structural token-budget gap the alias-skip change
     # exposes: matching every *position* doesn't guarantee every *token*
     # gets consumed.
     let spec = (
@@ -173,13 +173,13 @@ suite "Flag Operation Class exclusivity (issue #8)":
     check "unexpected flag: -q" in msg
 
   test "a cluster mixing Flags and an Option is fully order-independent, composing the Flags by true CLI order":
-    # "-udo" clusters three sub-matchers: -u/-d (two classes of one Flag)
-    # and -o (an unrelated value-taking Option). All three are now fully
-    # order-independent -- -o is never a Flag so it never competed on
-    # order in the first place; -u/-d skip past each other and match
-    # wherever their own token actually is, with `-clamp(0..10)` making
-    # the composed result depend on which was typed first, proving true
-    # CLI order rather than usage-declaration order.
+    # "-udo" clusters three sub-matchers: -u/-d (two non-aliased FlagOps of
+    # one Flag) and -o (an unrelated value-taking Option). All three are
+    # now fully order-independent -- -o is never a Flag so it never
+    # competed on order in the first place; -u/-d skip past each other and
+    # match wherever their own token actually is, with `-clamp(0..10)`
+    # making the composed result depend on which was typed first, proving
+    # true CLI order rather than usage-declaration order.
     let spec1 = (
       verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
       output: opt("-o=<value>", default = "", help = ""),

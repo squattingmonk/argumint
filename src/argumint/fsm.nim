@@ -453,7 +453,7 @@ proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## When `variant` is non-empty, only variants that are `arg.aliases` of it
   ## are returned (`aliases` is reflexive, so this covers an exact literal
   ## match too) -- so a specific `Option`-kind transition (`candidateWords`)
-  ## offers just its own Flag Operation Class (e.g. `-u`'s completion never
+  ## offers just its own FlagOp Alias set (e.g. `-u`'s completion never
   ## includes `-d`'s), rather than every variant `arg` has anywhere on the
   ## usage line. A no-op for non-Flag Args, whose base `aliases` always
   ## returns true for any two of their own variants. Leave `variant` blank

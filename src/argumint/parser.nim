@@ -91,8 +91,8 @@ proc choice(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State
     hasCommand = hasCommand or child.hasCommand
     hasOptsEnd = hasOptsEnd or child.hasOptsEnd
     # A later alternative is redundant only if some earlier one already
-    # covers its exact (Arg, variant) via Arg.aliases -- so same-class Flag
-    # variants (-v/--verbose) still collapse, but different-class ones
+    # covers its exact (Arg, variant) via Arg.aliases -- so FlagOp Alias
+    # Flag variants (-v/--verbose) still collapse, but non-aliased ones
     # (--boost/--dampen) stay independently reachable.
     let (arg, variant) = child.trivialArg
     if arg != nil:

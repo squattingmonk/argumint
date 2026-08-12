@@ -416,12 +416,12 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
         self.value = self.clamp.apply(self.value)
 
   method aliases(self: FlagArg[T], a, b: string): bool =
-    ## Returns whether `a` and `b` are aliases of the same `FlagOp` for
-    ## `self`. `a`/`b` are guaranteed by every call site to both already be
-    ## declared variants of `self` -- never a foreign string -- so `a == b`
-    ## is answered directly rather than by a `self.aliases` lookup (that
-    ## table only ever maps a variant to its *other* class-mates, per its
-    ## own construction). Otherwise, a variant is an alias to another if
+    ## Returns whether `a` and `b` are FlagOp Aliases for `self`. `a`/`b`
+    ## are guaranteed by every call site to both already be declared
+    ## variants of `self` -- never a foreign string -- so `a == b` is
+    ## answered directly rather than by a `self.aliases` lookup (that table
+    ## only ever maps a variant to its *other* FlagOp Aliases, per its own
+    ## construction). Otherwise, a variant is a FlagOp Alias of another if
     ## their `FlagOp` shares an op and an arg. The `FlagOp`'s desc does not
     ## matter.
     a == b or (self.aliases.hasKey(a) and b in self.aliases[a])
