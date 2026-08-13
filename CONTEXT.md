@@ -32,8 +32,8 @@ Arg's Variants are interchangeable for matching purposes — any one
 satisfies that Arg's position in the grammar — but whether the *specific*
 Variant seen affects behavior beyond identifying the Arg depends on the
 Arg kind (see Option, Flag, Command, Positional Argument).
-_Avoid_: Alias, spelling, flag name (bare "Alias" names the relationship
-*between* two Variants of a Flag, not a Variant itself -- see FlagOp Alias)
+_Avoid_: Alias, spelling, flag name (bare "Alias" names the grouping among
+a Flag's own Variants, not a Variant itself -- see FlagOp Alias)
 
 **Option**:
 A named argument that takes a value via one of its Variants (e.g.
@@ -59,14 +59,33 @@ The atomic unit of Flag behavior: a single Variant paired with a
 predetermined operation (set, increment, decrement, toggle, etc.) and,
 where applicable, a fixed value. A Flag is the shared value slot that one
 or more independent Flag Operations mutate — the Flag Operation, not the
-Flag itself, determines what happens when a particular Variant is seen. See
-FlagOp Alias for when two Variants' Flag Operations count as equivalent.
-_Avoid_: FlagOp (code-level name), variant behavior
+Flag itself, determines what happens when a particular Variant is seen.
+Authored one of two ways: *implicit* — a bare spelling in `flag*`'s own
+`variants` string, always the type's blank-op behavior (e.g. `bool`
+toggles, `int` increments by 1) applied against the Flag's own coded
+`default` — or *explicit* — one or more spellings passed to `flag*`'s
+`ops` param via `flagOp*`, which always states its own op and value
+directly rather than falling back to a type's implicit behavior.
+`ops` also accepts a plain comma-separated `<flag><op><value>` string as
+convenience sugar for the common case (a builtin-convertible value, one
+spelling per entry) — see `docs/adr/0028-flag-ops-string-convenience.md`
+— but this is a syntactic shortcut for the same explicit path, not a third
+authoring path. See FlagOp Alias for how either path groups the Variants
+that share one Flag Operation.
+_Avoid_: FlagOp (code-level name for the internal per-Variant tuple; fine
+in prose when referring to the `flagOp*` constructor specifically),
+variant behavior
 
 **FlagOp Alias**:
-The relationship between two of a Flag's own Variants whose Flag Operations
-are equivalent -- same op, same arg, regardless of desc. Determines which
-Variants are mutually exclusive alternatives of each other versus
+The group of a Flag's own Variants that share one Flag Operation --
+declared together, not discovered after the fact by comparing op/value.
+Every spelling in `flag*`'s own `variants` string is automatically one
+such group, since they can only ever share the type's single implicit
+op/value pair; every spelling passed to one `flagOp*` call is another,
+declared explicitly. Two different `flagOp*` calls are always independent
+groups, never merged into one alias set, even if their op/value happen to
+coincide -- see `docs/adr/0027-flag-op-declarations.md` for why. Determines
+which Variants are mutually exclusive alternatives of each other versus
 independently reachable: a `choice`-style Usage Line dedupes among FlagOp
 Aliases (so `--verbose | -v` collapses to one required position) but keeps
 differently-configured Variants of the same Flag (e.g. `--up`/`--down`)
@@ -77,10 +96,10 @@ aliases`, `backend.nim`/`argumint.nim`) never special-cases an exact
 literal match. Applies only to Flag; every other Arg kind has no notion of
 per-Variant behavioral difference to alias by, so any two of its own
 Variants are unconditionally aliases of one another. See
-`docs/adr/0026-flag-op-alias-exclusivity.md` (issue #8) for the full
-mechanics: usage-string alternation exclusivity, order-independent
-scanning, true-CLI-order composition, and alias-scoped completion all key
-off this same relationship.
+`docs/adr/0026-flag-op-alias-exclusivity.md` (issue #8) for the usage-string
+alternation exclusivity, order-independent scanning, true-CLI-order
+composition, and alias-scoped completion mechanics that key off this same
+grouping.
 _Avoid_: Flag Operation Class, Op class, variant class (earlier working
 terms for this same concept)
 

@@ -142,7 +142,7 @@ suite "FlagOp Alias-aware completion":
   # alias set actually reachable at a given position, not every variant the
   # Arg has anywhere on the usage line. See `fsm.bareVariants`.
   let spec = (
-    direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
+    direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1), flagOp("--left", "=", 2), flagOp("--right", "=", -2)], default = 0, help = ""),
   )
   let built = newSpec(spec, usage = "(--up | --down) (--left | --right)")
 
@@ -155,7 +155,7 @@ suite "FlagOp Alias-aware completion":
 
   test "a plain (non-choice) sequence behaves the same way":
     let spec2 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
     )
     let built2 = newSpec(spec2, usage = "-u -d")
     check built2.completeArgs(@[""], "prog").values == @["-u"]
@@ -210,7 +210,7 @@ suite "Completion candidates carry help text":
 
   test "a flag with divergent per-variant ops carries each variant's own variantDesc, not its shared help":
     let spec = (
-      rank: flag[int]("--boost+=5, --dampen-=2", default = 0, help = "Adjust rank"),
+      rank: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)], default = 0, help = "Adjust rank"),
     )
     let built = newSpec(spec, usage = "[options]")
     let candidates = built.completeArgs(@[""], "prog")

@@ -19,15 +19,15 @@ suite "Flag Clamp integration":
 
   test "+=/-= clamp, including a single operation overshooting by more than 1 (partial effect, not skipped)":
     let spec = (
-      verbosity: flag[int]("--boost+=5, --dampen-=2", default = 8, help = "",
-        clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)],
+        default = 8, help = "", clamp = clamp(0..10)),
     )
     spec.parse(usage = "[--boost | --dampen]...", args = @["--boost"], command = "prog")
     check spec.verbosity == 10 # 8 + 5 = 13, clamped to 10 -- not skipped, not left at 8
 
     let spec2 = (
-      verbosity: flag[int]("--boost+=5, --dampen-=2", default = 1, help = "",
-        clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)],
+        default = 1, help = "", clamp = clamp(0..10)),
     )
     spec2.parse(usage = "[--boost | --dampen]...", args = @["--dampen"], command = "prog")
     check spec2.verbosity == 0 # 1 - 2 = -1, clamped to 0
@@ -93,7 +93,8 @@ suite "Flag Clamp integration":
 
   test "desc = some(\"\") suppresses the clamp annotation on a divergent flag's help, action still shown":
     let spec = (
-      verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
+      verbosity: flag[int]("-v, --verbose",
+        ops = [flagOp("--quiet", "=", 0), flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)],
         default = 0, help = "Adjust verbosity", clamp = clamp(0..10, desc = some(""))),
       help: help(),
     )
@@ -118,8 +119,9 @@ suite "Flag Clamp integration":
       elif silver in v: {silver}
       else: v
     let spec = (
-      rank: flag[set[Rank]]("--bronze+=bronze, --silver+=silver, --gold+=gold",
-        default = {}, help = "", clamp = adjust(highestOnly)),
+      rank: flag[set[Rank]](ops = [
+        flagOp("--bronze", "+=", {bronze}), flagOp("--silver", "+=", {silver}), flagOp("--gold", "+=", {gold}),
+      ], default = {}, help = "", clamp = adjust(highestOnly)),
     )
     spec.parse(usage = "[--bronze | --silver | --gold]...", args = @["--bronze", "--silver"],
       command = "prog")

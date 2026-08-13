@@ -370,7 +370,7 @@ import argumint
 
 let spec = (
   name: opt("--name=<n>", default = ""),
-  verbosity: flag[int]("--verbose+=1", default = 0),
+  verbosity: flag[int](ops = [flagOp("--verbose", "+=", 1)], default = 0),
   help: help()
 )
 
@@ -687,7 +687,7 @@ needing `--help` to fail first.
 
 `flag[T]()` builds a flag: an optional argument that never takes a value from
 the command line, changing its stored value instead based on which variant was
-seen (e.g. `-v`/`--verbose` increments, `--quiet=0` resets — see
+seen (e.g. `-v`/`--verbose` increments, `--quiet` resets — see
 `examples/verbosity.nim`). `T` and `default` follow the same rules as
 `arg[T]()`/`opt[T]()`, except the implicit fallback is `bool` instead of
 `string`, since a plain on/off flag is by far the most common case:
@@ -707,37 +707,74 @@ let
   )
 ```
 
-Each variant can also bake in an **operation** and value, `<flag>[<op><value>]`,
-deciding how seeing that variant changes the flag's stored value:
+Beyond the type-specific implicit behavior above (`bool` toggles, `int`
+increments by 1), a flag can declare **explicit Flag Operations** via
+`flagOp`, passed to `ops`: each names its own spelling(s), an operation,
+and a value, deciding how seeing that variant changes the flag's stored
+value:
 
-- blank (no suffix) — a type-specific default: `bool` toggles, `int`
-  increments by 1
-- `=<value>` — set the value directly
-- `+=<value>` / `-=<value>` — add or subtract `<value>` (`int`/`float64` only)
+- `"="` — set the value directly
+- `"+="` / `"-="` — add or subtract the value (`int`/`float64` only)
 
-So `-v, --verbose, --quiet=0, --boost+=5` declares four variants sharing one
-value: `-v`/`--verbose` increment by 1 (blank), `--quiet` resets to `0`
-(`=0`), and `--boost` jumps by 5 (`+=5`) — see `examples/verbosity.nim` for
-the full runnable version, including `clamp` to pin the result to a range.
+```nim
+let spec = (
+  verbosity: flag[int](
+    "-v, --verbose",
+    ops = [
+      flagOp("--quiet", "=", 0),
+      flagOp("--boost", "+=", 5),
+    ],
+    default = 0
+  )
+)
+```
 
-The `<op><value>` suffix is spec metadata, decided when you write the spec —
-it's never something the user types, and it must not appear in the usage
-string. Only the bare flag names do, e.g. `[-v | --verbose | --quiet |
---boost]...`, not `[-v | --verbose | --quiet=0 | --boost+=5]...`.
+declares four variants sharing one value: `-v`/`--verbose` increment by 1
+(the implicit blank-op behavior for `int`), `--quiet` resets to `0`, and
+`--boost` jumps by 5 — see `examples/verbosity.nim` for the full runnable
+version, including `clamp` to pin the result to a range.
+
+Each `flagOp`'s `op`/`value` are spec metadata, decided when you write the
+spec — they're never something the user types, and they never appear in
+the usage string. Only the bare flag names do, e.g. `[-v | --verbose |
+--quiet | --boost]...`.
+
+When every explicit Variant's value has a natural string spelling (the
+common case — no custom type, no multi-spelling group), `ops` also accepts
+a plain comma-separated string instead of an array of `flagOp` calls, as
+convenience sugar for exactly the same thing:
+
+```nim
+let spec = (
+  verbosity: flag("-v, --verbose", default = 0, ops = "--quiet=0, --boost+=5, --dampen-=2")
+)
+```
+
+is equivalent to the array form above. Each entry is `<flag><op><value>`,
+becoming its own single-spelling group — a multi-spelling explicit group,
+or a value with no string spelling (e.g. a multi-element `set[E]`), still
+needs the array form directly. See
+`docs/adr/0028-flag-ops-string-convenience.md`.
 
 #### Variant Exclusivity and Composition Order
 
-Variants of a flag that share the same `<op><value>` metadata are *aliases*, and
-they are treated as interchangeable. When a flag's variant is mentioned in a
-usage string, any alias of that variant can be used to satisfy that position
-within the grammar. Since each alias indexes the same flag and metadata, you
-don't need to reference all of them within the usage string (i.e., either `-v`
-or `--verbose` will do) — though you may choose to do so for clarity to the
-user. Variants that are *not* aliases cannot satisfy each others' positions in
-the usage string grammar (so `--quiet` cannot substitute for `--verbose`).
+Variants declared together — either in `flag`'s own `variants` string, or
+together in one `flagOp` call — are *aliases*, and are treated as
+interchangeable. When a flag's variant is mentioned in a usage string, any
+alias of that variant can be used to satisfy that position within the
+grammar. Since each alias indexes the same flag and Flag Operation, you
+don't need to reference all of them within the usage string (i.e., either
+`-v` or `--verbose` will do) — though you may choose to do so for clarity
+to the user. Variants declared in *different* `flagOp` calls are never
+aliases of each other, even if their op/value happen to match, so they
+cannot satisfy each others' positions in the usage string grammar (e.g.
+`--quiet` cannot substitute for `--verbose`).
 
 ```nim
-let spec = (direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2"))
+let spec = (direction: flag[int](ops = [
+  flagOp("--up", "=", 1), flagOp("--down", "=", -1),
+  flagOp("--left", "=", 2), flagOp("--right", "=", -2),
+]))
 spec.parseOrQuit(usage = "(--up | --down) (--left | --right)")
 ```
 
@@ -750,9 +787,10 @@ Note that since flags (like options) have order-independence, `--up --left` and
 always compose in the order they were actually typed on the command line — not
 the order the usage string declares them in. This matters once operations stop
 being commutative (see [Clamping Flag Values](#clamping-flag-values) below):
-given `"-u+=5, -d-=2"` clamped to `0..10`, `-u -d` and `-d -u` are both valid
-against `usage = "-u -d"`, but land on different final values, since each
-composes strictly left-to-right in typed order. For the full mechanics, see
+given `ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)]` clamped to
+`0..10`, `-u -d` and `-d -u` are both valid against `usage = "-u -d"`, but
+land on different final values, since each composes strictly left-to-right
+in typed order. For the full mechanics, see
 `docs/adr/0026-flag-op-alias-exclusivity.md`.
 
 #### Custom Flag Types
@@ -760,8 +798,11 @@ composes strictly left-to-right in typed order. For the full mechanics, see
 `bool`/`int`/`float64`/`char`/`string` work as `flag[T]` out of the box, but
 any type can — argumint needs two things from you to make it work:
 
-- a `converter` from `string` to `T`, so a variant's `<value>` (e.g.
-  `"high"` in `--priority=high`) can be parsed
+- a `converter` from `string` to `T` — `defineFlag` also wires up
+  `arg[T]`/`opt[T]` support for the same type (shared machinery), which
+  parses raw command-line strings, even though a `flagOp`'s own `value: T`
+  is always a real, already-typed Nim value and never goes through this
+  converter itself
 - a `defineFlag(T, blankDesc): case op of ...` block declaring which
   operations `T` supports and what each one does to `value`
 
@@ -781,17 +822,22 @@ defineFlag(LogLevel, "Bump up one level"):
 
 let spec = (
   level: flag[LogLevel](
-    "-v, --verbose, --debug=debug, --warn=warn, --error=error",
+    "-v, --verbose",
+    ops = [
+      flagOp("--debug", "=", debug),
+      flagOp("--warn", "=", warn),
+      flagOp("--error", "=", error),
+    ],
     default = info, help = "Set the log level"
   )
 )
 ```
 
 Here `-v`/`--verbose` share the blank op (bump up a level each time seen),
-while `--debug`/`--warn`/`--error` each set the level directly via `=`. See
-`docs/architecture.md`'s "Flags" section for the full mechanism, including
-`defineArg`, which registers a type for `arg`/`opt`/`args`/`opts` the same
-way `defineFlag` does for `flag`.
+while `--debug`/`--warn`/`--error` each set the level directly via their
+own `flagOp`. See `docs/architecture.md`'s "Flags" section for the full
+mechanism, including `defineArg`, which registers a type for
+`arg`/`opt`/`args`/`opts` the same way `defineFlag` does for `flag`.
 
 `set[E]` for any enum `E` is common enough to have a ready-made helper,
 `defineSetFlag(E)`, instead of writing your own `case op` block — it wires up
@@ -799,8 +845,6 @@ way `defineFlag` does for `flag`.
 (intersect) for you:
 
 ```nim
-import std/tables
-
 type Color = enum
   red, green, blue
 
@@ -810,23 +854,22 @@ const warmColors = {red, green}
 
 let spec = (
   palette: flag[set[Color]](
-    "--red=red, --green=green, --blue=blue, --warm=",
+    ops = [
+      flagOp("--red", "=", {red}),
+      flagOp("--green", "=", {green}),
+      flagOp("--blue", "=", {blue}),
+      flagOp("--warm", "=", warmColors),
+    ],
     default = {},
-    variantValues = {"--warm": warmColors}.toTable,
     help = "Select colors"
   )
 )
 ```
 
-`--red`/`--green`/`--blue` each spell a single element as their `<value>`,
-converted through `defineSetFlag`'s generated `string -> set[Color]`
-converter. `--warm`, though, is meant to set *two* elements at once —
-`{red, green}` has no single-token string spelling for `variants` to carry,
-so `--warm=` leaves its `<value>` blank and `variantValues` supplies the real
-`set[Color]` directly, keyed by the bare flag name. This is the escape hatch
-whenever a variant's intended value can't be written as one string token:
-skip it in `variants` (still giving it an op, e.g. `--warm=`) and provide the
-already-typed value via `variantValues` instead.
+`--red`/`--green`/`--blue` each set a single element; `--warm` sets *two*
+at once, `{red, green}` — since a `flagOp`'s `value` is always a real,
+already-typed `T`, there's no string-spelling limitation to work around:
+any value expressible in Nim, however it's built, can be passed directly.
 
 #### Clamping Flag Values
 
@@ -846,11 +889,20 @@ defineSetFlag(FilePermission)
 
 let spec = (
   verbosity: flag[int](
-    "-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
+    "-v, --verbose",
+    ops = [
+      flagOp("--quiet", "=", 0),
+      flagOp("--boost", "+=", 5),
+      flagOp("--dampen", "-=", 2),
+    ],
     default = 0, clamp = clamp(0..10)
   ),
   permissions: flag[set[FilePermission]](
-    "-r+=fpUserRead, -w+=fpUserWrite, -x+=fpUserExec",
+    ops = [
+      flagOp("-r", "+=", {fpUserRead}),
+      flagOp("-w", "+=", {fpUserWrite}),
+      flagOp("-x", "+=", {fpUserExec}),
+    ],
     default = {},
     clamp = adjust(proc (v: set[FilePermission]): set[FilePermission] =
       (if fpUserWrite in v: v + {fpUserRead} else: v))

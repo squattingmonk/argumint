@@ -276,22 +276,33 @@ Flags don't take user converters — instead `defineArg[T](typeName,
 flagHandler)` registers per-type flag operations (e.g. `=`, `+=`, `-=` for
 `int`) via the `defineFlagOps` macro, stored in the `flagOps` `CacheTable`
 and looked up by `getFlagOps` at spec-construction time to validate that a
-flag variant's requested op (parsed out of the variant string itself, e.g.
-`--verbose+=2`) is actually supported for that type.
+Flag Operation's requested op is actually supported for that type.
 
-Each variant's `(op, value)` (plus an optional user-supplied override) is
-stored as a `FlagOp[T] = tuple[op, arg, desc]` in `FlagArg[T].ops`, keyed by
-the bare variant name. `defineArg`/`defineFlag` also generate a `method
-variantDesc` per type, used by `genHelp` (via the `variantGroups` helper) to
-auto-describe a flag variant when its behavior diverges from its siblings:
-`desc` (if the user supplied one via `flag*`'s `variantHelp: Table[string,
-string]` param) wins, else it falls back to generic wording from `op`/`arg`
-— `"Set to {arg}"` (`=`), `"Increase by {arg}"` (`+=`), `"Decrease by
-{arg}"` (`-=`), all type-generic. Blank op (`""`) has no generic wording
-since its meaning is type-specific — `defineArg[T](typeName, flagHandler)`
-leaves it as `""`, while `defineFlag[T](typeName, blankDesc, flagHandler)`
-lets a type's author supply it (`bool`/`int` use this for `"Toggle the
-value"`/`"Increment by 1"`).
+A Flag's Variants are declared one of two ways (see `docs/adr/
+0027-flag-op-declarations.md`): bare spellings in `flag*`'s own `variants`
+string always share the type's implicit blank-op behavior against the
+Flag's own `default`; `flagOp*(variants, op, value, help = "")` builds one
+explicit `FlagOpGroup[T]`, passed to `flag*`'s `ops: varargs[FlagOpGroup[T]]`
+param, with `op`/`value` mandatory (`flagOp*` validates `op` against
+`getFlagOps($T)` itself, the same check the old string-parsing path used to
+do inline). `flag*` flattens every declared group (the one implicit group,
+plus each explicit `flagOp*` group) into `FlagArg[T].ops: OrderedTableRef[
+string, FlagOp[T]]` (`FlagOp[T] = tuple[op, arg, desc]`, unchanged), keyed
+by bare variant name, and builds `FlagArg[T].aliases` directly from each
+group's own spellings -- no cross-group `(op, value)` comparison, since two
+separately-declared groups are always independently reachable even if their
+op/value happen to coincide.
+
+`defineArg`/`defineFlag` also generate a `method variantDesc` per type,
+used by `genHelp` (via the `variantGroups` helper) to auto-describe a flag
+variant when its behavior diverges from its siblings: `desc` (a `flagOp*`
+call's own `help` argument, if given) wins, else it falls back to generic
+wording from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"`
+(`+=`), `"Decrease by {arg}"` (`-=`), all type-generic. Blank op (`""`) has
+no generic wording since its meaning is type-specific — `defineArg[T](
+typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
+blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
+this for `"Toggle the value"`/`"Increment by 1"`).
 
 `defineArg`/`defineFlag`/the private `defineFlagArg` they both delegate to
 are three separately-named templates (see `docs/gotchas.md` for why they
@@ -305,14 +316,12 @@ per concrete enum before declaring `flag[set[E]](...)`, the same opt-in
 discipline as `Priority`/`Level`/`Speed`. Plain `set[int]` isn't supported
 (Nim's `set` needs a bounded ordinal) — enum element types only.
 
-`flag*`'s `variantValues: Table[string, T]` param (keyed by bare flag name,
-same convention as `variantHelp`) is the escape hatch from string parsing
-entirely: a variant's `arg: T` can be supplied directly as typed Nim code
-instead of text in `variants` — useful for a `T` with no natural short
-string spelling, or a multi-element `set[E]` variant (e.g.
-`variantValues = {"--warm": {red, orange, yellow}}.toTable`). A variant may
-get its value from `variants` or `variantValues`, not both (`SpecDefect` if
-both are given); `<op>` always comes from `variants` regardless.
+Since a `flagOp*` call's `value: T` is always a real, already-typed Nim
+value rather than text parsed out of a variants string, there's no
+string-parsing escape hatch to speak of anymore -- a multi-element `set[E]`
+variant with no natural short string spelling is just
+`flagOp("--warm", "=", {red, orange, yellow})`, no different from any other
+`flagOp` call.
 
 ### Flag Clamp
 

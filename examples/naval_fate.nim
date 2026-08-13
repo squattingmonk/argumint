@@ -22,7 +22,7 @@
 # <y>` instead -- the same information, just reordered to fit argumint's
 # command-first idiom.
 
-import std/[strformat, tables]
+import std/strformat
 
 import argumint
 import argumint/validators
@@ -47,11 +47,10 @@ proc cmdMineRemove(spec: tuple, info: HookInfo) =
   echo fmt"Removing a {spec.mineKind} from ({spec.x}, {spec.y})"
 
 let
-  moored = flag("--moored=true, --drifting=false",
-    variantHelp={
-      "--moored": "Moored (anchored) mine",
-      "--drifting": "Drifting mine"
-    }.toTable)
+  moored = flag(ops = [
+    flagOp("--moored", "=", true, "Moored (anchored) mine"),
+    flagOp("--drifting", "=", false, "Drifting mine"),
+  ])
 
   shipNew = (
     names: args("<name>", help = "Name(s) of the new ship(s)"),
