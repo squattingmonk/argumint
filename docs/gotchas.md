@@ -397,3 +397,14 @@ inside a template.
   (`[flagOp(...), ...]`) converts implicitly to `varargs[T]`/
   `openArray[T]` but not to `seq[T]`, which would otherwise force every
   caller to write `@[flagOp(...), ...]` instead.
+
+- **`{.borrow.}` on a `distinct seq[T]` handles `len`/`==`/`$` but not
+  `[]`, and never an `iterator`.** Adding operations to `ConfigKey`
+  (`distinct seq[string]`, `docs/adr/0029-config-key-distinct.md`),
+  `proc `[]`*(k: ConfigKey, i: int): string {.borrow.}` fails with
+  `borrow from proc return type mismatch: 'T'` -- `seq`'s own `[]` returns
+  a generic `T`, which the borrow machinery won't unify with a concrete
+  `string` return, even though every instantiation would. Iterators can't
+  carry `{.borrow.}` at all, so `items` (what makes `for segment in key`
+  work) has to be written out too. Both are one-liners over
+  `seq[string](k)`; the distinct-to-base conversion itself is free.

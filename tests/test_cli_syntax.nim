@@ -329,7 +329,7 @@ suite "A Command name doesn't shadow a positional value in another alternative":
   test "when a bare command name falls back to a positional value, seen values' order is maintained":
     let spec = (
       ship: command("ship", (name: arg("<name>", help = "")), usage = "<name>", help = ""),
-      file: args("<file>", default = "", help = ""),
+      file: args("<file>", help = ""),
     )
     spec.parse(usage = "ship\n<file>...", args = @["foo", "ship", "bar"], command = "prog")
     check spec.file == @["foo", "ship", "bar"]
