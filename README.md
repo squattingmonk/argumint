@@ -30,6 +30,7 @@ hand-written validation code.
   - [Declaring Arguments and Options](#declaring-arguments-and-options)
     - [Validating Values](#validating-values)
   - [Declaring Flags](#declaring-flags)
+    - [Variant Exclusivity and Composition Order](#variant-exclusivity-and-composition-order)
     - [Custom Flag Types](#custom-flag-types)
     - [Clamping Flag Values](#clamping-flag-values)
   - [Value Precedence](#value-precedence)
@@ -722,9 +723,37 @@ the full runnable version, including `clamp` to pin the result to a range.
 The `<op><value>` suffix is spec metadata, decided when you write the spec —
 it's never something the user types, and it must not appear in the usage
 string. Only the bare flag names do, e.g. `[-v | --verbose | --quiet |
---boost]...`, not `[-v | --verbose | --quiet=0 | --boost+=5]...`. Each variant
-indexes the same flag, so you don't need to reference all of them within the
-usage string (though you may choose to for clarity to the user).
+--boost]...`, not `[-v | --verbose | --quiet=0 | --boost+=5]...`.
+
+#### Variant Exclusivity and Composition Order
+
+Variants of a flag that share the same `<op><value>` metadata are *aliases*, and
+they are treated as interchangeable. When a flag's variant is mentioned in a
+usage string, any alias of that variant can be used to satisfy that position
+within the grammar. Since each alias indexes the same flag and metadata, you
+don't need to reference all of them within the usage string (i.e., either `-v`
+or `--verbose` will do) — though you may choose to do so for clarity to the
+user. Variants that are *not* aliases cannot satisfy each others' positions in
+the usage string grammar (so `--quiet` cannot substitute for `--verbose`).
+
+```nim
+let spec = (direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2"))
+spec.parseOrQuit(usage = "(--up | --down) (--left | --right)")
+```
+
+`--up --down` is a `ParseError` here: `--up` satisfies `(--up | --down)`'s
+position, but `--down` isn't an alias of `--left` or `--right`, so it is
+rejected as an unexpected option.
+
+Note that since flags (like options) have order-independence, `--up --left` and
+`--left --up` can both satisfy the above usage line. A flag's matched variants
+always compose in the order they were actually typed on the command line — not
+the order the usage string declares them in. This matters once operations stop
+being commutative (see [Clamping Flag Values](#clamping-flag-values) below):
+given `"-u+=5, -d-=2"` clamped to `0..10`, `-u -d` and `-d -u` are both valid
+against `usage = "-u -d"`, but land on different final values, since each
+composes strictly left-to-right in typed order. For the full mechanics, see
+`docs/adr/0026-flag-op-alias-exclusivity.md`.
 
 #### Custom Flag Types
 
