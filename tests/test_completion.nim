@@ -6,10 +6,6 @@
 import std/[os, sequtils, strutils, unittest]
 
 import argumint
-import argumint/backend
-import argumint/completion
-import argumint/fsm
-import argumint/validators
 
 proc values(candidates: seq[CompletionCandidate]): seq[string] =
   candidates.mapIt(it.value)

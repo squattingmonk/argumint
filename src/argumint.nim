@@ -16,9 +16,12 @@
 
 {.experimental: "openSym".}
 
-import std/[macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
+import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
 import ./argumint/[backend, completion, configsource, dot, flagclamp, fsm, fsmgraph, parser, validators]
+
+privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
+  ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
 
 export completion.Shell
 
@@ -46,6 +49,37 @@ export options.some, options.none
 # docs/adr/0021-hook-info-matched-args.md.
 export backend.HookInfo
 export backend.showsMessage
+
+# The core vocabulary types, so a spec can cross a proc or module boundary
+# (`var built: Spec`, `proc buildCli(): Spec`) and `HookInfo.matched` can
+# actually be inspected (`it of MessageArg`, `it.kind == Optional`).
+# `State`/`Transition`/`Matcher`/`MatcherKind` are deliberately left out --
+# they're FSM plumbing, not API. See
+# docs/adr/0030-core-types-exported-spec-opaque.md.
+export backend.Spec, backend.SpecSettings
+export backend.Arg, backend.ArgKind, backend.CommandArg, backend.MessageArg, backend.HelpArg
+export backend.EnvSource
+export fsm.CompletionCandidate
+
+# `Option` itself, not just `some`/`none` above: `opt*`/`opts*`/`flag*`'s
+# `env` param and `EnvSource.delim` are both `Option`-typed, so writing a
+# helper that returns one (or spelling `none(EnvSource)` explicitly)
+# needs the type nameable.
+export options.Option
+
+# `newSpecSettings*`'s signature spells these two as its own defaults, so a
+# reader of its docs needs to be able to resolve them. `DefaultWidth`
+# deliberately isn't here -- it appears in no exported signature, and by
+# `docs/adr/0029`'s rule an export with no demonstrated caller stays out
+# until one shows up (adding it later is non-breaking).
+export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim
+
+# The two operations on a built `Spec` that live in `argumint/fsm` rather
+# than here. `parseOrQuit*(Spec)` was already reachable (it's defined
+# below), so without these `newSpec` -> `parse` was the one broken half of
+# an otherwise-complete pair. `completeArgs*` is what makes the exported
+# `CompletionCandidate` usable.
+export fsm.parse, fsm.completeArgs
 
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
@@ -669,6 +703,18 @@ proc env*(name: string, delim: string): Option[EnvSource] =
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   some(EnvSource(name: name, delim: some(delim)))
 
+proc beginSpec(usage, prolog, epilog: string): Spec =
+  ## Creates an argless `Spec` for `newSpec*` to populate. Non-generic
+  ## bookend, with `finishSpec` -- see docs/gotchas.md.
+  Spec(usage: usage, prolog: prolog, epilog: epilog)
+
+proc finishSpec(spec: Spec, settings: SpecSettings) =
+  ## Compiles `spec`'s FSM, fills in the usage gaps, and cascades
+  ## `settings`. Non-generic bookend, with `beginSpec` -- see docs/gotchas.md.
+  spec.fsm = spec.genFsm()
+  spec.autoFillUsage()
+  spec.cascadeSpecSettings(settings)
+
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings()): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM.
@@ -687,11 +733,9 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
   ## to handle those yourself, or just call `parse*` on the spec tuple
   ## directly for the same `newSpec` + parse in one step, still raising on
   ## failure.
-  result = Spec(usage: usage, prolog: prolog, epilog: epilog)
+  result = beginSpec(usage, prolog, epilog)
   result.addArgs(spec)
-  result.fsm = result.genFsm()
-  result.autoFillUsage()
-  result.cascadeSpecSettings(settings)
+  result.finishSpec(settings)
 
 # ------------------------------------------------------------------------------
 # Arg constructors

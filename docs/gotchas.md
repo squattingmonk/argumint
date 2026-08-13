@@ -408,3 +408,23 @@ inside a template.
   carry `{.borrow.}` at all, so `items` (what makes `for segment in key`
   work) has to be written out too. Both are one-liners over
   `seq[string](k)`; the distinct-to-base conversion itself is free.
+
+- **`std/importutils.privateAccess` does not survive template or generic
+  instantiation in another module.** Making `Spec`'s bookkeeping fields
+  private (`docs/adr/0030-core-types-exported-spec-opaque.md`) meant the
+  library's own modules needed `privateAccess(Spec)` to keep reaching them.
+  That works for ordinary procs, and for object construction -- but a
+  generic proc or a template *declared* in a module holding
+  `privateAccess` still fails with `undeclared field` when it's
+  instantiated in a module that doesn't, because the field is resolved at
+  the instantiation site. Verified both cases with scratch compiles. So
+  `newSpec*(spec: tuple, ...)`, generic over the spec tuple and therefore
+  instantiated in the caller's file, cannot touch `spec.fsm` directly --
+  hence `beginSpec`/`finishSpec` (`argumint.nim`), two non-generic
+  bookends the generic body delegates to. Any *new* generic or template
+  that needs a private `Spec` field has to be split the same way.
+
+  A template or generic declared in the same module as the type has no
+  such problem: it reaches the private field wherever it's expanded, which
+  is why `defineArg`/`defineFlag` can keep touching `ValueArg`/`FlagArg`'s
+  private fields from a caller's file.
