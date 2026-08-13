@@ -35,6 +35,13 @@ export configsource
 export backend.name
 export strutils.escape
 
+# `clamp`/`adjust`'s `desc: Option[string]` param (argumint/flagclamp, see
+# issue #12) makes `Option`-construction part of the public API surface --
+# re-exported narrowly (not wholesale `std/options`, which would flood the
+# namespace with `isSome`/`get`/`map`/... unrelated to spec construction),
+# so `import argumint` alone is enough to write `desc = some("...")`.
+export options.some, options.none
+
 # `before`/`action`/`after` hooks' `info: HookInfo` parameter -- see
 # docs/adr/0021-hook-info-matched-args.md.
 export backend.HookInfo

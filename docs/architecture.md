@@ -321,10 +321,10 @@ dependency on `backend`/`argumint`, deliberately structured to mirror
 `Validator[T]` (`validators.nim`) without being one -- see
 `docs/adr/0016-flag-clamp.md` for why the two are kept separate. It's a
 `case`-discriminated `ref object` with two kinds, built via two
-constructors: `clamp[T](bounds: Slice[T], desc = "")` (requires `T` to
-support `<`, duck-typed at the point `apply` is called, same as
-`Validator.range`) and `adjust[T](proc: proc(v: T): T, desc = "")` (any
-`T`). Not named `range` -- that collides ambiguously with `validators.range`
+constructors: `clamp[T](bounds: Slice[T], desc = none(string))` (requires
+`T` to support `<`, duck-typed at the point `apply` is called, same as
+`Validator.range`) and `adjust[T](proc: proc(v: T): T, desc = none(string))`
+(any `T`). Not named `range` -- that collides ambiguously with `validators.range`
 the instant both modules are imported into the same file, which
 `argumint.nim` does; Nim doesn't disambiguate two identical-signature
 generic procs by the caller's expected return type, so this needed a
@@ -335,9 +335,11 @@ arg, a different shape from this proc's required `Slice[T]` first arg, so
 Nim's arity/type-based overload resolution never considers them for a
 `clamp(0..10)`-shaped call. `apply[T](self, value): T` performs the actual
 adjustment (`std/math.clamp` for the range kind, `self.adjustProc` for
-`adjust`), and `help[T](self): string` returns `self.desc` if set, else an
-auto-generated `"clamp: a..b"` for the range kind or `""` for `adjust` (an
-arbitrary proc has no description to generate). `help` is the same name as
+`adjust`), and `help[T](self): string` returns `self.desc.get` if
+`desc.isSome` (including `""` if `desc` is `some("")`, which suppresses
+help output entirely -- see issue #12), else an auto-generated
+`"clamp: a..b"` for the range kind or `""` for `adjust` (an arbitrary proc
+has no description to generate). `help` is the same name as
 `validators.help[T](self: Validator[T])`, and unlike `range`/`clamp`
 above, this isn't a real collision: the two take different concrete
 parameter types (`FlagClamp[T]` vs `Validator[T]`), which Nim's overload
