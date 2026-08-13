@@ -47,8 +47,6 @@ import std/strformat
 import std/strutils
 
 import argumint
-import argumint/backend
-import argumint/validators
 
 var built: Spec ## Assigned right after `spec` is constructed below; the
                  ## `completion` subcommand's own action closes over it to

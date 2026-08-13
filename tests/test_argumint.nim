@@ -1,12 +1,12 @@
-import std/[algorithm, json, options, os, sequtils, strutils, tables, terminal, unittest]
+import std/[algorithm, importutils, json, options, os, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/backend
 import argumint/configsource/ini
 import argumint/configsource/json
-import argumint/fsm
-import argumint/lexer
-import argumint/validators
+
+privateAccess(Spec) ## White-box assertions on `Spec`'s bookkeeping fields,
+  ## which are private to the library as of ADR 0030.
 
 type Priority = enum
   low, medium, high
@@ -1397,6 +1397,38 @@ suite "Messages":
     check s.settings.width == 40
     check s.commands["ship"].spec.settings.width == 40
     check s.commands["ship"].spec.commands["move"].spec.settings.width == 40
+
+suite "Library-internal names `tests/test_public_api.nim` asserts are unreachable":
+  # That file checks `not compiles(...)` for each of these from a bare
+  # `import argumint`, which would also pass if the name simply stopped
+  # existing (a rename, a deleted field). These positives are its other
+  # half: together they mean "exists, but not exported". Keep the two lists
+  # in sync -- see docs/adr/0030-core-types-exported-spec-opaque.md.
+  test "the FSM plumbing types exist":
+    var
+      state: State
+      transition: Transition
+      matcher: Matcher
+      matcherKind: MatcherKind
+    check (state.isNil, transition.isNil, matcher.isNil) == (true, true, true)
+    check matcherKind == MatcherKind.Option # first declared value
+
+  test "`Spec`'s private bookkeeping fields exist":
+    let s = newSpec((
+      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
+      name: arg("<name>", help = ""),
+      verbose: flag("-v", help = ""),
+      help: help()),
+      prolog = "front", epilog = "back")
+    check s.prolog == "front"
+    check s.epilog == "back"
+    check s.usage.len > 0
+    check s.args.len > 0
+    check "ship" in s.commands
+    check "<name>" in s.arguments
+    check "-v" in s.options
+    check s.groups.len > 0
+    check not s.fsm.isNil
 
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":

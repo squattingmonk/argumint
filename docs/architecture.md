@@ -16,6 +16,18 @@ Each arg is indexed into `spec.arguments` (positional, keyed by `<name>`),
 (subcommands, keyed by the command word). If no `usage` string is given, one
 is auto-generated from the declared args (see "autoFillUsage" below).
 
+Those index fields — along with `prolog`/`epilog`/`usage`/`args`/`fsm` — are
+private to the library; only `Spec.settings` and the three hook fields are
+exported (`docs/adr/0030-core-types-exported-spec-opaque.md`). Internal
+modules reach the rest via `std/importutils.privateAccess(Spec)`, present in
+`argumint.nim`, `fsm.nim`, and `parser.nim`. That call **does not survive
+template or generic instantiation in another module**, so `newSpec*` — which
+is generic over the spec tuple and therefore instantiates in the caller's
+file — delegates its private-field work to two non-generic bookends,
+`beginSpec` and `finishSpec`, leaving only the field-free `addArgs` generic
+in between. Any new generic or template needing a private `Spec` field has to
+be split the same way; see `docs/gotchas.md`.
+
 ## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`/`fsmgraph.nim`)
 
 The usage string (e.g. `[-r] <src>... <dest>`) is tokenized by `SpecLexer`
@@ -39,8 +51,11 @@ below); `genFsm` calls it once for every line in `spec.usage`, then calls
 `result.prepare()` directly after.
 
 `dot.nim` renders any FSM to Graphviz dot for debugging/visualization but is
-not called anywhere by default — wire up `spec.fsm.dot` (or `cmd.spec.fsm.dot`
-for a subcommand) manually when debugging FSM construction.
+not called anywhere by default — wire up `spec.dot` (or `cmdArg.spec.dot` for
+a subcommand) manually when debugging FSM construction. Those are
+`argumint.nim`'s `dot*(Spec)`/`dot*(tuple)` wrappers; `spec.fsm.dot` reaches
+`dot.nim`'s own `dot*(State)` directly and only compiles inside the library,
+since `Spec.fsm` is private (see below).
 `scripts/dot2png.sh` renders that dot output to a viewable PNG (requires
 Graphviz's `dot` CLI installed separately).
 

@@ -25,7 +25,6 @@
 import std/strformat
 
 import argumint
-import argumint/validators
 
 proc cmdShipNew(spec: tuple, info: HookInfo) =
   for name in spec.names:

@@ -16,7 +16,6 @@
 import std/strformat
 
 import argumint
-import argumint/validators
 
 let
   spec = (

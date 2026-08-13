@@ -81,15 +81,21 @@ type
       ## `docs/adr/0021-hook-info-matched-args.md`.
 
   Spec* = ref object
-    prolog*: string ## Front matter for a help message
-    epilog*: string ## Back matter for a help message
-    usage*: string ## Usage string used to build the FSM for parsing
-    args*: seq[Arg] ## List of all args known to this spec
-    commands*: OrderedTable[string, CommandArg] ## Maps command variants to args
-    arguments*: OrderedTable[string, Arg] ## Maps positional arg variants to args
-    options*: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
-    groups*: OrderedTable[string, seq[Arg]] ## List of args in each group
-    fsm*: State ## The initial state for the FSM used for parsing
+    ## An opaque handle to a built command-line spec: name it, pass it
+    ## around, hand it back to `parse*`/`parseOrQuit*`/`dot*`/
+    ## `completionScript*`. Every field below that isn't marked `*` is
+    ## argumint's own bookkeeping, deliberately unreachable from outside
+    ## the library -- see
+    ## `docs/adr/0030-core-types-exported-spec-opaque.md`.
+    prolog: string ## Front matter for a help message
+    epilog: string ## Back matter for a help message
+    usage: string ## Usage string used to build the FSM for parsing
+    args: seq[Arg] ## List of all args known to this spec
+    commands: OrderedTable[string, CommandArg] ## Maps command variants to args
+    arguments: OrderedTable[string, Arg] ## Maps positional arg variants to args
+    options: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
+    groups: OrderedTable[string, seq[Arg]] ## List of args in each group
+    fsm: State ## The initial state for the FSM used for parsing
     settings*: SpecSettings ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
     before*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
     action*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)

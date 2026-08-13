@@ -206,6 +206,28 @@ list of variants (e.g., `opt("-v, --verbosity")`). These variants are how the
   argument (e.g., `ship` or `move`). Commands have their own sub-spec including
   their own arguments, options, and subcommands.
 
+`parse`/`parseOrQuit` build the spec tuple into a `Spec` for you and throw it
+away. Call `newSpec` instead when you want to hold onto it — to build your CLI
+somewhere other than where you parse it, or to reach it later from a hook:
+
+```nim
+proc buildCli(): Spec =
+  newSpec((
+    name: arg("<name>", help = "The name to call you"),
+    help: help()),
+    usage = "<name>")
+
+let spec = buildCli()
+spec.parseOrQuit()
+```
+
+A `Spec` is an opaque handle: you can name it, pass it around, and hand it to
+`parse`/`parseOrQuit`/`dot`/`completionScript`/`completeArgs`, but its
+internals belong to argumint. The exception is `spec.settings`, the
+`newSpecSettings` value shared by reference with every nested command's spec,
+which is meant to be read and mutated — see
+[Value Precedence](#value-precedence).
+
 ### Usage Strings, Grammar, and the FSM
 
 This is the thing that makes argumint different from other argument

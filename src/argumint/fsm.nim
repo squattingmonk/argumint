@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, editdistance, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
+import std/[algorithm, editdistance, importutils, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead, since a bare `import std/options` breaks
@@ -10,6 +10,9 @@ from std/options import some, none, isSome, get
 
 import ./[backend, configsource, fsmgraph, parser]
 export ParseError, SpecDefect, CompletionError
+
+privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
+  ## non-generic code only -- see docs/gotchas.md.
 
 
 type
