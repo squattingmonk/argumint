@@ -57,6 +57,12 @@ type
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
+  FlagOpGroup*[T] = tuple[variants: seq[string], op: string, value: T, help: string]
+    ## One explicit FlagOp Alias group, built by `flagOp*` and consumed by
+    ## `flag*`'s `ops` param -- every spelling in `variants` shares this
+    ## exact Flag Operation (`op`/`value`) and `help` override. See
+    ## `flag*`.
+
   FlagArg[T] = ref object of Arg
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
@@ -85,8 +91,22 @@ let
   """
 
   FlagVariantFormat = peg"""
-    # Allows you to capture [-f, =, val] / [--flag, =, val] in -f=val /
-    # --flag=val, where = is any op in [=, +=, -=].
+    # A bare flag spelling, no embedded <op><value> -- that's supplied
+    # explicitly via flagOp's own op/value params instead (see flag*/
+    # flagOp*).
+    flag <- ^ (shortFlag / longFlag) $
+    shortFlag <- {'-' \w}
+    longFlag <- {'--' \w (\w / ('-' \w))+}
+  """
+
+  FlagOpVariantFormat = peg"""
+    # A flag spelling with an optional embedded <op><value> suffix --
+    # convenience sugar for flag*'s own `variants` string only (see
+    # parseFlagVariants): a bare spelling keeps the implicit blank-op
+    # behavior, a suffixed one becomes its own single-spelling explicit
+    # FlagOp Alias group, equivalent to passing one `flagOp*` call via
+    # `ops` instead. flagOp*'s own (multi-spelling) `variants` list never
+    # allows this suffix -- see FlagVariantFormat.
     flag <- ^ (shortFlag / longFlag) (op value)? $
     shortFlag <- {'-' \w}
     longFlag <- {'--' \w (\w / ('-' \w))+}
@@ -814,42 +834,100 @@ macro getFlagOps(typeName: string): untyped =
     raise newException(SpecDefect, fmt"{typeName} is not a supported type for flags")
   result = flagOps[$typeName]
 
-proc flag*[T](variants: string, default: T = default(T), help = "", group = "Options",
-    hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, T] = initTable[string, T](), clamp: FlagClamp[T] = noClamp[T](), 
+proc splitFlagSpellings(variants: string): seq[string] =
+  ## Parses a comma-separated list of bare flag spellings (`-f`/`--flag`,
+  ## no `<op><value>` suffix -- that's supplied explicitly via `flagOp*`'s
+  ## own `op`/`value` params instead). Shared by `flag*`'s own implicit-op
+  ## `variants` string and each `flagOp*` call's explicit-op spellings.
+  if variants.len == 0: return @[]
+  for rawName in variants.split(Comma):
+    if rawName =~ FlagVariantFormat:
+      result.add matches[0]
+    else:
+      let escapedRawName = strutils.escape(rawName)
+      raise newException(SpecDefect, fmt"Cannot parse flag spelling {escapedRawName}: must be in the format '-f' or '--flag'")
+
+proc parseFlagOpsString[T](ops: string): seq[FlagOpGroup[T]] =
+  ## Parses `flag*`'s convenience `ops: string` overload: each comma item
+  ## is `<flag><op><value>`, becoming its own single-spelling explicit
+  ## FlagOp Alias group -- sugar for, and equivalent to, the matching
+  ## `flagOp*` call. Every item must carry an op/value; a bare spelling
+  ## belongs in `flag*`'s own `variants` string instead, not here. See
+  ## `flag*` and `docs/adr/0028-flag-ops-string-convenience.md`.
+  for rawName in ops.split(Comma):
+    var matches: array[3, string]
+    if not rawName.match(FlagOpVariantFormat, matches) or matches[1].len == 0:
+      let escapedRawName = strutils.escape(rawName)
+      let helpText = strutils.dedent("""
+
+        Flag ops entries must be in the format '<flag><op><value>', where:
+          - '<flag>' is in the format '-f' or '--flag'
+          - '<op>' is ':' or '=', optionally preceded by a non-word character
+          - '<value>' is the value the flag represents
+        Examples: '--foo=true' or '--bar+=1'. A bare spelling with no op
+        belongs in flag*'s own `variants` string instead.""")
+      raise newException(SpecDefect, fmt"Cannot parse flag ops entry {escapedRawName}:" & helpText)
+    let op = matches[1]
+    if op notin getFlagOps($T):
+      let escapedOp = strutils.escape(op)
+      raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
+    try:
+      var arg: T
+      # Built-in types call our converters explicitly rather than relying
+      # on implicit conversion -- see docs/gotchas.md.
+      when T is string: arg = matches[2]
+      elif T is int: arg = toInt(matches[2])
+      elif T is float64: arg = toFloat(matches[2])
+      elif T is bool: arg = toBool(matches[2])
+      elif T is char: arg = toChar(matches[2])
+      else: arg = matches[2]
+      result.add (variants: @[matches[0]], op: op, value: arg, help: "")
+    except ValueError as e:
+      raise newException(SpecDefect, fmt"unexpected flag value for {matches[0]}: {e.msg}")
+
+proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[T] =
+  ## Declares one explicit FlagOp Alias group for `flag*`'s `ops` param --
+  ## every spelling in `variants` shares this exact Flag Operation
+  ## (`op`/`value`) and `help` override. Unlike `flag*`'s own bare
+  ## `variants` string (always the type's implicit/blank-op behavior --
+  ## see `flag*`), `op` and `value` are mandatory here: a `flagOp` can
+  ## never represent a blank operation.
+  ## - `variants` is a comma-separated list of bare spellings (`-f`/
+  ##   `--flag`).
+  ## - `op` is one of the operations registered for `T` via `defineFlag`/
+  ##   `defineArg` (e.g. `"="`, `"+="`, `"-="` for the built-in numeric
+  ##   types) -- an unsupported op raises `SpecDefect`.
+  ## - `value` is the value the operation applies.
+  ## - `help` optionally overrides the auto-generated description shown in
+  ##   help text (e.g. "Increase by 5") for every spelling in this group.
+  if op notin getFlagOps($T):
+    let escapedOp = strutils.escape(op)
+    raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
+  result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
+
+proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default: T = default(T), help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[T] = noClamp[T](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant. If given, `default` can
   ## be used to infer `T`; otherwise, `T` defaults to `bool` (see the bare-call
   ## overload below) unless set explicitly -- e.g. `flag[int]("--boost")`.
-  ## - `variants` is a comma-separated list where each item takes the form
-  ##   `<flag>[<op><value>]`, where:
-  ##   - `<flag>` is in the format `-f` or `--flag`. This will be what the user
-  ##     passes in.
-  ##   - `<op>` is `=` or `:`, optionally preceded by a non-word character.  If
-  ##     `<op><value>` is not present, the default behavior is to flip the
-  ##     default value in bool flags and to increment any existing value by 1
-  ##     for int flags. Out of the box ops supported:
-  ##     - `=`: for all flags, sets the value to `<value>`
-  ##     - `+=`: for int flags only, increments any existing value by `<value>`.
-  ##     - `-=`: for int flags only, decrements any existing value by `<value>`.
-  ##   - `<value>` is the value the flag represents
+  ## - `variants` is a comma-separated list of bare spellings (`-f`/
+  ##   `--flag`) that all share the type's implicit/blank-op behavior:
+  ##   flipping `default` for bool flags, or incrementing the existing
+  ##   value by 1 for int flags. Every spelling here is automatically a
+  ##   FlagOp Alias of every other, since they can only ever share one
+  ##   `(op, value)` pair.
+  ## - `ops` optionally declares one or more explicit FlagOp Alias groups,
+  ##   built with `flagOp*` -- each names its own spellings, `op`, `value`,
+  ##   and `help`, e.g. `ops = [flagOp("-b, --boost", "+=", 5, "Boost by
+  ##   5")]`. Two different `flagOp` groups are always independently
+  ##   reachable, even if their `(op, value)` coincidentally match -- see
+  ##   `docs/adr/0027-flag-op-declarations.md`.
   ## - `default` is the default value of the flag if not given by the user;
   ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`).
   ## - `group` determines how flags are grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
-  ## - `variantHelp` optionally overrides the auto-generated per-variant
-  ##   description shown in help text (e.g. "Increase by 5") for specific
-  ##   variants, keyed by the bare flag name as written in `variants` (e.g.
-  ##   `"--quiet"`, not `"--quiet=0"`). Variants not present here fall back
-  ##   to the auto-generated description. Every key must match a declared
-  ##   variant, or spec construction raises `SpecDefect`.
-  ## - `variantValues` optionally supplies a variant's `<value>` directly as
-  ##   a typed `T` (keyed by bare flag name, same convention as
-  ##   `variantHelp`), bypassing string parsing -- useful for a `T` with no
-  ##   natural string spelling. A variant may set its value here or in
-  ##   `variants`, not both; either way, an unrecognized key or specifying
-  ##   both raises `SpecDefect`. `<op>` always comes from `variants`.
   ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
   ##   silently adjusting this flag's value after every Flag Operation --
   ##   never raises, unlike a `Validator` (which never applies to a Flag in
@@ -874,67 +952,49 @@ proc flag*[T](variants: string, default: T = default(T), help = "", group = "Opt
   ##   flag's own declared Variants, same as `env`. Consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  result = FlagArg[T]( kind: Flag, variants: @[], value: default, help: help,
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help,
     group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: configKey,
     ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
   if not clamp.isNil and clamp.apply(default) != default:
     raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
-  for rawName in variants.split(Comma):
-    var matches: array[3, string]
-    if rawName.match(FlagVariantFormat, matches):
-      try:
-        var arg: T = default
-        if matches[0] in variantValues:
-          if matches[2].len > 0:
-            raise newException(SpecDefect, fmt"{matches[0]} has both a string value and a variantValues entry -- use only one")
-          arg = variantValues[matches[0]]
-        elif matches[2].len > 0:
-          # Built-in types call our converters explicitly rather than
-          # relying on implicit conversion -- see docs/gotchas.md.
-          when T is string: arg = matches[2]
-          elif T is int: arg = toInt(matches[2])
-          elif T is float64: arg = toFloat(matches[2])
-          elif T is bool: arg = toBool(matches[2])
-          elif T is char: arg = toChar(matches[2])
-          else: arg = matches[2]
-        let op = matches[1]
-        if op notin getFlagOps($T):
-          let escapedOp = strutils.escape(op)
-          raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
-        let desc = variantHelp.getOrDefault(matches[0], "")
-        if result.ops.hasKeyOrPut(matches[0], (op: matches[1], arg: arg, desc: desc)):
-          raise newException(SpecDefect, fmt"duplicate variant for {matches[0]}")
-        result.variants.add matches[0]
-      except ValueError as e:
-        raise newException(SpecDefect, fmt"unexpected flag value for {matches[0]}: {e.msg}")
-    else:
-      let escapedRawName = strutils.escape(rawName)
-      let helpText = strutils.dedent("""
+  # Implicit (blank-op) group: every bare spelling in `variants` shares
+  # (op: "", arg: default) and forms one alias group automatically, since
+  # they can only ever share that one (op, arg) pair.
+  let implicitVariants = splitFlagSpellings(variants)
+  for name in implicitVariants:
+    if result.ops.hasKeyOrPut(name, (op: "", arg: default, desc: "")):
+      raise newException(SpecDefect, fmt"duplicate variant for {name}")
+    result.variants.add name
+  if implicitVariants.len > 1:
+    for v in implicitVariants:
+      result.aliases[v] = implicitVariants.filterIt(it != v)
 
-        Flag arg variants must be in the format '<flag>[<op><value>]', where:
-          - '<flag>' is in the format '-f' or '--flag'
-          - '<op>' is ':' or '=', optionally preceded by a non-word character
-          - '<value>' is the value the flag represents
-        Examples: '--foo=true' or '--bar+=1'""")
-      raise newException(SpecDefect, fmt"Cannot parse flag definition {escapedRawName}:" & helpText)
-  for key in variantHelp.keys:
-    if key notin result.ops:
-      let escapedKey = strutils.escape(key)
-      raise newException(SpecDefect, fmt"variantHelp key {escapedKey} does not match any declared variant of this flag")
-  for key in variantValues.keys:
-    if key notin result.ops:
-      let escapedKey = strutils.escape(key)
-      raise newException(SpecDefect, fmt"variantValues key {escapedKey} does not match any declared variant of this flag")
+  # Explicit groups: each flagOp's own spellings form their own
+  # independent alias group -- no cross-group discovery, even if two
+  # groups' (op, value) coincidentally match (see docs/adr/0027).
+  for opGroup in ops:
+    for name in opGroup.variants:
+      if result.ops.hasKeyOrPut(name, (op: opGroup.op, arg: opGroup.value, desc: opGroup.help)):
+        raise newException(SpecDefect, fmt"duplicate variant for {name}")
+      result.variants.add name
+    if opGroup.variants.len > 1:
+      for v in opGroup.variants:
+        result.aliases[v] = opGroup.variants.filterIt(it != v)
 
-  # A flag variant is the alias of another variant if its FlagOp shares both op
-  # and arg (desc isn't considered).
-  for variant, variantOp in result.ops.pairs:
-    for alias, aliasOp in result.ops.pairs:
-      if variant != alias and (variantOp.op, variantOp.arg) == (aliasOp.op, aliasOp.arg):
-        if result.aliases.hasKeyOrPut(variant, @[alias]):
-          result.aliases[variant].add alias
-
+proc flag*[T](variants: string = "", ops: string, default: T = default(T), help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[T] = noClamp[T](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[T] =
+  ## Convenience overload: `ops` as a comma-separated string of
+  ## `<flag><op><value>` entries (e.g. `"--quiet=0, --boost+=5,
+  ## --dampen-=2"`), each becoming its own single-spelling explicit FlagOp
+  ## Alias group -- sugar for, and parsed into, the equivalent array of
+  ## `flagOp*` calls. A multi-spelling explicit group, or a value with no
+  ## string spelling, still needs the array form directly. See `flag[T]`
+  ## above for full parameter docs, and
+  ## `docs/adr/0028-flag-ops-string-convenience.md` for why this is a
+  ## separate overload rather than folded into `variants` itself.
+  flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
     before: proc(spec: S, info: HookInfo) = nil,
@@ -1074,14 +1134,21 @@ defineFlag bool, "Toggle the value":
 # flag[bool](...) eagerly -- that instantiation needs "bool" already
 # registered in flagOps by the defineFlag call just above (see
 # docs/gotchas.md).
-proc flag*(variants: string, default: bool = false, help = "", group = "Options",
-    hidden = false, variantHelp: Table[string, string] = initTable[string, string](),
-    variantValues: Table[string, bool] = initTable[string, bool](), clamp: FlagClamp[bool] = noClamp[bool](),
+proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default: bool = false, help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
   ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
   ## above for full parameter docs.
-  flag[bool](variants, default, help, group, hidden, variantHelp, variantValues, clamp, env, configKey)
+  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
+
+proc flag*(variants: string = "", ops: string, default: bool = false, help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[bool] =
+  ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
+  ## lets `T` default to `bool` without an explicit bracket. See `flag[T]`
+  ## above for full parameter docs.
+  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
 defineFlag int, "Increment by 1":
   ## Builds a flag handler for an integer. If `op` is blank, the default
@@ -1325,11 +1392,11 @@ when isMainModule:
       # Regression test for the repr-vs-$ CacheTable keying in
       # docs/gotchas.md -- calls the real flag[set[Rank]]/flag[set[Grade]]
       # constructors to exercise both the write and read side.
-      let rankFlag = flag[set[Rank]]("--rank+=rHigh", default = {})
+      let rankFlag = flag[set[Rank]](ops = [flagOp("--rank", "+=", {rHigh})], default = {})
       rankFlag.parse("", "--rank")
       check rankFlag.value == {rHigh}
 
-      let gradeFlag = flag[set[Grade]]("--grade+=gGood", default = {})
+      let gradeFlag = flag[set[Grade]](ops = [flagOp("--grade", "+=", {gGood})], default = {})
       gradeFlag.parse("", "--grade")
       check gradeFlag.value == {gGood}
       check rankFlag.value == {rHigh} # unaffected by gradeFlag's own +=

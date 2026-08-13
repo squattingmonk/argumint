@@ -485,7 +485,7 @@ proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
 proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate] =
   ## Pairs each of `arg`'s own `variants` with its most useful description.
   ## `arg.variantDesc(v)` (e.g. a flag's auto-generated "Increase by 5", or
-  ## a `variantHelp` override -- see `flag*`) is only trusted when `arg`'s
+  ## a `flagOp*` call's own `help` override -- see `flag*`) is only trusted when `arg`'s
   ## variants genuinely diverge in what they do, i.e. `variantDesc` returns
   ## more than one distinct value across them; otherwise every variant
   ## shares `arg.help`. This mirrors `argumint.variantGroups`'s own

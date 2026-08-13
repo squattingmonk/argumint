@@ -37,7 +37,7 @@ import argumint
 suite "FlagOp Alias exclusivity (issue #8)":
   test "a non-aliased variant at a later required position is rejected, not silently absorbed":
     let spec = (
-      direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
+      direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1), flagOp("--left", "=", 2), flagOp("--right", "=", -2)], default = 0, help = ""),
     )
     expect ParseError:
       spec.parse(usage = "(--up | --down) (--left | --right)",
@@ -45,7 +45,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
 
   test "the same conflict occurs in a plain sequence, not just parenthesized alternation":
     let spec = (
-      direction: flag[int]("--up=1, --down=-1", default = 0, help = ""),
+      direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1)], default = 0, help = ""),
     )
     expect ParseError:
       spec.parse(usage = "--up --down", args = @["--up", "--up"], command = "prog")
@@ -59,7 +59,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # lose the complaint outright depending on evaluation order. Both CLI
     # orderings must consistently name both conflicting variants.
     let spec = (
-      moored: flag("--moored=true, --drifting=false", default = false, help = ""),
+      moored: flag(ops = [flagOp("--moored", "=", true), flagOp("--drifting", "=", false)], default = false, help = ""),
     )
     for args in [@["--moored", "--drifting"], @["--drifting", "--moored"]]:
       var caught = ""
@@ -77,14 +77,14 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # whichever is typed *last* wins -- proving composition follows true
     # CLI order, not which usage position happened to match which token.
     let spec1 = (
-      direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
+      direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1), flagOp("--left", "=", 2), flagOp("--right", "=", -2)], default = 0, help = ""),
     )
     spec1.parse(usage = "(--up | --down) (--left | --right)",
       args = @["--left", "--up"], command = "prog")
     check spec1.direction == 1 # --up typed last
 
     let spec2 = (
-      direction: flag[int]("--up=1, --down=-1, --left=2, --right=-2", default = 0, help = ""),
+      direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1), flagOp("--left", "=", 2), flagOp("--right", "=", -2)], default = 0, help = ""),
     )
     spec2.parse(usage = "(--up | --down) (--left | --right)",
       args = @["--right", "--down"], command = "prog")
@@ -97,23 +97,23 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # succeeding by accident (or being rejected outright, as it was before
     # this fix).
     let spec1 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
     )
     spec1.parse(usage = "-u -d", args = @["-u", "-d"], command = "prog")
     check spec1.verbosity == 4 # 1 + 5 = 6; 6 - 2 = 4
 
     let spec2 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
     )
     spec2.parse(usage = "-u -d", args = @["-d", "-u"], command = "prog")
     check spec2.verbosity == 5 # 1 - 2 = -1 -> clamp 0; 0 + 5 = 5
 
   test "each non-aliased variant in a choice group stays independently reachable":
-    let spec1 = (direction: flag[int]("--up=1, --down=-1", default = 0, help = ""))
+    let spec1 = (direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1)], default = 0, help = ""))
     spec1.parse(usage = "(--up | --down)", args = @["--up"], command = "prog")
     check spec1.direction == 1
 
-    let spec2 = (direction: flag[int]("--up=1, --down=-1", default = 0, help = ""))
+    let spec2 = (direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1)], default = 0, help = ""))
     spec2.parse(usage = "(--up | --down)", args = @["--down"], command = "prog")
     check spec2.direction == -1
 
@@ -125,13 +125,14 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # matches "--up" the same way -- so this checks the FSM's dot graph
     # directly rather than parse()/completeArgs() output.
     let spec = (
-      direction: flag[int]("--up=1, --down=-1", default = 0, help = ""),
+      direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1)], default = 0, help = ""),
     )
     check spec.dot(usage = "(--up | --up)").count(" -> ") == 1
 
   test "a repeated group of multiple FlagOp Aliases composes operations in true CLI order, not branch-declaration order":
     let spec = (
-      verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
+      verbosity: flag[int]("-v, --verbose",
+        ops = [flagOp("--quiet", "=", 0), flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)],
         default = 1, help = "", clamp = clamp(0..10)),
     )
     spec.parse(usage = "[-v | --verbose | --quiet | --boost | --dampen]...",
@@ -165,7 +166,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # mandatory single-match atoms in a row, not a shared `of Options:`
     # matcher.
     let spec = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
     )
     spec.parse(usage = "-du", args = @["-du"], command = "prog")
     check spec.verbosity == 5 # -d first: 1 - 2 = -1 -> clamp 0; -u: 0 + 5 = 5
@@ -183,7 +184,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # exposes: matching every *position* doesn't guarantee every *token*
     # gets consumed.
     let spec = (
-      verbosity: flag[int]("-u+=5, -d-=2, -q=0", default = 1, help = ""),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2), flagOp("-q", "=", 0)], default = 1, help = ""),
     )
     var msg = ""
     try:
@@ -201,7 +202,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # making the composed result depend on which was typed first, proving
     # true CLI order rather than usage-declaration order.
     let spec1 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
       output: opt("-o=<value>", default = "", help = ""),
     )
     spec1.parse(usage = "-udo", args = @["-u", "-d", "-o", "value"], command = "prog")
@@ -209,7 +210,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     check spec1.output == "value"
 
     let spec2 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
       output: opt("-o=<value>", default = "", help = ""),
     )
     spec2.parse(usage = "-udo", args = @["-d", "-u", "-o", "value"], command = "prog")
@@ -217,7 +218,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     check spec2.output == "value"
 
     let spec3 = (
-      verbosity: flag[int]("-u+=5, -d-=2", default = 1, help = "", clamp = clamp(0..10)),
+      verbosity: flag[int](ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)], default = 1, help = "", clamp = clamp(0..10)),
       output: opt("-o=<value>", default = "", help = ""),
     )
     spec3.parse(usage = "-udo", args = @["-d", "-o", "value", "-u"], command = "prog")

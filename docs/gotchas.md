@@ -24,8 +24,9 @@ inside a template.
   before overload resolution ever gets to prefer a matching non-generic
   sibling proc, confirmed via scratch compile regardless of declaration
   order. The fix is narrower than "avoid all `T`-dependent parameters",
-  though: `variantValues: Table[string, T] = initTable[string, T]()` is
-  never poisonous, because its default is a *call*, not a literal. Swapping
+  though: `flag*`'s `ops: varargs[FlagOpGroup[T]] = @[]` is never
+  poisonous, because its default is a *call* (or literal seq/array
+  construction), not a bare `nil`. Swapping
   `nil` for a call-based equivalent -- `noValidator[T](): Validator[T] =
   nil` (`argumint/validators`), `noClamp[T](): FlagClamp[T] = nil`
   (`argumint/flagclamp`) -- removes the poison entirely, and a generic
@@ -347,3 +348,52 @@ inside a template.
   instantiation time (e.g. locking a helper proc name); it's the wrong
   tool when the symbol is ambiguous *by name* regardless of timing, since
   there's no unambiguous single thing to bind to without type context.
+
+- **A generic macro's own bound `[T]` doesn't resolve inside its body --
+  it reads as an unresolved `"GenericParam"` regardless of how `T` was
+  bound at the call site** (bracket, or inferred from an argument).
+  Confirmed via scratch compile while investigating a macro-based
+  rewrite for `flag*`/`flagOp*` (`docs/adr/0027-flag-op-declarations.md`)
+  -- `T.repr`/`getType(T)`/`getTypeInst(T)` all print/return `"T"` or
+  `"GenericParam"` inside `macro foo[T](...)`, never the concrete
+  instantiated type. The only thing that does resolve is calling
+  `.getTypeInst` on an argument *node* the caller actually passed for a
+  non-`untyped` parameter (e.g. `default: T`) -- and only when the caller
+  wrote that argument explicitly, not when it's supplied by the
+  parameter's own default-value expression (see the next entry). This
+  ruled out a macro-based fix for `flag*` entirely; `flag*`/`flagOp*`
+  ended up as plain generic `proc`s instead, which don't have this
+  problem (an ordinary generic proc's `T` behaves normally inside its own
+  body).
+
+- **A macro parameter's own default-value expression is never
+  pre-resolved before the macro body runs, even for a "typed" (non-
+  `untyped`) parameter.** `macro flag[T](default: T = default(T))` called
+  as `flag[int]()` (bracket given, `default` omitted) hands the macro
+  body the literal unevaluated expression `default(T)` for its `default`
+  argument -- `default.getTypeInst` on that gives back `"default(T)"`
+  (the expression's own repr), not `"int"`. This only fails when the
+  argument is *omitted*; the exact same parameter resolves correctly to
+  `"int"` when the caller writes `flag[int](default = 0)` explicitly.
+  Five different workarounds (an explicit `typedesc[T]` parameter,
+  defaulted several different ways) were scratch-compiled while
+  investigating this for `flag*`'s `ops` rewrite and all failed the same
+  way -- there is no default-value shape that sidesteps it. See
+  `docs/adr/0027-flag-op-declarations.md`.
+
+- **`varargs[T]` needs an explicit call-based default (`= @[]`), not none
+  at all, or a bracket-less call to a sibling non-generic overload hits
+  `docs/adr/0024`'s "cannot instantiate T" gotcha again.** `flag*[T](...,
+  ops: varargs[FlagOpGroup[T]], ...)` with no default on `ops` broke
+  `flag("--verbose")` (meant to resolve to the non-generic bare-bool
+  overload) the same way a bare `nil` default on a `T`-dependent parameter
+  did in that ADR -- a parameter whose *type* depends on an
+  otherwise-unconstrained `T`, with nothing telling the compiler what to
+  do about it, poisons overload resolution before it gets a chance to
+  prefer the matching sibling overload. `ops: varargs[FlagOpGroup[T]] =
+  @[]` (a call-based default, same shape as that ADR's proven-safe
+  `noClamp[T]()`/`initTable[string, T]()` pattern) fixes it -- confirmed
+  via scratch compile. Note `varargs`, not `seq`: a plain array literal
+  (`[flagOp(...), ...]`) converts implicitly to `varargs[T]`/
+  `openArray[T]` but not to `seq[T]`, which would otherwise force every
+  caller to write `@[flagOp(...), ...]` instead.
