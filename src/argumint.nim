@@ -171,22 +171,28 @@ proc genHelp(spec: Spec, command: string): string =
       if arg.hidden:
         continue
       let groups = arg.variantGroups()
-      for i, vg in groups:
+      for vg in groups:
         let variants = vg.names.join(", ")
-        let margin = if i == 0: "  " else: continuationIndent
+        let margin = "  " # every group is a peer row, not a wrap continuation -- see
+                           # continuationIndent's own use below for actual wrapping
+        # Every group of a divergent flag repeats the arg's shared `help` and
+        # arg-level annotations (validator/default/env/configKey), not just
+        # the first-declared variant -- that repetition is what visually ties
+        # the rows together as variants of the same value now that they're no
+        # longer indented as a nested continuation of the first row.
+        let divergent = groups.len > 1 and vg.desc.len > 0
+        let primary = if arg.help.len > 0: arg.help elif divergent: vg.desc else: ""
+        var annotations: seq[string]
+        if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
+        if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
+        if arg.envName.len > 0: annotations.add "env: {arg.envName}".fmt
+        if arg.configKey.len > 0: annotations.add "configKey: {arg.configKey.join(\".\")}".fmt
+        if divergent and arg.help.len > 0: annotations.add "action: {vg.desc}".fmt
+        let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
         let text =
-          if i > 0: vg.desc
-          else:
-            var annotations: seq[string]
-            if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
-            if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
-            if arg.envName.len > 0: annotations.add "env: {arg.envName}".fmt
-            if arg.configKey.len > 0: annotations.add "configKey: {arg.configKey.join(\".\")}".fmt
-            if groups.len > 1 and vg.desc.len > 0: annotations.add "action: {vg.desc}".fmt
-            let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
-            if bracket.len == 0: arg.help
-            elif arg.help.len == 0: bracket
-            else: "{arg.help} {bracket}".fmt
+          if bracket.len == 0: primary
+          elif primary.len == 0: bracket
+          else: "{primary} {bracket}".fmt
         let variantLines = variants.wrapWords(colWidth, splitLongWords = false).splitLines
         if text.len > 0:
           let helpWidth = max(spec.settings.width - (2 + colWidth + 2), 20)

@@ -22,7 +22,7 @@
 # <y>` instead -- the same information, just reordered to fit argumint's
 # command-first idiom.
 
-import std/strformat
+import std/[strformat, tables]
 
 import argumint
 import argumint/validators
@@ -38,9 +38,7 @@ proc cmdShipShoot(spec: tuple, info: HookInfo) =
   echo fmt"Firing on ({spec.x}, {spec.y})"
 
 proc mineKind(spec: tuple): string =
-  if spec.moored: "moored mine"
-  elif spec.drifting: "drifting mine"
-  else: "mine"
+  if spec.moored: "moored mine" else: "drifting mine"
 
 proc cmdMineSet(spec: tuple, info: HookInfo) =
   echo fmt"Laying a {spec.mineKind} at ({spec.x}, {spec.y})"
@@ -49,6 +47,12 @@ proc cmdMineRemove(spec: tuple, info: HookInfo) =
   echo fmt"Removing a {spec.mineKind} from ({spec.x}, {spec.y})"
 
 let
+  moored = flag("--moored=true, --drifting=false",
+    variantHelp={
+      "--moored": "Moored (anchored) mine",
+      "--drifting": "Drifting mine"
+    }.toTable)
+
   shipNew = (
     names: args("<name>", help = "Name(s) of the new ship(s)"),
     help: help()
@@ -81,16 +85,14 @@ let
   mineSet = (
     x: arg("<x>", default = 0, help = "x grid reference"),
     y: arg("<y>", default = 0, help = "y grid reference"),
-    moored: flag("--moored", help = "Moored (anchored) mine"),
-    drifting: flag("--drifting", help = "Drifting mine"),
+    moored: moored,
     help: help()
   )
 
   mineRemove = (
     x: arg("<x>", default = 0, help = "x grid reference"),
     y: arg("<y>", default = 0, help = "y grid reference"),
-    moored: flag("--moored", help = "Moored (anchored) mine"),
-    drifting: flag("--drifting", help = "Drifting mine"),
+    moored: moored,
     help: help()
   )
 
