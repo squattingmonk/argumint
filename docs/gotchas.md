@@ -428,3 +428,40 @@ inside a template.
   such problem: it reaches the private field wherever it's expanded, which
   is why `defineArg`/`defineFlag` can keep touching `ValueArg`/`FlagArg`'s
   private fields from a caller's file.
+
+- **`system.deepCopy` rewrites closure environments: it preserves object
+  identity across them, and it copies whatever they captured.** Both halves
+  matter, and together they are why argumint has no `parsed*` overload
+  taking an already-built spec tuple -- see
+  `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+
+  First: given a value holding both a `ref` and a closure that captured that
+  same `ref`, `deepCopy` produces **one** new object reachable by both paths,
+  not two unrelated copies -- verified standalone (`copied.box ==
+  copied.get()` is `true`). This is what makes copying a spec tuple viable at
+  all: `command*` binds its hooks as closures over the nested tuple at
+  construction time, so any clone that mints new `Arg`s *without* rewriting
+  that captured environment leaves every subcommand hook reading args nothing
+  parses into. A hand-written `clone` `{.base.}` method on `Arg` would hit
+  exactly that. Nim's documentation says nothing about closures here, so
+  treat it as verified-but-undocumented.
+
+  The flip side sinks the idea: the same rewrite copies state the hook
+  *captured*, so a `command*` hook closing over a local variable reads
+  correctly but its **writes land in the copy** and are silently lost. A
+  captureless hook writing a global is unaffected (a global isn't in the
+  environment), which is what makes the trap narrow and quiet rather than
+  obvious.
+
+  Separately: under `--mm:arc`/`--mm:orc` (the default), `deepCopy` is a
+  compile-time error unless the *program being compiled* passes
+  `--deepcopy:on`. A library can't set it for its consumers. It is, though,
+  only needed by code that actually calls `deepCopy` -- defining a generic
+  that uses it costs an uncalled consumer nothing, verified both ways.
+
+- **Nim won't overload on return type alone.** Two procs with identical
+  parameters and different return types are an `Error: ambiguous call` at
+  every call site, not a redefinition error at declaration -- so the failure
+  surfaces in the caller's code, not yours. Hit while designing `parsed*`
+  (ADR 0031); differing parameter types are what make an overload legal, not
+  differing return types.
