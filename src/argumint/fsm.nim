@@ -373,9 +373,12 @@ proc walk(s: State, pc: var ParseContext): bool =
       if tr.next.walk(fresh):
         pc = fresh
         return true
-      elif tr.next.terminal and fresh.tokens.len > 0 and pc.messages.len == 0:
+      elif tr.next.terminal and fresh.tokens.len > 0 and fresh.messages.len == 0:
         # Word the complaint from classify()'s best-effort answer now that
-        # nothing claimed this token -- see ADR 0019.
+        # nothing claimed this token -- see ADR 0019. Gated on `fresh`'s own
+        # messages, not `pc`'s -- this branch's nested walk may already have
+        # left a more specific complaint (e.g. which Flag alias was left over)
+        # that a sibling branch's unrelated accumulated state must not suppress.
         let c = classify(fresh.spec, fresh.tokens, 0, fresh.optsEnd)
         case c.kind
         of Command:
@@ -390,11 +393,26 @@ proc walk(s: State, pc: var ParseContext): bool =
           else:
             fresh.messages.add ("unexpected argument", c.argVal)
 
-    if fresh.depth >= pc.maxDepth or pc.messages.len == 0:
+    if fresh.depth > pc.maxDepth or pc.messages.len == 0:
       pc.maxDepth = fresh.depth
       pc.errorSpec = fresh.spec
       pc.messages = fresh.messages
       pc.errorCommand = fresh.command
+    elif fresh.depth == pc.maxDepth:
+      # A tied-depth sibling merges its complaints into the running set
+      # instead of replacing it outright -- two same-kind failures (e.g.
+      # both `-h` and `--verbose` missing at the same [options] position)
+      # are meant to accumulate onto one grouped line via formatComplaints.
+      # Without the merge, whichever sibling happens to run last would
+      # silently discard an equally-valid earlier complaint -- including
+      # a Flag Operation Class conflict, where two mutually-exclusive
+      # variants (e.g. `--moored`/`--drifting`) each independently and
+      # correctly complain about the *other* one being left over; merging
+      # surfaces both instead of arbitrarily blaming just one (issue #8
+      # follow-up).
+      for msg in fresh.messages:
+        if msg notin pc.messages:
+          pc.messages.add msg
 
 type
   Frontier = seq[tuple[state: State, pc: ParseContext]]

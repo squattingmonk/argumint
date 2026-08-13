@@ -50,6 +50,26 @@ suite "FlagOp Alias exclusivity (issue #8)":
     expect ParseError:
       spec.parse(usage = "--up --down", args = @["--up", "--up"], command = "prog")
 
+  test "the rejection names the actual conflicting variants, not an arbitrary unrelated one":
+    # Regression: `walk`'s best-effort error-message bookkeeping used to let
+    # one alternation branch's failure silently overwrite a sibling
+    # branch's, at a tied backtracking depth -- for two mutually-exclusive
+    # variants of the same Flag, this could name the *accepted* variant as
+    # "unexpected" instead of the one that actually broke exclusivity, or
+    # lose the complaint outright depending on evaluation order. Both CLI
+    # orderings must consistently name both conflicting variants.
+    let spec = (
+      moored: flag("--moored=true, --drifting=false", default = false, help = ""),
+    )
+    for args in [@["--moored", "--drifting"], @["--drifting", "--moored"]]:
+      var caught = ""
+      try:
+        spec.parse(usage = "[--moored | --drifting]", args = args, command = "prog")
+      except ParseError as e:
+        caught = e.msg
+      check "--moored" in caught
+      check "--drifting" in caught
+
   test "two separate choice groups for the same Flag are order-independent, composing by true CLI order":
     # Same usage line and Arg as the test above, but each position's own
     # variant actually appears on the CLI -- just not in declared order.
