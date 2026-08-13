@@ -14,7 +14,11 @@ Hook, fired around its own dispatch — this applies equally to a Command's
 own nested Spec and to the top-level Spec, which carries no Command of its
 own. See those entries. As a value (`newSpec*`'s return), a Spec is an
 _opaque handle_ — nameable and passable, but its internals belong to
-argumint (see `docs/adr/0030-core-types-exported-spec-opaque.md`).
+argumint (see `docs/adr/0030-core-types-exported-spec-opaque.md`). A Spec is
+also _single-use_: parsing one twice accumulates into the same Args instead
+of starting fresh, so parsing repeatedly means a **fresh spec** per parse
+(`parsed*`/`parsedOrQuit*`, see
+`docs/adr/0031-parsed-fresh-spec-per-parse.md`).
 _Avoid_: Parser, schema, config
 
 **Arg**:

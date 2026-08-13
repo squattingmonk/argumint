@@ -44,6 +44,7 @@ hand-written validation code.
   - [Custom Messages](#custom-messages-message-and-version)
   - [Displaying Help](#displaying-help-help)
   - [Shell Completion](#shell-completion)
+  - [Parsing More Than Once](#parsing-more-than-once)
   - [Error Handling](#error-handling)
 - [Examples](#examples)
 - [Learning more](#learning-more)
@@ -1423,6 +1424,44 @@ values, so they can never drift out of sync with what the validator would
 actually accept. **Only fish and zsh render `help` inline** in their own
 completion menu; bash's `compgen`/`COMPREPLY` has no per-candidate description
 slot at all, so its generated script strips it before completing bare words.
+
+### Parsing More Than Once
+
+A spec tuple is **single-use**. `parse`/`parseOrQuit` assign into the `Arg`s
+you declared, and Match Accumulation is per-`Arg` lifetime rather than
+per-parse — so a second parse against the same spec doesn't start fresh:
+
+```nim
+let spec = (tags: opts("--tag=<t>"), port: opt("--port=<n>", default = 80))
+
+spec.parse(args = @["--tag", "a", "--port", "81"], command = "app")
+spec.parse(args = @["--tag", "b"], command = "app")
+# spec.tags is now @["a", "b"], and spec.port is still 81 -- from a command
+# line that never mentioned --port
+```
+
+That last part is the one to watch: `port` reads as a perfectly ordinary
+value, with nothing to indicate it came from the previous parse.
+
+Use **`parsed`** (or `parsedOrQuit`) when you need to parse repeatedly — in a
+REPL or server, or in a test with a table of `(argv, expected)` cases. It
+parses a *fresh* spec and returns it, so each call is independent and a parse
+becomes a pure function of its arguments. Give it a builder proc:
+
+```nim
+import std/cmdline
+
+proc buildCli(): auto =
+  (tags: opts("--tag=<t>"), port: opt("--port=<n>", default = 80), help: help())
+
+for line in stdin.lines:
+  let cli = parsed(buildCli, args = line.parseCmdLine, command = "repl")
+  echo cli.port          # 80 unless *this* line set it
+```
+
+One limit: values for a command's own nested spec are readable only through
+that command's [hooks](#before-action-and-after-hooks), not off the returned
+tuple — a spec tuple holds a `CommandArg`, not the nested tuple.
 
 ### Error Handling
 
