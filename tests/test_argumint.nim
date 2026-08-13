@@ -1129,7 +1129,7 @@ suite "Messages":
     for line in lines:
       check line == line.strip(leading = false, trailing = true)
 
-  test "a flag with divergent per-variant ops groups into rows, primary row keeping the shared help":
+  test "a flag with divergent per-variant ops repeats the shared help and action on every row":
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2", default = 0, help = "Adjust verbosity"),
       help: help(),
@@ -1141,11 +1141,11 @@ suite "Messages":
       helpText = e.msg
     let colWidth = "-v, --verbose".len
     check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Adjust verbosity [action: Increment by 1]") in helpText
-    check ("    " & "--quiet".alignLeft(colWidth) & "  Set to 0") in helpText
-    check ("    " & "--boost".alignLeft(colWidth) & "  Increase by 5") in helpText
-    check ("    " & "--dampen".alignLeft(colWidth) & "  Decrease by 2") in helpText
+    check ("  " & "--quiet".alignLeft(colWidth) & "  Adjust verbosity [action: Set to 0]") in helpText
+    check ("  " & "--boost".alignLeft(colWidth) & "  Adjust verbosity [action: Increase by 5]") in helpText
+    check ("  " & "--dampen".alignLeft(colWidth) & "  Adjust verbosity [action: Decrease by 2]") in helpText
 
-  test "primary row shows [action: X] alone when arg.help is empty":
+  test "every row shows its own variantDesc plainly, with no shared text to repeat, when arg.help is empty":
     let spec = (
       verbosity: flag[int]("-v, --verbose, --quiet=0", default = 0, help = ""),
       help: help(),
@@ -1155,7 +1155,9 @@ suite "Messages":
       spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "  -v, --verbose  [action: Increment by 1]" in helpText
+    let colWidth = "-v, --verbose".len
+    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Increment by 1") in helpText
+    check ("  " & "--quiet".alignLeft(colWidth) & "  Set to 0") in helpText
 
   test "variantHelp overrides the auto-generated description for a specific variant":
     let spec = (

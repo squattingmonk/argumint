@@ -32,7 +32,8 @@ Arg's Variants are interchangeable for matching purposes — any one
 satisfies that Arg's position in the grammar — but whether the *specific*
 Variant seen affects behavior beyond identifying the Arg depends on the
 Arg kind (see Option, Flag, Command, Positional Argument).
-_Avoid_: Alias, spelling, flag name
+_Avoid_: Alias, spelling, flag name (bare "Alias" names the relationship
+*between* two Variants of a Flag, not a Variant itself -- see FlagOp Alias)
 
 **Option**:
 A named argument that takes a value via one of its Variants (e.g.
@@ -58,8 +59,30 @@ The atomic unit of Flag behavior: a single Variant paired with a
 predetermined operation (set, increment, decrement, toggle, etc.) and,
 where applicable, a fixed value. A Flag is the shared value slot that one
 or more independent Flag Operations mutate — the Flag Operation, not the
-Flag itself, determines what happens when a particular Variant is seen.
+Flag itself, determines what happens when a particular Variant is seen. See
+FlagOp Alias for when two Variants' Flag Operations count as equivalent.
 _Avoid_: FlagOp (code-level name), variant behavior
+
+**FlagOp Alias**:
+The relationship between two of a Flag's own Variants whose Flag Operations
+are equivalent -- same op, same arg, regardless of desc. Determines which
+Variants are mutually exclusive alternatives of each other versus
+independently reachable: a `choice`-style Usage Line dedupes among FlagOp
+Aliases (so `--verbose | -v` collapses to one required position) but keeps
+differently-configured Variants of the same Flag (e.g. `--up`/`--down`)
+independently reachable, since typing one doesn't satisfy a grammar
+position that specifically wants the other. Reflexive -- a Variant is
+always its own FlagOp Alias, so code checking this relationship (`Arg.
+aliases`, `backend.nim`/`argumint.nim`) never special-cases an exact
+literal match. Applies only to Flag; every other Arg kind has no notion of
+per-Variant behavioral difference to alias by, so any two of its own
+Variants are unconditionally aliases of one another. See
+`docs/adr/0026-flag-op-alias-exclusivity.md` (issue #8) for the full
+mechanics: usage-string alternation exclusivity, order-independent
+scanning, true-CLI-order composition, and alias-scoped completion all key
+off this same relationship.
+_Avoid_: Flag Operation Class, Op class, variant class (earlier working
+terms for this same concept)
 
 **Flag Clamp**:
 A silent, non-raising constraint attached to a Flag, applied to its shared

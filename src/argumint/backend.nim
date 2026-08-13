@@ -124,8 +124,10 @@ type
       arg*: Arg
     of Option:
       opt*: Arg
+      variant*: string
     of Options:
       opts*: seq[Arg]
+      variants*: seq[string]
     of Command:
       cmd*: CommandArg
     else:
@@ -290,3 +292,13 @@ method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
   ## through the same conversion/validation as a CLI-supplied value. See
   ## `docs/adr/0018-config-source.md`.
   raise newException(Defect, fmt"setFromConfig() is not defined for {self.name}")
+
+method aliases*(self: Arg, a, b: string): bool {.base.} =
+  ## Returns whether `a` and `b` are aliases for `self`. Overridden by
+  ## `FlagArg[T]`, which restricts this to FlagOp Aliases (variants sharing
+  ## an equivalent Flag Operation). Every call site guarantees `a` and `b`
+  ## are both already-declared variants of `self` -- never a foreign string
+  ## -- so this doesn't re-derive that from `self.variants`; a plain
+  ## (non-Flag) Arg has no notion of FlagOp Aliasing, so any two of its own
+  ## variants are unconditionally aliases of one another.
+  true
