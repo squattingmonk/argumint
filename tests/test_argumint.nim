@@ -1940,6 +1940,22 @@ suite "Config Source":
     expect ValidationError:
       spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
 
+  test "opt: a config-sourced failure names the Config Key as a flat path, not a raw seq":
+    # ADR 0029: the error context goes through ConfigKey.join, so a
+    # multi-segment path reads `server.port` the way help text renders it,
+    # not `@["server", "port"]`.
+    let settings = newSpecSettings(
+      configSources = @[fakeSource((configKey("server", "port"), @["notanint"]))])
+    let spec = (
+      port: opt("--port=<port>", default = 8080, configKey = configKey("server", "port"), help = ""),
+    )
+    try:
+      spec.parse(usage = "[--port=<port>]", settings = settings, args = @[], command = "prog")
+      check false
+    except ParseError as e:
+      check "server.port" in e.msg
+      check "@[" notin e.msg
+
   test "opt: neither CLI, env, nor config set falls back to the coded default":
     let settings = newSpecSettings(configSources = @[fakeSource()])
     let spec = (

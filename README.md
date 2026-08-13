@@ -973,6 +973,12 @@ spec.parseOrQuit(
   settings = newSpecSettings(configSources = @[jsonConfigSource("config.json")]))
 ```
 
+A bare string is a one-segment path; nest with `configKey("server",
+"port")`. A `ConfigKey` is a `distinct seq[string]`, so a custom
+`ConfigSource` addresses it with `key.len`, `key[i]`, and `for segment in
+key`, and calls `key.segments` for the underlying `seq[string]` — see
+`docs/adr/0029-config-key-distinct.md` for why it isn't a plain alias.
+
 Built-in adapters: `iniConfigSource(path)` (`std/parsecfg`-backed) and
 `jsonConfigSource(path)` (`std/json`-backed), both reading and parsing
 eagerly at that call. Write your own by subclassing `ConfigSource` and

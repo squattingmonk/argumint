@@ -11,16 +11,22 @@
 ## opt-in modules (`argumint/configsource/ini`, `argumint/configsource/json`)
 ## for the same reason.
 
-import std/options
+import std/[options, strutils]
 
 type
-  ConfigKey* = seq[string]
-    ## A structured path into a Config Source, e.g. `@["Package", "Name"]`.
-    ## Each adapter interprets segments its own way -- see `ConfigSource`.
-    ## Deliberately not a flat delimited string: unlike Env Delimiter's
-    ## central-splitting design, a Config Source's own structure (INI
-    ## sections, JSON nesting) already has real boundaries a delimiter
+  ConfigKey* = distinct seq[string]
+    ## A structured path into a Config Source, e.g. `configKey("Package",
+    ## "Name")`. Each adapter interprets segments its own way -- see
+    ## `ConfigSource`. Deliberately not a flat delimited string: unlike Env
+    ## Delimiter's central-splitting design, a Config Source's own structure
+    ## (INI sections, JSON nesting) already has real boundaries a delimiter
     ## would only risk colliding with.
+    ##
+    ## `distinct`, not a bare `seq[string]` alias, so `toConfigKey` below
+    ## can stay implicit without leaking a global `string` -> `seq[string]`
+    ## conversion into every program that imports argumint -- see
+    ## `docs/adr/0029-config-key-distinct.md`. Use `segments` to get the
+    ## underlying `seq[string]` when an adapter needs one.
 
   ConfigSource* = ref object of RootObj
     ## Base type for one layer of the Config Source tier. Subclass and
@@ -29,6 +35,33 @@ type
     ## `Arg` itself uses, not a closed case-object like `Validator`/
     ## `FlagClamp`, since "an arbitrary user-supplied format" needs genuine
     ## third-party subclassability.
+
+proc len*(k: ConfigKey): int {.borrow.}
+proc `==`*(a, b: ConfigKey): bool {.borrow.}
+proc `$`*(k: ConfigKey): string {.borrow.}
+
+proc `[]`*(k: ConfigKey, i: int): string =
+  ## Returns `k`'s `i`th segment. Written out rather than `{.borrow.}`-ed --
+  ## see docs/gotchas.md.
+  seq[string](k)[i]
+
+iterator items*(k: ConfigKey): string =
+  ## Yields `k`'s segments in order, so `for segment in key` works in a
+  ## `ConfigSource.lookup` override. Written out -- see docs/gotchas.md.
+  for segment in seq[string](k):
+    yield segment
+
+proc segments*(k: ConfigKey): seq[string] =
+  ## Returns `k`'s segments as a plain `seq[string]` -- the explicit
+  ## unwrap for a custom `ConfigSource` that needs to hand the path to
+  ## something expecting an `openArray[string]`, which `ConfigKey` no
+  ## longer implicitly satisfies.
+  seq[string](k)
+
+proc join*(k: ConfigKey, sep = "."): string =
+  ## Renders `k` as a flat delimited path (e.g. `Package.name`), for help
+  ## text and error messages. Display only -- never parsed back.
+  seq[string](k).join(sep)
 
 method lookup*(self: ConfigSource, key: ConfigKey): Option[seq[string]] {.base.} =
   ## Returns the values found at `key`, already split one element per
@@ -51,11 +84,19 @@ proc lookupConfigSources*(sources: seq[ConfigSource], key: ConfigKey): Option[se
 converter toConfigKey*(segment: string): ConfigKey =
   ## Lets a `configKey` param be given a single flat string (`configKey =
   ## "port"`), same convenience as `env*`'s implicit `EnvSource` conversion.
-  @[segment]
+  ## Safe to leave implicit because `ConfigKey` is `distinct` -- nothing
+  ## outside argumint has a `ConfigKey` parameter for this to hijack.
+  ConfigKey(@[segment])
 
 proc configKey*(segments: varargs[string]): ConfigKey =
   ## Builds a multi-segment `ConfigKey`, e.g. `configKey("Package", "Name")`.
-  @segments
+  ConfigKey(@segments)
+
+proc noConfigKey*(): ConfigKey =
+  ## The empty path -- `opt*`/`opts*`/`flag*`'s `configKey` default, meaning
+  ## "this Arg has no Config Source tier". Matches `noValidator`/`noClamp`'s
+  ## naming rather than spelling `ConfigKey(@[])` in seven signatures.
+  ConfigKey(@[])
 
 when isMainModule:
   import std/unittest
@@ -72,10 +113,40 @@ when isMainModule:
   suite "ConfigKey":
     test "a plain string converts to a single-segment path":
       let key: ConfigKey = "port"
-      check key == @["port"]
+      check key.segments == @["port"]
 
     test "configKey builds a multi-segment path":
-      check configKey("Package", "Name") == @["Package", "Name"]
+      check configKey("Package", "Name").segments == @["Package", "Name"]
+
+    test "noConfigKey is the empty path":
+      check noConfigKey().len == 0
+      check noConfigKey() == configKey()
+
+    test "len, [], and items address segments without unwrapping":
+      let key = configKey("Package", "Name")
+      check key.len == 2
+      check key[0] == "Package"
+      check key[1] == "Name"
+      var seen: seq[string]
+      for segment in key:
+        seen.add segment
+      check seen == @["Package", "Name"]
+
+    test "join renders a flat display path":
+      check configKey("Package", "Name").join == "Package.Name"
+      check configKey("Package", "Name").join("/") == "Package/Name"
+      check configKey("port").join == "port"
+      check noConfigKey().join == ""
+
+    test "being distinct keeps string from standing in for a seq[string]":
+      # The whole point of the distinct: a bare string must convert to a
+      # ConfigKey but not to a plain seq[string] -- see
+      # docs/adr/0029-config-key-distinct.md.
+      proc wantsSeq(xs: seq[string]): int = xs.len
+      check not compiles(wantsSeq("oops"))
+      check compiles(configKey("oops"))
+      proc wantsKey(k: ConfigKey): int = k.len
+      check wantsKey("oops") == 1
 
   suite "lookupConfigSources":
     test "no sources yields none":

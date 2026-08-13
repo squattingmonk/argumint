@@ -493,10 +493,16 @@ unrelated); "config file" (a Config Source need not be file-backed);
 ConfigSource (code-level name, fine in prose about the API itself)
 
 **Config Key**:
-The per-Arg structured path (`seq[string]`, e.g. `@["Package", "name"]`)
-an Arg's Config Source lookup is addressed by, set via `opt*`/`opts*`/
-`flag*`'s `configKey` param (a bare string is a 1-segment path, via an
-implicit conversion). Each Config Source interprets segments its own way —
+The per-Arg structured path (e.g. `configKey("Package", "name")`) an Arg's
+Config Source lookup is addressed by, set via `opt*`/`opts*`/`flag*`'s
+`configKey` param (a bare string is a 1-segment path, via an implicit
+conversion; `noConfigKey()` is the empty path, meaning "no Config Source
+tier for this Arg"). A `distinct seq[string]` rather than a bare alias, so
+that implicit conversion can't leak a global `string` → `seq[string]`
+conversion into every importing program — a custom Config Source addresses
+segments via `len`/`[]`/iteration and unwraps with `segments` when it needs
+a real `seq[string]` (see `docs/adr/0029-config-key-distinct.md`). Each
+Config Source interprets segments its own way —
 the built-in INI adapter treats a 1-segment path as the global scope
 (before any `[section]` header) and a 2-segment path as `[section, key]`;
 the built-in JSON adapter walks one nested object level per segment. Has

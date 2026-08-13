@@ -278,11 +278,12 @@ method setFromEnv*(self: Arg, values: seq[string]) {.base.} =
 
 method configKey*(self: Arg): ConfigKey {.base.} =
   ## Returns the structured path this arg's value is looked up under in
-  ## Value Precedence's Config Source tier, or `@[]` if none configured.
+  ## Value Precedence's Config Source tier, or `noConfigKey()` if none
+  ## configured.
   ## Base case (positional args, commands, message args) has no notion of
   ## one; `ValueArg`/`FlagArg` override this per-type via
   ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
-  @[]
+  noConfigKey()
 
 method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
   ## Applies an already-resolved Config Source value to this arg, the same

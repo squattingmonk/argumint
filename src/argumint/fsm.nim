@@ -831,7 +831,7 @@ when isMainModule:
     self.lookups.inc
     some(@["x"])
 
-  proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = @[]): TestArg =
+  proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = noConfigKey()): TestArg =
     TestArg(kind: Optional, variants: @[name], env: env, delim: delim, cfg: cfg)
 
   proc specWithConfig(sources: seq[ConfigSource] = @[], args: seq[Arg] = @[]): Spec =

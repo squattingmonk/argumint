@@ -1,5 +1,11 @@
 # Config Source: a third Value Precedence tier
 
+> **Amended by
+> [ADR 0029](0029-config-key-distinct.md)**: `ConfigKey` is now a
+> `distinct seq[string]`, not the plain alias described in point 3 below.
+> The bare-string `converter` and everything else here stand; only the
+> type's representation changed.
+
 Value Precedence had two tiers above the coded default: an explicit CLI
 value, then an environment variable (`Env Source`). That wasn't enough for
 an app wanting a config-file-driven layer ahead of its own coded defaults —

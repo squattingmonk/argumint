@@ -213,7 +213,7 @@ proc genHelp(spec: Spec, command: string): string =
         if arg.validatorHelp.len > 0: annotations.add arg.validatorHelp
         if arg.defaultStr.len > 0: annotations.add "default: {arg.defaultStr}".fmt
         if arg.envName.len > 0: annotations.add "env: {arg.envName}".fmt
-        if arg.configKey.len > 0: annotations.add "configKey: {arg.configKey.join(\".\")}".fmt
+        if arg.configKey.len > 0: annotations.add "configKey: {arg.configKey.join}".fmt
         if divergent and arg.help.len > 0: annotations.add "action: {vg.desc}".fmt
         let bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
         let text =
@@ -369,17 +369,16 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
 
   method setFromConfig(self: ValueArg[T, false], values: seq[string]) =
     # multi=false's overwrite-on-each-call already gives last-value-wins.
-    # `$self.cfgKey` (bare `$`, not `strutils.join`) as the error-context
-    # string -- see docs/adr/0018-config-source.md for why this avoids a
-    # new docs/adr/0017-style openSym re-export.
+    # `join` as the error-context string, so a failure names the path the
+    # way help text does (`server.port`) -- see docs/adr/0029-config-key-distinct.md.
     for value in values:
-      self.parseImpl(value, $self.cfgKey)
+      self.parseImpl(value, self.cfgKey.join)
 
   method setFromConfig(self: ValueArg[T, true], values: seq[string]) =
     # `multi = true`'s append-on-each-call behavior already gives the
     # usual multi-value Match Accumulation rule for free.
     for value in values:
-      self.parseImpl(value, $self.cfgKey)
+      self.parseImpl(value, self.cfgKey.join)
 
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
@@ -747,7 +746,7 @@ proc args*(variants: string, default: seq[string] = @[], help = "", group = "Arg
   ## for full parameter docs.
   args[string](variants, default, help, group, hidden, validator)
 
-proc opt*[T: not seq](variants: string, default: T = default(T), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = default(T), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `opt[int]("-n")`.
@@ -783,13 +782,13 @@ proc opt*[T: not seq](variants: string, default: T = default(T), help = "", grou
   ##   above the coded default. See `docs/adr/0018-config-source.md`.
   ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
-proc opt*(variants: string, default: string = "", help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[string, false] =
+proc opt*(variants: string, default: string = "", help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, false] =
   ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opt("--name")`). See `opt[T]` above
   ## for full parameter docs.
   opt[string](variants, default, help, group, hidden, validator, env, configKey)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -823,7 +822,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   `docs/adr/0018-config-source.md`.
   ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
 
-proc opts*(variants: string, default: seq[string] = @[], help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): ValueArg[string, true] =
+proc opts*(variants: string, default: seq[string] = @[], help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, true] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
   ## for full parameter docs.
@@ -907,7 +906,7 @@ proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[
 
 proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default: T = default(T), help = "", group = "Options",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[T] =
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
   ## instead changes value based on the seen variant. If given, `default` can
   ## be used to infer `T`; otherwise, `T` defaults to `bool` (see the bare-call
@@ -984,7 +983,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default
 
 proc flag*[T](variants: string = "", ops: string, default: T = default(T), help = "", group = "Options",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[T] =
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Convenience overload: `ops` as a comma-separated string of
   ## `<flag><op><value>` entries (e.g. `"--quiet=0, --boost+=5,
   ## --dampen-=2"`), each becoming its own single-spelling explicit FlagOp
@@ -1136,7 +1135,7 @@ defineFlag bool, "Toggle the value":
 # docs/gotchas.md).
 proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default: bool = false, help = "", group = "Options",
     hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[bool] =
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
   ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
   ## above for full parameter docs.
@@ -1144,7 +1143,7 @@ proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default
 
 proc flag*(variants: string = "", ops: string, default: bool = false, help = "", group = "Options",
     hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = @[]): FlagArg[bool] =
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
   ## lets `T` default to `bool` without an explicit bracket. See `flag[T]`
   ## above for full parameter docs.
