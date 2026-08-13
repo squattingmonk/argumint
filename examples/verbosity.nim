@@ -12,7 +12,9 @@
 # `clamp = clamp(0..10)` pins the resulting value to 0..10 no matter how
 # many times `--boost`/`--verbose` are repeated -- silently, not by raising
 # an error -- so code reading `spec.verbosity` never has to re-check its
-# bounds.
+# bounds. `desc = some("")` suppresses clamp's own `[clamp: 0..10]` help
+# annotation, which would otherwise repeat identically on every variant's
+# row alongside each row's own `[action: ...]` (see issue #12).
 
 import std/strformat
 
@@ -22,7 +24,7 @@ let
   spec = (
     verbosity: flag[int](
       "-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
-      default = 0, help = "Adjust verbosity", clamp = clamp(0..10)
+      default = 0, help = "Adjust verbosity", clamp = clamp(0..10, desc = some(""))
     ),
     help: help()
   )

@@ -1,7 +1,7 @@
 import std/[os, strutils, unittest] # strutils for `in`/`contains` on strings
                                      # in this file's own `check` assertions
 
-import argumint
+import argumint # re-exports `some`/`none` -- see issue #12
 
 type Rank = enum bronze, silver, gold
 
@@ -67,7 +67,7 @@ suite "Flag Clamp integration":
   test "generated help shows adjust's desc if given, nothing otherwise":
     let described = (
       verbosity: flag[int]("-v, --verbose", default = 0, help = "Adjust verbosity",
-        clamp = adjust(proc (v: int): int = v, desc = "rounded silently")),
+        clamp = adjust(proc (v: int): int = v, desc = some("rounded silently"))),
       help: help(),
     )
     var helpText = ""
@@ -90,6 +90,22 @@ suite "Flag Clamp integration":
     # no bracket annotation at all -- matches how a plain, clamp-less flag
     # renders (see test_argumint.nim's equivalent no-annotation assertion)
     check "  -v, --verbose  Adjust verbosity" in helpText
+
+  test "desc = some(\"\") suppresses the clamp annotation on a divergent flag's help, action still shown":
+    let spec = (
+      verbosity: flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2",
+        default = 0, help = "Adjust verbosity", clamp = clamp(0..10, desc = some(""))),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(usage = "[-v | --verbose | --quiet | --boost | --dampen]...",
+        args = @["--help"], command = "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "clamp:" notin helpText
+    check "  -v, --verbose  Adjust verbosity [action: Increment by 1]" in helpText
+    check "  --quiet        Adjust verbosity [action: Set to 0]" in helpText
 
   test "adjust is the escape hatch for a type with no total order, e.g. set[E]":
     # `<` on set[Rank] means proper-subset inclusion (a partial order), so
