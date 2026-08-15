@@ -14,7 +14,7 @@
 ## like any other non-match (order-independent, per ADR 0019). What keeps
 ## composition correct despite that is `RawToken.idx`: every match
 ## remembers the original CLI argv position of the token it consumed, and
-## `parseOwnValues`/`parseMessageArgs` apply a Flag's matched operations
+## `parseAllValues`/`parseMessageArgs` apply a Flag's matched operations
 ## sorted by that index instead of by push/grammar-declaration order. This
 ## is what makes Flag Operations (often non-commutative, e.g. with
 ## `clamp`) compose in true typed order regardless of which usage-line
