@@ -258,6 +258,12 @@ Because `multi` is a `static bool`, `ValueArg[T, false]` and `ValueArg[T,
 true]` are distinct concrete types to the compiler, so `toT`/`toSeqT` can be
 overloaded per-arity without ambiguity.
 
+Both type names are exported, on the same terms as `Spec` — nameable, state
+private — so an arg can cross a proc or module boundary
+(`docs/adr/0033-value-arg-flag-arg-exported.md`). `FlagOp[T]` is not, since
+`FlagArg.ops` is private. Tests reaching either type's fields need
+`privateAccess` *per instantiation*, not once per generic.
+
 `defineArg[T]` is a template that generates a `method parse` for a given `T`
 (both arities) by calling `parseImpl`, which converts the raw string via an
 implicit `converter` (`toInt`, `toFloat`, `toBool`, `toChar`; strings pass

@@ -82,7 +82,12 @@ export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim
 export fsm.parse, fsm.completeArgs
 
 type
-  ValueArg[T: not seq, multi: static bool] = ref object of Arg
+  ValueArg*[T: not seq, multi: static bool] = ref object of Arg
+    ## What `arg*`/`args*`/`opt*`/`opts*` return. `multi` is `false` for the
+    ## scalar arity and `true` for the multi-value one, making them distinct
+    ## concrete types. Nameable so an arg can cross a proc or module
+    ## boundary; its fields stay private, same shape as `Spec` -- see
+    ## `docs/adr/0033-value-arg-flag-arg-exported.md`.
     value: seq[T] ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
     default: seq[T]
     validator: Validator[T]
@@ -97,7 +102,10 @@ type
     ## exact Flag Operation (`op`/`value`) and `help` override. See
     ## `flag*`.
 
-  FlagArg[T] = ref object of Arg
+  FlagArg*[T] = ref object of Arg
+    ## What `flag*` returns. Nameable on the same terms as `ValueArg` --
+    ## type public, fields private. `FlagOp` stays internal: `ops` is
+    ## private, so naming `FlagArg[T]` never requires naming it.
     value: T
     ops: OrderedTableRef[string, FlagOp[T]]
     aliases: TableRef[string, seq[string]]
@@ -1464,6 +1472,17 @@ when isMainModule:
 
   defineSetFlag(Rank)
   defineSetFlag(Grade)
+
+  suite "the export boundary drawn in issue #27":
+    test "`FlagOp` exists but is private to this module":
+      # `tests/test_public_api.nim` asserts this name is unreachable from a
+      # bare `import argumint`. Its mirroring positive lives here rather
+      # than in `tests/test_argumint.nim` -- unlike the FSM plumbing types,
+      # which `argumint/backend` exports and that file can name, `FlagOp`
+      # is private to this module, so no importer can name it at all.
+      # `FlagArg[T]` is nameable anyway, since `ops` is a private field.
+      let op: FlagOp[int] = (op: "+=", arg: 1, desc: "bump")
+      check op.arg == 1
 
   suite "defineArg/defineFlag macro machinery":
     test "a ValueArg's generated parse/defaultStr work when constructed directly, bypassing arg()":

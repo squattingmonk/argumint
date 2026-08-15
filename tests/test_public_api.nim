@@ -9,6 +9,11 @@
 # so every negative below is mirrored by a positive in `test_argumint.nim`'s
 # "Library-internal names ... unreachable" suite, which does import the
 # internals. Neither half means much alone; add to both together.
+#
+# One exception: `FlagOp` is private to `src/argumint.nim` itself, not to a
+# submodule that file can import, so no importer can name it. Its mirror
+# lives in that file's own embedded "the export boundary drawn in issue #27"
+# suite instead.
 
 import std/[os, sequtils, unittest]
 
@@ -37,6 +42,10 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(CompletionCandidate)
     check nameable(Validator[int])
     check nameable(FlagClamp[int])
+    # The return types of all five spec constructors -- see issue #27.
+    check nameable(ValueArg[string, false])
+    check nameable(ValueArg[string, true])
+    check nameable(FlagArg[bool])
 
   test "`Option` itself is exported, not just `some`/`none`":
     # `opt*`/`opts*`/`flag*`'s `env` param is `Option[EnvSource]` and
@@ -51,6 +60,12 @@ suite "Types nameable after a bare `import argumint`":
     # `DefaultWidth` appears in no exported signature, so it stays internal
     # until something needs it -- see ADR 0030.
     check not compiles(DefaultWidth)
+
+  test "`FlagOp` stays unexported":
+    # `FlagArg.ops` is private, so naming `FlagArg[T]` never requires
+    # naming its element type. `FlagOpGroup` is the public half.
+    check not nameable(FlagOp[int])
+    check nameable(FlagOpGroup[int])
 
   test "the FSM plumbing types stay unexported":
     # Implementation, not API: their operations live in `argumint/fsmgraph`,
@@ -86,6 +101,31 @@ suite "`Spec` is an opaque handle":
   test "mutating the shared settings still reaches the built spec":
     spec.settings.width = 42
     check spec.settings.width == 42
+
+suite "`ValueArg`/`FlagArg` are opaque handles too":
+  setup:
+    let
+      name = opt("-n, --name=<s>", default = "x", help = "")
+      tags = opts("--tag=<t>", help = "")
+      verbose = flag("-v", help = "")
+
+  test "their state stays unreachable from outside the library":
+    check not compiles(name.value)
+    check not compiles(name.default)
+    check not compiles(name.validator)
+    check not compiles(name.cfgKey)
+    check not compiles(tags.value)
+    check not compiles(verbose.value)
+    check not compiles(verbose.ops)
+    check not compiles(verbose.aliases)
+    check not compiles(verbose.clamp)
+
+  test "the inherited `Arg` surface still works through them":
+    # Exporting the subtypes must not shadow what ADR 0030 already opened
+    # up on the base type.
+    check name.kind == ArgKind.Optional
+    check verbose.kind == ArgKind.Flag
+    check name.help == ""
 
 suite "What naming the core types buys a caller":
   test "a Spec can cross a proc boundary":
@@ -136,3 +176,36 @@ suite "What naming the core types buys a caller":
     spec.parse(args = @["-v"], command = "prog", action = onAction)
     check not sawMessageArg
     check sawFlag
+
+  test "a house-style `opt`/`flag` factory can be written":
+    # The `EnvSource` case ADR 0030 accepted, one level up: these are the
+    # *return* types of all five constructors -- see issue #27.
+    proc appOpt(variants, help: string): ValueArg[string, false] =
+      opt(variants, help = help, group = "App")
+
+    proc appFlag(variants, help: string): FlagArg[bool] =
+      flag(variants, help = help, group = "App")
+
+    let spec = (name: appOpt("--name=<s>", "who"), loud: appFlag("-l", "loud"))
+    spec.parse(usage = "[options]", args = @["--name", "Ada", "-l"], command = "prog")
+    check spec.name == "Ada"
+    check spec.loud
+
+  test "an arg can be forward-declared and assigned later":
+    var pending: ValueArg[string, false]
+    check pending.isNil
+    pending = opt("--late=<s>", default = "d", help = "")
+    check not pending.isNil
+
+  test "args can be collected in a typed seq built conditionally":
+    # Inference covers this only when the seq is initialized in one
+    # statement, which rules out building it in pieces.
+    var common: seq[ValueArg[string, false]]
+    common.add opt("-a=<a>", help = "a")
+    if true:
+      common.add opt("-b=<b>", help = "b")
+    check common.len == 2
+
+  test "a generic helper can take an arg as a parameter":
+    proc describe[T](a: ValueArg[T, false]): string = a.help
+    check describe(opt("-x=<x>", help = "ex")) == "ex"
