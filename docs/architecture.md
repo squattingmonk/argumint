@@ -132,7 +132,41 @@ trusting a precomputed global answer:
   were typed in. `classify`'s `Positional` and `Command` results carry the
   same `consumed`/`remainder` shape for the same raw token, so there's
   nothing left to distinguish once the scan has decided to stop — both
-  are handled by one `of Positional, Command:` arm.
+  are handled by one `of Positional, Command:` arm. That arm is gated by
+  `refusesAsPositional` — Strict Option Checking, `SpecSettings.strictOptions`,
+  default on: a `Positional` result that is option-shaped, unresolved, and
+  not a Non-Option Short is skipped rather than accepted, so it survives as
+  a leftover token for `walk` to name via `unknownOptionMsg`. The same
+  setting gates the value slot inside `classify` (`refusesAsValue`), so a
+  declared Optional followed by an unrelated option starves instead of
+  eating it. Both refuse rather than raise, keeping backtracking intact.
+  See `docs/adr/0034-strict-option-checking.md`, which narrows ADR 0019's
+  gap 3 without touching the classification mechanism itself.
+
+  A post-`--` token is exempt because `refusesAsPositional` consults
+  `pc.optsEnd` directly: `classify` short-circuits past all option-shape
+  reasoning once end-of-options is crossed, which yields a plain
+  `Positional` indistinguishable from an unknown option's, so the gate has
+  to know about `optsEnd` itself rather than reading it off the result.
+
+`classify` also carries a non-accepting outcome, `starvedOpt`/`starvedName`,
+set when a token *is* a declared Optional but no value is available. That is
+what lets the leftover complaint say `option --port requires a value` rather
+than calling a name it recognizes unrecognized, and it is an error under
+both settings.
+
+Four failure paths ask that question — the `Option` matcher, the `Options`
+catch-all, the `Argument` matcher, and `walk`'s leftover branch — so
+`addStarved` classifies the leading token for itself and returns whether it
+complained, letting each caller fall back to its own blunter wording. Two of
+them are why it can't simply be handed a `Classification` computed once:
+`Options` rolls back each failed probe's messages, so the question has to be
+re-asked *after* the rollback, and `Argument` reports its own `missing
+argument` without ever reaching a terminal state's leftover token. It's also
+added even when other complaints already exist, unlike the other leftover
+wordings — a starved option can never be consumed as anything else, so it is
+always the real error. The token blamed for starving it is named only when
+genuinely unknown, so a declared option is never called unrecognized.
 
 This is why a word that happens to be a declared Command name can still be
 used as a plain positional value in a *different* Usage Line, why a

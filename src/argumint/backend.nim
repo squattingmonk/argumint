@@ -58,6 +58,7 @@ type
     maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
     envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e` and any per-Arg `EnvSource.delim` override, see `splitEnvValue`)
     configSources*: seq[ConfigSource] ## Value Precedence's Config Source tier, consulted in order -- a later source's hit for the same Arg fully replaces an earlier one's, never merged (see `lookupConfigSources`)
+    strictOptions*: bool ## Strict Option Checking: whether an option-shaped token may be accepted as data, in both a positional slot and an Option's value slot. Default `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See `docs/adr/0034-strict-option-checking.md`
 
   EnvSource* = object
     ## Names the environment variable configured to supply an Arg's value,
@@ -142,6 +143,7 @@ type
 const DefaultWidth* = 80 ## `newSpecSettings`'s default `width` when no terminal width can be auto-detected (e.g. piped output with `COLUMNS` unset)
 const DefaultMaxVariantsWidth* = 30 ## `newSpecSettings`'s default `maxVariantsWidth`
 const DefaultEnvDelim* = ":" ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention
+const DefaultStrictOptions* = true ## `newSpecSettings`'s default `strictOptions` -- see `docs/adr/0034-strict-option-checking.md`
 const EnvListSep* = "\x1e" ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
 
 proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDelim: string): seq[string] =

@@ -46,6 +46,7 @@ hand-written validation code.
   - [Shell Completion](#shell-completion)
   - [Parsing More Than Once](#parsing-more-than-once)
   - [Error Handling](#error-handling)
+    - [Strict Option Checking](#strict-option-checking)
 - [Examples](#examples)
 - [Learning more](#learning-more)
 - [Prior Art and Alternatives](#prior-art-and-alternatives)
@@ -1562,6 +1563,133 @@ Error constructing spec: invalid optional arg variant for n: --n=<n>
 `parse`/`parseOrQuit` never see this at all — by the time you have a `Spec` to
 call them with, `newSpec` has already succeeded — and `parse`'s tuple overload
 leaves it uncaught, so it propagates like any other `Defect` would.
+
+#### Strict Option Checking
+
+An option-shaped token is never silently accepted as data. This is on by
+default (`SpecSettings.strictOptions`) and governs two slots.
+
+**A positional slot,** even when the grammar has a catch-all positional that
+could otherwise take the token as literal text:
+
+```nim
+let spec = (
+  port: opt("--port=<n>", default = 80),
+  rest: args("<rest>"),
+  help: help())
+
+spec.parseOrQuit(usage = "[options] [<rest>...]")
+```
+
+```console
+$ ./demo --recrusive
+Parsing error:
+  - missing option: (-h | --port=<n>)
+  - unexpected option: unrecognized option --recrusive
+  - missing argument: <rest>
+
+Usage:
+  demo [options] [<rest>...]
+  demo (-h | --help)
+
+$ ./demo -- --recrusive      # a typed `--` forces it through as literal text
+rest = @["--recrusive"]
+```
+
+The alternative would be putting `--recrusive` into `rest` and leaving your
+program to go looking for a file by that name — in the
+`myapp [options] <file>...` shape, guessing "the user meant this literally"
+is usually wrong.
+
+**An option's value slot,** which needs no catch-all at all:
+
+```console
+$ ./demo --port --verbose
+Parsing error:
+  - missing option: (-h | --port=<n>)
+  - missing value: option --port requires a value
+  - unexpected option: unrecognized option --verbose
+  - missing argument: <rest>
+
+Usage:
+  demo [options] [<rest>...]
+  demo (-h | --help)
+```
+
+`--port` doesn't swallow `--verbose` as its value. Both complaints appear
+rather than one masking the other.
+
+An option left with nothing at all after it is *starved*, and that is an
+error whether or not strict checking is on — there's no value to be had
+either way.
+
+##### What stays literal
+
+An **undeclared** token with one leading dash whose second character isn't
+an ASCII letter is a **Non-Option Short**, and is always accepted as data in
+both slots:
+
+```
+-5   -12   -3.5   -.5   -1e9   -5.   -0x1F   -+3   -5x   -1_000
+```
+
+So `-5` reaches a positional, and `--num -5` sets `num` to `-5`, with no
+ceremony. Two leading dashes never qualify. The rule is about shape rather
+than "is it a number" — the latter admits `-inf`/`-nan` while rejecting
+`-0x1F`.
+
+**Declaring one wins.** The exemption only ever applies to tokens that match
+nothing in your spec, so a digit is a perfectly good short option:
+
+```nim
+let spec = (
+  one: flag("-1, --one", help = "Level one"),
+  num: opt("--num=<n>", default = 0),
+  rest: args("<rest>"),
+  help: help())
+
+spec.parseOrQuit(usage = "[options] [<rest>...]")
+```
+
+```console
+$ ./demo -1
+one = true                 # the declared flag, not a positional
+
+$ ./demo -2
+rest = @["-2"]             # undeclared, so Non-Option Short
+
+$ ./demo --num -5
+num = -5                   # undeclared, so a value slot takes it literally
+```
+
+The same holds for `opt("-2=<n>")`, `-0`, or any other digit spelling.
+
+Declaring one does mean argumint reads it as an option everywhere it can,
+which is worth knowing in two places. A same-prefixed token is a cluster
+(`-abc` is sugar for `-a -b -c`) like any other, so with `-1` declared,
+`-1.5` is `-1` plus a leftover `-.5` — and since `-.` isn't declared either,
+that's an error. And `--num -1` gives `-1` to the declared flag, leaving
+`--num` with no value. Write the number so it can't be read as your option —
+`--num=-1`, or `" -1.5"` with a leading space:
+
+```console
+$ ./demo --num=-1
+num = -1
+
+$ ./demo " -1.5"
+rest = @[" -1.5"]
+```
+
+If your grammar genuinely takes dash-leading literal text, prefer forcing it
+per-token — a typed `--`, a `[--]` marker in the usage string (see [The
+End-of-Options Marker](#the-end-of-options-marker)), a leading space
+(`" -x"`), or the attached form (`--name=--nope`) — and reach for the
+setting only to turn the check off everywhere:
+
+```nim
+spec.parseOrQuit(usage = "[options] [<rest>...]",
+                 settings = newSpecSettings(strictOptions = false))
+```
 
 ## Examples
 

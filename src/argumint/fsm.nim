@@ -69,12 +69,24 @@ type
       ## cluster remainder inherits its parent token's `idx` rather than
       ## getting a fresh one. Lets Flag Operation composition sort by true
       ## typed order instead of grammar/push order -- see `parseAllValues`.
+    fromCluster: bool ## Whether this token is a peeled `-abc` remainder
+      ## rather than something the user typed. Only the Non-Option Short
+      ## exemption cares: `-1.5` against a declared `-1` Flag leaves `-.5`,
+      ## a cluster continuation to keep splitting rather than a token the
+      ## user wrote -- see `exemptFromStrict`.
 
   Classification = object
     ## What a `RawToken` actually is, resolved lazily against a `Spec` --
     ## see `classify`, ADR 0019. `consumed`/`remainder` feed `consume`.
     consumed: int
     remainder: string
+    starvedOpt: Arg ## Set when this token *is* a declared Optional but no
+      ## value is available for it. The non-accepting outcome that lets the
+      ## leftover-token complaint tell "name unknown" from "name known, no
+      ## value" apart -- see `docs/adr/0034-strict-option-checking.md`.
+      ## `kind` is still `Positional` here (there is no accepting
+      ## classification to report), so consult this before trusting it.
+    starvedName: string ## The variant `starvedOpt` was spelled as
     case kind: ArgKind
     of Command:
       cmd: CommandArg
@@ -120,11 +132,49 @@ proc isOptShape(raw: string): bool =
   raw =~ OptionFormat or raw =~ OptionValueFormat or
     (raw.len > 2 and raw[0] == '-' and raw[1] != '-')
 
+proc isNonOptionShort(raw: string): bool =
+  ## A **Non-Option Short**: one leading dash whose second character isn't
+  ## an ASCII letter (`-5`, `-.5`, `-1e9`, `-0x1F`, `-+3`, `-5x`). Two
+  ## leading dashes never qualify. Shape only, deliberately *not* "parses
+  ## as a number" -- that admits `-inf`/`-nan` while rejecting `-0x1F`/
+  ## `-+3`. See `docs/adr/0034-strict-option-checking.md`.
+  raw.len > 1 and raw[0] == '-' and raw[1] != '-' and
+    raw[1] notin {'a'..'z', 'A'..'Z'}
+
+proc exemptFromStrict(token: RawToken): bool =
+  ## Whether Strict Option Checking never applies to `token`. A Non-Option
+  ## Short qualifies only when the user actually typed it: a peeled `-abc`
+  ## remainder is a cluster continuation, so `-1.5`'s leftover `-.5` is
+  ## still an unrecognized option exactly as `-1x`'s `-x` is. See
+  ## `RawToken.fromCluster`.
+  token.raw.isNonOptionShort and not token.fromCluster
+
+proc mustResolve(token: RawToken): bool =
+  ## Whether `token` has to resolve against the spec or else be an error:
+  ## option-shaped, and not exempt. Says nothing about `strictOptions` --
+  ## a starved option is an error either way, so callers that only fire
+  ## under the setting pair this with it. See ADR 0034.
+  token.optShape and not token.exemptFromStrict
+
 proc tokenizeArgs(args: seq[string], start = 0): seq[RawToken] =
   ## Splits `args[start..]` into `RawToken`s by shape only -- never touches
   ## `Spec`, never raises -- see ADR 0019.
   for i in start ..< args.len:
     result.add RawToken(raw: args[i], optShape: args[i].isOptShape, idx: i)
+
+proc refusesAsValue(spec: Spec, token: RawToken): bool =
+  ## Whether Strict Option Checking stops `token` filling a declared
+  ## Optional's value slot, so `--name --help` starves rather than setting
+  ## `name` to `"--help"`. Same setting as the positional slot
+  ## (`refusesAsPositional`); with strict off an option-shaped token still
+  ## counts as a value and starvation needs end of input.
+  spec.settings.strictOptions and token.mustResolve
+
+proc starved(option: Arg, variant, raw: string): Classification =
+  ## A declared Optional with no value available for it -- see
+  ## `Classification.starvedOpt`.
+  Classification(kind: Positional, argVal: raw, consumed: 1,
+    starvedOpt: option, starvedName: variant)
 
 proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Classification =
   ## Decides what `tokens[pos]` is against `spec`'s tables -- the lazy half
@@ -145,8 +195,11 @@ proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Class
         of Flag:
           return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1)
         of Optional:
-          if pos + 1 < tokens.len:
+          if pos + 1 < tokens.len and not spec.refusesAsValue(tokens[pos + 1]):
             return Classification(kind: Optional, opt: option, optName: variant, optVal: tokens[pos + 1].raw, consumed: 2)
+          # Declared, but nothing usable follows -- a starved option, not an
+          # unknown name. Errors under both settings.
+          return starved(option, variant, token.raw)
         else: discard
     # `-o=val` / `--option=value`.
     elif token.raw =~ OptionValueFormat:
@@ -167,15 +220,29 @@ proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Class
           return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1,
             remainder: (if folded.len > 0: "-" & folded else: ""))
         of Optional:
-          if folded.len == 0:
-            if pos + 1 < tokens.len:
-              return Classification(kind: Optional, opt: option, optName: variant, optVal: tokens[pos + 1].raw, consumed: 2)
-          elif fmt"{variant}{folded}" =~ OptionValueFormat:
+          # `folded` is never empty here -- the branch guard is `raw.len > 2`
+          # -- so an Optional reached through a cluster always has its value
+          # attached and can't starve. Bare `-p` goes through `OptionFormat`.
+          if fmt"{variant}{folded}" =~ OptionValueFormat:
             return Classification(kind: Optional, opt: option, optName: variant, optSep: matches[1], optVal: matches[2], consumed: 1)
           else:
             return Classification(kind: Optional, opt: option, optName: variant, optVal: folded, consumed: 1)
         else: discard
   Classification(kind: Positional, argVal: token.raw, consumed: 1)
+
+proc refusesAsPositional(pc: ParseContext, pos: int, c: Classification): bool =
+  ## Whether an `Argument` matcher must decline `pc.tokens[pos]` as opaque
+  ## literal text -- refuse-to-match, never raise, so the token stays
+  ## leftover for `walk` to word and backtracking survives. See ADR 0034.
+  ##
+  ## A starved declared Optional is refused whatever `strictOptions` says;
+  ## otherwise this is ADR 0019 gap 3's case, and `pc.optsEnd` is what
+  ## exempts a post-`--` token -- `classify` short-circuits it to a plain
+  ## `Positional` that would otherwise look exactly like an unknown option.
+  if not c.starvedOpt.isNil:
+    return true
+  pc.spec.settings.strictOptions and not pc.optsEnd and c.kind == Positional and
+    pc.tokens[pos].mustResolve
 
 proc consume(pc: var ParseContext, pos: int, c: Classification) =
   ## Removes/reinserts the raw token(s) an accepted `Classification`
@@ -187,7 +254,8 @@ proc consume(pc: var ParseContext, pos: int, c: Classification) =
   elif c.remainder.len > 0:
     # Inherits the parent token's idx -- it's the same physical CLI
     # argument, just partially consumed. See `RawToken.idx`.
-    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape, idx: idx), pos)
+    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape,
+      idx: idx, fromCluster: true), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
   ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
@@ -247,6 +315,38 @@ proc probe(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Option[s
     cursor.consumed[arg] = consumed + 1
     return true
 
+proc addUnique(pc: var ParseContext, complaint: Complaint) =
+  ## Adds `complaint` unless already present -- a starved option is
+  ## reachable down more than one branch, and the same line twice reads as
+  ## a bug in the parser rather than in the input.
+  if complaint notin pc.messages:
+    pc.messages.add complaint
+
+proc addStarved(pc: var ParseContext): bool =
+  ## Complains that the leading token is a declared option left without a
+  ## value, when that's what it is, plus the option-shaped token that
+  ## starved it when there is one -- both, never one masking the other.
+  ## Returns whether it complained, so callers can fall back to their own
+  ## blunter wording.
+  ##
+  ## Classifies for itself rather than taking a `Classification`: the
+  ## `[options]` catch-all has to re-ask after rolling its own per-probe
+  ## messages back. See ADR 0034.
+  if pc.tokens.len == 0 or not pc.tokens[0].optShape:
+    return false
+  let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
+  if c.starvedOpt.isNil:
+    return false
+  pc.addUnique ("missing value", fmt"option {c.starvedName} requires a value")
+  if pc.tokens.len > 1 and pc.tokens[1].mustResolve:
+    # Named only when genuinely unknown -- the token that starved this one
+    # may be a declared option itself (`--port --port 80`), and calling
+    # *that* unrecognized is the wording ADR 0034 exists to fix.
+    let starver = classify(pc.spec, pc.tokens, 1, pc.optsEnd)
+    if starver.kind == Positional and starver.starvedOpt.isNil:
+      pc.addUnique ("unexpected option", unknownOptionMsg(pc.tokens[1].raw, pc.spec))
+  true
+
 proc match(m: Matcher, pc: var ParseContext): bool =
   ## Checks if `m` matches a token in `tokens`. May consume a token and may add
   ## a variant and value to `matches`. Returns whether the match was successful.
@@ -273,10 +373,15 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
       case c.kind
       of Positional, Command:
-        pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw, pc.tokens[pos].idx)
-        pc.consume(pos, c)
-        result = true
-        break
+        if pc.refusesAsPositional(pos, c):
+          # Left unconsumed so it survives as a leftover for `walk` to name
+          # -- see `refusesAsPositional`.
+          pos.inc
+        else:
+          pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw, pc.tokens[pos].idx)
+          pc.consume(pos, c)
+          result = true
+          break
       else:
         pos.inc
     if not result and pc.matches.getOrDefault(m.arg).len == 0:
@@ -284,6 +389,9 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       # at least once (a satisfied `<arg>...` repeat), a failed attempt at
       # *another* repeat isn't a real deficiency worth reporting.
       pc.messages.add ("missing argument", m.arg.name)
+      # A starved option is why nothing was left to match, and this path
+      # never reaches `walk`'s leftover branch -- see `addStarved`.
+      discard pc.addStarved()
   of Command:
     # If the next token classifies as this specific command, consume it and
     # return true. Otherwise return false -- a Command matcher never scans
@@ -345,9 +453,10 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     pc.messages.add ("missing option", if m.variant.len > 0: m.variant else: m.opt.name)
     # Did-you-mean suggestion for an unresolved option-shaped leftover --
     # see ADR 0019 point 4 on why this lives here, not in tokenization.
-    if pc.tokens.len > 0 and pc.tokens[0].optShape and
-        classify(pc.spec, pc.tokens, 0, pc.optsEnd).kind == Positional:
-      pc.messages.add ("unexpected option", unknownOptionMsg(pc.tokens[0].raw, pc.spec))
+    if not pc.addStarved() and pc.tokens.len > 0 and pc.tokens[0].optShape:
+      let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
+      if c.kind == Positional:
+        pc.messages.add ("unexpected option", unknownOptionMsg(pc.tokens[0].raw, pc.spec))
   of Options:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
     for (opt, variant) in zip(m.opts, m.variants):
@@ -359,6 +468,11 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       else:
         pc.messages.setLen(before)
         if not result: pc.messages.add ("missing option", if variant.len > 0: variant else: opt.name)
+    if not result:
+      # Re-asked past the rollback above: a starved option can never be
+      # consumed as anything else, so it's the real error however the
+      # probes went -- see `addStarved`.
+      discard pc.addStarved()
 
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
@@ -376,25 +490,28 @@ proc walk(s: State, pc: var ParseContext): bool =
       if tr.next.walk(fresh):
         pc = fresh
         return true
-      elif tr.next.terminal and fresh.tokens.len > 0 and fresh.messages.len == 0:
+      elif tr.next.terminal and fresh.tokens.len > 0:
         # Word the complaint from classify()'s best-effort answer now that
-        # nothing claimed this token -- see ADR 0019. Gated on `fresh`'s own
-        # messages, not `pc`'s -- this branch's nested walk may already have
-        # left a more specific complaint (e.g. which Flag alias was left over)
-        # that a sibling branch's unrelated accumulated state must not suppress.
-        let c = classify(fresh.spec, fresh.tokens, 0, fresh.optsEnd)
-        case c.kind
-        of Command:
-          fresh.messages.add ("unexpected command", c.cmdName)
-        of Flag:
-          fresh.messages.add ("unexpected flag", c.flagName)
-        of Optional:
-          fresh.messages.add ("unexpected option", fmt"{c.optName}{c.optSep}{c.optVal}")
-        of Positional:
-          if fresh.tokens[0].optShape:
-            fresh.messages.add ("unexpected option", unknownOptionMsg(fresh.tokens[0].raw, fresh.spec))
-          else:
-            fresh.messages.add ("unexpected argument", c.argVal)
+        # nothing claimed this token -- see ADR 0019. A starved option is
+        # reported even alongside other complaints, so it goes first.
+        if not fresh.addStarved() and fresh.messages.len == 0:
+          # Gated on `fresh`'s own messages, not `pc`'s -- this branch's
+          # nested walk may already have left a more specific complaint (e.g.
+          # which Flag alias was left over) that a sibling branch's unrelated
+          # accumulated state must not suppress.
+          let c = classify(fresh.spec, fresh.tokens, 0, fresh.optsEnd)
+          case c.kind
+          of Command:
+            fresh.messages.add ("unexpected command", c.cmdName)
+          of Flag:
+            fresh.messages.add ("unexpected flag", c.flagName)
+          of Optional:
+            fresh.messages.add ("unexpected option", fmt"{c.optName}{c.optSep}{c.optVal}")
+          of Positional:
+            if fresh.tokens[0].optShape:
+              fresh.messages.add ("unexpected option", unknownOptionMsg(fresh.tokens[0].raw, fresh.spec))
+            else:
+              fresh.messages.add ("unexpected argument", c.argVal)
 
     if fresh.depth > pc.maxDepth or pc.messages.len == 0:
       pc.maxDepth = fresh.depth

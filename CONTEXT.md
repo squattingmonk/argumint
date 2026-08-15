@@ -244,6 +244,38 @@ Option or Flag named explicitly on one Usage Line is still reachable
 through the catch-all on a different Usage Line in the same Usage String.
 _Avoid_: `[options]`, options wildcard
 
+**Strict Option Checking**:
+The rule that an option-shaped command-line token is never silently
+accepted as data. Governed spec-wide by `Spec.settings.strictOptions`,
+which cascades to nested Command Specs the same way `width` does and
+defaults to on. It governs two slots: a Positional Argument's (so an
+unrecognized option can't be swallowed by a repeating `<file>...`) and an
+Option's value slot (so `--name --help` doesn't set `name` to `"--help"`).
+A Non-Option Short is exempt from it entirely. Refusal is refuse-to-match,
+not raise -- the token is left unclaimed for the walk's own leftover
+complaint, which preserves Backtracking and the did-you-mean suggestion.
+Independent of it, a declared Option with no value available is starved
+and is an error whatever the setting. See
+`docs/adr/0034-strict-option-checking.md`.
+_Avoid_: strictOptions (code-level name, fine in prose about the API
+itself), strict mode
+
+**Non-Option Short**:
+A command-line token with a single leading dash whose second character is
+not an ASCII letter -- `-5`, `-3.5`, `-.5`, `-1e9`, `-0x1F`, `-+3`, `-5x`,
+`-1_000`. Never subject to Strict Option Checking, which is what keeps
+negative numbers usable as Positional Argument values and as Option
+values without the leading-space escape. Defined by shape rather than by
+"parses as a number", which would admit `-inf`/`-nan` while rejecting
+`-0x1F`/`-+3`. Two leading dashes never qualify. The exemption applies
+only to tokens as typed: a remainder peeled off a Short-Option Cluster is
+a continuation of that Cluster, so `-1.5` against a declared `-1` Flag
+leaves `-.5` to be refused, not exempted. A declared Variant resolves
+against the Spec's tables first, so the exemption only ever reaches
+undeclared tokens.
+_Avoid_: negative number (too narrow -- `-0x1F` and `-+3` qualify too),
+numeric carve-out
+
 **Short-Option Cluster**:
 Several single-letter Option/Flag Variants folded onto one dash in a Usage
 Line (e.g. `-abc`), a compact spelling for writing them out as a Sequence
