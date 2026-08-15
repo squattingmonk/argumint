@@ -8,6 +8,10 @@ import argumint/configsource/json
 privateAccess(Spec) ## White-box assertions on `Spec`'s bookkeeping fields,
   ## which are private to the library as of ADR 0030.
 
+privateAccess(ValueArg[string, false]) ## Same, for the arg types exported
+privateAccess(ValueArg[string, true])  ## by issue #27 -- type public, state
+privateAccess(FlagArg[bool])           ## private, one instantiation each.
+
 type Priority = enum
   low, medium, high
 
@@ -1412,6 +1416,24 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       matcherKind: MatcherKind
     check (state.isNil, transition.isNil, matcher.isNil) == (true, true, true)
     check matcherKind == MatcherKind.Option # first declared value
+
+  test "`ValueArg`/`FlagArg`'s private fields exist":
+    # Reached here only via the `privateAccess` calls at the top of this
+    # file; `tests/test_public_api.nim` asserts the same names are
+    # unreachable from a plain `import argumint`.
+    let
+      name = opt("-n, --name=<s>", default = "x", help = "")
+      tags = opts("--tag=<t>", default = @["a"], help = "")
+      verbose = flag("-v, --verbose", help = "")
+    check name.default == @["x"]
+    check name.value.len == 0
+    check name.validator.isNil
+    check seq[string](name.cfgKey).len == 0
+    check tags.default == @["a"]
+    check not verbose.value
+    check verbose.ops.len == 2      # one per variant
+    check verbose.aliases.len == 2  # only populated for a multi-variant flag
+    check verbose.clamp.isNil
 
   test "`Spec`'s private bookkeeping fields exist":
     let s = newSpec((
