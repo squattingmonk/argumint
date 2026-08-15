@@ -483,19 +483,40 @@ match — safe because `ParseContext` is a plain `object`, not a `ref
 object`, so `walk`'s backtracking clones it per candidate branch and only
 commits the winning branch back) — this is what lets dispatch scope a
 match to the correct level even when the same `Arg` is reachable at more
-than one grammar level.
+than one grammar level. Two consumers still rely on it: `matchedCommand`
+(which also drives `applyFallbacks`' recursion) and `parseMessageArgs`.
+Value parsing no longer does — see `parseAllValues` below.
 
-After a successful walk, `Spec.parse` builds a `HookInfo(matched:
+After a successful walk and the env/Config Source sweep, `Spec.parse` calls
+`parseAllValues`, which parses every non-Command, non-`MessageArg` match in
+`pc.matches` — the whole tree, before any hook fires. Because `pc.matches`
+is already flat across every level, this is a plain loop over the table: no
+spec-tree recursion, no `Match.spec` filtering, and no dedupe pass, since
+an Arg shared by two levels holds all its matches under one key and so is
+parsed exactly once. Each Arg's own matches are still sorted by `Match.idx`
+individually, exactly as the per-level pass sorted them — not flattened
+into one sort across the whole table. That composes a shared Arg's matches
+identically to the old level-by-level walk, because ADR 0010 makes each
+level's tokens a contiguous run in command-line order.
+
+The env and Config Source tiers were already parsed up front, inside
+`applyFallbacks`; this brings the command-line tier in line, so a value
+that fails to convert or validate raises before any hook can run a side
+effect, on every tier. See
+`docs/adr/0032-parse-all-values-before-dispatch.md`.
+
+`Spec.parse` then builds a `HookInfo(matched:
 seq[Arg])` from `pc.matches` -- every Arg with at least one match, across
 every level, computed once from the walk already performed (not a second
 walk) -- then recursively re-walks the *declared* Spec tree -- not
 `pc.matches` itself, which carries no scope information on its own -- via
 `dispatch(spec, pc.matches, command, info)`, threading `info` unchanged
-through every recursive call. At each `Spec` level: `parseOwnValues`
-parses that level's own non-Command, non-`MessageArg` matches (filtered by
-the `Match`'s `Spec` provenance); `spec.before(info)` fires, if set, now
-that those values are ready; `parseMessageArgs` then parses (and raises
-on) any matched `MessageArg`/`HelpArg` at this level; `matchedCommand`
+through every recursive call. At each `Spec` level: `spec.before(info)`
+fires, if set, with every matched level's values already parsed;
+`parseMessageArgs` then parses (and raises
+on) any matched `MessageArg`/`HelpArg` at this level (still filtered by
+the `Match`'s `Spec` provenance, so a shared `help()` fires at the level it
+was typed at rather than the shallowest one declaring it); `matchedCommand`
 finds whichever single Command was matched at this level, if any (at most
 one ever can be — a matched `Command` transition permanently updates
 `pc.spec` to the nested spec for the rest of the walk, so a sibling

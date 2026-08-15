@@ -65,7 +65,7 @@ Alias (`CONTEXT.md`) names.
    satisfied out of order. `RawToken` gained an `idx: int` (original CLI
    argv position, inherited by a short-option cluster's peeled-off
    remainder tokens); `Match` carries it through as a fourth tuple field.
-   `parseOwnValues`/`parseMessageArgs` sort a Flag's accumulated matches by
+   `parseAllValues`/`parseMessageArgs` sort a Flag's accumulated matches by
    `idx` (a stable sort) before applying operations, instead of relying on
    push order -- so `-u -d` and `-d -u` on the same usage line now compose
    in the order they were actually typed, regardless of which grammar

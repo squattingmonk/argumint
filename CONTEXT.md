@@ -165,37 +165,39 @@ Action is a distinct, formally-defined term, see below)
 **Before Hook**:
 An optional callback carried by a Spec (`command*`'s `before` param for a
 Command's own nested Spec, or the top-level `parse*`/`parseOrQuit*` tuple
-overloads' `before` param for the top-level Spec), fired once that Spec's
-own values are parsed but before dispatch descends into any Command
-matched at that Spec's own level. Runs root-to-leaf across a matched
+overloads' `before` param for the top-level Spec), fired once every
+matched Spec's values are parsed — not just its own, see
+`docs/adr/0032-parse-all-values-before-dispatch.md` — but before dispatch
+descends into any Command matched at that Spec's own level. Runs
+root-to-leaf across a matched
 Command tree — an ancestor's Before Hook always fires before any Command
 nested inside it fires its own. Pairs with After Hook to wrap dispatch
 into whatever's nested inside a Spec (e.g. setup/teardown shared
 infrastructure a nested Command shouldn't have to redo); pairs with Action
 for a Spec's own leaf-level logic. Receives a Hook Info value alongside
-the Spec's own parsed values. See
+every matched level's parsed values. See
 `docs/adr/0009-command-before-action-after-hooks.md`.
 _Avoid_: handler (the removed, single-callback predecessor to this trio),
 pre-hook, callback
 
 **Action**:
-An optional callback carried by a Spec, fired once that Spec's own values
-are parsed, but only if that Spec is the dynamic leaf for the current
+An optional callback carried by a Spec, fired once every matched Spec's
+values are parsed, but only if that Spec is the dynamic leaf for the current
 invocation — i.e. no Command was matched at that Spec's own level for
 this parse. Whether a given Spec is the dynamic leaf is determined
 per-invocation, not by how the Spec was declared: the same Command
 invoked bare fires its own Action, while the same Command invoked with a
 further subcommand instead defers to whatever Action fires deeper, only
 wrapping it via Before Hook/After Hook. Never fires alongside a Command
-matched at the same level. Receives a Hook Info value alongside the
-Spec's own parsed values. See Before Hook, After Hook.
+matched at the same level. Receives a Hook Info value alongside every
+matched level's parsed values. See Before Hook, After Hook.
 _Avoid_: handler (the removed predecessor); don't use "action" to mean
 Command itself — see Command's own _Avoid_ note
 
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own
-dispatch — its own values, Before Hook, and Action or whatever Command it
-routed into — has finished, whether it succeeded or raised. Runs
+dispatch — its Before Hook, and Action or whatever Command it routed
+into — has finished, whether it succeeded or raised. Runs
 leaf-to-root: an ancestor's After Hook fires only once every Command
 nested inside it, including that Command's own After Hook, has already
 finished. Guaranteed to run if the Spec's own Before Hook (or its absence)
@@ -203,8 +205,8 @@ completed without raising, regardless of what happens afterward — this is
 what lets an ancestor's After Hook still perform cleanup (e.g. closing a
 file handle a Before Hook opened) even when something nested inside it
 fails; falls out of ordinary nested `try`/`finally`, no bookkeeping of its
-own. Receives a Hook Info value alongside the Spec's own parsed values.
-See Before Hook, Action.
+own. Receives a Hook Info value alongside every matched level's parsed
+values. See Before Hook, Action.
 _Avoid_: handler (the removed predecessor), post-hook, cleanup callback
 
 **Hook Info**:
@@ -403,6 +405,10 @@ value from a registered Config Source, then a coded default. Applies
 uniformly regardless of whether the Option/Flag is required or optional in
 the usage grammar, and only to Option/Flag — a Positional Argument or
 Command has neither an environment-variable nor a Config Source source.
+All three supplied tiers are resolved, converted, and validated across
+every matched Spec level before any Before Hook fires, so an unconvertible
+or invalid value on any tier raises before a hook can run a side effect —
+see `docs/adr/0032-parse-all-values-before-dispatch.md`.
 
 The environment-variable tier can contribute more than one value: the raw
 env string is always split (see Env Delimiter), and each resulting value

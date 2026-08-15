@@ -18,7 +18,7 @@ privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
 type
   Match = tuple[variant: string, value: string, spec: Spec, idx: int]
     ## `idx` is the original CLI argv position of the token this match
-    ## consumed -- see `RawToken.idx`. Composition (`parseOwnValues`) sorts
+    ## consumed -- see `RawToken.idx`. Composition (`parseAllValues`) sorts
     ## by it instead of relying on push order, which is grammar-position
     ## order, not typed order.
   MatchTable = OrderedTable[Arg, seq[Match]]
@@ -68,7 +68,7 @@ type
     idx: int        ## Original position in the CLI argv -- a peeled
       ## cluster remainder inherits its parent token's `idx` rather than
       ## getting a fresh one. Lets Flag Operation composition sort by true
-      ## typed order instead of grammar/push order -- see `parseOwnValues`.
+      ## typed order instead of grammar/push order -- see `parseAllValues`.
 
   Classification = object
     ## What a `RawToken` actually is, resolved lazily against a `Spec` --
@@ -597,35 +597,24 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
   collectFrontier(spec.fsm, pc, frontier, seen)
   result = frontier.candidateWords(wordBeingCompleted)
 
-proc parseOwnValues(spec: Spec, matches: MatchTable, command: string) =
-  ## Parses every non-Command, non-MessageArg match belonging to `spec`'s
-  ## own level (per `Match.spec` provenance -- see `push`). Commands are
-  ## left for `dispatch`; MessageArgs are left for `parseMessageArgs`, which
-  ## runs after `before` -- see
-  ## `docs/adr/0009-command-before-action-after-hooks.md`.
-  for arg in spec.args:
-    if arg.kind == Command or arg of MessageArg:
-      continue
-    # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
-    # order -- Flag Operations are stateful and often non-commutative (e.g.
-    # `clamp`), so composition must follow the order the user actually typed
-    # them in, regardless of which usage-line position matched which token.
-    for (variant, value, matchSpec, _) in matches.getOrDefault(arg).sortedByIt(it.idx):
-      if matchSpec != spec:
-        continue
-      arg.parse(value, variant)
-
 proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
   ## Parses (and raises on) any matched MessageArg/HelpArg at `spec`'s own
-  ## level. Called after `before`, inside `dispatch`'s try/finally, so a
-  ## `before`-time mutation is visible in this level's own message/help
-  ## output, and `after` still fires as a guaranteed cleanup even though
-  ## this raises instead of returning.
-  for arg in spec.args:
+  ## level (per `Match.spec` provenance -- see `push`). Called after
+  ## `before`, inside `dispatch`'s try/finally, so a `before`-time mutation
+  ## is visible in this level's own message/help output, and `after` still
+  ## fires as a guaranteed cleanup even though this raises instead of
+  ## returning. Unlike `parseAllValues`, this stays per-level: a shared
+  ## MessageArg must fire at the level it was typed at, not the shallowest
+  ## one declaring it -- see
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
+  # Iterates `matches` rather than `spec.args`: a match tagged with this
+  # spec can only have come from its own FSM region, so `matchSpec != spec`
+  # below already subsumes "declared at this level".
+  for arg, ms in matches:
     if not (arg of MessageArg):
       continue
-    # See `parseOwnValues` on sorting by `Match.idx` instead of push order.
-    for (variant, value, matchSpec, _) in matches.getOrDefault(arg).sortedByIt(it.idx):
+    # See `parseAllValues` on sorting by `Match.idx` instead of push order.
+    for (variant, value, matchSpec, _) in ms.sortedByIt(it.idx):
       if matchSpec != spec:
         continue
       if arg of HelpArg:
@@ -640,13 +629,37 @@ proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, var
   ## `Command` branch permanently reassigns `pc.spec` to the matched
   ## command's own nested spec, so a sibling command word can never be
   ## recognized afterward.
-  for arg in spec.args:
+  # Iterates `matches` rather than `spec.args`, like `parseMessageArgs`:
+  # `matchSpec == spec` already subsumes "declared at this level". Safe to
+  # search in table order rather than declaration order precisely because
+  # of the at-most-one invariant above -- there is only ever one hit.
+  for arg, ms in matches:
     if arg.kind != Command:
       continue
-    let cmd = CommandArg(arg)
-    for (variant, _, matchSpec, _) in matches.getOrDefault(cmd):
+    for (variant, _, matchSpec, _) in ms:
       if matchSpec == spec:
-        return (cmd, variant)
+        return (CommandArg(arg), variant)
+
+proc parseAllValues(matches: MatchTable) =
+  ## Parses every non-Command, non-MessageArg match across the *whole*
+  ## matched tree, before `dispatch` fires any hook -- so no hook runs for
+  ## an invocation carrying an unconvertible or invalid value, on any Value
+  ## Precedence tier. The env and Config Source tiers already parsed up
+  ## front in `applyFallbacks`; this brings the command-line tier in line.
+  ## See `docs/adr/0032-parse-all-values-before-dispatch.md`.
+  ##
+  ## MessageArgs stay behind for `parseMessageArgs`, which `dispatch` still runs
+  ## per level after that level's `before` -- see
+  ## `docs/adr/0013-message-args-fire-after-before.md`.
+  for arg, ms in matches:
+    if arg.kind == Command or arg of MessageArg:
+      continue
+    # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
+    # order -- Flag Operations are stateful and often non-commutative (e.g.
+    # `clamp`), so composition must follow the order the user actually typed
+    # them in, regardless of which usage-line position matched which token.
+    for (variant, value, _, _) in ms.sortedByIt(it.idx):
+      arg.parse(value, variant)
 
 proc matchedArgs(matches: MatchTable): seq[Arg] =
   ## Every Arg with at least one match in `matches`, across every spec
@@ -662,7 +675,11 @@ proc dispatch(spec: Spec, matches: MatchTable, command: string, info: HookInfo) 
   ## `info` is computed once by `parse*` and threaded through unchanged, so
   ## every level's hooks see the same whole-invocation view -- see
   ## `docs/adr/0021-hook-info-matched-args.md`.
-  parseOwnValues(spec, matches, command)
+  ##
+  ## Values are already parsed for every matched level by the time this
+  ## runs (`parseAllValues`, called from `parse*`), so a hook at any depth
+  ## sees the whole tree's values, not just its own level's -- see
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
   if not spec.before.isNil:
     spec.before(info)
   try:
@@ -797,6 +814,8 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   applyFallbacks(pc.env, pc.configValues, spec, pc.matches, fallbackSeen, fallbackComplaints)
   if fallbackComplaints.len > 0:
     raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
+
+  parseAllValues(pc.matches)
 
   let info = HookInfo(matched: matchedArgs(pc.matches))
   dispatch(spec, pc.matches, command, info)
