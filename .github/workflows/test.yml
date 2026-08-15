@@ -1,11 +1,26 @@
 name: Test
 
 on:
+  # `push` is scoped to main so a PR branch fires `pull_request` only. Without
+  # the filter both events fire and the matrix runs twice -- and the two test
+  # different trees (`pull_request` builds the branch merged into the base,
+  # `push` builds the branch tip alone), so which result you got was a race.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Pushing again to an open PR cancels the still-running check for the previous
+# commit, so only the tip is ever tested. `head_ref || ref_name` normalizes the
+# two events onto one group: `github.ref` differs between them
+# (`refs/heads/<branch>` vs `refs/pull/<n>/merge`), so grouping on it would
+# leave a push and its pull_request in separate groups and change nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
