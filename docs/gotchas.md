@@ -94,12 +94,15 @@ inside a template.
   template nesting — the directly-called `Priority`/`Level`/`Speed` pattern
   doesn't hit it.
 
-- **Appending to `self.value` (a `ValueArg[T, true]`'s `Option[seq[T]]`) via
-  `self.value = some(self.value.get & @[tmp])` silently corrupts earlier
-  elements under ORC** — this only manifests once the object type carries an
-  extra `static bool` param alongside `T`. `parseImpl` works around it by
-  copying `self.value.get` into a local `var` and calling `.add` before
-  reassigning; don't revert to the inline `get(...) & @[...]` form.
+- **Appending to an `Option[seq[T]]` field via `self.value =
+  some(self.value.get & @[tmp])` silently corrupts earlier elements under
+  ORC** — only once the object type carries an extra `static bool` param
+  alongside `T`, as `ValueArg[T, multi]` does. Dormant, not fixed:
+  `ValueArg.value` is now a plain `seq[T]` that `parseImpl` just `.add`s to.
+  If it ever goes back to an `Option` (see
+  `docs/adr/0011-rejected-option-operations.md`), unwrap into a local `var`
+  and `.add` instead of reassigning an inline `get(...) & @[...]`. Guarded
+  by the "(ORC regression)" test in `src/argumint.nim`.
 
 - **`all`/`any` (`validators.nim`) can't take `desc` as a plain defaulted
   param (`desc = ""`) alongside a `varargs` param.** Nim can't resolve a call
