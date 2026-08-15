@@ -184,6 +184,11 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
     lines.add prefix & line.wrapWords(lineWidth, splitLongWords = false, newLine = "\n" & indent)
   result = lines.join("\n")
 
+proc withUsage*(msg: string, command: string, spec: Spec): string =
+  ## `msg` followed by `spec.usage` formatted via `formatUsage` -- the shape
+  ## every parse-time failure message uses, whatever exception carries it.
+  "{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt
+
 proc raiseParseError*(msg: string) =
   ## Raises `ParseError` with `msg` verbatim, no usage block appended -- use
   ## the `(msg, command, spec)` overload when a usage block should follow.
@@ -192,7 +197,7 @@ proc raiseParseError*(msg: string) =
 proc raiseParseError*(msg: string, command: string, spec: Spec) =
   ## Raises `ParseError` with `msg` followed by `spec.usage` formatted via
   ## `formatUsage` -- the shape most parse-time failures use.
-  raiseParseError("{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt)
+  raiseParseError(msg.withUsage(command, spec))
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.

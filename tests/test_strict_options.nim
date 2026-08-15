@@ -88,7 +88,7 @@ suite "strictOptions: the option value slot":
       check false # unreachable
     except ParseError as e:
       check "option --name requires a value" in e.msg
-      check "unrecognized option -q" in e.msg
+      check "unrecognized option: -q" in e.msg
 
   test "but a declared option that starves another is never called unrecognized":
     # The wording bug ADR 0034 exists to fix, one level over: `--name` is
@@ -123,7 +123,7 @@ suite "strictOptions: a starved option errors under both settings":
         check false # unreachable
       except ParseError as e:
         check "option --port requires a value" in e.msg
-        check "unrecognized option --port" notin e.msg
+        check "unrecognized option: --port" notin e.msg
 
 suite "strictOptions: the starved complaint survives the catch-all's rollback":
   # `[options]` probes each declared option and rolls its own per-probe
@@ -144,7 +144,7 @@ suite "strictOptions: the starved complaint survives the catch-all's rollback":
       check false # unreachable
     except ParseError as e:
       check "option --port requires a value" in e.msg
-      check "unrecognized option -q" in e.msg
+      check "unrecognized option: -q" in e.msg
 
   test "alongside a catch-all positional, which must not swallow it":
     let spec = (port: opt("--port=<n>", default = 0, help = ""),

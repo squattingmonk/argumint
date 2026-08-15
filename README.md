@@ -323,7 +323,7 @@ accepts two required positionals followed by *at most one* of
 ```console
 $ ./mine 1 2 --moored --drifting
 Parsing error:
-  - unexpected flag: --moored
+  - unexpected flag: (--drifting | --moored)
 
 Usage:
   mine <x> <y> [--moored | --drifting]
@@ -411,7 +411,6 @@ name=a verbosity=3
 
 $ ./myapp --name=a --name=b
 Parsing error:
-  - missing option: --verbose
   - unexpected option: --name=b
 
 Usage:
@@ -1504,12 +1503,16 @@ $ ./demo --num 5
 5
 
 $ ./demo --num 999
-Validation error: for --num, got 999 but expected one of 1 .. 10
+Validation error:
+  - for --num, got 999 but expected one of 1 .. 10
+
+Usage:
+  demo [--num=<n>]
+  demo (-h | --help)
 
 $ ./demo --nope
 Parsing error:
-  - missing option: (--num=<n> | -h)
-  - unexpected option: unrecognized option --nope
+  - unrecognized option: --nope
 
 Usage:
   demo [--num=<n>]
@@ -1520,6 +1523,42 @@ Each of these exits `1`, except a matched `help()`/`message()`/`version()`
 or completion request, which exits `0` — `parseOrQuit` treats "printed
 something and stopped" as success whenever that's what the user actually
 asked for.
+
+Every failure message has the same shape: a bulleted list of complaints,
+then the `Usage:` block — a conversion or validation failure included, as
+above. Within that, argumint tries hard to point at the token you actually
+got wrong rather than at what the grammar wanted:
+
+```console
+$ ./naval_fate shp move a 1 2
+Parsing error:
+  - unrecognized command: shp; did you mean ship?
+
+Usage:
+  naval_fate (ship | mine)
+  naval_fate (-h | --help)
+  naval_fate (-v | --version)
+
+$ ./naval_fate ship move a 1 2 --sped 9
+Parsing error:
+  - unrecognized option: --sped; did you mean --speed?
+
+Usage:
+  naval_fate ship (new | move | shoot)
+  naval_fate ship (-h | --help)
+```
+
+The did-you-mean suggestion covers commands and options alike, tolerates a
+transposition (`--prot` finds `--port`), and offers every equally-close
+candidate rather than the first one it happens to find. Short options are
+left out of it entirely, in both directions: one is never suggested (every
+one-character name is one edit from every other, so offering them says
+nothing), and one never receives a suggestion (`-ab` is cluster syntax, so
+`--ab` is not what it "meant"). Once a specific
+token is named, complaints about options the parser merely had left to try
+are dropped — an option covered by `[options]`, or one you already supplied,
+is never reported missing. See
+[`docs/adr/0035-parse-failure-reporting.md`](docs/adr/0035-parse-failure-reporting.md).
 
 To handle failures yourself instead of quitting, use `parse` and catch
 what you care about:
@@ -1584,9 +1623,8 @@ spec.parseOrQuit(usage = "[options] [<rest>...]")
 ```console
 $ ./demo --recrusive
 Parsing error:
-  - missing option: (-h | --port=<n>)
-  - unexpected option: unrecognized option --recrusive
   - missing argument: <rest>
+  - unrecognized option: --recrusive
 
 Usage:
   demo [options] [<rest>...]
@@ -1606,9 +1644,8 @@ is usually wrong.
 ```console
 $ ./demo --port --verbose
 Parsing error:
-  - missing option: (-h | --port=<n>)
   - missing value: option --port requires a value
-  - unexpected option: unrecognized option --verbose
+  - unrecognized option: --verbose
   - missing argument: <rest>
 
 Usage:
