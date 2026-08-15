@@ -1,11 +1,32 @@
 name: Test
 
 on:
+  # `push` is scoped to main so a PR branch fires `pull_request` only. Without
+  # the filter both events fire and the matrix runs twice -- and the two test
+  # different trees (`pull_request` builds the branch merged into the base,
+  # `push` builds the branch tip alone), so which result you got was a race.
+  # `paths-ignore` skips the matrix for documentation-only changes. Nothing
+  # under src/ or tests/ reads a markdown file, so they can't affect a result.
+  # `workflow_dispatch` has no paths filter, so a skipped run can still be
+  # triggered by hand.
   push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Pushing again to an open PR cancels the still-running check for the previous
+# commit, so only the tip is ever tested. `head_ref || ref_name` normalizes the
+# two events onto one group: `github.ref` differs between them
+# (`refs/heads/<branch>` vs `refs/pull/<n>/merge`), so grouping on it would
+# leave a push and its pull_request in separate groups and change nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -18,7 +39,40 @@ jobs:
     continue-on-error: ${{ matrix.nim-version == 'stable' }}
     steps:
       - uses: actions/checkout@v4
+
+      # nim-lang.org publishes prebuilt binaries for Linux and Windows only, so
+      # on macOS setup-nim-action falls through to downloading the source
+      # tarball and running build.sh -- 214s, against 2s on ubuntu. The action
+      # can't be cached transparently: it `rm -rf`s any existing install
+      # directory before moving the fresh build in, so a restored cache is
+      # deleted unless the action itself is skipped.
+      #
+      # The week bucket exists for the `stable` leg, whose version is a moving
+      # target -- without it the cache would pin whatever `stable` meant the day
+      # it was first written, silently defeating the point of testing against
+      # it. Costs one rebuild per leg per week.
+      - name: Compute weekly cache bucket
+        id: week
+        run: echo "v=$(date -u +%Y-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Nim toolchain
+        id: nim-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.nim_runtime
+          key: nim-${{ runner.os }}-${{ runner.arch }}-${{ matrix.nim-version }}-${{ steps.week.outputs.v }}
+
       - uses: jiro4989/setup-nim-action@v2
+        if: steps.nim-cache.outputs.cache-hit != 'true'
         with:
           nim-version: ${{ matrix.nim-version }}
+
+      # Mirrors the PATH the action would have set, since it was skipped above.
+      - name: Use cached Nim
+        if: steps.nim-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "${{ github.workspace }}/.nim_runtime/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.nimble/bin" >> "$GITHUB_PATH"
+
+      - run: nim --version
       - run: nimble test
