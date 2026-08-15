@@ -86,9 +86,10 @@ immediately, at `flag()` call time.
 
 This isn't an oversight of that precedent, it's because the precedent's
 premise doesn't hold here. A `ValueArg`'s default lives in a genuine
-substitution tier (`Option[seq[T]]`, substituted only if nothing else ever
-set a value) that a sentinel can hide behind — real user input replaces the
-sentinel outright, so the sentinel never participates in a computation.
+substitution tier (`Option[seq[T]]` at the time of writing — see "Later
+correction" below; substituted only if nothing else ever set a value) that
+a sentinel can hide behind — real user input replaces the sentinel
+outright, so the sentinel never participates in a computation.
 `FlagArg.value: T` has no such tier: the coded default *is* the live
 initial value from construction on, and Flag Operations like `inc`/`+=`/
 `-=` read the *current* value as an operand. An out-of-range "sentinel"
@@ -99,6 +100,22 @@ delta could be far larger than what it claims (e.g. `default = 15,
 clamp = 0..10`: `--verbose`'s `inc` computes `15.inc == 16`, then clamps to
 `10` — an "increment" that visibly decreases the value by 5). Rejecting the
 bad default outright avoids designing around that surprise.
+
+## Later correction: the substitution tier's type changed, the argument didn't
+
+`ValueArg.value` is no longer an `Option[seq[T]]` — it is a plain `seq[T]`,
+and the tier is keyed on the seq being non-empty rather than on the
+`Option` being `some` (issue #28; the `Option` had been holding space for
+the Option Operations that `docs/adr/0011-rejected-option-operations.md`
+rejected, so with those gone `some(@[])` was a state nothing could
+produce).
+
+This decision is unaffected. The asymmetry it rests on is that a
+`ValueArg`'s default sits in a substitution tier *at all* while
+`FlagArg.value: T` has none — that remains exactly as true with a plain
+`seq`, since `toT`/`toSeqT` still substitute `default` only when nothing
+ever set a value, and a `ValueArg` sentinel default is still inert in a way
+a Flag's cannot be. Only the type name above is stale.
 
 ## Consequences
 

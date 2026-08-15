@@ -83,7 +83,7 @@ export fsm.parse, fsm.completeArgs
 
 type
   ValueArg[T: not seq, multi: static bool] = ref object of Arg
-    value: Option[seq[T]]
+    value: seq[T] ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
     default: seq[T]
     validator: Validator[T]
     env: Option[EnvSource]
@@ -295,18 +295,11 @@ proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: 
   try:
     let tmp: T = value
     if not self.validator.isNil:
-      self.validator.validate(tmp, self.value.get(otherwise = newSeq[T]()))
+      self.validator.validate(tmp, self.value)
     when multi:
-      # Inline `some(self.value.get & @[tmp])` corrupts earlier elements
-      # under ORC here -- see docs/gotchas.md.
-      if self.value.isSome:
-        var s = self.value.get
-        s.add(tmp)
-        self.value = some(s)
-      else:
-        self.value = some(@[tmp])
+      self.value.add(tmp)
     else:
-      self.value = some(@[tmp])
+      self.value = @[tmp]
   except ValidationError as e:
     raise newException(ValidationError, fmt"for {self.name(variant)}, {e.msg}")
   except ValueError:
@@ -553,12 +546,12 @@ method parse(self: HelpArg, command: string, spec: Spec, variant = "") =
 converter toT*[T](arg: ValueArg[T, false]): T =
   ## Converts a `ValueArg[T, false]` to a `T`, substituting a default value if
   ## no value was set by the user.
-  arg.value.get(otherwise = arg.default)[0]
+  (if arg.value.len > 0: arg.value else: arg.default)[0]
 
 converter toSeqT*[T](arg: ValueArg[T, true]): seq[T] =
   ## Converts a `ValueArg[T, true]` to a `seq[T]`, substituting a default
   ## value if no value was set by the user.
-  arg.value.get(otherwise = arg.default)
+  if arg.value.len > 0: arg.value else: arg.default
 
 converter toT*[T](arg: FlagArg[T]): T =
   ## Converts a `FlagArg[T]` to a `T`.
@@ -1476,7 +1469,7 @@ when isMainModule:
     test "a ValueArg's generated parse/defaultStr work when constructed directly, bypassing arg()":
       let a = ValueArg[Rank, false](kind: Positional, variants: @["<rank>"])
       a.parse("rHigh")
-      check a.value.get[0] == rHigh
+      check a.value[0] == rHigh
       check a.defaultStr() == ""
 
     test "a FlagArg's generated parse()/variantDesc() are correct -- % (not fmt) inside a defineFlagArg-generated method, and defineFlag's blankDesc wiring":
@@ -1528,4 +1521,4 @@ when isMainModule:
       a.parse("rLow")
       a.parse("rMid")
       a.parse("rHigh")
-      check a.value.get == @[rLow, rMid, rHigh]
+      check a.value == @[rLow, rMid, rHigh]

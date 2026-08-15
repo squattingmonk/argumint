@@ -247,7 +247,7 @@ match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 ## 4. Value conversion (`src/argumint.nim`, top)
 
 `ValueArg[T: not seq, multi: static bool]` / `FlagArg[T]` are generic ref
-objects holding a parsed `Option[seq[T]]`/`T`. A single `ValueArg` type backs
+objects holding a parsed `seq[T]`/`T`. A single `ValueArg` type backs
 both scalar args (instantiated as `ValueArg[T, false]`, storing its value as
 a 1-element seq) and multi-value args (instantiated as `ValueArg[T, true]`,
 appending on each match). `arg*`/`opt*` construct the scalar arity only
