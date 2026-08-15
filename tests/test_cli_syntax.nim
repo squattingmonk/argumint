@@ -1,4 +1,4 @@
-import std/unittest
+import std/[strutils, unittest]
 
 import argumint
 
@@ -335,14 +335,36 @@ suite "A Command name doesn't shadow a positional value in another alternative":
     check spec.file == @["foo", "ship", "bar"]
 
 suite "An option-shaped token unrecognized by one alternative can still match a permissive alternative":
-  test "a strict alternative's unrecognized option falls through to a catch-all positional alternative":
-    # ADR 0019: "-x" isn't declared anywhere, but the "--verbose"
-    # alternative used to raise on it unconditionally during eager
-    # tokenization; it should now just fail to match and let the "<raw>..."
-    # alternative accept it as literal text instead.
+  # ADR 0019 gap 3 made "-x" fall through to the "<raw>..." alternative
+  # instead of raising during eager tokenization. ADR 0034 keeps the
+  # fall-through mechanism but gates whether an `Argument` matcher will
+  # actually swallow the result, so the same input now turns on
+  # `strictOptions`.
+  setup:
     let spec = (
       verbose: flag("--verbose", help = ""),
       raw: args("<raw>", help = ""),
     )
-    spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog")
+
+  test "strictOptions rejects it rather than letting the catch-all absorb it":
+    expect ParseError:
+      spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog")
+
+  test "the error names the token instead of failing silently":
+    try:
+      spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog")
+      check false # unreachable
+    except ParseError as e:
+      check "-x" in e.msg
+
+  test "strictOptions = false restores ADR 0019's fall-through":
+    spec.parse(usage = "--verbose|<raw>...", args = @["-x"], command = "prog",
+               settings = newSpecSettings(strictOptions = false))
     check spec.raw == @["-x"]
+
+  test "a Non-Option Short falls through even under strictOptions":
+    # `-5` is option-shaped (`shortOption <- '-' \w` matches a digit), so
+    # it reaches the catch-all only via the same fallback -- ADR 0034's
+    # Non-Option Short exemption is what keeps ADR 0019 gap 2 working.
+    spec.parse(usage = "--verbose|<raw>...", args = @["-5", "-1.5"], command = "prog")
+    check spec.raw == @["-5", "-1.5"]

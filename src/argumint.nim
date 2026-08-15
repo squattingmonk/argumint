@@ -67,12 +67,13 @@ export fsm.CompletionCandidate
 # needs the type nameable.
 export options.Option
 
-# `newSpecSettings*`'s signature spells these two as its own defaults, so a
+# `newSpecSettings*`'s signature spells these three as its own defaults, so a
 # reader of its docs needs to be able to resolve them. `DefaultWidth`
 # deliberately isn't here -- it appears in no exported signature, and by
 # `docs/adr/0029`'s rule an export with no demonstrated caller stays out
 # until one shows up (adding it later is non-breaking).
-export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim
+export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
+  backend.DefaultStrictOptions
 
 # The two operations on a built `Spec` that live in `argumint/fsm` rather
 # than here. `parseOrQuit*(Spec)` was already reachable (it's defined
@@ -642,7 +643,8 @@ proc autoFillUsage(spec: Spec) =
     spec.fsm.prepare()
 
 proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
-    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[]): SpecSettings =
+    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
+    strictOptions = DefaultStrictOptions): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param.
   ## - `width` is the column width usage/help text wraps at. Defaults to the
@@ -665,12 +667,29 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   ##   fully replaces an earlier one's, never merged. See
   ##   `docs/adr/0018-config-source.md`.
   ##
+  ## - `strictOptions` is Strict Option Checking: whether an option-shaped
+  ##   token resolving against no declared option may be accepted as data.
+  ##   On by default, and it governs two slots. In the common
+  ##   `[options] <file>...` shape, off means a typo'd `--recrusive`
+  ##   silently becomes a filename; and with any value-taking option, off
+  ##   means `--name --help` sets `name` to `"--help"` rather than
+  ##   reporting that `--name` has no value. A Non-Option Short -- one dash
+  ##   whose second character isn't an ASCII letter (`-5`, `-3.5`,
+  ##   `-0x1F`) -- is exempt either way, which is what keeps negative
+  ##   numbers usable. Set `false` for a grammar that genuinely takes
+  ##   dash-leading literal text, though a typed `--`, a usage-string
+  ##   `[--]` marker, the leading-space form (`" -x"`), or the attached
+  ##   form (`--name=--nope`) each force one token literally without
+  ##   disabling the check everywhere. See
+  ##   `docs/adr/0034-strict-option-checking.md`.
+  ##
   ## Hold onto the returned `SpecSettings` and pass the same instance to
   ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
   ## it later (e.g. from a `before` hook) and have the change apply live to
   ## every not-yet-dispatched `Spec` in the tree -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
-  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim, configSources: configSources)
+  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
+    configSources: configSources, strictOptions: strictOptions)
 
 proc cascadeSpecSettings(spec: Spec, settings: SpecSettings) =
   ## Shares `settings` by reference with `spec` and every nested subcommand's

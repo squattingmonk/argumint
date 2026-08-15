@@ -1,5 +1,14 @@
 # Lazy, walk-time token classification replaces eager `tokenizeArgs`
 
+> **Narrowed by [ADR 0034](0034-strict-option-checking.md)**: gap 3's
+> "accepted as opaque literal text" now applies only when Strict Option
+> Checking is off. The classification mechanism below is unchanged — an
+> unresolved option still classifies `Positional` and other Usage Line
+> alternatives are still tried — but by default an `Argument` matcher, and
+> an `Optional`'s value slot, decline the result. Gap 2 (negative numbers)
+> still holds, via ADR 0034's Non-Option Short exemption rather than this
+> ADR's unresolved-name fallback. Gaps 1 and 4–7 stand as written.
+
 `fsm.nim`'s runtime matching split into two decoupled phases:
 `tokenizeArgs` classified the *entire* remaining command-line array into a
 `seq[CmdLineToken]` (`Command`/`Optional`/`Flag`/`Positional`) in one
