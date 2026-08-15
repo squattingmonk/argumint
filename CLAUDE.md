@@ -95,7 +95,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
   not meant to be caught), while `ParseError`/`ValidationError`/`MessageError`
-  are `CatchableError`s raised at user-input parse time. `parse*`
+  are `CatchableError`s raised at user-input parse time. All of them live in
+  `errors.nim`, a leaf module with no local imports, so any module can name
+  an exception without depending on whichever one raises it. `parse*`
   (`argumint.nim`, both the `Spec` and `tuple` overloads) lets all of these
   propagate to the caller; `parseOrQuit*` catches them and `quit()`s with a
   formatted message instead. `parse*` is the recommended entry point for

@@ -18,7 +18,7 @@
 
 import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal, wordwrap]
 
-import ./argumint/[backend, completion, configsource, dot, flagclamp, fsm, fsmgraph, parser, validators]
+import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, fsmgraph, parser, validators]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
@@ -26,9 +26,8 @@ privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
 export completion.Shell
 
 # Re-exported so `import argumint` alone is enough to catch everything
-# `parse*`/`parseOrQuit*`/`newSpec` can raise, without also reaching into
-# `argumint/backend`/`argumint/validators`/`argumint/lexer` by hand.
-export ParseError, ValidationError, HelpError, MessageError, SpecDefect, CompletionError
+# `parse*`/`parseOrQuit*`/`newSpec` can raise.
+export errors
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.

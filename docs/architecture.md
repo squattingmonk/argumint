@@ -7,6 +7,22 @@ when you need the specifics of how a phase actually works. Domain vocabulary
 assumes that vocabulary and focuses on code-level mechanics. See
 `docs/gotchas.md` for Nim-language/compiler traps hit while building this.
 
+## 0. Module layering
+
+Three modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
+`lexer` → `backend`/`validators` → `fsmgraph`/`parser` → `fsm` → `argumint`.
+
+`errors.nim` holds every exception argumint raises (`SpecDefect`,
+`ParseError`, `ValidationError`, `MessageError`, `HelpError`,
+`CompletionError`). Keeping them in a leaf is what lets any module name an
+exception without depending on whichever module raises it — `fsm.nim` needs
+`ValidationError` but has no business importing the validator combinators,
+and `lexer.nim` raises `SpecDefect` while staying free of everything above
+it. The two modules whose own API would be incomplete without one
+(`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
+re-export it, so importing either alone still names what it raises.
+
 ## 1. Spec construction (`src/argumint.nim`)
 
 User calls `arg`, `opt`, `flag`, `command`, `help` to build a tuple of `Arg`

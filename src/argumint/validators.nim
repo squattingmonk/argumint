@@ -10,11 +10,12 @@
 
 import std/[sequtils, strformat, strutils, sugar]
 
-import ./lexer
+import ./[errors, lexer]
+export ValidationError ## Defined in `errors.nim` with the rest of the
+  ## taxonomy; re-exported so importing this module alone still names what
+  ## its validators raise.
 
 type
-  ValidationError* = object of CatchableError
-
   ValidatorKind = enum
     vkChoice, vkRange, vkCheck, vkCheckSeen, vkAll, vkAny
 

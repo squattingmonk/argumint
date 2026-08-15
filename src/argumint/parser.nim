@@ -4,8 +4,8 @@
 
 import std/[importutils, pegs, sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, fsmgraph, lexer]
-export lexer.SpecDefect
+import ./[backend, errors, fsmgraph, lexer]
+export errors.SpecDefect
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see docs/gotchas.md.

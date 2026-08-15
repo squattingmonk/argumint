@@ -8,10 +8,7 @@ import std/[algorithm, importutils, os, pegs, sets, sequtils, strformat, strutil
 # file -- see docs/gotchas.md.
 from std/options import some, none, isSome, get
 
-import ./[backend, configsource, fsmgraph, parser]
-# Only the type -- a full `import` would drag in `range`/`check`/`all`/`any`
-# and collide with system and local names.
-from ./validators import ValidationError
+import ./[backend, configsource, errors, fsmgraph, parser]
 export ParseError, SpecDefect, CompletionError
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from

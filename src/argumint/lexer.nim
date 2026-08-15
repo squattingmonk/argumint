@@ -2,9 +2,11 @@
 ## be navigated by command-line arguments.
 import std/[lexbase, pegs, streams, strformat, strutils]
 
-type
-  SpecDefect* = object of Defect
+import ./errors
+export SpecDefect ## Defined in `errors.nim` with the rest of the taxonomy;
+  ## re-exported so importing this module alone still names what it raises.
 
+type
   SpecTokenKind* = enum
     ## The kind of tokens in a parser spec
     tkInvalid

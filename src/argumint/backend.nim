@@ -15,23 +15,11 @@ import std/[hashes, pegs, strformat, strutils, tables, wordwrap]
 # `options.Option[T]` instead -- see docs/gotchas.md.
 from std/options import some, none, isSome, get
 
-import ./configsource
+import ./[configsource, errors]
 export configsource
 
 
 type
-  ParseError* = object of CatchableError
-  MessageError* = object of CatchableError
-  HelpError* = object of MessageError
-  CompletionError* = object of MessageError
-    ## Carries the shell-completion candidates for a `__complete` request
-    ## (see `fsm.parse*`) as its `msg`, one candidate per line, each
-    ## formatted `"value\thelp"` (`help` may be empty, but the tab is always
-    ## present -- see `docs/adr/0022-completion-candidate-help-text.md`). A
-    ## peer of `HelpError`, not a subtype of it -- reuses `parseOrQuit*`'s
-    ## existing `except MessageError as e: quit(e.msg, QuitSuccess)` branch
-    ## for free. See `docs/adr/0012-fsm-driven-shell-completion.md`.
-
   ArgKind* {.pure.} = enum
     Command ## A subcommand (e.g., `clone`)
     Positional ## A positional argument (e.g., `<arg>`)
