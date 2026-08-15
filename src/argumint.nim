@@ -733,6 +733,11 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
   ## to handle those yourself, or just call `parse*` on the spec tuple
   ## directly for the same `newSpec` + parse in one step, still raising on
   ## failure.
+  ##
+  ## `spec` is **single-use**: parsing more than once accumulates into the
+  ## same Args rather than starting fresh. Use `parsed*`/`parsedOrQuit*` to
+  ## parse a fresh spec per call -- see
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   result = beginSpec(usage, prolog, epilog)
   result.addArgs(spec)
   result.finishSpec(settings)
@@ -1244,6 +1249,11 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
+  ##
+  ## `spec` is **single-use**, same as `parse*(Spec)` -- and, being a built
+  ## `Spec` rather than a spec tuple, it has no `parsed*` counterpart. Build
+  ## a fresh one per parse. See
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   try:
     spec.parse(args, command)
   except ParseError as e:
@@ -1258,6 +1268,17 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
     quit(QuitSuccess)
   except MessageError as e:
     quit(e.msg, QuitSuccess)
+
+proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: SpecSettings,
+    before, action, after: proc(spec: S, info: HookInfo)): Spec =
+  ## Builds `spec` and binds whichever hooks were given, each closing over
+  ## `spec` itself. Shared by all four tuple entry points so a hook can
+  ## never be bound to a different tuple than the one its caller returns --
+  ## see docs/adr/0031-parsed-fresh-spec-per-parse.md.
+  result = newSpec(spec, usage, prolog, epilog, settings)
+  if not before.isNil: result.before = (info: HookInfo) => before(spec, info)
+  if not action.isNil: result.action = (info: HookInfo) => action(spec, info)
+  if not after.isNil: result.after = (info: HookInfo) => after(spec, info)
 
 proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
@@ -1289,12 +1310,14 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
+  ##
+  ## `spec` is **single-use**: parsing more than once accumulates into the
+  ## same Args rather than starting fresh. Use `parsedOrQuit*` to parse a
+  ## fresh spec per call -- see
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   try:
-    let builtSpec = newSpec(spec, usage, prolog, epilog, settings)
-    if not before.isNil: builtSpec.before = (info: HookInfo) => before(spec, info)
-    if not action.isNil: builtSpec.action = (info: HookInfo) => action(spec, info)
-    if not after.isNil: builtSpec.after = (info: HookInfo) => after(spec, info)
-    builtSpec.parseOrQuit(args, command)
+    spec.buildAndBind(usage, prolog, epilog, settings, before, action, after)
+      .parseOrQuit(args, command)
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
@@ -1329,11 +1352,67 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ##
   ## `before`/`action`/`after` are app-level hooks around the
   ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
-  let builtSpec = newSpec(spec, usage, prolog, epilog, settings)
-  if not before.isNil: builtSpec.before = (info: HookInfo) => before(spec, info)
-  if not action.isNil: builtSpec.action = (info: HookInfo) => action(spec, info)
-  if not after.isNil: builtSpec.after = (info: HookInfo) => after(spec, info)
-  builtSpec.parse(args, command)
+  ##
+  ## `spec` is **single-use**: parsing more than once accumulates into the
+  ## same Args rather than starting fresh -- a repeated `opts` appends, a
+  ## `flag` keeps applying its Flag Operation, and an `opt` retains an
+  ## earlier value into a later parse that never mentioned it. Use `parsed*`
+  ## to parse a fresh spec per call -- see
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+  spec.buildAndBind(usage, prolog, epilog, settings, before, action, after)
+    .parse(args, command)
+
+# ------------------------------------------------------------------------------
+# `parsed*`/`parsedOrQuit*`: parse a *fresh* spec and return it, leaving the
+# caller's own untouched -- see docs/adr/0031-parsed-fresh-spec-per-parse.md.
+# ------------------------------------------------------------------------------
+
+proc parsed*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog = "",
+    settings = newSpecSettings(),
+    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    before: proc(spec: S, info: HookInfo) = nil,
+    action: proc(spec: S, info: HookInfo) = nil,
+    after: proc(spec: S, info: HookInfo) = nil): S =
+  ## Calls `build` for a brand-new spec tuple, parses `args` into it, and
+  ## returns it. Every other parameter behaves exactly as on `parse*(tuple)`,
+  ## which this raises like.
+  ##
+  ## Unlike `parse*`/`parseOrQuit*`, which accumulate into the Args they're
+  ## given, this makes a parse a pure function of `args` -- so the same
+  ## `build` can be parsed any number of times, each result independent:
+  ## ```nim
+  ## proc buildCli(): auto =
+  ##   (name: arg("<name>"), times: opt("-t=<n>", default = 1), help: help())
+  ##
+  ## for line in stdin.lines:
+  ##   let cli = parsed(buildCli, args = line.splitWhitespace, command = "repl")
+  ##   echo cli.name
+  ## ```
+  ## Values for a Command's own nested spec are reachable only through that
+  ## Command's `before`/`action`/`after` hooks, not off the returned tuple:
+  ## a spec tuple holds a `CommandArg`, not the nested tuple itself.
+  ##
+  ## Takes a builder rather than a spec tuple deliberately -- copying an
+  ## already-built tuple can't be made correct, see
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+  result = build()
+  result.buildAndBind(usage, prolog, epilog, settings, before, action, after)
+    .parse(args, command)
+
+proc parsedOrQuit*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog = "",
+    settings = newSpecSettings(),
+    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    before: proc(spec: S, info: HookInfo) = nil,
+    action: proc(spec: S, info: HookInfo) = nil,
+    after: proc(spec: S, info: HookInfo) = nil): S =
+  ## Like `parsed*`, but prints a message and `quit()`s instead of raising
+  ## on failure -- the `parseOrQuit*`/`parse*` distinction, unchanged.
+  try:
+    result = build()
+    result.buildAndBind(usage, prolog, epilog, settings, before, action, after)
+      .parseOrQuit(args, command)
+  except SpecDefect as e:
+    quit(fmt"Error constructing spec: {e.msg}")
 
 proc dot*(spec: Spec): string =
   ## Renders `spec`'s FSM as a Graphviz dot graph, useful for debugging or

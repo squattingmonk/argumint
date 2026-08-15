@@ -767,6 +767,14 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## failure -- use `parseOrQuit*` (`argumint.nim`) if you want those to
   ## print a message and `quit()` instead.
   ##
+  ## `spec` is **single-use**: parsing more than once accumulates into the
+  ## same Args rather than starting fresh -- a repeated `opts` appends, a
+  ## `flag` keeps applying its Flag Operation, and an `opt` retains an
+  ## earlier value into a later parse that never mentioned it. A built
+  ## `Spec` has no `parsed*` counterpart (that takes a spec-tuple builder,
+  ## `argumint.nim`), so build a fresh `Spec` per parse. See
+  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+  ##
   ## `args[0] == "__complete"` is a shell-completion request (see
   ## `docs/adr/0012-fsm-driven-shell-completion.md`): short-circuits before
   ## any real FSM matching, env fallback, or dispatch (so no `before`/

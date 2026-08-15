@@ -16,6 +16,15 @@ Each arg is indexed into `spec.arguments` (positional, keyed by `<name>`),
 (subcommands, keyed by the command word). If no `usage` string is given, one
 is auto-generated from the declared args (see "autoFillUsage" below).
 
+Match Accumulation is per-`Arg` lifetime, not per-parse, so a spec tuple is
+single-use — parsing one twice appends to the same `ValueArg.value` and
+re-applies a `FlagArg`'s Flag Operation. `parsed*`/`parsedOrQuit*` are the
+fresh-spec-per-parse entry points; both take a builder `proc (): S` and call
+it once per parse rather than copying an existing tuple, for reasons
+`docs/adr/0031-parsed-fresh-spec-per-parse.md` records. All four tuple entry
+points share one private `buildAndBind`, which builds the `Spec` and binds
+`before`/`action`/`after` closing over the *same* tuple its caller returns.
+
 Those index fields — along with `prolog`/`epilog`/`usage`/`args`/`fsm` — are
 private to the library; only `Spec.settings` and the three hook fields are
 exported (`docs/adr/0030-core-types-exported-spec-opaque.md`). Internal
