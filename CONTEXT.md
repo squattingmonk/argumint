@@ -429,6 +429,47 @@ one or more Usage Lines, each an independent alternative, implicitly OR'd
 together.
 _Avoid_: Grammar, usage text
 
+**Complaint**:
+One reason a parse failed, and one bulleted line of the message it
+produces. Structured (a kind plus a subject) rather than pre-formatted, so
+same-kind Complaints group onto a single line joined by `|` — `missing
+command: (ship | mine)`. A Complaint with no kind renders as a bare
+sentence under the same bullet, which is how a conversion or validation
+failure joins the same message shape. Every parse-time failure message is a
+Complaint list followed by the Usage String, and nothing else. See
+`docs/adr/0035-parse-failure-reporting.md`.
+_Avoid_: Error message (the whole rendered message, Complaints plus usage
+block, not one line of it); message (ambiguous with Message Argument)
+
+**Naming Complaint**:
+A Complaint that points at a specific token the user actually typed
+(`unrecognized command: shp`, `unexpected argument: stray`, `option --port
+requires a value`), as opposed to one naming something the grammar wanted
+(`missing option`, `missing command`, `missing argument`). Tracked as a
+property of the Complaint rather than inferred from its wording. Once a
+message contains one, every `missing option` Complaint in it is suppressed
+as FSM bookkeeping the user can't act on; `missing command` is suppressed
+too when the named token stands in the command's own position. See
+`docs/adr/0035-parse-failure-reporting.md`.
+_Avoid_: Unexpected-token complaint (a Naming Complaint may say `missing
+value`); leftover complaint (a leftover token is the input to one, not the
+same thing)
+
+**Did-You-Mean Suggestion**:
+The `; did you mean --port?` appended to a Naming Complaint when a declared
+Option Variant or Command name is close enough to the token the user typed.
+Close enough means Damerau–Levenshtein distance (adjacent transposition
+costs 1) within `min(2, max(1, n div 4))`, where `n` is the candidate's own
+name with leading dashes stripped; every candidate tied at the best
+distance is offered. Short options sit outside the mechanism in both
+directions: one is never offered as a suggestion (every one-character name
+is one edit from every other, so they carry no signal), and a short-form
+token never receives one (it is cluster syntax, so what failed is a letter
+inside it rather than the run as a whole). One rule serves Options and
+Commands alike. See `docs/adr/0035-parse-failure-reporting.md`.
+_Avoid_: Spell check, autocorrect (nothing is corrected — the token is
+named either way, and the suggestion is additive)
+
 **Value Precedence**:
 The fixed order in which candidate sources are consulted to determine an
 Option's (or Flag's) final value: an explicit value from the actual

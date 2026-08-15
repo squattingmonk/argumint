@@ -1277,9 +1277,9 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   try:
     spec.parse(args, command)
   except ParseError as e:
-    quit("Parsing error: {e.msg}".fmt)
+    quit("Parsing error:\n{e.msg}".fmt)
   except ValidationError as e:
-    quit("Validation error: {e.msg}".fmt)
+    quit("Validation error:\n{e.msg}".fmt)
   except HelpError as e:
     quit(e.msg, QuitSuccess)
   except CompletionError as e:

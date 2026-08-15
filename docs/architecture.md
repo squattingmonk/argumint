@@ -136,7 +136,7 @@ trusting a precomputed global answer:
   `refusesAsPositional` — Strict Option Checking, `SpecSettings.strictOptions`,
   default on: a `Positional` result that is option-shaped, unresolved, and
   not a Non-Option Short is skipped rather than accepted, so it survives as
-  a leftover token for `walk` to name via `unknownOptionMsg`. The same
+  a leftover token for `finalComplaints` to name (see §3b). The same
   setting gates the value slot inside `classify` (`refusesAsValue`), so a
   declared Optional followed by an unrelated option starves instead of
   eating it. Both refuse rather than raise, keeping backtracking intact.
@@ -156,7 +156,7 @@ than calling a name it recognizes unrecognized, and it is an error under
 both settings.
 
 Four failure paths ask that question — the `Option` matcher, the `Options`
-catch-all, the `Argument` matcher, and `walk`'s leftover branch — so
+catch-all, the `Argument` matcher, and `walk`'s tail — so
 `addStarved` classifies the leading token for itself and returns whether it
 complained, letting each caller fall back to its own blunter wording. Two of
 them are why it can't simply be handed a `Classification` computed once:
@@ -191,7 +191,8 @@ sibling Argument attempt reusing the same leftover token), but reachable
 now. `ParseContext` has dedicated `errorSpec`/`errorCommand` fields for
 this, written only by the merge step and read only when formatting the
 final failure message, so `.spec`/`.command` stay reserved for live walk
-state. See `docs/adr/0019-lazy-token-classification.md`.
+state. See `docs/adr/0019-lazy-token-classification.md`. `errorTokens`
+(§3b) is a third field on the same terms.
 
 A literal `--` is recognized in the same eager shape pass and, the first
 time the walk encounters it on a given path, sets `pc.optsEnd = true`
@@ -277,6 +278,70 @@ fallback tier *during the walk* (via `probe`, which never writes to
 `pc.matches`) has its walk-time fallback contribution silently dropped —
 `applyFallbacks` never even looks at it, since the Arg already has a real
 match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
+
+## 3b. Failure reporting (`fsm.nim`)
+
+Everything above concerns a walk that fails; this is what the user sees when
+it does. Two channels accumulate during the walk, both on `ParseContext` and
+both subject to the same replace-on-deeper / merge-on-tied bookkeeping at
+the bottom of `walk`'s transition loop:
+
+- **`messages`**, a `seq[Complaint]`. A `Complaint` is `(kind, subject,
+  names)`. `kind` groups same-kind complaints onto one `|`-joined line at
+  render time and is empty for a conversion/validation failure, which
+  renders as a bare sentence under the same bullet. `names` marks a
+  Complaint that points at a token the user actually typed — a property of
+  the Complaint, never inferred from its wording, so ADR 0034's
+  starved-option complaint participates without being special-cased.
+- **`errorTokens`**, a `seq[Leftover]`: what a failed branch couldn't
+  consume, plus the `Spec`/`optsEnd` needed to re-`classify` it. Recorded
+  during the walk, worded only afterwards, so the wording can draw on the
+  whole message rather than one branch's local view. Three recording sites:
+  the tail of `walk` (a terminal state whose every transition failed — the
+  general case); a failed `Command` matcher (the only place that knows a
+  Command was expected *at this exact position*, and which fires whether or
+  not the grammar has a terminal state the leftover could reach); and a
+  failed `Option` matcher holding an unresolved option-shaped token, which
+  likewise never reaches `walk`'s tail and is what names the headline
+  `unrecognized option: --nope` case.
+
+`maxDepth` only ever rises, including when a shallower branch's complaints
+are adopted because nothing has complained yet — otherwise a branch that got
+nowhere sets the bar every later sibling ties against, and gets to name the
+offending token. The tied-depth merge itself is deliberate: it is what
+surfaces both sides of a FlagOp Alias exclusivity conflict.
+
+`finalComplaints` then builds the message: word each leftover (as an
+`unrecognized command` when a Command was expected there, otherwise from
+`classify`'s answer), then drop every `missing option` — and `missing
+command` too, if the named token stood in a command's position. One further
+suppression happens at the complaint site itself, since only it knows the
+context: the `Options` catch-all never complains at all, an option reached
+that way being optional by construction.
+
+Note what is deliberately *not* suppressed: a `missing option` for an `Arg`
+already in `pc.matches`. Membership answers "did this Arg match at all on
+this branch", not "did the user supply every occurrence the grammar asked
+for" — with `--foo=<v> --foo=<v>` and one `--foo` supplied, suppressing on
+it empties the complaint list entirely. See ADR 0035.
+
+`didYouMean` serves options and commands from one rule — Damerau–Levenshtein
+(`osaDistance`, hand-rolled over `Rune`s since `std/editdistance` has no
+transposition variant) within `min(2, max(1, n div 4))` of the candidate's
+dash-stripped length, all best-distance candidates offered, sorted so
+declaration order can't decide a tie. A candidate shorter than
+`MinSuggestable` is skipped outright, which by the option PEGs' own shapes
+means "never suggest a short option". Whether the *typed* token is eligible
+at all is settled a level up, in `unknownOption`: a short-form token gets no
+suggestion, decided before a candidate list is even built, since it can't
+vary by candidate.
+
+`formatComplaints` renders the bullets with no leading newline;
+`raiseParseError`/`withUsage` (`backend.nim`) append the usage block; and
+`parse*` wraps `applyFallbacks`/`parseAllValues` so a conversion or
+validation failure — whose raise site in `arg.parse` has no view of the Spec
+— comes out in that same shape. See
+`docs/adr/0035-parse-failure-reporting.md`.
 
 ## 4. Value conversion (`src/argumint.nim`, top)
 

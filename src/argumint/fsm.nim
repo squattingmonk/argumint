@@ -1,6 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, editdistance, importutils, os, pegs, sets, sequtils, strformat, strutils, sugar, tables]
+import std/[algorithm, importutils, os, pegs, sets, sequtils, strformat, strutils, sugar, tables, unicode]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead, since a bare `import std/options` breaks
@@ -9,6 +9,9 @@ import std/[algorithm, editdistance, importutils, os, pegs, sets, sequtils, strf
 from std/options import some, none, isSome, get
 
 import ./[backend, configsource, fsmgraph, parser]
+# Only the type -- a full `import` would drag in `range`/`check`/`all`/`any`
+# and collide with system and local names.
+from ./validators import ValidationError
 export ParseError, SpecDefect, CompletionError
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
@@ -22,10 +25,20 @@ type
     ## by it instead of relying on push order, which is grammar-position
     ## order, not typed order.
   MatchTable = OrderedTable[Arg, seq[Match]]
-  Complaint = tuple[kind: string, subject: string]
-    ## A failure reason, e.g. `("missing option", "-v")`. Kept structured
-    ## (rather than a pre-formatted string) so same-kind complaints can be
-    ## grouped into one message at render time -- see `parse`.
+  Complaint = tuple[kind: string, subject: string, names: bool]
+    ## A failure reason, e.g. `missing option: -v`. Structured so same-kind
+    ## complaints group at render time; an empty `kind` renders as a bare
+    ## sentence. `names` marks one that points at a token the user typed --
+    ## a property, never a test on the wording, since ADR 0034's starved
+    ## complaint must count. Built via `complaint`, never as a bare tuple.
+    ## See ADR 0035.
+
+  Leftover = tuple[tokens: seq[RawToken], spec: Spec, optsEnd: bool]
+    ## One failed branch's unconsumed tokens, plus the context to
+    ## re-`classify` them. Recorded during the walk, worded in
+    ## `finalComplaints`. Whole token list, not just the first -- `classify`
+    ## looks ahead, so a slice makes every leftover option look starved.
+    ## See ADR 0035.
 
   ValueCursor = object
     ## Owns one Value Precedence fallback tier (env or Config Source) --
@@ -53,6 +66,7 @@ type
     errorSpec: Spec       ## Spec for the deepest fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
     errorCommand: string  ## See `errorSpec`
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
+    errorTokens: seq[Leftover] ## What the deepest fsm path left over, for `finalComplaints` to name. Merged across tied-depth siblings exactly as `messages` is -- see ADR 0035
     tokens: seq[RawToken]     ## The arguments left to be parsed
     optsEnd: bool          ## Whether this path has crossed a literal `--` -- see ADR 0019
     matches: MatchTable   ## A table of processed matches
@@ -119,13 +133,89 @@ let
   longOption <- '--' \w (\w / ('-' \w))+
   """
 
-proc unknownOptionMsg(unknownVariant: string, spec: Spec): string =
-  result = fmt"unrecognized option {unknownVariant}"
-  if unknownVariant.len > 2:
-    for knownVariant in spec.options.keys:
-      if knownVariant.len > 2 and editDistance(unknownVariant, knownVariant) == 1:
-        result.add fmt"; did you mean {knownVariant}?"
-        break
+proc complaint(kind, subject: string, names = false): Complaint =
+  ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
+  ## pointing at a specific token the user typed -- see `Complaint.names`
+  ## and ADR 0035.
+  (kind, subject, names)
+
+proc osaDistance(a, b: seq[Rune]): int =
+  ## Damerau-Levenshtein, optimal string alignment: an adjacent
+  ## transposition costs 1. Hand-rolled over `Rune`s -- `std/editdistance`
+  ## has no transposition variant and its ASCII one splits multi-byte
+  ## characters. See ADR 0035.
+  var d = newSeq[seq[int]](a.len + 1)
+  for i in 0 .. a.len:
+    d[i] = newSeq[int](b.len + 1)
+    d[i][0] = i
+  for j in 0 .. b.len:
+    d[0][j] = j
+  for i in 1 .. a.len:
+    for j in 1 .. b.len:
+      let cost = if a[i - 1] == b[j - 1]: 0 else: 1
+      d[i][j] = min(min(d[i - 1][j] + 1, d[i][j - 1] + 1), d[i - 1][j - 1] + cost)
+      if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+        d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+  d[a.len][b.len]
+
+proc bareName(variant: string): string =
+  ## `variant` with its leading dashes stripped -- measuring the full
+  ## spelling inflates every threshold. See ADR 0035.
+  variant.strip(trailing = false, chars = {'-'})
+
+const MinSuggestable = 2
+  ## Shortest dash-stripped name did-you-mean will offer: a one-character
+  ## name is one edit from every other, so it carries no signal. By the
+  ## option PEGs' shapes this is exactly "never suggest a short option".
+  ## See ADR 0035.
+
+proc didYouMean(typed: string, candidates: seq[string]): string =
+  ## `"; did you mean --port?"` for whichever of `candidates` sit within
+  ## `min(2, max(1, n div 4))` of `typed`, `n` being the candidate's own
+  ## dash-stripped length; all tied at the best distance, sorted. The cap is
+  ## load-bearing. Eligibility of `typed` is `unknownOption`'s call, not
+  ## this one's. See ADR 0035.
+  let word = typed.bareName.toRunes
+  var best = high(int)
+  var hits: seq[string]
+  for candidate in candidates.sorted:
+    let name = candidate.bareName.toRunes
+    if name.len < MinSuggestable:
+      continue
+    # Known but unusable *here* rather than misspelled; "did you mean add?"
+    # for a token spelled `add` is nonsense.
+    if candidate == typed:
+      continue
+    let distance = osaDistance(word, name)
+    if distance > min(2, max(1, name.len div 4)):
+      continue
+    if distance < best:
+      (best, hits) = (distance, @[candidate])
+    elif distance == best:
+      hits.add candidate
+  if hits.len == 0: ""
+  elif hits.len == 1: "; did you mean {hits[0]}?".fmt
+  else: "; did you mean {hits[0 ..^ 2].join(\", \")} or {hits[^1]}?".fmt
+
+proc isShortForm(variant: string): bool =
+  ## Whether `variant` is written as a short option -- exactly one leading
+  ## dash. A Command name (no dash at all) is never short-form.
+  variant.len > 1 and variant[0] == '-' and variant[1] != '-'
+
+proc unknownOption(variant: string, spec: Spec): Complaint =
+  ## Names an option-shaped token nothing in `spec` declares. A short-form
+  ## token gets no suggestion -- it's cluster syntax, so the failing unit is
+  ## a letter inside it. Settled here rather than per-candidate because it's
+  ## a property of what was typed. See ADR 0035.
+  let suggestion =
+    if variant.isShortForm: ""
+    else: didYouMean(variant, toSeq(spec.options.keys))
+  complaint("unrecognized option", variant & suggestion, names = true)
+
+proc unknownCommand(word: string, spec: Spec): Complaint =
+  ## Names a token sitting where `spec` expected one of its commands.
+  complaint("unrecognized command",
+    word & didYouMean(word, toSeq(spec.commands.keys)), names = true)
 
 proc isOptShape(raw: string): bool =
   ## Pure string-shape recognition needing no `Spec` -- see ADR 0019.
@@ -315,19 +405,36 @@ proc probe(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Option[s
     cursor.consumed[arg] = consumed + 1
     return true
 
-proc addUnique(pc: var ParseContext, complaint: Complaint) =
-  ## Adds `complaint` unless already present -- a starved option is
-  ## reachable down more than one branch, and the same line twice reads as
-  ## a bug in the parser rather than in the input.
-  if complaint notin pc.messages:
-    pc.messages.add complaint
+proc addUnique(pc: var ParseContext, entry: Complaint) =
+  ## Adds `entry` unless already present -- a starved option is reachable
+  ## down more than one branch, and the same line twice reads as a bug in
+  ## the parser rather than in the input.
+  if entry notin pc.messages:
+    pc.messages.add entry
+
+proc addLeftover(pc: var ParseContext, leftover: Leftover) =
+  ## Records `leftover` unless one naming the same token is already there --
+  ## two branches failing on the same token mustn't produce the line twice.
+  if not pc.errorTokens.anyIt(it.tokens[0].raw == leftover.tokens[0].raw):
+    pc.errorTokens.add leftover
+
+proc addLeftover(pc: var ParseContext) =
+  ## Records what this branch couldn't consume, for `finalComplaints` to
+  ## word later.
+  if pc.tokens.len > 0:
+    pc.addLeftover((pc.tokens, pc.spec, pc.optsEnd))
+
+proc starvedComplaint(c: Classification): Complaint =
+  ## The unconditional "declared, but nothing to give it" complaint -- see
+  ## `docs/adr/0034-strict-option-checking.md`.
+  complaint("missing value", "option {c.starvedName} requires a value".fmt, names = true)
 
 proc addStarved(pc: var ParseContext): bool =
   ## Complains that the leading token is a declared option left without a
   ## value, when that's what it is, plus the option-shaped token that
   ## starved it when there is one -- both, never one masking the other.
-  ## Returns whether it complained, so callers can fall back to their own
-  ## blunter wording.
+  ## Returns whether it complained, so callers can fall back to recording a
+  ## plain leftover for `finalComplaints` to word.
   ##
   ## Classifies for itself rather than taking a `Classification`: the
   ## `[options]` catch-all has to re-ask after rolling its own per-probe
@@ -337,14 +444,14 @@ proc addStarved(pc: var ParseContext): bool =
   let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
   if c.starvedOpt.isNil:
     return false
-  pc.addUnique ("missing value", fmt"option {c.starvedName} requires a value")
+  pc.addUnique starvedComplaint(c)
   if pc.tokens.len > 1 and pc.tokens[1].mustResolve:
     # Named only when genuinely unknown -- the token that starved this one
     # may be a declared option itself (`--port --port 80`), and calling
     # *that* unrecognized is the wording ADR 0034 exists to fix.
     let starver = classify(pc.spec, pc.tokens, 1, pc.optsEnd)
     if starver.kind == Positional and starver.starvedOpt.isNil:
-      pc.addUnique ("unexpected option", unknownOptionMsg(pc.tokens[1].raw, pc.spec))
+      pc.addUnique unknownOption(pc.tokens[1].raw, pc.spec)
   true
 
 proc match(m: Matcher, pc: var ParseContext): bool =
@@ -388,9 +495,9 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       # Only report a genuinely-unmatched arg -- if this arg already matched
       # at least once (a satisfied `<arg>...` repeat), a failed attempt at
       # *another* repeat isn't a real deficiency worth reporting.
-      pc.messages.add ("missing argument", m.arg.name)
+      pc.messages.add complaint("missing argument", m.arg.name)
       # A starved option is why nothing was left to match, and this path
-      # never reaches `walk`'s leftover branch -- see `addStarved`.
+      # never reaches `walk`'s tail -- see `addStarved`.
       discard pc.addStarved()
   of Command:
     # If the next token classifies as this specific command, consume it and
@@ -405,7 +512,10 @@ proc match(m: Matcher, pc: var ParseContext): bool =
         pc.consume(0, c)
         result = true
     if not result:
-      pc.messages.add ("missing command", m.cmd.name)
+      pc.messages.add complaint("missing command", m.cmd.name)
+      # A Command matcher never scans past position 0, so it's the one place
+      # that knows a Command was expected *here* -- see ADR 0035.
+      pc.addLeftover()
   of Option:
     # Skip tokens that don't classify as *this* opt so option/arg order
     # doesn't matter -- see the Argument branch above on why a
@@ -450,24 +560,28 @@ proc match(m: Matcher, pc: var ParseContext): bool =
     if pc.configValues.probe(m.opt, () => resolveConfig(m.opt, spec)):
       return true
 
-    pc.messages.add ("missing option", if m.variant.len > 0: m.variant else: m.opt.name)
-    # Did-you-mean suggestion for an unresolved option-shaped leftover --
-    # see ADR 0019 point 4 on why this lives here, not in tokenization.
+    # Unconditional on purpose -- a `m.opt notin pc.matches` guard can't tell
+    # one occurrence from two; see ADR 0035's rejected third rule.
+    pc.messages.add complaint("missing option",
+      if m.variant.len > 0: m.variant else: m.opt.name)
+    # A failed Option matcher never reaches `walk`'s tail, so it records its
+    # own leftover -- see ADR 0035, and ADR 0019 point 4 on why this can't
+    # live in tokenization.
     if not pc.addStarved() and pc.tokens.len > 0 and pc.tokens[0].optShape:
-      let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
-      if c.kind == Positional:
-        pc.messages.add ("unexpected option", unknownOptionMsg(pc.tokens[0].raw, pc.spec))
+      if classify(pc.spec, pc.tokens, 0, pc.optsEnd).kind == Positional:
+        pc.addLeftover()
   of Options:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
     for (opt, variant) in zip(m.opts, m.variants):
-      # Probe only -- a failed probe's own message isn't user-facing, so
-      # roll pc.messages back and add our own complaint instead.
-      let before = pc.messages.len
+      # Probe only: roll a failed probe's complaints and leftovers back, and
+      # add nothing in their place -- a catch-all option is optional by
+      # construction, so it can never be missing (ADR 0035's rule 1).
+      let (before, beforeTokens) = (pc.messages.len, pc.errorTokens.len)
       if newOptMatcher(opt, variant).match(pc):
         result = true
       else:
         pc.messages.setLen(before)
-        if not result: pc.messages.add ("missing option", if variant.len > 0: variant else: opt.name)
+        pc.errorTokens.setLen(beforeTokens)
     if not result:
       # Re-asked past the rollback above: a starved option can never be
       # consumed as anything else, so it's the real error however the
@@ -487,36 +601,18 @@ proc walk(s: State, pc: var ParseContext): bool =
     if tr.matcher.match(fresh):
       fresh.depth.inc
       fresh.messages = @[]
+      fresh.errorTokens = @[]
       if tr.next.walk(fresh):
         pc = fresh
         return true
-      elif tr.next.terminal and fresh.tokens.len > 0:
-        # Word the complaint from classify()'s best-effort answer now that
-        # nothing claimed this token -- see ADR 0019. A starved option is
-        # reported even alongside other complaints, so it goes first.
-        if not fresh.addStarved() and fresh.messages.len == 0:
-          # Gated on `fresh`'s own messages, not `pc`'s -- this branch's
-          # nested walk may already have left a more specific complaint (e.g.
-          # which Flag alias was left over) that a sibling branch's unrelated
-          # accumulated state must not suppress.
-          let c = classify(fresh.spec, fresh.tokens, 0, fresh.optsEnd)
-          case c.kind
-          of Command:
-            fresh.messages.add ("unexpected command", c.cmdName)
-          of Flag:
-            fresh.messages.add ("unexpected flag", c.flagName)
-          of Optional:
-            fresh.messages.add ("unexpected option", fmt"{c.optName}{c.optSep}{c.optVal}")
-          of Positional:
-            if fresh.tokens[0].optShape:
-              fresh.messages.add ("unexpected option", unknownOptionMsg(fresh.tokens[0].raw, fresh.spec))
-            else:
-              fresh.messages.add ("unexpected argument", c.argVal)
 
-    if fresh.depth > pc.maxDepth or pc.messages.len == 0:
-      pc.maxDepth = fresh.depth
+    if fresh.depth > pc.maxDepth or (pc.messages.len == 0 and pc.errorTokens.len == 0):
+      # `maxDepth` only ever rises -- adopting a shallow branch's complaints
+      # must not lower the bar later siblings tie against. See ADR 0035.
+      pc.maxDepth = max(pc.maxDepth, fresh.depth)
       pc.errorSpec = fresh.spec
       pc.messages = fresh.messages
+      pc.errorTokens = fresh.errorTokens
       pc.errorCommand = fresh.command
     elif fresh.depth == pc.maxDepth:
       # A tied-depth sibling merges its complaints into the running set
@@ -525,7 +621,7 @@ proc walk(s: State, pc: var ParseContext): bool =
       # are meant to accumulate onto one grouped line via formatComplaints.
       # Without the merge, whichever sibling happens to run last would
       # silently discard an equally-valid earlier complaint -- including
-      # a Flag Operation Class conflict, where two mutually-exclusive
+      # a FlagOp Alias exclusivity conflict, where two mutually-exclusive
       # variants (e.g. `--moored`/`--drifting`) each independently and
       # correctly complain about the *other* one being left over; merging
       # surfaces both instead of arbitrarily blaming just one (issue #8
@@ -533,6 +629,16 @@ proc walk(s: State, pc: var ParseContext): bool =
       for msg in fresh.messages:
         if msg notin pc.messages:
           pc.messages.add msg
+      # Same terms, same reason -- the conflict above is two tokens to name.
+      for leftover in fresh.errorTokens:
+        pc.addLeftover leftover
+
+  # Every transition failed at a state the grammar would have stopped at, so
+  # what's left is the token the user got wrong. Starved goes first (ADR
+  # 0034); the guard keeps a deeper offender surfacing over this one (0035).
+  if s.terminal and pc.tokens.len > 0 and pc.errorTokens.len == 0:
+    if not pc.addStarved():
+      pc.addLeftover()
 
 type
   Frontier = seq[tuple[state: State, pc: ParseContext]]
@@ -812,16 +918,61 @@ proc dispatch(spec: Spec, matches: MatchTable, command: string, info: HookInfo) 
       spec.after(info)
 
 proc formatComplaints(messages: seq[Complaint]): string =
-  ## Groups same-kind complaints (e.g. two unmatched commands) into one line
-  ## joined by " | ".
+  ## Renders `messages` as a bulleted block, grouping same-kind complaints
+  ## onto one " | "-joined line. No leading newline -- the caller owns the
+  ## separation from its own prefix (see `parseOrQuit*`, `argumint.nim`).
   var subjectsByKind = initOrderedTable[string, seq[string]]()
-  for (kind, subject) in messages:
+  for (kind, subject, _) in messages:
     if subject notin subjectsByKind.getOrDefault(kind, @[]):
       subjectsByKind.mgetOrPut(kind, @[]).add subject
+  var lines: seq[string]
   for kind, subjects in subjectsByKind.pairs:
     let joined = subjects.join(" | ")
     let subject = if subjects.len > 1: "({joined})".fmt else: joined
-    result.add "\n  - {kind}: {subject}".fmt
+    lines.add (if kind.len > 0: "  - {kind}: {subject}".fmt else: "  - {subject}".fmt)
+  lines.join("\n")
+
+proc finalComplaints(pc: ParseContext): seq[Complaint] =
+  ## The message the user actually sees, built from what the walk
+  ## accumulated: name the offending token, then drop the complaints that
+  ## naming makes redundant. See `docs/adr/0035-parse-failure-reporting.md`.
+  result = pc.messages
+  var named = result.anyIt(it.names)
+  if not named:
+    # Worded from what the grammar expected here, not the token's shape --
+    # `shp` is lexically a positional. See ADR 0035.
+    let wantedCommand = result.anyIt(it.kind == "missing command")
+    for leftover in pc.errorTokens:
+      let (tokens, spec, optsEnd) = leftover
+      let c = classify(spec, tokens, 0, optsEnd)
+      # Only a token that could have *been* a command qualifies: an
+      # option-shaped one is an option problem, and past a `--` nothing is a
+      # command name. Both guards needed, or this arm swallows every leftover.
+      let mistypedCommand = wantedCommand and c.kind != Command and
+        not optsEnd and not tokens[0].optShape
+      result.add:
+        if not c.starvedOpt.isNil: starvedComplaint(c)
+        elif mistypedCommand: unknownCommand(tokens[0].raw, spec)
+        else:
+          case c.kind
+          of Command: complaint("unexpected command", c.cmdName, names = true)
+          of Flag: complaint("unexpected flag", c.flagName, names = true)
+          of Optional: complaint("unexpected option",
+            "{c.optName}{c.optSep}{c.optVal}".fmt, names = true)
+          of Positional:
+            # `optsEnd` consulted directly: past a `--` everything
+            # classifies `Positional`, whatever it looks like.
+            if tokens[0].optShape and not optsEnd: unknownOption(tokens[0].raw, spec)
+            else: complaint("unexpected argument", c.argVal, names = true)
+      named = true
+  if not named:
+    return
+  # Once something is named, what the FSM had left to try is noise -- ADR
+  # 0035's rule 2. `missing command` goes only when the named token stood in
+  # a command's position; the valid set stays visible in the usage block.
+  result = result.filterIt(it.kind != "missing option")
+  if result.anyIt(it.kind in ["unrecognized command", "unexpected command"]):
+    result = result.filterIt(it.kind != "missing command")
 
 proc applyTier(cursor: ValueCursor, arg: Arg, resolve: proc (): options.Option[seq[string]],
     setValue: proc (values: seq[string]), complaints: var seq[Complaint]): bool =
@@ -848,7 +999,7 @@ proc applyTier(cursor: ValueCursor, arg: Arg, resolve: proc (): options.Option[s
     let total = cursor.values[arg].len
     if consumed < total:
       let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
-      complaints.add (kind, arg.name)
+      complaints.add complaint(kind, arg.name, names = true)
     else:
       setValue(cursor.values[arg])
   elif arg notin cursor.tried:
@@ -924,15 +1075,29 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   var pc = ParseContext(spec: spec, command: command, errorSpec: spec, errorCommand: command,
     tokens: tokenizeArgs(args))
   if not spec.fsm.walk(pc):
-    raiseParseError(formatComplaints(pc.messages), pc.errorCommand, pc.errorSpec)
+    raiseParseError(formatComplaints(pc.finalComplaints), pc.errorCommand, pc.errorSpec)
 
   var fallbackComplaints: seq[Complaint]
   var fallbackSeen: HashSet[Arg]
-  applyFallbacks(pc.env, pc.configValues, spec, pc.matches, fallbackSeen, fallbackComplaints)
+  # A conversion/validation failure gets the same complaint-plus-usage shape
+  # as any other. Reshaped here because `arg.parse` has no view of its spec
+  # -- see ADR 0035.
+  template reshaped(body: untyped) =
+    try:
+      body
+    except ParseError as e:
+      raiseParseError(formatComplaints(@[complaint("", e.msg)]), pc.command, pc.spec)
+    except ValidationError as e:
+      raise newException(ValidationError,
+        formatComplaints(@[complaint("", e.msg)]).withUsage(pc.command, pc.spec))
+
+  reshaped:
+    applyFallbacks(pc.env, pc.configValues, spec, pc.matches, fallbackSeen, fallbackComplaints)
   if fallbackComplaints.len > 0:
     raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
 
-  parseAllValues(pc.matches)
+  reshaped:
+    parseAllValues(pc.matches)
 
   let info = HookInfo(matched: matchedArgs(pc.matches))
   dispatch(spec, pc.matches, command, info)
@@ -1118,7 +1283,7 @@ when isMainModule:
       var seen: HashSet[Arg]
       var complaints: seq[Complaint]
       applyFallbacks(env, configValues, spec, matches, seen, complaints)
-      check complaints == @[("unexpected option", arg.name)]
+      check complaints == @[complaint("unexpected option", arg.name, names = true)]
 
     test "skips an arg already explicitly matched on the command line":
       putEnv("ARGUMINT_TEST_SKIP", "hi")
@@ -1157,7 +1322,7 @@ when isMainModule:
       var seen: HashSet[Arg]
       var complaints: seq[Complaint]
       applyFallbacks(env, configValues, spec, matches, seen, complaints)
-      check complaints == @[("unexpected option", arg.name)]
+      check complaints == @[complaint("unexpected option", arg.name, names = true)]
 
     test "env present takes precedence, config is never consulted":
       putEnv("ARGUMINT_TEST_PRECEDENCE", "from-env")

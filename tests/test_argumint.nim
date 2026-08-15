@@ -929,6 +929,8 @@ suite "Errors":
     except ParseError as e:
       check "did you mean --help?" notin e.msg
 
+    # A short option is never offered: every one-character name is one edit
+    # from every other. See docs/adr/0035-parse-failure-reporting.md.
     try:
       spec.parse(args = @["-j"], command = "prog")
     except ParseError as e:
@@ -942,7 +944,9 @@ suite "Errors":
     expect SpecDefect:
       discard newSpec((a: arg("<x>", help = ""), b: arg("<x>", help = "")))
 
-  test "an [options]-only flag failing doesn't produce a duplicate message":
+  test "an [options]-only flag is never reported missing":
+    # It's optional by construction, so it can't be what the user had to
+    # supply -- ADR 0035's rule 1. The real complaint is the command.
     let spec = (
       verbose: flag("--verbose", help = ""),
       add: command("add", (help: help()), help = "Add"),
@@ -953,7 +957,8 @@ suite "Errors":
       spec.parse(args = @[], command = "prog")
     except ParseError as e:
       caught = e.msg
-    check caught.count("--verbose") == 1
+    check "--verbose" notin caught
+    check "missing command: add" in caught
 
   test "a satisfied repeated positional isn't reported missing when a later arg is":
     let spec = (
