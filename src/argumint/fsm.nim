@@ -90,6 +90,11 @@ type
       ## parent cluster -- 0 for anything the user typed. Ranking-only, and
       ## deliberately separate from `idx`, which must keep naming the whole
       ## physical argument for composition order. See `Reach`.
+    origin: string  ## The token the user actually typed, when this is a peel
+      ## of it -- empty when `raw` *is* what they typed. Peeling destroys the
+      ## original, so a complaint about `-1.5`'s leftover has no other way to
+      ## say where `-.` came from. Read through `userTyped`, never directly.
+      ## See ADR 0038.
     fromCluster: bool ## Whether this token is a peeled `-abc` remainder
       ## rather than something the user typed. Only the Non-Option Short
       ## exemption cares: `-1.5` against a declared `-1` Flag leaves `-.5`,
@@ -209,15 +214,29 @@ proc isShortForm(variant: string): bool =
   ## dash. A Command name (no dash at all) is never short-form.
   variant.len > 1 and variant[0] == '-' and variant[1] != '-'
 
-proc unknownOption(variant: string, spec: Spec): Complaint =
-  ## Names an option-shaped token nothing in `spec` declares. A short-form
-  ## token gets no suggestion -- it's cluster syntax, so the failing unit is
-  ## a letter inside it. Settled here rather than per-candidate because it's
-  ## a property of what was typed. See ADR 0035.
-  let suggestion =
-    if variant.isShortForm: ""
-    else: didYouMean(variant, toSeq(spec.options.keys))
-  complaint("unrecognized option", variant & suggestion, names = true)
+proc userTyped(token: RawToken): string =
+  ## What the user actually put on the command line to produce `token` --
+  ## itself, unless it's a peel of something longer. See `RawToken.origin`.
+  if token.origin.len > 0: token.origin else: token.raw
+
+proc unknownOption(token: RawToken, spec: Spec): Complaint =
+  ## Names an option-shaped token nothing in `spec` declares. The two arms
+  ## are exclusive by construction: only a short form is narrowed and carries
+  ## an origin, only a long form draws a suggestion. See ADR 0038.
+  let subject =
+    if token.raw.isShortForm:
+      # Cluster syntax, so the failing unit is one letter: name that, and say
+      # which typed token it came out of, since the letter may be neither
+      # what they typed nor something they'd recognize. The tail past it is
+      # never named -- untested, and may hold declared options. It draws no
+      # suggestion for the same reason: `--ab` is not what `-ab` meant, at
+      # most `-a` is (ADR 0035).
+      let name = if token.raw.len > 2: token.raw[0 .. 1] else: token.raw
+      if token.userTyped == name: name
+      else: "{name} (in {token.userTyped})".fmt
+    else:
+      token.raw & didYouMean(token.raw, toSeq(spec.options.keys))
+  complaint("unrecognized option", subject, names = true)
 
 proc unknownCommand(word: string, spec: Spec): Complaint =
   ## Names a token sitting where `spec` expected one of its commands.
@@ -344,7 +363,7 @@ proc refusesAsPositional(pc: ParseContext, pos: int, c: Classification): bool =
 proc consume(pc: var ParseContext, pos: int, c: Classification) =
   ## Removes/reinserts the raw token(s) an accepted `Classification`
   ## accounts for at `pos` -- see `classify`'s cluster branch, ADR 0019.
-  let (idx, subIdx) = (pc.tokens[pos].idx, pc.tokens[pos].subIdx)
+  let parent = pc.tokens[pos]
   pc.tokens.delete pos
   if c.consumed == 2:
     pc.tokens.delete pos # the value that was tokens[pos + 1]
@@ -353,7 +372,10 @@ proc consume(pc: var ParseContext, pos: int, c: Classification) =
     # just partially consumed -- but advances `subIdx`, one more letter of it
     # now being accounted for. See `RawToken.idx`/`.subIdx`.
     pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape,
-      idx: idx, subIdx: subIdx + 1, fromCluster: true), pos)
+      idx: parent.idx, subIdx: parent.subIdx + 1, fromCluster: true,
+      # Carried so a complaint can say which typed token this came out of;
+      # peeling destroys it otherwise. See `RawToken.origin`.
+      origin: parent.userTyped), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
   ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
@@ -459,7 +481,7 @@ proc addStarved(pc: var ParseContext): bool =
     # *that* unrecognized is the wording ADR 0034 exists to fix.
     let starver = classify(pc.spec, pc.tokens, 1, pc.optsEnd)
     if starver.kind == Positional and starver.starvedOpt.isNil:
-      pc.addUnique unknownOption(pc.tokens[1].raw, pc.spec)
+      pc.addUnique unknownOption(pc.tokens[1], pc.spec)
   true
 
 proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
@@ -986,7 +1008,7 @@ proc finalComplaints(pc: ParseContext): seq[Complaint] =
           of Positional:
             # `optsEnd` consulted directly: past a `--` everything
             # classifies `Positional`, whatever it looks like.
-            if tokens[0].optShape and not optsEnd: unknownOption(tokens[0].raw, spec)
+            if tokens[0].optShape and not optsEnd: unknownOption(tokens[0], spec)
             else: complaint("unexpected argument", c.argVal, names = true)
       named = true
   if not named:
