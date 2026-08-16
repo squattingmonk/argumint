@@ -55,8 +55,15 @@ type
       ## cursor, including caching a miss -- unlike an env lookup, a
       ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
 
+  Reach = tuple[idx, subIdx: int]
+    ## How far into the user's input a path got (`CONTEXT.md`): the argv
+    ## position of the first token it could not consume, plus how many letters
+    ## of that token a Short-Option Cluster peel already accounted for.
+    ## Lexicographic, so `subIdx` only ever breaks a tie *within* one physical
+    ## argument and never outweighs reaching the next one. See ADR 0036.
+
   ParseContext = object
-    maxReach: int         ## The greatest Reach of any path explored from this state -- both the running bar siblings are ranked against and, once the walk returns, what the parent reads back as this branch's descendant Reach. See `reach` and ADR 0036
+    maxReach: Reach       ## The greatest Reach of any path explored from this state -- both the running bar siblings are ranked against and, once the walk returns, what the parent reads back as this branch's descendant Reach. See `reach` and ADR 0036
     spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
     command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
     errorSpec: Spec       ## Spec for the furthest-reaching fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
@@ -79,6 +86,10 @@ type
       ## cluster remainder inherits its parent token's `idx` rather than
       ## getting a fresh one. Lets Flag Operation composition sort by true
       ## typed order instead of grammar/push order -- see `parseAllValues`.
+    subIdx: int     ## How many letters have been peeled off this token's
+      ## parent cluster -- 0 for anything the user typed. Ranking-only, and
+      ## deliberately separate from `idx`, which must keep naming the whole
+      ## physical argument for composition order. See `Reach`.
     fromCluster: bool ## Whether this token is a peeled `-abc` remainder
       ## rather than something the user typed. Only the Non-Option Short
       ## exemption cares: `-1.5` against a declared `-1` Flag leaves `-.5`,
@@ -333,15 +344,16 @@ proc refusesAsPositional(pc: ParseContext, pos: int, c: Classification): bool =
 proc consume(pc: var ParseContext, pos: int, c: Classification) =
   ## Removes/reinserts the raw token(s) an accepted `Classification`
   ## accounts for at `pos` -- see `classify`'s cluster branch, ADR 0019.
-  let idx = pc.tokens[pos].idx
+  let (idx, subIdx) = (pc.tokens[pos].idx, pc.tokens[pos].subIdx)
   pc.tokens.delete pos
   if c.consumed == 2:
     pc.tokens.delete pos # the value that was tokens[pos + 1]
   elif c.remainder.len > 0:
-    # Inherits the parent token's idx -- it's the same physical CLI
-    # argument, just partially consumed. See `RawToken.idx`.
+    # Inherits the parent token's idx -- it's the same physical CLI argument,
+    # just partially consumed -- but advances `subIdx`, one more letter of it
+    # now being accounted for. See `RawToken.idx`/`.subIdx`.
     pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape,
-      idx: idx, fromCluster: true), pos)
+      idx: idx, subIdx: subIdx + 1, fromCluster: true), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
   ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
@@ -584,11 +596,12 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       # probes went -- see `addStarved`.
       discard pc.addStarved()
 
-proc reach(pc: ParseContext): int =
-  ## This path's Reach (`CONTEXT.md`): the argv index of the first token it
-  ## could not consume, or `int.high` if it consumed everything. Ranks failed
+proc reach(pc: ParseContext): Reach =
+  ## This path's Reach (`CONTEXT.md`): where the first token it could not
+  ## consume sits, or `int.high` if it consumed everything. Ranks failed
   ## branches in `walk` -- see ADR 0036.
-  if pc.tokens.len == 0: int.high else: pc.tokens[0].idx
+  if pc.tokens.len == 0: (int.high, 0)
+  else: (pc.tokens[0].idx, pc.tokens[0].subIdx)
 
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
@@ -602,7 +615,7 @@ proc walk(s: State, pc: var ParseContext): bool =
     var fresh = pc
     # `pc.maxReach` is this level's running best across siblings; the copy
     # re-purposes the field as the descent's own output, so start it fresh.
-    fresh.maxReach = 0
+    fresh.maxReach = (0, 0)
     if tr.matcher.match(fresh):
       fresh.messages = @[]
       fresh.errorTokens = @[]
