@@ -104,18 +104,22 @@ suite "the offending token is named":
     let msg = failure: baseSpec().parse(args = @["stray"], command = "app", usage = "[options]")
     check msg.complaints == @["unexpected argument: stray"]
 
-  test "the named token comes from the deepest failed branch":
+  test "the named token comes from the furthest-reaching failed branch":
     # `-v` matched correctly; a branch that got nowhere used to name it.
     let msg = failure: baseSpec().parse(args = @["-v", "stray"], command = "app", usage = "[options]")
     check msg.complaints == @["unexpected argument: stray"]
 
-  test "a FlagOp Alias exclusivity conflict still names both offending variants":
-    for args in [@["--moored", "--drifting"], @["--drifting", "--moored"]]:
+  test "a FlagOp Alias exclusivity conflict names the later variant, not both":
+    # The first variant typed is consumed; the second is what broke
+    # exclusivity. Naming both used to name a correctly-typed token half the
+    # time -- see ADR 0036.
+    for (args, offender) in {@["--moored", "--drifting"]: "--drifting",
+                             @["--drifting", "--moored"]: "--moored"}:
       let spec = (moored: flag(ops = [flagOp("--moored", "=", true),
                                       flagOp("--drifting", "=", false)],
                                default = false, help = ""),)
       let msg = failure: spec.parse(usage = "[--moored | --drifting]", args = args, command = "prog")
-      check msg.complaints == @["unexpected flag: (--drifting | --moored)"]
+      check msg.complaints == @["unexpected flag: " & offender]
 
   test "a leftover past a typed `--` is never called an unrecognized option":
     # Everything classifies Positional past the marker.
@@ -279,3 +283,151 @@ suite "one message shape":
   test "the usage block still follows a grammar failure":
     let msg = failure: commandSpec().parse(args = @[], command = "app")
     check "Usage:\n  app [options] add" in msg
+
+suite "a failed branch is ranked by Reach, not by matchers satisfied":
+  # Issue #40, ADR 0036. An Option matcher scans the whole token list, so an
+  # options-only usage line can skip over the token the user got wrong, match
+  # something later, and outrank the branch that actually understood the
+  # leading input.
+  proc navalSpec(): auto =
+    ## `examples/naval_fate.nim`'s spec, help text stripped.
+    let
+      moored = flag(ops = [flagOp("--moored", "=", true),
+                           flagOp("--drifting", "=", false)])
+      ship = (new: command("new", (names: args("<name>", help = ""), help: help()),
+                           usage = "<name>...", help = ""),
+              move: command("move", (name: arg("<name>", help = ""),
+                                     x: arg("<x>", default = 0, help = ""),
+                                     y: arg("<y>", default = 0, help = ""),
+                                     speed: opt("--speed=<kn>", default = 10, help = ""),
+                                     help: help()),
+                            usage = "<name> <x> <y> [--speed=<kn>]", help = ""),
+              shoot: command("shoot", (x: arg("<x>", default = 0, help = ""),
+                                       y: arg("<y>", default = 0, help = ""),
+                                       help: help()),
+                             usage = "<x> <y>", help = ""),
+              help: help())
+      mineArgs = (x: arg("<x>", default = 0, help = ""),
+                  y: arg("<y>", default = 0, help = ""),
+                  moored: moored, help: help())
+      mine = (set: command("set", mineArgs, usage = "<x> <y> [--moored | --drifting]", help = ""),
+              remove: command("remove", mineArgs, usage = "<x> <y> [--moored | --drifting]", help = ""),
+              help: help())
+    (ship: command("ship", ship, help = ""), mine: command("mine", mine, help = ""),
+     help: help(), version: version("-v, --version", "Naval Fate 2.0.0"))
+
+  proc navalFailure(args: seq[string]): seq[string] =
+    let msg = failure: navalSpec().parse(args = args, command = "naval_fate")
+    msg.complaints
+
+  test "a trailing option no longer costs a mistyped command its suggestion":
+    # The `(-h | --help)` line skipped `shp` to match at index 1, scoring a
+    # depth the command lines couldn't reach; `missing command` was discarded
+    # and `shp` fell through to `classify` as a bare positional.
+    for args in [@["shp", "--help"], @["shp", "-h"], @["shp", "--version"]]:
+      check navalFailure(args) == @["unrecognized command: shp; did you mean ship?"]
+
+  test "and the cases that already worked still do":
+    for args in [@["shp"], @["shp", "foo"]]:
+      check navalFailure(args) == @["unrecognized command: shp; did you mean ship?"]
+
+  test "a correctly typed command is no longer named as the offender":
+    # `ship` matched, then the nested spec failed on `mve`; a branch that
+    # understood none of that used to tie and merge its leftover in.
+    for args in [@["ship", "mve", "-v"], @["ship", "mve", "--help"]]:
+      check navalFailure(args) == @["unrecognized command: mve; did you mean move?"]
+
+  test "nor at a deeper nesting level":
+    check navalFailure(@["mine", "st", "--help"]) ==
+      @["unrecognized command: st; did you mean set?"]
+
+  test "the sole real complaint is no longer buried under correct tokens":
+    # Everything but `--help` is right; only its position is wrong.
+    check navalFailure(@["ship", "move", "a", "1", "2", "--help"]) ==
+      @["unexpected flag: --help"]
+
+  test "an exclusivity conflict names the later variant even when reached out of order":
+    let spec = (x: arg("<x>", default = 0, help = ""),
+                y: arg("<y>", default = 0, help = ""),
+                moored: flag(ops = [flagOp("--moored", "=", true),
+                                    flagOp("--drifting", "=", false)],
+                             default = false, help = ""))
+    let msg = failure:
+      spec.parse(usage = "<x> <y> [--moored | --drifting]",
+                 args = @["--drifting", "1", "2", "--moored"], command = "prog")
+    check msg.complaints == @["unexpected flag: --moored"]
+
+  test "only the first offender is named, not every later one":
+    let spec = (letters: flag[int](ops = [flagOp("--aa", "=", 1), flagOp("--bb", "=", 2),
+                                          flagOp("--cc", "=", 3)], default = 0, help = ""),)
+    let msg = failure:
+      spec.parse(usage = "[--aa | --bb | --cc]", args = @["--cc", "--bb", "--aa"],
+                 command = "prog")
+    check msg.complaints == @["unexpected flag: --bb"]
+
+  test "Reach carries across a nesting boundary, so the deeper branch still wins":
+    # Both lines consume `<a>` and tie on what this level's own matcher ate;
+    # only their descendants tell them apart. Without the nested Reach they
+    # tie and merge, naming `2` -- a perfectly good `<b>` -- alongside `3`.
+    let spec = (a: arg("<a>", default = 0, help = ""), b: arg("<b>", default = 0, help = ""),
+                zzz: command("zzz", (help: help(),), help = ""),
+                qqq: command("qqq", (help: help(),), help = ""))
+    let msg = failure:
+      spec.parse(usage = "<a> <b> zzz\n<a> qqq", args = @["1", "2", "3"], command = "app")
+    check msg.complaints == @["unrecognized command: 3"]
+
+  test "a matched option is no longer named alongside the branch that wanted more":
+    # `-b -a`: `-b` alone is a valid parse, so `-a` is the whole offence. The
+    # `-a <z>` branch stalls at index 0 and no longer ties its way in.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a <z>\n-b", args = @["-b", "-a"], command = "app")
+    check msg.complaints == @["unexpected flag: -a"]
+    # ...and typed the other way `-a` is consumed, so only the real gap shows.
+    let msg2 = failure: spec.parse(usage = "-a <z>\n-b", args = @["-a", "-b"], command = "app")
+    check msg2.complaints == @["missing argument: <z>"]
+
+  test "a partly peeled Short-Option Cluster outranks an untouched one":
+    # `-ab` is one argv position, so without a sub-index the branch that
+    # consumed `-a` tied the branch that consumed nothing and merged in a
+    # `missing option: -b` for a flag the user did type.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a <z>\n-b", args = @["-ab"], command = "app")
+    check msg.complaints == @["missing argument: <z>"]
+
+  test "and it counts letters, so two peels beat one":
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""), c: flag("-c", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a -b <z>\n-c", args = @["-abc"], command = "app")
+    check msg.complaints == @["missing argument: <z>"]
+
+  test "but a peel never outranks reaching the next argument":
+    # Reach is lexicographic: two letters into argv[0] is (0, 2), which must
+    # lose to (1, 0). Consuming a whole argument beats part of one.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""), c: flag("-c", help = ""),
+                z: arg("<z>", default = "", help = ""), w: arg("<w>", default = "", help = ""),
+                help: help())
+    let msg = failure:
+      spec.parse(usage = "-a -b -c\n-a <z> <w>", args = @["-ab", "p"], command = "app")
+    check msg.complaints == @["missing option: -c"]
+
+  test "across two clusters the branch that got further wins, either order":
+    proc twoClusters(args: seq[string]): seq[string] =
+      let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                  c: flag("-c", help = ""), d: flag("-d", help = ""),
+                  z: arg("<z>", default = "", help = ""),
+                  w: arg("<w>", default = "", help = ""), help: help())
+      let msg = failure:
+        spec.parse(usage = "-a -b <z>\n-c -d <w>", args = args, command = "app")
+      msg.complaints
+    # Whichever cluster was typed first is the one fully consumed, so the
+    # surviving complaint follows CLI order rather than declaration order.
+    check twoClusters(@["-ab", "-cd"]) == @["missing argument: <z>"]
+    check twoClusters(@["-cd", "-ab"]) == @["missing argument: <w>"]
+
+  test "the tied-branch merge still groups same-kind complaints onto one line":
+    # Reach ties at 0 for both usage lines, so both `missing option`s survive.
+    let spec = (list: flag("--list", help = ""), help: help())
+    let msg = failure: spec.parse(args = @[], command = "app", usage = "--list\n(-h | --help)")
+    check msg.complaints == @["missing option: (--list | -h)"]

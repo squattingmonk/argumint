@@ -158,6 +158,13 @@ Three recording sites, because the grammar fails in three shapes:
 
 ### The named token comes from the deepest failed branch
 
+> **Superseded by [ADR 0036](0036-rank-failed-branches-by-reach.md)**:
+> branches now rank by Reach — how far into the input they got — rather than
+> by `depth`, which counted matchers satisfied. `depth`/`maxDepth` are gone,
+> the merge's justification below is void (it survives on a different one),
+> and `[--moored | --drifting]` given both now names only the later token.
+> The only-ever-rises rule stands, restated there against the new metric.
+
 `ParseContext.maxDepth` was allowed to *fall* when a branch's complaints
 were adopted because nothing had complained yet. Every later sibling then
 tied against that lowered bar and merged in, which is how a branch that got

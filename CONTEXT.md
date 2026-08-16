@@ -430,12 +430,15 @@ together.
 _Avoid_: Grammar, usage text
 
 **Reach**:
-How far into the user's input a failed branch got: the argv index of the
-first token it could not consume, or the whole input if it consumed
-everything. Ranks failed branches so the one that understood the most input
-decides which token the message names, and so that two branches that
-understood equally much merge their Complaints instead of one silently
-displacing the other.
+How far into the user's input a failed branch got: where the first token it
+could not consume sits, or the whole input if it consumed everything. Ranks
+failed branches so the one that understood the most input decides which token
+the message names, and so that two branches that understood equally much
+merge their Complaints instead of one silently displacing the other. A
+position is an argv index plus, within a Short-Option Cluster, how many
+letters of it are already accounted for — so a branch that got two letters
+into `-abc` outranks one that got none, while still losing to any branch that
+reached the next argument.
 _Avoid_: Depth (counts matchers satisfied, not input understood); furthest
 token matched (an Option matcher scans ahead, so a branch can match a
 *later* token while its Reach stays at an earlier one)
