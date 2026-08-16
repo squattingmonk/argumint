@@ -199,7 +199,7 @@ attempt that revisits the same raw position starts from its own
 independent copy and reclassifies independently.
 
 One place still needed decoupling despite that: `walk`'s merge step, which
-records the deepest failed branch's spec/command for the final error
+records the furthest-reaching failed branch's spec/command for the final error
 message, used to write into the *same* `ParseContext.spec`/`.command`
 fields a later sibling transition's own `fresh` copy starts from — harmless
 before this change (a failed Command descent could never be followed by a
@@ -299,7 +299,7 @@ match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 
 Everything above concerns a walk that fails; this is what the user sees when
 it does. Two channels accumulate during the walk, both on `ParseContext` and
-both subject to the same replace-on-deeper / merge-on-tied bookkeeping at
+both subject to the same replace-on-further / merge-on-tied bookkeeping at
 the bottom of `walk`'s transition loop:
 
 - **`messages`**, a `seq[Complaint]`. A `Complaint` is `(kind, subject,
@@ -321,11 +321,21 @@ the bottom of `walk`'s transition loop:
   likewise never reaches `walk`'s tail and is what names the headline
   `unrecognized option: --nope` case.
 
-`maxDepth` only ever rises, including when a shallower branch's complaints
+Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
+matchers it satisfied: the argv index of the first token it could not consume,
+whole input if it consumed everything. An `Option` matcher scans ahead, so
+counting matchers lets an options-only usage line skip the token the user got
+wrong, match something later, and outrank the branch that understood the
+leading input — see ADR 0036. A transition scores the greater of its own Reach
+and its descendants', since a failed descent leaves this level's token list
+untouched; being a global argv index, Reach is comparable across nesting
+levels in a way `depth` never was.
+
+`maxReach` only ever rises, including when a lesser branch's complaints
 are adopted because nothing has complained yet — otherwise a branch that got
 nowhere sets the bar every later sibling ties against, and gets to name the
-offending token. The tied-depth merge itself is deliberate: it is what
-surfaces both sides of a FlagOp Alias exclusivity conflict.
+offending token. The tie merge itself is deliberate: it is what accumulates
+same-kind complaints onto one `|`-joined line.
 
 `finalComplaints` then builds the message: word each leftover (as an
 `unrecognized command` when a Command was expected there, otherwise from

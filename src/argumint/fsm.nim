@@ -56,14 +56,13 @@ type
       ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
 
   ParseContext = object
-    depth: int            ## The depth of the current fsm path
-    maxDepth: int         ## The depth of the deepest fsm path prior to the current one
+    maxReach: int         ## The greatest Reach any fsm path tried from here has managed -- see `reach` and ADR 0036
     spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
     command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
-    errorSpec: Spec       ## Spec for the deepest fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
+    errorSpec: Spec       ## Spec for the furthest-reaching fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
     errorCommand: string  ## See `errorSpec`
-    messages: seq[Complaint] ## A list of complaints indicating failure reason of the deepest fsm path
-    errorTokens: seq[Leftover] ## What the deepest fsm path left over, for `finalComplaints` to name. Merged across tied-depth siblings exactly as `messages` is -- see ADR 0035
+    messages: seq[Complaint] ## A list of complaints indicating failure reason of the furthest-reaching fsm path
+    errorTokens: seq[Leftover] ## What the furthest-reaching fsm path left over, for `finalComplaints` to name. Merged across Reach-tied siblings exactly as `messages` is -- see ADR 0036
     tokens: seq[RawToken]     ## The arguments left to be parsed
     optsEnd: bool          ## Whether this path has crossed a literal `--` -- see ADR 0019
     matches: MatchTable   ## A table of processed matches
@@ -585,6 +584,12 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       # probes went -- see `addStarved`.
       discard pc.addStarved()
 
+proc reach(pc: ParseContext): int =
+  ## This path's Reach (`CONTEXT.md`): the argv index of the first token it
+  ## could not consume, or `int.high` if it consumed everything. Ranks failed
+  ## branches in `walk` -- see ADR 0036.
+  if pc.tokens.len == 0: int.high else: pc.tokens[0].idx
+
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
   ## reached or all branches have been tried. Returns `true` if a terminal state
@@ -595,38 +600,39 @@ proc walk(s: State, pc: var ParseContext): bool =
   # Try each transition. If it matches, recursively descend into the next state.
   for idx, tr in s.transitions:
     var fresh = pc
+    # `pc.maxReach` is this level's running best across siblings; the copy
+    # re-purposes the field as the descent's own output, so start it fresh.
+    fresh.maxReach = 0
     if tr.matcher.match(fresh):
-      fresh.depth.inc
       fresh.messages = @[]
       fresh.errorTokens = @[]
       if tr.next.walk(fresh):
         pc = fresh
         return true
 
-    if fresh.depth > pc.maxDepth or (pc.messages.len == 0 and pc.errorTokens.len == 0):
-      # `maxDepth` only ever rises -- adopting a shallow branch's complaints
-      # must not lower the bar later siblings tie against. See ADR 0035.
-      pc.maxDepth = max(pc.maxDepth, fresh.depth)
+    # A failed descent leaves `fresh.tokens` where this transition left them,
+    # so the branch's real Reach is whatever its deepest descendant managed.
+    let branchReach = max(fresh.reach, fresh.maxReach)
+    if branchReach > pc.maxReach or (pc.messages.len == 0 and pc.errorTokens.len == 0):
+      # `maxReach` only ever rises -- adopting a lesser branch's complaints
+      # must not lower the bar later siblings tie against. See ADR 0036.
+      pc.maxReach = max(pc.maxReach, branchReach)
       pc.errorSpec = fresh.spec
       pc.messages = fresh.messages
       pc.errorTokens = fresh.errorTokens
       pc.errorCommand = fresh.command
-    elif fresh.depth == pc.maxDepth:
-      # A tied-depth sibling merges its complaints into the running set
+    elif branchReach == pc.maxReach:
+      # A Reach-tied sibling merges its complaints into the running set
       # instead of replacing it outright -- two same-kind failures (e.g.
       # both `-h` and `--verbose` missing at the same [options] position)
       # are meant to accumulate onto one grouped line via formatComplaints.
       # Without the merge, whichever sibling happens to run last would
-      # silently discard an equally-valid earlier complaint -- including
-      # a FlagOp Alias exclusivity conflict, where two mutually-exclusive
-      # variants (e.g. `--moored`/`--drifting`) each independently and
-      # correctly complain about the *other* one being left over; merging
-      # surfaces both instead of arbitrarily blaming just one (issue #8
-      # follow-up).
+      # silently discard an equally-valid earlier complaint. See ADR 0036 for
+      # why the exclusivity case this used to be justified by no longer is.
       for msg in fresh.messages:
         if msg notin pc.messages:
           pc.messages.add msg
-      # Same terms, same reason -- the conflict above is two tokens to name.
+      # Same terms, same reason.
       for leftover in fresh.errorTokens:
         pc.addLeftover leftover
 

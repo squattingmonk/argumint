@@ -323,7 +323,7 @@ accepts two required positionals followed by *at most one* of
 ```console
 $ ./mine 1 2 --moored --drifting
 Parsing error:
-  - unexpected flag: (--drifting | --moored)
+  - unexpected flag: --drifting
 
 Usage:
   mine <x> <y> [--moored | --drifting]
