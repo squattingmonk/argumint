@@ -376,6 +376,17 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
       spec.parse(usage = "<a> <b> zzz\n<a> qqq", args = @["1", "2", "3"], command = "app")
     check msg.complaints == @["unrecognized command: 3"]
 
+  test "a matched option is no longer named alongside the branch that wanted more":
+    # `-b -a`: `-b` alone is a valid parse, so `-a` is the whole offence. The
+    # `-a <z>` branch stalls at index 0 and no longer ties its way in.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a <z>\n-b", args = @["-b", "-a"], command = "app")
+    check msg.complaints == @["unexpected flag: -a"]
+    # ...and typed the other way `-a` is consumed, so only the real gap shows.
+    let msg2 = failure: spec.parse(usage = "-a <z>\n-b", args = @["-a", "-b"], command = "app")
+    check msg2.complaints == @["missing argument: <z>"]
+
   test "the tied-branch merge still groups same-kind complaints onto one line":
     # Reach ties at 0 for both usage lines, so both `missing option`s survive.
     let spec = (list: flag("--list", help = ""), help: help())

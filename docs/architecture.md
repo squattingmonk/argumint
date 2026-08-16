@@ -118,8 +118,8 @@ only known once the walk has actually gotten there (see below).
 `walk` then recursively tries the FSM's transitions against the token
 stream, backtracking via a copied `ParseContext` (`fresh = pc`) on each
 branch attempt, accumulating the best-effort error `messages` from the
-deepest failed path so error messages point at the most specific match
-attempt, not just "invalid arguments". Classification of *what a `RawToken`
+failed path that got *furthest into the input* so error messages point at the
+most specific match attempt, not just "invalid arguments". Classification of *what a `RawToken`
 actually is* — Command, Option/Flag (and which one), or plain positional
 text — is decided lazily, inline, by `match`'s own `Command`/`Option`/
 `Options`/`Argument` branches, each checking a token's fitness for *itself*

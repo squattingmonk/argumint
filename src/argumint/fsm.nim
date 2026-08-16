@@ -56,7 +56,7 @@ type
       ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
 
   ParseContext = object
-    maxReach: int         ## The greatest Reach any fsm path tried from here has managed -- see `reach` and ADR 0036
+    maxReach: int         ## The greatest Reach of any path explored from this state -- both the running bar siblings are ranked against and, once the walk returns, what the parent reads back as this branch's descendant Reach. See `reach` and ADR 0036
     spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
     command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
     errorSpec: Spec       ## Spec for the furthest-reaching fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7

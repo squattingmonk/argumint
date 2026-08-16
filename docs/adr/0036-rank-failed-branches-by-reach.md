@@ -147,6 +147,16 @@ failure is worded.
   with `max`, so a lesser branch's Reach never becomes the bar — and dropping
   it risks the degenerate bare `Parsing error:` above a usage block that ADR
   0035 rejected a suppression rule for producing.
+- **A Short-Option Cluster is one Reach position, because a peeled remainder
+  inherits its parent's `idx`** (ADR 0026). Branches that consumed different
+  letters out of the same cluster therefore tie where `depth` separated them,
+  and merge. Given `-a <z>` / `-b` and a typed `-ab`, the message gains a
+  `missing option: (-b | -h)` line beside `missing argument: <z>` — `-b` was
+  typed, just inside a cluster the grammar has nowhere to put. Accepted rather
+  than fixed: the same spec improves in both un-clustered orders (`-a -b` drops
+  a spurious `unexpected flag: -a`, `-b -a` narrows to it alone), and giving a
+  remainder its own index would break the Flag Operation ordering that `idx`
+  exists to serve.
 - `naval_fate --help shp` still reports `unexpected argument: shp`, and that
   is correct. No positional metric reaches it: naval_fate's usage lines are
   mutually exclusive, so no parse holds both `--help` and a command, and a
