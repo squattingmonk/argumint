@@ -381,6 +381,16 @@ at all is settled a level up, in `unknownOption`: a short-form token gets no
 suggestion, decided before a candidate list is even built, since it can't
 vary by candidate.
 
+`unknownOption` narrows the *name* on the same reasoning it withholds the
+suggestion: a short-form token is cluster syntax, so a run longer than two
+characters is named by its first two — the one short option that failed —
+and the tail, never tested and possibly holding declared options, is not
+blamed. Because the name may then be neither what the user typed nor
+something they'd recognize, the typed token comes along as ` (in -1.5)`,
+omitted when it would only repeat the name. Peeling destroys that original,
+so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
+stand in, being ranking-only and textless. See ADR 0038.
+
 `formatComplaints` renders the bullets with no leading newline;
 `raiseParseError`/`withUsage` (`backend.nim`) append the usage block; and
 `parse*` wraps `applyFallbacks`/`parseAllValues` so a conversion or

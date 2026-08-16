@@ -67,6 +67,12 @@ spec declaring `-1` as a flag continues to match `-1` as that flag, and
 
 ### A cluster remainder is not a Non-Option Short
 
+> **Extended by [ADR 0038](0038-name-the-short-option-that-failed.md)**: this
+> section settles that a remainder *errors*, but left it named whole, so
+> `-1.5` reported `unrecognized option: -.5` — a token nobody typed, whose
+> tail may hold declared options. The naming half is now specified there;
+> what this section decides is unchanged.
+
 **This deviates from the issue as written**, and was agreed in review. The
 exemption is for tokens the user actually typed. With `-1` declared as a
 Flag, `-1.5` is cluster syntax: it peels into `-1` plus a `-.5` remainder,
@@ -75,7 +81,7 @@ nothing, so it is an unrecognized option in precisely the way `-1x`'s
 leftover `-x` is — and `-.5` satisfies Non-Option Short by shape alone,
 so the rule as stated would rescue a token nobody wrote.
 
-`RawToken.fromCluster` marks peeled remainders and `exemptFromStrict`
+`fromCluster` identifies peeled remainders and `exemptFromStrict`
 withholds the exemption from them. `-1.5`, `-1x`, and `-1abc` now fail
 identically, while a directly-typed `-.5` still parses. Only Flags are
 affected: `classify` folds an Optional's `-1.5` into `-1=.5` at the

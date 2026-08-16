@@ -498,3 +498,62 @@ suite "a `missing argument` complaint is only ever about a genuine deficiency":
     let spec = (rest: args("<rest>", help = ""),)
     spec.parse(args = @[], command = "app", usage = "[<rest>...]")
     check spec.rest.len == 0
+
+suite "an unresolved cluster names the short option that failed, and its origin":
+  # Issue #37. ADR 0035 already settled that a short-form token is cluster
+  # syntax, so the failing unit is a letter inside it -- that is why it gets
+  # no long-option suggestion. This applies the same reading to the *name*.
+  proc clusterSpec(): auto =
+    (one: flag("-1", help = ""), a: flag("-a", help = ""),
+     speed: opt("--speed=<kn>", default = 0, help = ""),
+     rest: args("<rest>", help = ""), help: help())
+
+  proc named(args: seq[string]): seq[string] =
+    let msg = failure:
+      clusterSpec().parse(args = args, command = "app", usage = "[options] [<rest>...]")
+    msg.complaints
+
+  test "a peeled remainder names its first letter, not the whole tail":
+    check named(@["-1.5"]) == @["unrecognized option: -. (in -1.5)"]
+    check named(@["-1bcd"]) == @["unrecognized option: -b (in -1bcd)"]
+
+  test "a two-character remainder is named as-is, but still says where it came from":
+    check named(@["-1x"]) == @["unrecognized option: -x (in -1x)"]
+
+  test "a directly typed cluster is named the same way":
+    # A single leading dash is cluster syntax whether or not we peeled it.
+    check named(@["-bcd"]) == @["unrecognized option: -b (in -bcd)"]
+    check named(@["-bc"]) == @["unrecognized option: -b (in -bc)"]
+
+  test "the tail is never blamed, even when it holds a declared option":
+    # `-b` fails first; `-a` is declared and had nothing to do with it.
+    check named(@["-1ba"]) == @["unrecognized option: -b (in -1ba)"]
+
+  test "nor when the untested tail would have resolved":
+    # `-5` is declared and valid -- peeling simply never reaches it. This is
+    # what rules out pluralizing the whole remainder. See ADR 0038.
+    let spec = (one: flag("-1", help = ""), five: flag("-5", help = ""),
+                rest: args("<rest>", help = ""), help: help())
+    let msg = failure:
+      spec.parse(args = @["-1.5"], command = "app", usage = "[options] [<rest>...]")
+    check msg.complaints == @["unrecognized option: -. (in -1.5)"]
+
+  test "the origin is omitted when it would only repeat the name":
+    # Nothing to explain: these are exactly what the user typed.
+    let spec = (v: flag("-v", help = ""), q: flag("-q", help = ""), help: help())
+    let msg = failure: spec.parse(args = @["-j"], command = "app", usage = "[options]")
+    check msg.complaints == @["unrecognized option: -j"]
+
+  test "a long option is not a cluster and is untouched":
+    check named(@["--nope"]) == @["unrecognized option: --nope"]
+
+  test "a long option keeps its did-you-mean, a short one still gets none":
+    check named(@["--sped"]) ==
+      @["unrecognized option: --sped; did you mean --speed?"]
+    check named(@["-bcd"]) == @["unrecognized option: -b (in -bcd)"]
+
+  test "the starved-option path names a cluster the same way":
+    # Two complaint sites reach `unknownOption`; this is the other one.
+    check named(@["--speed", "-bc"]) ==
+      @["missing value: option --speed requires a value",
+        "unrecognized option: -b (in -bc)"]

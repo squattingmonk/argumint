@@ -466,9 +466,13 @@ as FSM bookkeeping the user can't act on; `missing command` is suppressed
 too when the named token stands in the command's own position. `missing
 argument` is suppressed on unrelated grounds — never because a Naming
 Complaint is present, but whenever the grammar could have stopped where the
-Positional Argument went unfilled, so it was never owed. See
-`docs/adr/0035-parse-failure-reporting.md` and
-`docs/adr/0037-missing-argument-only-where-required.md`.
+Positional Argument went unfilled, so it was never owed. A Short-Option
+Cluster is the one case where the token named is not one the user typed
+whole: the name narrows to the single short option that failed, and the
+typed token comes along as context (`-. (in -1.5)`). See
+`docs/adr/0035-parse-failure-reporting.md`,
+`docs/adr/0037-missing-argument-only-where-required.md` and
+`docs/adr/0038-name-the-short-option-that-failed.md`.
 _Avoid_: Unexpected-token complaint (a Naming Complaint may say `missing
 value`); leftover complaint (a leftover token is the input to one, not the
 same thing)
