@@ -387,6 +387,45 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
     let msg2 = failure: spec.parse(usage = "-a <z>\n-b", args = @["-a", "-b"], command = "app")
     check msg2.complaints == @["missing argument: <z>"]
 
+  test "a partly peeled Short-Option Cluster outranks an untouched one":
+    # `-ab` is one argv position, so without a sub-index the branch that
+    # consumed `-a` tied the branch that consumed nothing and merged in a
+    # `missing option: -b` for a flag the user did type.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a <z>\n-b", args = @["-ab"], command = "app")
+    check msg.complaints == @["missing argument: <z>"]
+
+  test "and it counts letters, so two peels beat one":
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""), c: flag("-c", help = ""),
+                z: arg("<z>", default = "", help = ""), help: help())
+    let msg = failure: spec.parse(usage = "-a -b <z>\n-c", args = @["-abc"], command = "app")
+    check msg.complaints == @["missing argument: <z>"]
+
+  test "but a peel never outranks reaching the next argument":
+    # Reach is lexicographic: two letters into argv[0] is (0, 2), which must
+    # lose to (1, 0). Consuming a whole argument beats part of one.
+    let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""), c: flag("-c", help = ""),
+                z: arg("<z>", default = "", help = ""), w: arg("<w>", default = "", help = ""),
+                help: help())
+    let msg = failure:
+      spec.parse(usage = "-a -b -c\n-a <z> <w>", args = @["-ab", "p"], command = "app")
+    check msg.complaints == @["missing option: -c"]
+
+  test "across two clusters the branch that got further wins, either order":
+    proc twoClusters(args: seq[string]): seq[string] =
+      let spec = (a: flag("-a", help = ""), b: flag("-b", help = ""),
+                  c: flag("-c", help = ""), d: flag("-d", help = ""),
+                  z: arg("<z>", default = "", help = ""),
+                  w: arg("<w>", default = "", help = ""), help: help())
+      let msg = failure:
+        spec.parse(usage = "-a -b <z>\n-c -d <w>", args = args, command = "app")
+      msg.complaints
+    # Whichever cluster was typed first is the one fully consumed, so the
+    # surviving complaint follows CLI order rather than declaration order.
+    check twoClusters(@["-ab", "-cd"]) == @["missing argument: <z>"]
+    check twoClusters(@["-cd", "-ab"]) == @["missing argument: <w>"]
+
   test "the tied-branch merge still groups same-kind complaints onto one line":
     # Reach ties at 0 for both usage lines, so both `missing option`s survive.
     let spec = (list: flag("--list", help = ""), help: help())

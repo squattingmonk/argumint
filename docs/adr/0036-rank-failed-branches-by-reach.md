@@ -77,6 +77,35 @@ depths are directly comparable. Without it, `<a> <b> zzz` / `<a> qqq` given
 perfectly good `<b>`; with it, the deeper branch wins outright and reports
 `unrecognized command: 3`.
 
+### A Reach is a position *within* an argument, not just an argv index
+
+A peeled Short-Option Cluster remainder inherits its parent's `idx` (ADR
+0026), so on argv index alone a branch that consumed `-a` out of `-ab` scores
+exactly what a branch that consumed nothing of it scores. Where `depth`
+separated those two, they tie and merge — and `-a <z>` / `-b` given `-ab`
+reports a spurious `missing option: (-b | -h)` beside the real `missing
+argument: <z>`. `-b` *was* typed; it just sits inside a cluster the grammar
+has nowhere to put.
+
+Reach is therefore a lexicographic `(idx, subIdx)` pair, `subIdx` counting
+letters already peeled off that token. **`RawToken.idx` is deliberately left
+alone** — it must keep naming the whole physical argument, because Flag
+Operation composition sorts by it (ADR 0026 decision 5). `subIdx` is a
+separate, ranking-only field.
+
+Lexicographic ordering is the whole safety argument, and it is what makes
+this well behaved when there is more than one cluster: `subIdx` can only ever
+break a tie *within* one physical argument. A branch two letters into argv[0]
+scores `(0, 2)` and still loses to one that reached argv[1] at `(1, 0)` —
+correctly, since consuming a whole argument beats consuming part of one.
+`subIdx` also cannot inflate: peeling a cluster's last letter drops the
+remainder token altogether, so Reach becomes `(nextIdx, 0)` by itself. Its
+range is bounded by cluster length and it resets at every argument boundary.
+
+Because peeling is strictly left-to-right — `classify` resolves only a
+cluster's first letter — "letters peeled" is monotone, so no branch can reach
+a given `subIdx` by a different route and compare unequal.
+
 **The running maximum still only ever rises**, for the reason ADR 0035 gives:
 adopting a weaker branch's complaints because nothing has complained yet must
 not lower the bar later siblings tie against.
@@ -147,16 +176,6 @@ failure is worded.
   with `max`, so a lesser branch's Reach never becomes the bar — and dropping
   it risks the degenerate bare `Parsing error:` above a usage block that ADR
   0035 rejected a suppression rule for producing.
-- **A Short-Option Cluster is one Reach position, because a peeled remainder
-  inherits its parent's `idx`** (ADR 0026). Branches that consumed different
-  letters out of the same cluster therefore tie where `depth` separated them,
-  and merge. Given `-a <z>` / `-b` and a typed `-ab`, the message gains a
-  `missing option: (-b | -h)` line beside `missing argument: <z>` — `-b` was
-  typed, just inside a cluster the grammar has nowhere to put. Accepted rather
-  than fixed: the same spec improves in both un-clustered orders (`-a -b` drops
-  a spurious `unexpected flag: -a`, `-b -a` narrows to it alone), and giving a
-  remainder its own index would break the Flag Operation ordering that `idx`
-  exists to serve.
 - `naval_fate --help shp` still reports `unexpected argument: shp`, and that
   is correct. No positional metric reaches it: naval_fate's usage lines are
   mutually exclusive, so no parse holds both `--help` and a command, and a

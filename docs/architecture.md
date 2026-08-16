@@ -322,8 +322,13 @@ the bottom of `walk`'s transition loop:
   `unrecognized option: --nope` case.
 
 Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
-matchers it satisfied: the argv index of the first token it could not consume,
-whole input if it consumed everything. An `Option` matcher scans ahead, so
+matchers it satisfied: where the first token it could not consume sits, whole
+input if it consumed everything. That position is an `(idx, subIdx)` pair
+compared lexicographically — a peeled Short-Option Cluster remainder keeps its
+parent's `idx` (Flag Op composition order depends on that), so `subIdx` counts
+letters already peeled to tell "got two letters into `-abc`" apart from "got
+none", without ever outweighing a branch that reached the next argument. An
+`Option` matcher scans ahead, so
 counting matchers lets an options-only usage line skip the token the user got
 wrong, match something later, and outrank the branch that understood the
 leading input — see ADR 0036. A transition scores the greater of its own Reach
