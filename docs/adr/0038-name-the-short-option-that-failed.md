@@ -71,23 +71,23 @@ applies it to the name.
 
 Peeling destroys the original — `-1` is consumed and gone — and
 `ParseContext` never retains argv, only the token list, which is what gets
-consumed. So `RawToken` carries the typed string itself in an `origin`
+consumed. So `RawToken` carries the typed string itself in a `cluster`
 field, propagated whenever a remainder is created and read through a
 `userTyped` accessor that falls back to `raw`.
 
-`origin` also subsumes the `fromCluster` flag ADR 0034 introduced, which was
-set on exactly the peel that carries an `origin` and never elsewhere.
+`cluster` also subsumes the `fromCluster` flag ADR 0034 introduced, which
+was set on exactly the peel that carries a `cluster` and never elsewhere.
 `fromCluster` survives as a name — `exemptFromStrict` reads better for it —
 but as a derived predicate rather than stored state, so the two can no
 longer disagree.
 
-Two alternatives were rejected for carrying the origin. `RawToken.subIdx`
-cannot: it equals "is a peel", the failing letter is already the remainder's
-second character, and it holds no text at all — it is ranking-only
-(ADR 0036). Recovering the origin from `RawToken.idx`
-against argv also fails: one of the two complaint sites runs mid-walk where
-argv is out of scope, and putting argv on `ParseContext` would copy a seq on
-every branch attempt of the backtracking walk.
+Two alternatives were rejected for carrying it. `RawToken.subIdx` cannot: it
+equals "is a peel", the failing letter is already the remainder's second
+character, and it holds no text at all — it is ranking-only (ADR 0036).
+Recovering the origin from `RawToken.idx` against argv also fails: one of
+the two complaint sites runs mid-walk where argv is out of scope, and
+putting argv on `ParseContext` would copy a seq on every branch attempt of
+the backtracking walk.
 
 ## Considered options
 

@@ -90,8 +90,8 @@ type
       ## parent cluster -- 0 for anything the user typed. Ranking-only, and
       ## deliberately separate from `idx`, which must keep naming the whole
       ## physical argument for composition order. See `Reach`.
-    origin: string  ## The token the user actually typed, when this is a peel
-      ## of it -- empty when `raw` *is* what they typed, which is what
+    cluster: string ## The Short-Option Cluster this token was peeled from --
+      ## empty when `raw` *is* what the user typed, which is what
       ## `fromCluster` tests. Peeling destroys the original, so a complaint
       ## about `-1.5`'s leftover has no other way to say where `-.` came
       ## from. Read through `userTyped`, never directly. See ADR 0038.
@@ -211,16 +211,16 @@ proc isShortForm(variant: string): bool =
 
 proc userTyped(token: RawToken): string =
   ## What the user actually put on the command line to produce `token` --
-  ## itself, unless it's a peel of something longer. See `RawToken.origin`.
-  if token.origin.len > 0: token.origin else: token.raw
+  ## itself, unless it's a peel of something longer. See `RawToken.cluster`.
+  if token.cluster.len > 0: token.cluster else: token.raw
 
 proc fromCluster(token: RawToken): bool =
   ## Whether this token is a peeled `-abc` remainder rather than something
-  ## the user typed. Derived, not stored: an `origin` is carried over on
+  ## the user typed. Derived, not stored: a `cluster` is carried over on
   ## exactly the peel that would have set a flag, and is never empty there
   ## (a peel's parent is a 3+ character dash token). Only the Non-Option
   ## Short exemption asks -- see `exemptFromStrict`.
-  token.origin.len > 0
+  token.cluster.len > 0
 
 proc unknownOption(token: RawToken, spec: Spec): Complaint =
   ## Names an option-shaped token nothing in `spec` declares. The two arms
@@ -378,7 +378,7 @@ proc consume(pc: var ParseContext, pos: int, c: Classification) =
       idx: parent.idx, subIdx: parent.subIdx + 1,
       # Carried so a complaint can say which typed token this came out of;
       # peeling destroys it otherwise. Also what makes `fromCluster` true.
-      origin: parent.userTyped), pos)
+      cluster: parent.userTyped), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
   ## Drops a not-yet-consumed literal `--` at `pos` and marks this path

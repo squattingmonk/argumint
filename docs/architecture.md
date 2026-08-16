@@ -388,7 +388,7 @@ and the tail, never tested and possibly holding declared options, is not
 blamed. Because the name may then be neither what the user typed nor
 something they'd recognize, the typed token comes along as ` (in -1.5)`,
 omitted when it would only repeat the name. Peeling destroys that original,
-so `RawToken` carries it in `origin` (read via `userTyped`); `subIdx` cannot
+so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
 stand in, being ranking-only and textless. See ADR 0038.
 
 `formatComplaints` renders the bullets with no leading newline;
