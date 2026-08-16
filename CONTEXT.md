@@ -429,6 +429,17 @@ one or more Usage Lines, each an independent alternative, implicitly OR'd
 together.
 _Avoid_: Grammar, usage text
 
+**Reach**:
+How far into the user's input a failed branch got: the argv index of the
+first token it could not consume, or the whole input if it consumed
+everything. Ranks failed branches so the one that understood the most input
+decides which token the message names, and so that two branches that
+understood equally much merge their Complaints instead of one silently
+displacing the other.
+_Avoid_: Depth (counts matchers satisfied, not input understood); furthest
+token matched (an Option matcher scans ahead, so a branch can match a
+*later* token while its Reach stays at an earlier one)
+
 **Complaint**:
 One reason a parse failed, and one bulleted line of the message it
 produces. Structured (a kind plus a subject) rather than pre-formatted, so
