@@ -91,15 +91,10 @@ type
       ## deliberately separate from `idx`, which must keep naming the whole
       ## physical argument for composition order. See `Reach`.
     origin: string  ## The token the user actually typed, when this is a peel
-      ## of it -- empty when `raw` *is* what they typed. Peeling destroys the
-      ## original, so a complaint about `-1.5`'s leftover has no other way to
-      ## say where `-.` came from. Read through `userTyped`, never directly.
-      ## See ADR 0038.
-    fromCluster: bool ## Whether this token is a peeled `-abc` remainder
-      ## rather than something the user typed. Only the Non-Option Short
-      ## exemption cares: `-1.5` against a declared `-1` Flag leaves `-.5`,
-      ## a cluster continuation to keep splitting rather than a token the
-      ## user wrote -- see `exemptFromStrict`.
+      ## of it -- empty when `raw` *is* what they typed, which is what
+      ## `fromCluster` tests. Peeling destroys the original, so a complaint
+      ## about `-1.5`'s leftover has no other way to say where `-.` came
+      ## from. Read through `userTyped`, never directly. See ADR 0038.
 
   Classification = object
     ## What a `RawToken` actually is, resolved lazily against a `Spec` --
@@ -218,6 +213,14 @@ proc userTyped(token: RawToken): string =
   ## What the user actually put on the command line to produce `token` --
   ## itself, unless it's a peel of something longer. See `RawToken.origin`.
   if token.origin.len > 0: token.origin else: token.raw
+
+proc fromCluster(token: RawToken): bool =
+  ## Whether this token is a peeled `-abc` remainder rather than something
+  ## the user typed. Derived, not stored: an `origin` is carried over on
+  ## exactly the peel that would have set a flag, and is never empty there
+  ## (a peel's parent is a 3+ character dash token). Only the Non-Option
+  ## Short exemption asks -- see `exemptFromStrict`.
+  token.origin.len > 0
 
 proc unknownOption(token: RawToken, spec: Spec): Complaint =
   ## Names an option-shaped token nothing in `spec` declares. The two arms
@@ -372,9 +375,9 @@ proc consume(pc: var ParseContext, pos: int, c: Classification) =
     # just partially consumed -- but advances `subIdx`, one more letter of it
     # now being accounted for. See `RawToken.idx`/`.subIdx`.
     pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape,
-      idx: parent.idx, subIdx: parent.subIdx + 1, fromCluster: true,
+      idx: parent.idx, subIdx: parent.subIdx + 1,
       # Carried so a complaint can say which typed token this came out of;
-      # peeling destroys it otherwise. See `RawToken.origin`.
+      # peeling destroys it otherwise. Also what makes `fromCluster` true.
       origin: parent.userTyped), pos)
 
 proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =

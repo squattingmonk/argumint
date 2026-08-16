@@ -81,7 +81,7 @@ nothing, so it is an unrecognized option in precisely the way `-1x`'s
 leftover `-x` is — and `-.5` satisfies Non-Option Short by shape alone,
 so the rule as stated would rescue a token nobody wrote.
 
-`RawToken.fromCluster` marks peeled remainders and `exemptFromStrict`
+`fromCluster` identifies peeled remainders and `exemptFromStrict`
 withholds the exemption from them. `-1.5`, `-1x`, and `-1abc` now fail
 identically, while a directly-typed `-.5` still parses. Only Flags are
 affected: `classify` folds an Optional's `-1.5` into `-1=.5` at the
