@@ -462,9 +462,13 @@ proc addStarved(pc: var ParseContext): bool =
       pc.addUnique unknownOption(pc.tokens[1].raw, pc.spec)
   true
 
-proc match(m: Matcher, pc: var ParseContext): bool =
+proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
   ## Checks if `m` matches a token in `tokens`. May consume a token and may add
   ## a variant and value to `matches`. Returns whether the match was successful.
+  ##
+  ## `atTerminal` is whether the state this transition leaves was terminal --
+  ## the grammar could have stopped here, so an `Argument` that finds nothing
+  ## was never owed. See ADR 0037.
   case m.kind:
   of Shortcut:
     # A shortcut consumes no tokens and always indicates success.
@@ -503,9 +507,11 @@ proc match(m: Matcher, pc: var ParseContext): bool =
       # Only report a genuinely-unmatched arg -- if this arg already matched
       # at least once (a satisfied `<arg>...` repeat), a failed attempt at
       # *another* repeat isn't a real deficiency worth reporting.
-      pc.messages.add complaint("missing argument", m.arg.name)
+      if not atTerminal:
+        pc.messages.add complaint("missing argument", m.arg.name)
       # A starved option is why nothing was left to match, and this path
-      # never reaches `walk`'s tail -- see `addStarved`.
+      # never reaches `walk`'s tail -- see `addStarved`. Asked whether or not
+      # the complaint above was suppressed: that's about this arg, not it.
       discard pc.addStarved()
   of Command:
     # If the next token classifies as this specific command, consume it and
@@ -616,7 +622,7 @@ proc walk(s: State, pc: var ParseContext): bool =
     # `pc.maxReach` is this level's running best across siblings; the copy
     # re-purposes the field as the descent's own output, so start it fresh.
     fresh.maxReach = (0, 0)
-    if tr.matcher.match(fresh):
+    if tr.matcher.match(fresh, atTerminal = s.terminal):
       fresh.messages = @[]
       fresh.errorTokens = @[]
       if tr.next.walk(fresh):
@@ -681,7 +687,9 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
 
   for tr in s.transitions:
     var fresh = pc
-    if tr.matcher.match(fresh):
+    # `atTerminal` stays false: completion collects live branches, never
+    # complaints, so the suppression it gates is moot here -- see ADR 0037.
+    if tr.matcher.match(fresh, atTerminal = false):
       if fresh.tokens.len < pc.tokens.len:
         var freshSeen: HashSet[State]
         collectFrontier(tr.next, fresh, acc, freshSeen)

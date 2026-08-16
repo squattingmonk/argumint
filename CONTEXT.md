@@ -463,8 +463,12 @@ requires a value`), as opposed to one naming something the grammar wanted
 property of the Complaint rather than inferred from its wording. Once a
 message contains one, every `missing option` Complaint in it is suppressed
 as FSM bookkeeping the user can't act on; `missing command` is suppressed
-too when the named token stands in the command's own position. See
-`docs/adr/0035-parse-failure-reporting.md`.
+too when the named token stands in the command's own position. `missing
+argument` is suppressed on unrelated grounds — never because a Naming
+Complaint is present, but whenever the grammar could have stopped where the
+Positional Argument went unfilled, so it was never owed. See
+`docs/adr/0035-parse-failure-reporting.md` and
+`docs/adr/0037-missing-argument-only-where-required.md`.
 _Avoid_: Unexpected-token complaint (a Naming Complaint may say `missing
 value`); leftover complaint (a leftover token is the input to one, not the
 same thing)

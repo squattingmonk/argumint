@@ -1623,7 +1623,6 @@ spec.parseOrQuit(usage = "[options] [<rest>...]")
 ```console
 $ ./demo --recrusive
 Parsing error:
-  - missing argument: <rest>
   - unrecognized option: --recrusive
 
 Usage:
@@ -1646,7 +1645,6 @@ $ ./demo --port --verbose
 Parsing error:
   - missing value: option --port requires a value
   - unrecognized option: --verbose
-  - missing argument: <rest>
 
 Usage:
   demo [options] [<rest>...]
