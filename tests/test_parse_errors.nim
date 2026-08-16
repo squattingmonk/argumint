@@ -431,3 +431,70 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
     let spec = (list: flag("--list", help = ""), help: help())
     let msg = failure: spec.parse(args = @[], command = "app", usage = "--list\n(-h | --help)")
     check msg.complaints == @["missing option: (--list | -h)"]
+
+suite "a `missing argument` complaint is only ever about a genuine deficiency":
+  # The positional analogue of the `missing option` suite above (issue #38).
+  # See docs/adr/0037-missing-argument-only-where-required.md.
+  proc catchAll(args: seq[string]): seq[string] =
+    let spec = (port: opt("--port=<n>", default = 80, help = ""),
+                rest: args("<rest>", help = ""), help: help())
+    let msg = failure:
+      spec.parse(args = args, command = "app", usage = "[options] [<rest>...]")
+    msg.complaints
+
+  test "a bracketed positional is never reported missing":
+    check catchAll(@["--recrusive"]) == @["unrecognized option: --recrusive"]
+
+  test "nor alongside the starved option that emptied the line":
+    check catchAll(@["--port", "--verbose"]) ==
+      @["missing value: option --port requires a value",
+        "unrecognized option: --verbose"]
+
+  test "but a required positional still is, even next to a starved option":
+    # ADR 0034's case: `<y>` is genuinely owed, so both lines are wanted.
+    let spec = (speed: opt("--speed=<kn>", default = 0, help = ""),
+                x: arg[int]("<x>", help = ""), y: arg[int]("<y>", help = ""))
+    let msg = failure:
+      spec.parse(args = @["1", "--speed"], command = "app",
+                 usage = "<x> <y> [--speed=<kn>]")
+    check msg.complaints ==
+      @["missing argument: <y>",
+        "missing value: option --speed requires a value"]
+
+  test "an alternation is not a bracket -- neither arm is suppressed":
+    # Each arm reaches acceptance, but only by consuming. Suppressing on
+    # "some accepting path skips this Arg" would lose this line entirely.
+    let spec = (a: arg("<a>", default = "", help = ""),
+                b: arg("<b>", default = "", help = ""))
+    let msg = failure: spec.parse(args = @[], command = "app", usage = "(<a> | <b>)")
+    check msg.complaints == @["missing argument: (<a> | <b>)"]
+
+  proc twoPositionals(usage: string): seq[string] =
+    ## The same two positionals, bracketed differently by `usage`.
+    let spec = (x: arg("<x>", default = "", help = ""),
+                y: arg("<y>", default = "", help = ""))
+    let msg = failure: spec.parse(args = @[], command = "app", usage = usage)
+    msg.complaints
+
+  test "nor is a required positional that merely precedes a bracketed one":
+    check twoPositionals("<x> [<y>]") == @["missing argument: <x>"]
+
+  test "a bracketed positional still owed alongside a required one is reported":
+    # `<x>` is optional but its state isn't terminal -- `<y>` is still owed --
+    # so the grouped line names both. Both really are unsupplied. See ADR 0037.
+    check twoPositionals("[<x>] <y>") == @["missing argument: (<x> | <y>)"]
+
+  test "a required positional on its own usage line is untouched":
+    # README's `backup` shape: two independent Usage Lines, `<src>` required.
+    let spec = (src: arg("<src>", default = "", help = ""),
+                dest: arg("<dest>", default = "", help = ""),
+                list: flag("--list", help = ""), help: help())
+    let msg = failure:
+      spec.parse(args = @[], command = "app", usage = "<src> <dest>\n--list")
+    check msg.complaints ==
+      @["missing option: (--list | -h)", "missing argument: <src>"]
+
+  test "an all-optional line with nothing to complain about still parses":
+    let spec = (rest: args("<rest>", help = ""),)
+    spec.parse(args = @[], command = "app", usage = "[<rest>...]")
+    check spec.rest.len == 0

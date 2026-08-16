@@ -85,6 +85,12 @@ token both appear rather than one masking the other — depends on this.
 
 ### Two rules suppress `missing option`
 
+> **Extended by [ADR 0037](0037-missing-argument-only-where-required.md)**:
+> the rules below stay exactly as written, but they scope to `missing
+> option` only because this ADR's brief said so. `missing argument` is now
+> suppressed too — on unrelated grounds, never rule 2's, but whenever the
+> grammar could have stopped where the positional went unfilled.
+
 1. An option reached through the Options Catch-all is never complained
    about. It is optional by construction, so it can never be the thing the
    user had to supply. (`Options` matcher: the catch-all already rolled each

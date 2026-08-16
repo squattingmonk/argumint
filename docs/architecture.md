@@ -350,11 +350,25 @@ suppression happens at the complaint site itself, since only it knows the
 context: the `Options` catch-all never complains at all, an option reached
 that way being optional by construction.
 
+The `Argument` matcher suppresses on the same terms, but has to be *told* its
+context. `[X]` compiles to a Shortcut bypassing the group, and `prepare`'s
+epsilon-closure collapses every Shortcut away, so by walk time the bracket
+survives only as `State.terminal`. `walk` therefore passes the state's
+terminality down as `match`'s `atTerminal`, and a matcher reached from a state
+the grammar could have accepted at reports no `missing argument` — nothing was
+owed there. It is a property of the *position*, not the `Arg`: preparation may
+hoist one transition onto several states of differing terminality, and each
+occurrence is judged on its own. See ADR 0037.
+
 Note what is deliberately *not* suppressed: a `missing option` for an `Arg`
 already in `pc.matches`. Membership answers "did this Arg match at all on
 this branch", not "did the user supply every occurrence the grammar asked
 for" — with `--foo=<v> --foo=<v>` and one `--foo` supplied, suppressing on
-it empties the complaint list entirely. See ADR 0035.
+it empties the complaint list entirely. See ADR 0035. Nor is an alternation
+arm: `(<a> | <b>)` reaches acceptance either way, but only by *consuming*, so
+neither state is terminal and both stay reportable — which is why ADR 0037
+keys on terminality rather than asking whether some accepting path skips the
+`Arg` entirely.
 
 `didYouMean` serves options and commands from one rule — Damerau–Levenshtein
 (`osaDistance`, hand-rolled over `Rune`s since `std/editdistance` has no
