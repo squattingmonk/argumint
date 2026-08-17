@@ -386,6 +386,29 @@ call it fresh each time, per the same ADR.
 _Avoid_: history, accumulated values (ambiguous with a multi-value Arg's
 stored result, which is a superset -- Seen Values excludes the candidate)
 
+**Seen Arg**:
+An Arg that some supplied Value Precedence tier -- the command line, an
+environment variable, or a Config Key -- actually provided this parse, as
+opposed to one left to its coded default. Which tier that was is the Arg's
+*provenance*, reported per-Arg by `seenBy`
+(`byCli`/`byEnv`/`byConfig`, or `byNone` for an unsupplied Arg) with
+`seen` as the boolean shorthand for "not `byNone`". Exactly one tier ever
+wins per Arg, so this is a single answer, never a set. Its enum members
+are ordered weakest-to-strongest so ordinal comparison mirrors the
+precedence chain (`seenBy > byConfig` is "supplied above the Config Source
+tier"). Applies uniformly to every Arg kind, including Command and Message
+Argument, which carry no value of their own -- a matched command word or
+`-h` is Seen by the command line. Distinct from Seen Values (above), which
+is about *which* values an Arg has already collected, is consulted only by
+a history-aware Validator during matching, and persists across parses; a
+Seen Arg is about *where this parse's* value came from. Resolved for the
+whole matched Spec tree before any hook fires, so it agrees with the Arg's
+readable value at every point a hook can observe either. See
+`docs/adr/0039-per-arg-provenance.md`.
+_Avoid_: source, origin (both read as the tier itself rather than the fact
+of being supplied), matched (means specifically the command-line tier, per
+`HookInfo.matched`)
+
 **All**:
 A Validator composing several other Validators of the same element type
 with AND semantics -- every one must pass. Short-circuits left-to-right:

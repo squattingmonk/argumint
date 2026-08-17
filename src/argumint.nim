@@ -58,6 +58,10 @@ export backend.showsMessage
 export backend.Spec, backend.SpecSettings
 export backend.Arg, backend.ArgKind, backend.CommandArg, backend.MessageArg, backend.HelpArg
 export backend.EnvSource
+
+# Per-Arg provenance: `spec.port.seenBy == byCli`, `spec.verbose.seen`. See
+# docs/adr/0039-per-arg-provenance.md.
+export backend.SeenBy, backend.seen
 export fsm.CompletionCandidate
 
 # `Option` itself, not just `some`/`none` above: `opt*`/`opts*`/`flag*`'s
