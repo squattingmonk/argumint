@@ -555,19 +555,59 @@ method parse(self: HelpArg, command: string, spec: Spec, variant = "") =
 # Convenience functions that allow easy unpacking of values from args.
 # ------------------------------------------------------------------------------
 
+template get*[T](arg: ValueArg[T, false], otherwise: T): T =
+  ## Returns `arg`'s parsed value if a Value Precedence tier supplied one, and
+  ## `otherwise` if none did -- `arg`'s coded default is ignored, replaced by
+  ## `otherwise` for this call site only. A `template` so `otherwise` is left
+  ## unevaluated on the supplied path; ADR 0040.
+  block:
+    let a = arg
+    if a.seen: a.value[0] else: otherwise
+
+template get*[T](arg: ValueArg[T, true], otherwise: seq[T]): seq[T] =
+  ## Returns `arg`'s accumulated values if a Value Precedence tier supplied
+  ## any, and `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
+  block:
+    let a = arg
+    if a.seen: a.value else: otherwise
+
+proc get*[T](arg: ValueArg[T, false]): T =
+  ## Returns `arg`'s parsed value, substituting its coded default if no Value
+  ## Precedence tier supplied one -- the same answer the implicit conversion
+  ## gives, spelled explicitly for the places that conversion can't reach
+  ## (see `docs/adr/0040-explicit-value-accessor.md`).
+  arg.get(otherwise = arg.default[0])
+
+proc get*[T](arg: ValueArg[T, true]): seq[T] =
+  ## Returns `arg`'s accumulated values, substituting its coded default seq if
+  ## no Value Precedence tier supplied any. See `get*(ValueArg[T, false])`.
+  arg.get(otherwise = arg.default)
+
+template get*[T](arg: FlagArg[T], otherwise: T): T =
+  ## Returns `arg`'s value if a Value Precedence tier supplied it, and
+  ## `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
+  block:
+    let a = arg
+    if a.seen: a.value else: otherwise
+
+proc get*[T](arg: FlagArg[T]): T =
+  ## Returns `arg`'s value. See `get*(ValueArg[T, false])`.
+  arg.value
+
 converter toT*[T](arg: ValueArg[T, false]): T =
   ## Converts a `ValueArg[T, false]` to a `T`, substituting a default value if
-  ## no value was set by the user.
-  (if arg.value.len > 0: arg.value else: arg.default)[0]
+  ## no value was set by the user. Delegates to `get*`, which is the same
+  ## read spelled explicitly.
+  arg.get
 
 converter toSeqT*[T](arg: ValueArg[T, true]): seq[T] =
   ## Converts a `ValueArg[T, true]` to a `seq[T]`, substituting a default
-  ## value if no value was set by the user.
-  if arg.value.len > 0: arg.value else: arg.default
+  ## value if no value was set by the user. Delegates to `get*`.
+  arg.get
 
 converter toT*[T](arg: FlagArg[T]): T =
-  ## Converts a `FlagArg[T]` to a `T`.
-  arg.value
+  ## Converts a `FlagArg[T]` to a `T`. Delegates to `get*`.
+  arg.get
 
 # ------------------------------------------------------------------------------
 # Spec Construction

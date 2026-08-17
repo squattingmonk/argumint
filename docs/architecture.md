@@ -626,6 +626,24 @@ Converters `toT*[T](arg: ValueArg[T, false]): T` and `toSeqT*[T](arg:
 ValueArg[T, true]): seq[T]` return the field's value transparently at
 use-sites — code reads `spec.dest` rather than `spec.dest.value`.
 
+Both are one-line delegations to `get*`, the explicit accessor that reads
+the same value where a converter can't fire (generic inference binding `T`
+to the Arg itself — `join`, `in`, `some`, a `case` selector). The
+`get*(arg, otherwise)` overloads are `template`s rather than `proc`s so
+`otherwise` stays unevaluated on the supplied path; each binds `arg` to a
+local so the operand is evaluated exactly once. They read `ValueArg`'s
+private `value` field from an expansion in the caller's module, which works
+for the same reason `defineArg`/`defineFlag` can (`docs/gotchas.md`). All
+three branch on `seen` (ADR 0039), including the `ValueArg` overloads: a
+`FlagArg` has no storage-based alternative, and since ADR 0032/0039
+resolve values and provenance for the whole tree before dispatch, a `seen`
+`ValueArg` always has a stored value to index. The no-arg `get` is
+the same template called with the Arg's coded default as `otherwise`
+(`arg.get(otherwise = arg.default[0])`), so the library holds exactly one
+supplied-or-not test; `FlagArg`'s returns `value` outright, its coded
+default being its starting value rather than a substitution tier. See
+`docs/adr/0040-explicit-value-accessor.md`.
+
 ## 5. Subcommands
 
 `command*` builds a `CommandArg` wrapping its own nested `Spec` (built via
