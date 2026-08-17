@@ -222,16 +222,19 @@ convert/store values.
 
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
-machinery, via `applyFallbacks`: for every `Arg` in `spec.args` that
-*wasn't* explicitly matched (`arg notin matches`), it tries the
-environment-variable tier, then — only if that had nothing — the Config
-Source tier, calling `arg.setFromEnv(...)`/`arg.setFromConfig(...)` to
-apply whichever tier's value through the same conversion/validation path a
-CLI value would take. Doing this after `walk` rather than folding it into
-the FSM means an option only reachable via `[options]` (never explicitly
-attempted during matching) still picks up a fallback value, and `arg notin
-matches` gives an explicit CLI value precedence for free with no extra
-bookkeeping. See `docs/adr/0004-required-options-env-fallback.md`,
+machinery, via `applyFallbacks`: for every `Arg` in `spec.args` no
+higher-precedence tier has already supplied (`arg.seenBy < byEnv`), it
+tries the environment-variable tier, then — only if that had nothing — the
+Config Source tier, calling `arg.setFromEnv(...)`/`arg.setFromConfig(...)`
+to apply whichever tier's value through the same conversion/validation
+path a CLI value would take, and recording that tier on `arg.seenBy`.
+Doing this after `walk` rather than folding it into the FSM means an
+option only reachable via `[options]` (never explicitly attempted during
+matching) still picks up a fallback value; gating on `seenBy` gives an
+explicit CLI value precedence *and* dedupes an Arg reachable from two spec
+levels, both for free (see §5 and
+`docs/adr/0039-per-arg-provenance.md`). See
+`docs/adr/0004-required-options-env-fallback.md`,
 `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
 `docs/adr/0018-config-source.md` for the design decisions behind the two
 fallback tiers; CONTEXT.md's Value Precedence / Env Delimiter / Config
@@ -287,7 +290,7 @@ declared Variants (matching `self.ops`' keys exactly) and is applied via
 *that* Variant's own Flag Operation, not forced through `=`.
 
 A pre-existing nuance, not introduced by the Config Source tier: since
-`applyFallbacks` gates on `arg notin matches` per-Arg (not per-position),
+`applyFallbacks` gates on provenance per-Arg (not per-position),
 an Arg reachable at more than one position in the matched Usage Line where
 *some* positions matched a real CLI token and others were satisfied by a
 fallback tier *during the walk* (via `probe`, which never writes to
@@ -647,8 +650,8 @@ than one grammar level. Two consumers still rely on it: `matchedCommand`
 (which also drives `applyFallbacks`' recursion) and `parseMessageArgs`.
 Value parsing no longer does — see `parseAllValues` below.
 
-After a successful walk and the env/Config Source sweep, `Spec.parse` calls
-`parseAllValues`, which parses every non-Command, non-`MessageArg` match in
+After a successful walk, and before the env/Config Source sweep, `Spec.parse`
+calls `parseAllValues`, which parses every non-Command, non-`MessageArg` match in
 `pc.matches` — the whole tree, before any hook fires. Because `pc.matches`
 is already flat across every level, this is a plain loop over the table: no
 spec-tree recursion, no `Match.spec` filtering, and no dedupe pass, since
@@ -659,11 +662,31 @@ into one sort across the whole table. That composes a shared Arg's matches
 identically to the old level-by-level walk, because ADR 0010 makes each
 level's tokens a contiguous run in command-line order.
 
-The env and Config Source tiers were already parsed up front, inside
-`applyFallbacks`; this brings the command-line tier in line, so a value
+The env and Config Source tiers are likewise parsed up front, inside
+`applyFallbacks`; every tier is converted before `dispatch`, so a value
 that fails to convert or validate raises before any hook can run a side
 effect, on every tier. See
 `docs/adr/0032-parse-all-values-before-dispatch.md`.
+
+The three supplied tiers run strongest-first, which is Value Precedence
+read top-down:
+
+```
+walk
+                 # seenBy = byCli on every matched Arg, from matchedArgs
+parseAllValues   # CLI tier
+applyFallbacks   # env tier if seenBy < byEnv, then config if seenBy < byConfig
+dispatch         # hooks only
+```
+
+`byCli` is written in `parse*` itself, straight from
+`matchedArgs(pc.matches)` and before anything is converted, so provenance
+is complete for the whole tree — commands and help args included — before
+the first hook, and `applyFallbacks` has a per-Arg gate to read whichever
+of the two tiers' passes runs first. Ordering the passes strongest-first
+is a separate choice, with one consequence: a bad command-line value now
+surfaces before a bad env or config one. See
+`docs/adr/0039-per-arg-provenance.md`.
 
 `Spec.parse` then builds a `HookInfo(matched:
 seq[Arg])` from `pc.matches` -- every Arg with at least one match, across

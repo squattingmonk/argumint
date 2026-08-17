@@ -26,12 +26,25 @@ type
     Optional ## An optional argument that takes a value (e.g., `-o value` or `--option value`)
     Flag ## An optional argument that takes no value (e.g., `-f` or `--flag`)
 
+  SeenBy* = enum
+    ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
+    ## provenance (`CONTEXT.md`). Ordered weakest-to-strongest, mirroring the
+    ## precedence chain, so ordinal comparison is meaningful and part of the
+    ## public contract: `arg.seenBy > byConfig` reads "supplied above the
+    ## Config Source tier". Members must never be reordered. See
+    ## `docs/adr/0039-per-arg-provenance.md`.
+    byNone ## Nothing supplied it; the coded default (if any) applies
+    byConfig ## A Config Source supplied it
+    byEnv ## An environment variable supplied it
+    byCli ## The command line supplied it
+
   Arg* = ref object of RootObj
     kind*: ArgKind
     variants*: seq[string] ## The forms in which the argument may appear
     help*: string ## The help string for the argument
     group*: string ## The group where the argument should appear in help messages
     hidden*: bool ## Whether the arg should be shown in help messages
+    seenBy*: SeenBy ## Which Value Precedence tier supplied this Arg -- written centrally by `fsm.parse*`, never by a `parse`/`setFromEnv`/`setFromConfig` override. `byNone` is the zero value, so an unsupplied Arg is correct with no code on the default path. See `seen*` and `docs/adr/0039-per-arg-provenance.md`
 
   CommandArg* = ref object of Arg
     spec*: Spec
@@ -190,6 +203,21 @@ proc raiseParseError*(msg: string, command: string, spec: Spec) =
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.
   if variant.len > 0: variant else: self.variants[0]
+
+proc seen*(self: Arg): bool =
+  ## Whether some Value Precedence tier supplied `self` this parse -- i.e.
+  ## `self.seenBy > byNone`. True for a matched Command or Help Arg too,
+  ## which carry no value of their own.
+  ##
+  ## Distinguishes a supplied value from a coded default that happens to
+  ## equal it, which reading the Arg alone cannot. Safe to consult from a
+  ## `before`/`action`/`after` hook at any depth: both provenance and values
+  ## are resolved for the whole matched tree before dispatch starts (see
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md`), so an Arg that is
+  ## `seen` there already reads its supplied value, even one belonging to a
+  ## subcommand this hook's level hasn't descended into yet. See
+  ## `docs/adr/0039-per-arg-provenance.md`.
+  self.seenBy > byNone
 
 proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
