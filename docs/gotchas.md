@@ -462,6 +462,20 @@ inside a template.
   only needed by code that actually calls `deepCopy` -- defining a generic
   that uses it costs an uncalled consumer nothing, verified both ways.
 
+- **A converter doesn't fire when the expected type is inferred *from* the
+  value being converted -- and `some()` swallows the mistake.** `toT`/
+  `toSeqT` make `spec.name` usable as its value type wherever the expected
+  type is already known, but where a generic parameter is inferred from
+  the argument, `T` binds to `ValueArg`/`FlagArg` instead: `spec.tags.
+  join(",")`, `"a" in spec.tags`, `case spec.name`, `%*{"k": spec.name}`,
+  `let xs: seq[string] = @[spec.name]`, and `var s = spec.name` all fail,
+  naming a type the caller can't spell. `some(spec.name)` is the nasty one
+  -- it *compiles*, inferring `Option[ValueArg[system.string, false]]`
+  (verified), and errors only wherever the expected type is finally named,
+  arbitrarily far from the cause. `get*`/`get*(otherwise)`
+  (`src/argumint.nim`) exist to route around all of this; see
+  `docs/adr/0040-explicit-value-accessor.md`.
+
 - **Nim won't overload on return type alone.** Two procs with identical
   parameters and different return types are an `Error: ambiguous call` at
   every call site, not a redefinition error at declaration -- so the failure

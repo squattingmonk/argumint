@@ -550,6 +550,17 @@ bound it by, so every available value is applied; env is a per-Arg
 concern, not a per-Usage-Line one, so it still applies even to an Arg the
 matched Usage Line never mentions.
 
+The coded-default tier is not stored anywhere — it is substituted at read
+time, which is what lets a read replace it. `get(otherwise)` does exactly
+that: it returns the supplied value when some tier provided one, and
+`otherwise` instead of the coded default when none did, for that call site
+only. Like the coded default it replaces, `otherwise` is never validated
+and never becomes a Seen Value, and it leaves provenance alone — an Arg
+read this way is no more a Seen Arg than it was. Two reads of the same Arg
+may therefore differ: `spec.port.get` and `spec.port.get(8080)` answer
+different questions about one Arg. See
+`docs/adr/0040-explicit-value-accessor.md`.
+
 The Config Source tier shares this exact walk-driven consumption/oversupply
 mechanism with the environment-variable tier (both are driven by the same
 underlying cursor, internally), but arrives at its `seq` of candidate

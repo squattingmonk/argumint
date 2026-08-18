@@ -21,6 +21,8 @@ hand-written validation code.
 - [Features](#features)
 - [Detailed Documentation](#detailed-documentation)
   - [Basics](#basics)
+  - [Getting Values Out](#getting-values-out)
+    - [Overriding the default at the point of use](#overriding-the-default-at-the-point-of-use)
   - [Usage Strings, Grammar, and the FSM](#usage-strings-grammar-and-the-fsm)
     - [The `[options]` Catch-all](#the-options-catch-all)
     - [The End-of-Options Marker](#the-end-of-options-marker)
@@ -229,6 +231,76 @@ internals belong to argumint. The exception is `spec.settings`, the
 `newSpecSettings` value shared by reference with every nested command's spec,
 which is meant to be read and mutated — see
 [Value Precedence](#value-precedence).
+
+### Getting Values Out
+
+An `Arg` converts implicitly to its value type, so most of the time you can
+use it as if it were that value:
+
+```nim
+let spec = (
+  name: opt("--name=<n>", default = "Bob"),
+  count: opt("--count=<n>", default = 1),
+  tags: opts("--tag=<t>"),
+  verbose: flag("-v, --verbose"))
+
+echo fmt"Hello, {spec.name}!"     # interpolation
+if spec.name == "Bob": ...        # comparison
+for t in spec.tags: ...           # iteration
+let n = spec.count + 1            # arithmetic
+if spec.verbose: ...              # a flag as a condition
+```
+
+A conversion fires only where the expected type is already known. It can't
+fire where a generic parameter has to be inferred *from* the `Arg` — the
+type variable binds to the `Arg` instead of to its value, and you get an
+error mentioning `ValueArg`. Reach for `get` there:
+
+```nim
+spec.tags.get.join(",")               # generic over openArray[T]
+"a" in spec.tags.get                  # generic over the container
+some(spec.name.get)                   # Option[T]
+case spec.name.get                    # a case selector
+of "Bob": discard
+%*{"name": spec.name.get}             # JSON construction
+let xs: seq[string] = @[spec.name.get]
+var s = spec.name.get                 # var inference
+```
+
+`get` works on every kind of `Arg` and always returns exactly what the
+implicit conversion would: the parsed value for a scalar `arg`/`opt`, the
+accumulated `seq` for `args`/`opts`, the composed value for a `flag`, and
+the coded `default` if nothing supplied one.
+
+`some(spec.name)` deserves special mention: it *compiles*, silently
+inferring `Option[ValueArg[...]]`, and only fails wherever the expected
+type is finally named. `some(spec.name.get)` is the fix.
+
+#### Overriding the default at the point of use
+
+`get(otherwise)` returns the parsed value when the command line, an
+environment variable, or a Config Source supplied one, and `otherwise` when
+none did — the coded `default` is ignored for that call:
+
+```nim
+let spec = (port: opt("--port=<n>", default = 8080))
+spec.parseOrQuit(usage = "[--port=<n>]")
+
+echo spec.port.get           # 8080 if unsupplied -- the coded default
+echo spec.port.get(freePort())   # freePort() if unsupplied
+```
+
+`otherwise` is not evaluated when a value was supplied, so an expensive or
+side-effecting fallback like `freePort()` above costs nothing on the path
+that discards it.
+
+This is not a fifth tier of [Value Precedence](#value-precedence): it
+substitutes for the coded `default` at read time, per call site, so two
+reads of the same `Arg` may legitimately differ. Like the `default` it
+replaces, `otherwise` is never validated and never marks the `Arg` as
+supplied — asking which tier a value actually came from is a separate
+question, answered by an `Arg`'s `seenBy`/`seen` (see `CONTEXT.md`'s *Seen
+Arg* entry and `docs/adr/0039-per-arg-provenance.md`).
 
 ### Usage Strings, Grammar, and the FSM
 
