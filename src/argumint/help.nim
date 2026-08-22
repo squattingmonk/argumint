@@ -4,9 +4,9 @@
 ##
 ## `import argumint` alone does not bring `genHelp` into scope; importing
 ## this module directly is what makes it callable, so a program can render
-## its own help (to print at another moment, page it, or embed it in a
-## larger message) instead of only receiving it via the `HelpError` a
-## matched `help*` Arg raises.
+## its own help instead of only receiving it via the `HelpError` a matched
+## `help*` Arg raises -- see
+## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
 import std/[importutils, strformat, strutils, tables, wordwrap]
 

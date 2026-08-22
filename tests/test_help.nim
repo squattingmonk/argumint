@@ -1,8 +1,7 @@
-# Locks `genHelp`'s semi-public status: exported from `argumint/help`, but
-# deliberately *not* re-exported from `argumint`, so a caller opts in by
-# importing the submodule. `tests/test_public_api.nim` holds the other half
-# (the bare `import argumint` can't reach it) -- see the note there, and
-# `docs/adr/0030-core-types-exported-spec-opaque.md` for the pattern.
+# Locks `genHelp`'s semi-public status -- see
+# `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
+# `tests/test_public_api.nim` holds the other half (a bare `import argumint`
+# can't reach it); neither half means much alone.
 
 import std/[strutils, unittest]
 

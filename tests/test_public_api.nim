@@ -16,9 +16,10 @@
 # suite instead.
 #
 # A second: `genHelp` isn't private at all -- it's exported from
-# `argumint/help` and merely not re-exported here (issue #50). Its negative
-# below therefore pairs with `tests/test_help.nim`, which imports that
-# submodule and calls it, rather than with `test_argumint.nim`'s suite.
+# `argumint/help` and merely not re-exported here (see
+# `docs/adr/0042-genhelp-opt-in-via-submodule.md`). Its negative below
+# therefore pairs with `tests/test_help.nim`, which imports that submodule
+# and calls it, rather than with `test_argumint.nim`'s suite.
 
 import std/[os, sequtils, unittest]
 
