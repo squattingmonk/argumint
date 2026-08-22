@@ -43,9 +43,12 @@ sibling for the same reason.
 
 - **Fold suffix-parsing back into `flag*`'s own `variants` string**,
   auto-detecting each comma item as bare or `<op><value>`-suffixed. This
-  was the first approach tried and does work (a `parseFlagVariants[T]`
-  proc doing exactly this dual-purpose parsing compiled and passed a
-  scratch check). Rejected in favor of the separate-overload design once
+  was the first approach tried and does work (a single dual-purpose
+  parsing proc compiled and passed a scratch check). What shipped instead
+  is the pair `splitFlagSpellings` (bare spellings only, for `variants`)
+  and `parseFlagOpsString[T]` (`<flag><op><value>` entries only, for
+  `ops`), both in `argumint/argtypes`. Rejected in favor of the
+  separate-overload design once
   a cleaner alternative was pointed out: keeping `variants` single-purpose
   (bare spellings only, matching its post-ADR-0027 meaning) and adding a
   same-shape-but-differently-typed `ops` overload is less invasive — it

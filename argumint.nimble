@@ -21,6 +21,7 @@ task test, "Run the test suite":
   exec "nim c -r src/argumint/configsource/ini.nim"
   exec "nim c -r src/argumint/configsource/json.nim"
   exec "nim c -r src/argumint/fsm.nim"
+  exec "nim c -r src/argumint/argtypes.nim"
   exec "nim c -r src/argumint.nim"
   for file in listFiles("tests"):
     if file.endsWith(".nim"):
