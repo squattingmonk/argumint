@@ -1,9 +1,10 @@
 # Nim implementation gotchas
 
 Compiler/language quirks discovered while building argumint that cost real
-debugging time. Read this before touching `defineArg`/`defineFlag`/
-`defineFlagArg` (`src/argumint.nim`) or anything else that generates methods
-inside a template.
+debugging time. Read this before touching `defineArg`/`defineFlag`
+(`src/argumint.nim`), `defineValueArg`/`defineFlagArg`/`defineSetFlagArg`
+(`src/argumint/argtypes.nim`, the machinery those public names delegate to),
+or anything else that generates methods inside a template.
 
 - **`args*`/`opts*` are separate procs from `arg*`/`opt*`, not overloads of
   them.** Prototyping a second same-named overload of `arg*`/`opt*` with its
@@ -36,11 +37,17 @@ inside a template.
   `docs/adr/0024-flag-arg-opt-default-t-and-bare-call.md`.
   One more wrinkle specific to `flag*`: its bare-bool overload's body calls
   `flag[bool](...)` eagerly, which needs `"bool"` already registered in the
-  compile-time `flagOps` table by `defineFlag bool, ...` -- so that overload
-  has to be declared textually *after* that `defineFlag` call, not next to
-  `flag*[T]` up with the other constructors.
+  compile-time `flagOps` table before that instantiation is elaborated.
+  This used to be a *textual* ordering rule inside `src/argumint.nim` --
+  the overload had to sit after the `defineFlag bool, ...` call rather than
+  beside `flag*[T]` with the other constructors. Since issue #51 moved the
+  built-in registrations into `src/argumint/argtypes.nim`, module import
+  order guarantees it instead: `argumint.nim` imports `argtypes`, so every
+  built-in type is registered before a single line of the facade is
+  elaborated. The constraint is stronger, not weaker -- but it's now
+  invisible in the facade's layout, so don't move the registrations back.
 
-- **`defineArg`/`defineFlag`/`defineFlagArg` are three separately-named
+- **`defineArg`/`defineFlag`/`defineFlagArg` are separately-named
   templates, not one template overloaded three ways**, even though
   `defineArg[T](typeName, flagHandler)` and `defineFlag[T](typeName,
   blankDesc, flagHandler)` look like arity-overloads of each other. Two
@@ -110,7 +117,8 @@ inside a template.
   "a new symbol 'value' has been injected... however macrocache.value(...)
   captured at the proc declaration will be used instead" and then fails with
   "'value' cannot be assigned to". Fixed with a module-level
-  `{.experimental: "openSym".}` (top of `src/argumint.nim`), which makes Nim
+  `{.experimental: "openSym".}` (top of `src/argumint/argtypes.nim`, and of
+  `src/argumint.nim`, which holds the public `defineSetFlag`), which makes Nim
   prefer the later-injected symbol over one merely visible at the enclosing
   template's definition scope. Only needed because of this extra layer of
   template nesting — the directly-called `Priority`/`Level`/`Speed` pattern
@@ -124,7 +132,7 @@ inside a template.
   If it ever goes back to an `Option` (see
   `docs/adr/0011-rejected-option-operations.md`), unwrap into a local `var`
   and `.add` instead of reassigning an inline `get(...) & @[...]`. Guarded
-  by the "(ORC regression)" test in `src/argumint.nim`.
+  by the "(ORC regression)" test in `src/argumint/argtypes.nim`.
 
 - **`all`/`any` (`validators.nim`) can't take `desc` as a plain defaulted
   param (`desc = ""`) alongside a `varargs` param.** Nim can't resolve a call
@@ -450,9 +458,23 @@ inside a template.
   that needs a private `Spec` field has to be split the same way.
 
   A template or generic declared in the same module as the type has no
-  such problem: it reaches the private field wherever it's expanded, which
-  is why `defineArg`/`defineFlag` can keep touching `ValueArg`/`FlagArg`'s
-  private fields from a caller's file.
+  such problem: it reaches the private field wherever it's expanded. That
+  asymmetry is the whole shape of `src/argumint/argtypes.nim`: the
+  `ValueArg`/`FlagArg` types live there together with every template and
+  generic that touches their private fields (`defineValueArg`/
+  `defineFlagArg`/`defineSetFlagArg`, `rawValue`/`rawDefault`,
+  `parseImpl`), while the public names those back -- `arg`/`opt`/`flag`,
+  `get`, `defineArg`/`defineFlag`/`defineSetFlag` -- stay in
+  `src/argumint.nim` and delegate through non-generic bookends
+  (`initValueArg`/`initFlagArg`) or through those same
+  same-module templates. Reads go through accessors; writes go through
+  `init*`, which builds a `FlagArg` whole rather than exposing mutators
+  that could leave its `ops` and `aliases` tables disagreeing.
+
+  The failure mode here is nastier than an ordinary compile error, which is
+  why the bookends exist rather than a hopeful `privateAccess`: the
+  declaring module compiles clean on its own, and the `undeclared field`
+  lands in the *user's* file, pointing at library code they never wrote.
 
 - **`system.deepCopy` rewrites closure environments: it preserves object
   identity across them, and it copies whatever they captured.** Both halves
@@ -495,7 +517,8 @@ inside a template.
   -- it *compiles*, inferring `Option[ValueArg[system.string, false]]`
   (verified), and errors only wherever the expected type is finally named,
   arbitrarily far from the cause. `get*`/`get*(otherwise)`
-  (`src/argumint.nim`) exist to route around all of this; see
+  (`src/argumint.nim`, over `rawValue`/`rawDefault` in
+  `src/argumint/argtypes.nim`) exist to route around all of this; see
   `docs/adr/0040-explicit-value-accessor.md`.
 
 - **Nim won't overload on return type alone.** Two procs with identical

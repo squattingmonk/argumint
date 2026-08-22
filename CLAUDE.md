@@ -28,8 +28,9 @@ registration.
   file`) then run the binary directly with the same args to rule this out.
 - Run the full test suite with `nimble test`, which compiles and runs
   `src/argumint/validators.nim`'s, `src/argumint/flagclamp.nim`'s,
-  `src/argumint/fsm.nim`'s, and `src/argumint.nim`'s own embedded
-  `std/unittest` blocks plus every `tests/test_*.nim` file (each is its own
+  `src/argumint/fsm.nim`'s, and `src/argumint/argtypes.nim`'s own embedded
+  `std/unittest` blocks (plus a bare compile of `src/argumint.nim`, which
+  has none of its own) and every `tests/test_*.nim` file (each is its own
   standalone `std/unittest` suite; `tests/config.nims` adds `src` to the
   path for anything placed there). Add new tests as new `tests/test_*.nim`
   files -- no per-file wiring needed beyond that naming convention.
@@ -73,9 +74,11 @@ Parsing happens in two distinct phases at a high level, detailed fully in
 3. **Runtime matching** (`fsm.nim`): command-line args are tokenized and
    walked against the FSM with backtracking, then a post-walk sweep applies
    any configured environment-variable fallbacks.
-4. **Value conversion** (`src/argumint.nim`): `ValueArg`/`FlagArg` convert,
-   validate, and store matched values; flags apply Flag Operations instead
-   of a plain converter.
+4. **Value conversion** (`argtypes.nim`, `src/argumint.nim`): `ValueArg`/
+   `FlagArg` convert, validate, and store matched values; flags apply Flag
+   Operations instead of a plain converter. Every public name lives in
+   `argumint.nim`; everything that touches a private field lives in
+   `argtypes.nim`, exported for the facade and withheld from users.
 5. **Subcommands**: `command*` splices a nested `Spec`'s FSM into the
    parent's as a single `Command` transition.
 

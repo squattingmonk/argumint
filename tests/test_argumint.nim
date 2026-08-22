@@ -1,6 +1,7 @@
 import std/[algorithm, importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
+import argumint/argtypes
 import argumint/backend
 import argumint/specbuild
 import argumint/configsource/ini
@@ -1473,6 +1474,44 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check "<name>".match(PositionalVariantFormat)
     check "--name=<s>".match(OptionalVariantFormat)
     check "-v".match(FlagVariantFormat)
+
+  test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
+    # Exported from `argtypes` only so the facade's generic constructors,
+    # accessors, and registration templates can reach it; never
+    # re-exported -- see issue #51 and the ADR on the facade/machinery
+    # seam. `declared` for the three method generators, whose untyped
+    # `flagHandler` block has no spelling that fits inside `compiles(...)`.
+    check declared(defineValueArg)
+    check declared(defineFlagArg)
+    check declared(defineSetFlagArg)
+    checkFlagOp[int]("+=")  # the supported case raises nothing
+    expect SpecDefect:
+      checkFlagOp[int]("*=")
+    check splitFlagSpellings("-v, --verbose") == @["-v", "--verbose"]
+    check parseFlagOpsString[int]("--boost+=5") == @[(variants: @["--boost"], op: "+=", value: 5, help: "")]
+    let name = initValueArg[string, false](Optional, "-n, --name=<s>", @["x"], "", "Options", false, noValidator[string]())
+    check name.variants == @["-n", "--name=<s>"]
+    let verbose = initFlagArg[bool]("-v, --verbose", [], false, "", "Options", false,
+      noClamp[bool](), none(EnvSource), noConfigKey())
+    check verbose.ops.len == 2
+
+  test "the read accessors behind `get` exist in `argumint/argtypes`":
+    let
+      name = opt("-n, --name=<s>", default = "x", help = "")
+      tags = opts("--tag=<t>", default = @["a"], help = "")
+      verbose = flag("-v", help = "")
+    check name.rawValue.len == 0
+    check name.rawDefault == @["x"]
+    check tags.rawDefault == @["a"]
+    check not verbose.rawValue
+
+  test "the comma separator and the flag-op variant format exist in `argumint/backend`":
+    # `Comma` has consumers on both sides of issue #51's seam (the Arg
+    # constructors in the facade, `initValueArg`/`splitFlagSpellings` in
+    # `argtypes`), so it lives below both; `FlagOpVariantFormat` followed
+    # it rather than being stranded alone.
+    check "-v, --verbose".split(Comma) == @["-v", "--verbose"]
+    check "--boost+=5".match(FlagOpVariantFormat)
 
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":

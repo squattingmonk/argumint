@@ -10,16 +10,22 @@
 # "Library-internal names ... unreachable" suite, which does import the
 # internals. Neither half means much alone; add to both together.
 #
-# One exception: `FlagOp` is private to `src/argumint.nim` itself, not to a
-# submodule that file can import, so no importer can name it. Its mirror
-# lives in that file's own embedded "the export boundary drawn in issue #27"
-# suite instead.
+# One exception: `FlagOp` is private to `src/argumint/argtypes.nim` itself,
+# not merely withheld from this facade, so no importer can name it. Its
+# mirror lives in that file's own embedded "the export boundary drawn in
+# issue #27" suite instead.
 #
 # A second: `genHelp` isn't private at all -- it's exported from
 # `argumint/help` and merely not re-exported here (see
 # `docs/adr/0042-genhelp-opt-in-via-submodule.md`). Its negative below
 # therefore pairs with `tests/test_help.nim`, which imports that submodule
 # and calls it, rather than with `test_argumint.nim`'s suite.
+#
+# A third, of exactly the `FlagOp` kind: the four string-to-scalar
+# converters (`toInt`/`toFloat`/`toBool`/`toChar`), the `flagOps` registry,
+# and `getFlagOps` are all private to `src/argumint/argtypes.nim` -- not
+# merely withheld from this facade -- so no importer can name them. Their
+# mirrors live in that file's own embedded suite alongside `FlagOp`'s.
 
 import std/[os, sequtils, unittest]
 
@@ -91,6 +97,46 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(OptionalVariantFormat)
     check not compiles(FlagVariantFormat)
 
+  test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
+    # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
+    # field into `argumint/argtypes`, keeping every public name here. Those
+    # bookends are exported from that module only so this facade's generic
+    # constructors, accessors, and registration templates can reach them --
+    # see `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
+    # `test_argumint.nim`'s "Library-internal names ..." suite.
+    # `declared` rather than `compiles` for the three method generators:
+    # their `flagHandler` argument is an untyped block, which has no
+    # spelling that fits inside a `compiles(...)` expression.
+    check not declared(defineValueArg)
+    check not declared(defineFlagArg)
+    check not declared(defineSetFlagArg)
+    check not compiles(initValueArg[string, false](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
+    check not compiles(initFlagArg[bool]("-v", [], false, "", "Options", false, noClamp[bool](), none(EnvSource), noConfigKey()))
+    check not compiles(checkFlagOp[int]("+="))
+    check not compiles(splitFlagSpellings("-v"))
+    check not compiles(parseFlagOpsString[int]("--n+=1"))
+    check not compiles(Comma)
+    check not compiles(FlagOpVariantFormat)
+    # Fully private to `argtypes`, not merely withheld: `checkFlagOp` is
+    # their only reader and it lives there too. Mirrored in that file's own
+    # embedded suite -- see the third exception in this file's header.
+    check not compiles(getFlagOps("int"))
+    check not compiles(flagOps)
+
+  test "the string-to-scalar converters stay private to `argumint/argtypes`":
+    # They fire for `parseImpl`'s `let tmp: T = value` and for
+    # `parseFlagOpsString`, and nowhere else. Exporting them would put
+    # `let n: int = "5"` in scope for everyone who imports argumint.
+    # Mirrored in `argtypes.nim`'s own embedded suite, not in
+    # `test_argumint.nim` -- see the third exception in this file's header.
+    check not compiles(toInt("5"))
+    check not compiles(toFloat("5.0"))
+    check not compiles(toBool("yes"))
+    check not compiles(toChar("c"))
+    check not compiles(block:
+      let n: int = "5"
+      discard n)
+
   test "`FlagOp` stays unexported":
     # `FlagArg.ops` is private, so naming `FlagArg[T]` never requires
     # naming its element type. `FlagOpGroup` is the public half.
@@ -157,6 +203,16 @@ suite "`ValueArg`/`FlagArg` are opaque handles too":
     check not compiles(verbose.ops)
     check not compiles(verbose.aliases)
     check not compiles(verbose.clamp)
+
+  test "the read accessors behind `get` stay unreachable too":
+    # `get*`/`toT*`/`toSeqT*` are written against `rawValue`/`rawDefault`
+    # (`argumint/argtypes`), which reach the private fields above on their
+    # behalf. Exporting them would reopen those fields under another name.
+    check not compiles(name.rawValue)
+    check not compiles(name.rawDefault)
+    check not compiles(tags.rawValue)
+    check not compiles(tags.rawDefault)
+    check not compiles(verbose.rawValue)
 
   test "the inherited `Arg` surface still works through them":
     # Exporting the subtypes must not shadow what ADR 0030 already opened

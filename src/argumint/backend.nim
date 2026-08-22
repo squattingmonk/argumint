@@ -153,11 +153,15 @@ const DefaultEnvDelim* = ":" ## `newSpecSettings`'s default `envDelim`, the `PAT
 const DefaultStrictOptions* = true ## `newSpecSettings`'s default `strictOptions` -- see `docs/adr/0034-strict-option-checking.md`
 const EnvListSep* = "\x1e" ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
 
-# The formats an `arg`/`opt`/`flag` Variant string must match. Exported for
-# siblings (spec construction, `subject`, the Arg constructors) but never
+# The comma separator every `variants`/`ops` string is split on, and the
+# formats an `arg`/`opt`/`flag` Variant string must match. Exported for
+# siblings (spec construction, `subject`, the Arg constructors, the
+# `ValueArg`/`FlagArg` machinery in `argumint/argtypes`) but never
 # re-exported by the facade -- reachable only via `import argumint/backend`,
 # like everything else internal here.
 let
+  Comma* = peg"\s* ',' \s*"
+
   PositionalVariantFormat* = peg"""
     # Allows you to capture <arg>
     argument <- ^ {'<' \w (\w / ('-' \w))* '>'} $
@@ -179,6 +183,23 @@ let
     flag <- ^ (shortFlag / longFlag) $
     shortFlag <- {'-' \w}
     longFlag <- {'--' \w (\w / ('-' \w))+}
+  """
+
+  FlagOpVariantFormat* = peg"""
+    # A flag spelling with an optional embedded <op><value> suffix --
+    # convenience sugar for flag*'s own `variants` string only (see
+    # `splitFlagSpellings`/`parseFlagOpsString` in argumint/argtypes): a
+    # bare spelling keeps the implicit blank-op behavior, a suffixed one
+    # becomes its own single-spelling explicit FlagOp Alias group,
+    # equivalent to passing one `flagOp*` call via `ops` instead. flagOp*'s
+    # own (multi-spelling) `variants` list never allows this suffix -- see
+    # FlagVariantFormat.
+    flag <- ^ (shortFlag / longFlag) (op value)? $
+    shortFlag <- {'-' \w}
+    longFlag <- {'--' \w (\w / ('-' \w))+}
+    op <- {equals / (\W? equals)}
+    equals <- '=' / ':'
+    value <- {.*}
   """
 
 proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,

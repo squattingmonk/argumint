@@ -16,9 +16,9 @@
 
 {.experimental: "openSym".}
 
-import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sugar, strformat, strutils, tables]
+import std/[importutils, os, options, pegs, sugar, strformat, strutils]
 
-import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
+import ./argumint/[argtypes, backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `dot*` and docs/gotchas.md.
@@ -102,276 +102,25 @@ export fsm.parse, fsm.completeArgs
 # `docs/adr/0030-core-types-exported-spec-opaque.md`.
 export backend.parse, backend.clear, backend.action, backend.arbitrate
 
-type
-  ValueArg*[T: not seq, multi: static bool] = ref object of Arg
-    ## What `arg*`/`args*`/`opt*`/`opts*` return. `multi` is `false` for the
-    ## scalar arity and `true` for the multi-value one, making them distinct
-    ## concrete types. Nameable so an arg can cross a proc or module
-    ## boundary; its fields stay private, same shape as `Spec` -- see
-    ## `docs/adr/0033-value-arg-flag-arg-exported.md`.
-    value: seq[T] ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
-    default: seq[T]
-    validator: Validator[T]
-    env: Option[EnvSource]
-    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineArg`.
-
-  FlagOp[T] = tuple[op: string, arg: T, desc: string]
-
-  FlagOpGroup*[T] = tuple[variants: seq[string], op: string, value: T, help: string]
-    ## One explicit FlagOp Alias group, built by `flagOp*` and consumed by
-    ## `flag*`'s `ops` param -- every spelling in `variants` shares this
-    ## exact Flag Operation (`op`/`value`) and `help` override. See
-    ## `flag*`.
-
-  FlagArg*[T] = ref object of Arg
-    ## What `flag*` returns. Nameable on the same terms as `ValueArg` --
-    ## type public, fields private. `FlagOp` stays internal: `ops` is
-    ## private, so naming `FlagArg[T]` never requires naming it.
-    value: T
-    default: T
-    ops: OrderedTableRef[string, FlagOp[T]]
-    aliases: TableRef[string, seq[string]]
-    env: Option[EnvSource]
-    clamp: FlagClamp[T]
-    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineFlagArg`.
-
-const flagOps = CacheTable"flagOps"
-
-let
-  Comma = peg"\s* ',' \s*"
-
-  FlagOpVariantFormat = peg"""
-    # A flag spelling with an optional embedded <op><value> suffix --
-    # convenience sugar for flag*'s own `variants` string only (see
-    # parseFlagVariants): a bare spelling keeps the implicit blank-op
-    # behavior, a suffixed one becomes its own single-spelling explicit
-    # FlagOp Alias group, equivalent to passing one `flagOp*` call via
-    # `ops` instead. flagOp*'s own (multi-spelling) `variants` list never
-    # allows this suffix -- see FlagVariantFormat.
-    flag <- ^ (shortFlag / longFlag) (op value)? $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-    op <- {equals / (\W? equals)}
-    equals <- '=' / ':'
-    value <- {.*}
-  """
+# The two Arg types whose machinery issue #51 moved into
+# `argumint/argtypes`. Only their names travel back here: the private
+# fields, the `define*` method generators, and the `init*`/`raw*` bookends
+# the public names below are written against all stay withheld -- see
+# `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
+# which holds that line.
+export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
 
 # ------------------------------------------------------------------------------
-# These converters allow the methods below to convert implicitly from strings to
-# other data types.
+# Registering a custom type. Each of these is the public, documented name for
+# one of `argumint/argtypes`'s method generators -- see
+# `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 # ------------------------------------------------------------------------------
-
-converter toInt(value: string): int =
-  ## Parses a string value into an int. Negative numbers may be passed as
-  ## arguments by prefixing them with a space, so whitespace characters are
-  ## stripped to allow this.
-  value.strip.parseInt
-
-converter toFloat(value: string): float =
-  ## Parses a string value into a float. Negative numbers may be passed as
-  ## arguments by prefixing them with a space, so whitespace characters are
-  ## stripped to allow this.
-  value.strip.parseFloat
-
-converter toBool(value: string): bool =
-  ## Parses a string value into a bool. Supports on/off, yes/no, y/n, YES/NO,
-  ## Y/N, true/false, TRUE/FALSE, and 1/0.
-  value.parseBool
-
-converter toChar(value: string): char =
-  ## Converts a string value to a char. The value must be 1 character long.
-  if value.len != 1:
-    raise newException(ValueError, fmt"cannot convert {value} to char")
-  value[0]
-
-
-# ------------------------------------------------------------------------------
-# Parsing methods
-# ------------------------------------------------------------------------------
-
-proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: options.Option[SeenBy]) =
-  ## Converts a string `value` into a `T` and validates it is an appropriate
-  ## value for `self`. Raises a `ParseError` if `value` cannot be converted to a
-  ## `T` or a `ValidationError` if the value does not pass `self`'s validator.
-  ## `arbitrate` decides whether this contribution applies at all, and runs
-  ## the Validator against the right history for the branch it takes -- with
-  ## `self.value` when extending, with none when replacing, since those
-  ## values are about to be discarded. See `backend.arbitrate*`.
-  ## We do this here because generic methods are deprecated, so we generate
-  ## methods for each defined type and have them call this.
-  try:
-    let tmp: T = value
-    self.arbitrate(seenBy):
-      if not self.validator.isNil:
-        self.validator.validate(tmp, self.value)
-    do:
-      if not self.validator.isNil:
-        self.validator.validate(tmp)
-    when multi:
-      self.value.add(tmp)
-    else:
-      self.value = @[tmp]
-  except ValidationError as e:
-    raise newException(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
-  except ValueError:
-    raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
-
-macro defineFlagOps(typeName, body: untyped) =
-  body.expectLen 1
-  let caseBody = body.findChild(it.kind == nnkCaseStmt) or body.findChild(it.kind == nnkStmtList).findChild(it.kind == nnkCaseStmt)
-
-  caseBody.expectKind nnkCaseStmt
-  caseBody.expectMinLen 3 # ident + at least 2 of branches
-
-  var ops = nnkBracket.newTree()
-
-  for op in caseBody[1..^1]:
-    op.expectKind {nnkOfBranch, nnkElse, nnkElifBranch}
-    case op.kind
-    of nnkOfBranch:
-      for opStr in op[0..^2]:
-        opStr.expectKind nnkStrLit
-        ops.add opStr
-      op[^1].expectKind nnkStmtList
-    else:
-      discard
-
-  flagOps[typeName.repr] = ops
 
 template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
   ## version if you want to write your own converter to parse a string into a
   ## `T`.
-  method parse(self: ValueArg[T, false], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
-    self.parseImpl(value, variant, seenBy)
-
-  method parse(self: ValueArg[T, true], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
-    self.parseImpl(value, variant, seenBy)
-
-  method defaultStr(self: ValueArg[T, false]): string =
-    ## Returns `self`'s default value stringified, or "" if it's still `T`'s
-    ## zero value (e.g. "", 0, or false) -- the fallback used when no
-    ## default was given (see `arg*`). Requires `T` to support `default(T)`
-    ## and `==`, which nearly every type does; a `{.requiresInit.}` object
-    ## would be a rare exception that fails to compile here.
-    if self.default.len > 0 and self.default[0] != default(T):
-      $self.default[0]
-    else:
-      ""
-
-  method defaultStr(self: ValueArg[T, true]): string =
-    ## Returns `self`'s default values comma-joined, or "" if there are none.
-    if self.default.len > 0:
-      self.default.mapIt($it).join(", ")
-    else:
-      ""
-
-  method validatorHelp(self: ValueArg[T, false]): string =
-    if self.validator.isNil: "" else: self.validator.help()
-
-  method validatorHelp(self: ValueArg[T, true]): string =
-    if self.validator.isNil: "" else: self.validator.help()
-
-  method completions(self: ValueArg[T, false]): seq[string] =
-    if self.validator.isNil: @[] else: self.validator.completions()
-
-  method completions(self: ValueArg[T, true]): seq[string] =
-    if self.validator.isNil: @[] else: self.validator.completions()
-
-  method envName(self: ValueArg[T, false]): string =
-    if self.env.isSome: self.env.get.name else: ""
-
-  method envName(self: ValueArg[T, true]): string =
-    if self.env.isSome: self.env.get.name else: ""
-
-  method envDelim(self: ValueArg[T, false]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
-
-  method envDelim(self: ValueArg[T, true]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
-
-  method configKey(self: ValueArg[T, false]): ConfigKey = self.cfgKey
-
-  method configKey(self: ValueArg[T, true]): ConfigKey = self.cfgKey
-
-  method clear(self: ValueArg[T, true]) =
-    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
-    ## coded default's state -- it's substituted at read time, never stored
-    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
-    procCall clear(Arg(self))
-    self.value.setLen 0
-
-  method clear(self: ValueArg[T, false]) =
-    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
-    ## coded default's state -- it's substituted at read time, never stored
-    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
-    procCall clear(Arg(self))
-    self.value.setLen 0
-
-template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
-  ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
-  ## its own template (rather than an overload of either), and
-  ## `variantDesc`'s locals below are named `vOp`/`vArg`/`vDesc` rather
-  ## than `op`/`arg`, both for template-hygiene reasons documented in
-  ## docs/gotchas.md.
-  defineFlagOps typeName:
-    flagHandler
-
-  proc handleFlag(value {.inject.}: var T, op {.inject.}: string, arg {.inject.}: T) =
-    flagHandler
-
-  method parse(self: FlagArg[T], variantValue: string, variantName: string, seenBy: options.Option[SeenBy] = none(SeenBy)) =
-    ## Flag args pass the seen variant as both the value and the variant in the
-    ## general case. In the case of values sourced from env vars or config keys,
-    ## the seen variant is passed as the value while the env/configKey is the
-    ## variant. We thus re-name the parameters here to make clear what they
-    ## actually do.
-    if not self.ops.hasKey(variantValue):
-      raise newException(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
-    self.arbitrate(seenBy)
-    let (op {.inject.}, arg {.inject.}, _) = self.ops[variantValue]
-    self.value.handleFlag(op, arg)
-    if not self.clamp.isNil:
-      self.value = self.clamp.apply(self.value)
-
-  method validatorHelp(self: FlagArg[T]): string =
-    if self.clamp.isNil: "" else: self.clamp.help()
-
-  method variantDesc(self: FlagArg[T], variant: string): string =
-    if not self.ops.hasKey(variant): return ""
-    let (vOp, vArg, vDesc) = self.ops[variant]
-    if vDesc.len > 0: return vDesc
-    case vOp
-    of "=": "Set to " & $vArg
-    of "+=": "Increase by " & $vArg
-    of "-=": "Decrease by " & $vArg
-    else: blankDesc
-
-  method envName(self: FlagArg[T]): string =
-    if self.env.isSome: self.env.get.name else: ""
-
-  method envDelim(self: FlagArg[T]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
-
-  method configKey(self: FlagArg[T]): ConfigKey = self.cfgKey
-
-  method aliases(self: FlagArg[T], a, b: string): bool =
-    ## Returns whether `a` and `b` are FlagOp Aliases for `self`. `a`/`b`
-    ## are guaranteed by every call site to both already be declared
-    ## variants of `self` -- never a foreign string -- so `a == b` is
-    ## answered directly rather than by a `self.aliases` lookup (that table
-    ## only ever maps a variant to its *other* FlagOp Aliases, per its own
-    ## construction). Otherwise, a variant is a FlagOp Alias of another if
-    ## their `FlagOp` shares an op and an arg. The `FlagOp`'s desc does not
-    ## matter.
-    a == b or (self.aliases.hasKey(a) and b in self.aliases[a])
-
-  method clear(self: FlagArg[T]) =
-    ## Removes the `seenBy` provenance and restores the default value of `self`.
-    procCall clear(Arg(self))
-    self.value = self.default
-
-  defineArg typeName
+  defineValueArg typeName
 
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
   ## Defines parse methods for arguments with a value of type `T`.
@@ -402,16 +151,7 @@ template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
   ## - `-=` excludes the given element from the set (difference).
   ## - `*=` keeps the given element only if it's already present, dropping
   ##   everything else (intersection).
-  converter toSingletonSet(rawElem: string): set[elemType] =
-    {parseEnum[elemType](rawElem)}
-
-  defineArg(set[elemType]):
-    case op
-    of "=": value = arg
-    of "+=": value.incl(arg)
-    of "-=": value.excl(arg)
-    of "*=": value = value * arg
-    else: raise newException(SpecDefect, "set flags only support =, +=, -=, and *= operations")
+  defineSetFlagArg elemType
 
 method action(self: MessageArg, command: string, spec: Spec, variant = "") =
   ## Raises `MessageError` with `self.message`, short-circuiting the rest
@@ -436,37 +176,37 @@ template get*[T](arg: ValueArg[T, false], otherwise: T): T =
   ## unevaluated on the supplied path; ADR 0040.
   block:
     let a = arg
-    if a.seen: a.value[0] else: otherwise
+    if a.seen: a.rawValue[0] else: otherwise
 
 template get*[T](arg: ValueArg[T, true], otherwise: seq[T]): seq[T] =
   ## Returns `arg`'s accumulated values if a Value Precedence tier supplied
   ## any, and `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
   block:
     let a = arg
-    if a.seen: a.value else: otherwise
+    if a.seen: a.rawValue else: otherwise
 
 proc get*[T](arg: ValueArg[T, false]): T =
   ## Returns `arg`'s parsed value, substituting its coded default if no Value
   ## Precedence tier supplied one -- the same answer the implicit conversion
   ## gives, spelled explicitly for the places that conversion can't reach
   ## (see `docs/adr/0040-explicit-value-accessor.md`).
-  arg.get(otherwise = arg.default[0])
+  arg.get(otherwise = arg.rawDefault[0])
 
 proc get*[T](arg: ValueArg[T, true]): seq[T] =
   ## Returns `arg`'s accumulated values, substituting its coded default seq if
   ## no Value Precedence tier supplied any. See `get*(ValueArg[T, false])`.
-  arg.get(otherwise = arg.default)
+  arg.get(otherwise = arg.rawDefault)
 
 template get*[T](arg: FlagArg[T], otherwise: T): T =
   ## Returns `arg`'s value if a Value Precedence tier supplied it, and
   ## `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
   block:
     let a = arg
-    if a.seen: a.value else: otherwise
+    if a.seen: a.rawValue else: otherwise
 
 proc get*[T](arg: FlagArg[T]): T =
   ## Returns `arg`'s value. See `get*(ValueArg[T, false])`.
-  arg.value
+  arg.rawValue
 
 converter toT*[T](arg: ValueArg[T, false]): T =
   ## Converts a `ValueArg[T, false]` to a `T`, substituting a default value if
@@ -504,7 +244,8 @@ proc arg*[T: not seq](variants: string, default: T = default(T), help = "", grou
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, false](kind: Positional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator)
+  initValueArg[T, false](kind = Positional, variants = variants, default = @[default],
+    help = help, group = group, hidden = hidden, validator = validator)
 
 proc arg*(variants: string, default: string = "", help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, false] =
   ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
@@ -528,7 +269,8 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  ValueArg[T, true](kind: Positional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator)
+  initValueArg[T, true](kind = Positional, variants = variants, default = default,
+    help = help, group = group, hidden = hidden, validator = validator)
 
 proc args*(variants: string, default: seq[string] = @[], help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, true] =
   ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
@@ -570,7 +312,9 @@ proc opt*[T: not seq](variants: string, default: T = default(T), help = "", grou
   ##   option's value from a registered Config Source when neither a CLI
   ##   nor an env value is given -- consulted below env in Value Precedence,
   ##   above the coded default. See `docs/adr/0018-config-source.md`.
-  ValueArg[T, false](kind: Optional, variants: variants.split(Comma), default: @[default], help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
+  initValueArg[T, false](kind = Optional, variants = variants, default = @[default],
+    help = help, group = group, hidden = hidden, validator = validator,
+    env = env, cfgKey = configKey)
 
 proc opt*(variants: string, default: string = "", help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, false] =
   ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
@@ -610,69 +354,15 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   ##   given on the command line or via env -- consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  ValueArg[T, true](kind: Optional, variants: variants.split(Comma), default: default, help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: configKey)
+  initValueArg[T, true](kind = Optional, variants = variants, default = default,
+    help = help, group = group, hidden = hidden, validator = validator,
+    env = env, cfgKey = configKey)
 
 proc opts*(variants: string, default: seq[string] = @[], help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, true] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
   ## for full parameter docs.
   opts[string](variants, default, help, group, hidden, validator, env, configKey)
-
-macro getFlagOps(typeName: string): untyped =
-  if $typeName notin flagOps:
-    raise newException(SpecDefect, fmt"{typeName} is not a supported type for flags")
-  result = flagOps[$typeName]
-
-proc splitFlagSpellings(variants: string): seq[string] =
-  ## Parses a comma-separated list of bare flag spellings (`-f`/`--flag`,
-  ## no `<op><value>` suffix -- that's supplied explicitly via `flagOp*`'s
-  ## own `op`/`value` params instead). Shared by `flag*`'s own implicit-op
-  ## `variants` string and each `flagOp*` call's explicit-op spellings.
-  if variants.len == 0: return @[]
-  for rawName in variants.split(Comma):
-    if rawName =~ FlagVariantFormat:
-      result.add matches[0]
-    else:
-      let escapedRawName = strutils.escape(rawName)
-      raise newException(SpecDefect, fmt"Cannot parse flag spelling {escapedRawName}: must be in the format '-f' or '--flag'")
-
-proc parseFlagOpsString[T](ops: string): seq[FlagOpGroup[T]] =
-  ## Parses `flag*`'s convenience `ops: string` overload: each comma item
-  ## is `<flag><op><value>`, becoming its own single-spelling explicit
-  ## FlagOp Alias group -- sugar for, and equivalent to, the matching
-  ## `flagOp*` call. Every item must carry an op/value; a bare spelling
-  ## belongs in `flag*`'s own `variants` string instead, not here. See
-  ## `flag*` and `docs/adr/0028-flag-ops-string-convenience.md`.
-  for rawName in ops.split(Comma):
-    var matches: array[3, string]
-    if not rawName.match(FlagOpVariantFormat, matches) or matches[1].len == 0:
-      let escapedRawName = strutils.escape(rawName)
-      let helpText = strutils.dedent("""
-
-        Flag ops entries must be in the format '<flag><op><value>', where:
-          - '<flag>' is in the format '-f' or '--flag'
-          - '<op>' is ':' or '=', optionally preceded by a non-word character
-          - '<value>' is the value the flag represents
-        Examples: '--foo=true' or '--bar+=1'. A bare spelling with no op
-        belongs in flag*'s own `variants` string instead.""")
-      raise newException(SpecDefect, fmt"Cannot parse flag ops entry {escapedRawName}:" & helpText)
-    let op = matches[1]
-    if op notin getFlagOps($T):
-      let escapedOp = strutils.escape(op)
-      raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
-    try:
-      var arg: T
-      # Built-in types call our converters explicitly rather than relying
-      # on implicit conversion -- see docs/gotchas.md.
-      when T is string: arg = matches[2]
-      elif T is int: arg = toInt(matches[2])
-      elif T is float64: arg = toFloat(matches[2])
-      elif T is bool: arg = toBool(matches[2])
-      elif T is char: arg = toChar(matches[2])
-      else: arg = matches[2]
-      result.add (variants: @[matches[0]], op: op, value: arg, help: "")
-    except ValueError as e:
-      raise newException(SpecDefect, fmt"unexpected flag value for {matches[0]}: {e.msg}")
 
 proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[T] =
   ## Declares one explicit FlagOp Alias group for `flag*`'s `ops` param --
@@ -689,9 +379,7 @@ proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[
   ## - `value` is the value the operation applies.
   ## - `help` optionally overrides the auto-generated description shown in
   ##   help text (e.g. "Increase by 5") for every spelling in this group.
-  if op notin getFlagOps($T):
-    let escapedOp = strutils.escape(op)
-    raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
+  checkFlagOp[T](op)
   result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
 
 proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default: T = default(T), help = "", group = "Options",
@@ -741,35 +429,9 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default
   ##   flag's own declared Variants, same as `env`. Consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default, help: help,
-    group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: configKey,
-    ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
-  if not clamp.isNil and clamp.apply(default) != default:
-    raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
-
-  # Implicit (blank-op) group: every bare spelling in `variants` shares
-  # (op: "", arg: default) and forms one alias group automatically, since
-  # they can only ever share that one (op, arg) pair.
-  let implicitVariants = splitFlagSpellings(variants)
-  for name in implicitVariants:
-    if result.ops.hasKeyOrPut(name, (op: "", arg: default, desc: "")):
-      raise newException(SpecDefect, fmt"duplicate variant for {name}")
-    result.variants.add name
-  if implicitVariants.len > 1:
-    for v in implicitVariants:
-      result.aliases[v] = implicitVariants.filterIt(it != v)
-
-  # Explicit groups: each flagOp's own spellings form their own
-  # independent alias group -- no cross-group discovery, even if two
-  # groups' (op, value) coincidentally match (see docs/adr/0027).
-  for opGroup in ops:
-    for name in opGroup.variants:
-      if result.ops.hasKeyOrPut(name, (op: opGroup.op, arg: opGroup.value, desc: opGroup.help)):
-        raise newException(SpecDefect, fmt"duplicate variant for {name}")
-      result.variants.add name
-    if opGroup.variants.len > 1:
-      for v in opGroup.variants:
-        result.aliases[v] = opGroup.variants.filterIt(it != v)
+  initFlagArg[T](variants = variants, ops = ops, default = default,
+    help = help, group = group, hidden = hidden, clamp = clamp,
+    env = env, cfgKey = configKey)
 
 proc flag*[T](variants: string = "", ops: string, default: T = default(T), help = "", group = "Options",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
@@ -784,6 +446,22 @@ proc flag*[T](variants: string = "", ops: string, default: T = default(T), help 
   ## `docs/adr/0028-flag-ops-string-convenience.md` for why this is a
   ## separate overload rather than folded into `variants` itself.
   flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
+
+proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default: bool = false, help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
+  ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
+  ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
+  ## above for full parameter docs.
+  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
+
+proc flag*(variants: string = "", ops: string, default: bool = false, help = "", group = "Options",
+    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
+  ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
+  ## lets `T` default to `bool` without an explicit bracket. See `flag[T]`
+  ## above for full parameter docs.
+  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
 proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
     before: proc(spec: S, info: HookInfo) = nil,
@@ -900,66 +578,6 @@ proc version*(variants: string, version: string, help = "Display version informa
   ## - `group` determines how the flag is grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
   message(variants, version, help, group, hidden)
-
-# ------------------------------------------------------------------------------
-# Here is where we define the datatypes supported out of the box.
-# ------------------------------------------------------------------------------
-
-defineArg string:
-  ## Builds a flag handler for a string.
-  case op
-  of "=": value = arg
-  else: raise newException(SpecDefect, fmt"string flags only support = operations")
-
-defineFlag bool, "Toggle the value":
-  ## Handles a flag value for a bool. If `op` is blank, `arg` must be the
-  ## default value of the flag, which will be inverted.
-  case op
-  of "": value = not arg
-  of "=": value = arg
-  else: raise newException(SpecDefect, fmt"boolean flags only support = operations")
-
-# flag*(bool) lives here, not beside flag*[T] above, because its body calls
-# flag[bool](...) eagerly -- that instantiation needs "bool" already
-# registered in flagOps by the defineFlag call just above (see
-# docs/gotchas.md).
-proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default: bool = false, help = "", group = "Options",
-    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
-  ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
-  ## without an explicit bracket (e.g. `flag("--verbose")`). See `flag[T]`
-  ## above for full parameter docs.
-  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
-
-proc flag*(variants: string = "", ops: string, default: bool = false, help = "", group = "Options",
-    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
-  ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
-  ## lets `T` default to `bool` without an explicit bracket. See `flag[T]`
-  ## above for full parameter docs.
-  flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
-
-defineFlag int, "Increment by 1":
-  ## Builds a flag handler for an integer. If `op` is blank, the default
-  ## is to increment the value.
-  case op
-  of "": value.inc
-  of "=": value = arg
-  of "+=": value.inc arg
-  of "-=": value.dec arg
-  else: raise newException(SpecDefect, "integer flags only support =, +=, and -= operations")
-
-defineArg float64:
-  case op
-  of "=": value = arg
-  of "+=": value += arg
-  of "-=": value -= arg
-  else: raise newException(SpecDefect, "float flags only support =, +=, and -= operations")
-
-defineArg char:
-  case op
-  of "=": value = arg
-  else: raise newException(SpecDefect, "char flags only support = operations")
 
 # ------------------------------------------------------------------------------
 # These are the functions that handle shell completion and initiate parsing.
@@ -1179,107 +797,3 @@ proc completionScript*(spec: Spec, shell: Shell, binaryName = extractFilename(ge
   ## needs (write it to a file, expose a `completion` subcommand, etc.) --
   ## argumint doesn't wire this up automatically.
   spec.genCompletionScript(shell, binaryName)
-
-when isMainModule:
-  ## Direct regression tests for the `defineArg`/`defineFlag`/`defineFlagArg`/
-  ## `defineSetFlag` macro machinery above, one per hygiene workaround
-  ## documented in `docs/gotchas.md` -- each instantiates `ValueArg`/`FlagArg`
-  ## directly and drives the generated methods by hand, bypassing `Spec`/
-  ## `parse*` entirely (one test also uses the real `flag*` constructor,
-  ## since the CacheTable it reads from can only be exercised that way), so
-  ## a regression here fails right at the template instead of three layers
-  ## downstream at some other test's `spec.parse()` call. See
-  ## `tests/test_argumint.nim`'s `Priority`/`Level`/`Speed`/`Color` for the
-  ## complementary integration coverage (that these types work correctly
-  ## *through* the full pipeline) -- this suite is deliberately narrower and
-  ## doesn't duplicate it.
-  import std/unittest
-
-  type Rank = enum
-    rLow, rMid, rHigh
-
-  converter toRank(value: string): Rank = parseEnum[Rank](value)
-
-  type Grade = enum
-    gPoor, gFair, gGood
-
-  # Regression test for the template-hygiene gotcha in docs/gotchas.md --
-  # exercises defineFlag/defineFlagArg/defineArg together; a corruption
-  # would fail to compile, not fail an assertion.
-  defineFlag(Rank, "Bump to the next rank"):
-    case op
-    of "": value = Rank((ord(value) + 1) mod 3)
-    of "=": value = arg
-    else: raise newException(SpecDefect, "rank flags only support blank or = operations")
-
-  defineSetFlag(Rank)
-  defineSetFlag(Grade)
-
-  suite "the export boundary drawn in issue #27":
-    test "`FlagOp` exists but is private to this module":
-      # `tests/test_public_api.nim` asserts this name is unreachable from a
-      # bare `import argumint`. Its mirroring positive lives here rather
-      # than in `tests/test_argumint.nim` -- unlike the FSM plumbing types,
-      # which `argumint/backend` exports and that file can name, `FlagOp`
-      # is private to this module, so no importer can name it at all.
-      # `FlagArg[T]` is nameable anyway, since `ops` is a private field.
-      let op: FlagOp[int] = (op: "+=", arg: 1, desc: "bump")
-      check op.arg == 1
-
-  suite "defineArg/defineFlag macro machinery":
-    test "a ValueArg's generated parse/defaultStr work when constructed directly, bypassing arg()":
-      let a = ValueArg[Rank, false](kind: Positional, variants: @["<rank>"])
-      a.parse("rHigh")
-      check a.value[0] == rHigh
-      check a.defaultStr() == ""
-
-    test "a FlagArg's generated parse()/variantDesc() are correct -- % (not fmt) inside a defineFlagArg-generated method, and defineFlag's blankDesc wiring":
-      let f = FlagArg[Rank](kind: Flag, variants: @["-r", "-b"])
-      f.ops = newOrderedTable[string, FlagOp[Rank]]()
-      f.ops["-r"] = ("=", rHigh, "")
-      f.ops["-b"] = ("", rLow, "")
-      expect ParseError:
-        f.parse("--unknown")
-      try:
-        f.parse("--unknown")
-      except ParseError as e:
-        check "--unknown" in e.msg
-        check "-r" in e.msg
-      check f.variantDesc("-b") == "Bump to the next rank"
-
-    test "defineSetFlag's =/+=/-=/*= ops all work on a directly-constructed FlagArg[set[T]]":
-      let f = FlagArg[set[Rank]](kind: Flag, variants: @["-r"])
-      f.ops = newOrderedTable[string, FlagOp[set[Rank]]]()
-      f.ops["="] = ("=", {rLow}, "")
-      f.ops["+="] = ("+=", {rMid}, "")
-      f.ops["-="] = ("-=", {rLow}, "")
-      f.ops["*="] = ("*=", {rMid}, "")
-
-      f.parse("=")
-      check f.value == {rLow}
-      f.parse("+=")
-      check f.value == {rLow, rMid}
-      f.parse("-=")
-      check f.value == {rMid}
-      f.parse("*=")
-      check f.value == {rMid}
-
-    test "two distinct defineSetFlag(enum) instantiations don't cross-wire in the flagOps CacheTable":
-      # Regression test for the repr-vs-$ CacheTable keying in
-      # docs/gotchas.md -- calls the real flag[set[Rank]]/flag[set[Grade]]
-      # constructors to exercise both the write and read side.
-      let rankFlag = flag[set[Rank]](ops = [flagOp("--rank", "+=", {rHigh})], default = {})
-      rankFlag.parse("--rank")
-      check rankFlag.value == {rHigh}
-
-      let gradeFlag = flag[set[Grade]](ops = [flagOp("--grade", "+=", {gGood})], default = {})
-      gradeFlag.parse("--grade")
-      check gradeFlag.value == {gGood}
-      check rankFlag.value == {rHigh} # unaffected by gradeFlag's own +=
-
-    test "repeated parse() calls on a multi-value ValueArg don't corrupt earlier elements (ORC regression)":
-      let a = ValueArg[Rank, true](kind: Positional, variants: @["<rank>"])
-      a.parse("rLow")
-      a.parse("rMid")
-      a.parse("rHigh")
-      check a.value == @[rLow, rMid, rHigh]
