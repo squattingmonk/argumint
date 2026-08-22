@@ -1,7 +1,8 @@
-import std/[algorithm, importutils, json, options, os, sequtils, strutils, tables, terminal, unittest]
+import std/[algorithm, importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/backend
+import argumint/specbuild
 import argumint/configsource/ini
 import argumint/configsource/json
 
@@ -1456,6 +1457,22 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check "-v" in s.options
     check s.groups.len > 0
     check not s.fsm.isNil
+
+  test "spec construction's plumbing exists in `argumint/specbuild`":
+    # Exported from `specbuild` only so generic `newSpec` can instantiate in
+    # the caller's file (ADR 0030), never re-exported by the facade -- see
+    # issue #49.
+    let s = beginSpec("<name>", "front", "back")
+    s.addArgs((name: arg("<name>", help = ""),))
+    s.finishSpec(newSpecSettings(width = 80))
+    check "<name>" in s.arguments
+    check not s.fsm.isNil
+    check s.settings.width == 80
+
+  test "the variant-format PEGs exist in `argumint/backend`":
+    check "<name>".match(PositionalVariantFormat)
+    check "--name=<s>".match(OptionalVariantFormat)
+    check "-v".match(FlagVariantFormat)
 
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":
