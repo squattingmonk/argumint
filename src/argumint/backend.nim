@@ -6,8 +6,14 @@
 ## `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`. `ValueArg`/
 ## `FlagArg` (`argumint.nim`) are the built-in implementations of that
 ## interface. The graph-construction/simplification operations that build
-## and mutate `State`/`Matcher` values live in `argumint/fsmgraph`, not here
-## -- this module is the data model only.
+## and mutate `State`/`Matcher` values live in `argumint/fsmgraph`, not here.
+##
+## Alongside the model sit the pieces that belong beside it rather than in
+## spec construction (`argumint/specbuild`): the constructors for the types
+## declared here that never read a usage string (`newSpecSettings`, `env`,
+## `toEnvSource`), the PEGs a Variant string must match, and `subject`,
+## which names an Arg in a parse-failure message. See `docs/architecture.md`
+## for where that line falls and why.
 
 import std/[hashes, pegs, strformat, strutils, tables, terminal, wordwrap]
 

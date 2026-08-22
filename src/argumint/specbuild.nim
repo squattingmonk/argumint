@@ -3,16 +3,12 @@
 ## string into an FSM, filling in the usage gaps, and cascading settings
 ## down the command tree.
 ##
-## Sits *above* FSM compilation, not beside the data model in
-## `argumint/backend`: `finishSpec` calls `genFsm` (`argumint/parser`) and
-## `autoFillUsage` calls `referencedArgs` (`argumint/fsmgraph`), both of
-## which import `backend`. Building a `Spec` means compiling its usage
-## string into an FSM, so spec construction is the layer on top. See
-## `docs/architecture.md`.
+## Sits *above* FSM compilation rather than beside the data model in
+## `argumint/backend` -- see `docs/architecture.md` for why.
 ##
 ## Only `newSpec` is public API; `beginSpec`/`finishSpec`/`addArgs` are
 ## exported solely because generic `newSpec` instantiates in the caller's
-## file, and are not re-exported by the facade.
+## file (ADR 0030), and are not re-exported by the facade.
 
 import std/[importutils, pegs, sequtils, sets, strformat, strutils, tables]
 
@@ -126,14 +122,15 @@ proc finishSpec*(spec: Spec, settings: SpecSettings) =
 proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings()): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM.
-  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
-  ##   for how gaps in `usage` are auto-filled.
+  ## - `usage` is the usage string used to build the FSM. See
+  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
+  ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
   ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
-  ##   `newSpecSettings`. Shared by reference with every nested subcommand's
-  ##   spec (see `cascadeSpecSettings`); mutating it later (e.g. from a
-  ##   `before` hook) applies live throughout the tree.
+  ##   `newSpecSettings`. Shared by reference -- not copied -- with every
+  ##   nested subcommand's spec, so mutating it later (e.g. from a `before`
+  ##   hook) applies live throughout the tree.
   ##
   ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
   ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you

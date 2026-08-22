@@ -16,9 +16,9 @@
 
 {.experimental: "openSym".}
 
-import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables]
+import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sugar, strformat, strutils, tables]
 
-import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, fsmgraph, help, parser, specbuild, validators]
+import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `dot*` and docs/gotchas.md.
@@ -78,22 +78,13 @@ export options.Option
 export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
   backend.DefaultStrictOptions
 
-# Spec-construction-adjacent constructors that live beside their own types in
-# `argumint/backend`: `newSpecSettings` for `settings =`, `env`/`toEnvSource`
-# for `env = "PORT"`. All three are public API, so re-export deliberately --
-# `env`/`toEnvSource` happen to resolve through another path too, which makes
-# them no less public.
+# Public API that issue #49 moved out of this file -- `settings =` needs
+# `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
+# is reachable by bare name from a generated `parse` method (ADR 0017). The
+# plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
+# PEGs) stays out; `tests/test_public_api.nim` holds that line.
 export backend.newSpecSettings, backend.env, backend.toEnvSource
-
-# How a parse-failure message names an Arg. Exported for the same reason as
-# `backend.name` (`docs/adr/0017`): the `parse` methods `defineArg` generates
-# resolve it by bare name in the caller's module.
 export backend.subject
-
-# Spec construction lives in `argumint/specbuild` (#49). `newSpec` is
-# generic and instantiates in the caller's file, so it must be re-exported
-# here; its `beginSpec`/`finishSpec`/`addArgs` plumbing is exported from
-# `specbuild` for the same reason but deliberately stays out of the facade.
 export specbuild.newSpec
 
 # The two operations on a built `Spec` that live in `argumint/fsm` rather
@@ -825,8 +816,8 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ##
   ## Note: `config` is deliberately not a parameter here: it cascades down
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
-  ## given (see `cascadeSpecSettings`), so it only needs to be specified once
-  ## regardless of how deeply nested this command is.
+  ## given, so it only needs to be specified once regardless of how deeply
+  ## nested this command is.
   result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
@@ -872,8 +863,8 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
   ##
   ## Note: `config` is deliberately not a parameter here: it cascades down
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
-  ## given (see `cascadeSpecSettings`), so it only needs to be specified once
-  ## regardless of how deeply nested this command is.
+  ## given, so it only needs to be specified once regardless of how deeply
+  ## nested this command is.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
     before = if before.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = before(spec, options, info)),
     action = if action.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = action(spec, options, info)),

@@ -445,7 +445,7 @@ inside a template.
   the instantiation site. Verified both cases with scratch compiles. So
   `newSpec*(spec: tuple, ...)`, generic over the spec tuple and therefore
   instantiated in the caller's file, cannot touch `spec.fsm` directly --
-  hence `beginSpec`/`finishSpec` (`argumint.nim`), two non-generic
+  hence `beginSpec`/`finishSpec` (`argumint/specbuild.nim`), two non-generic
   bookends the generic body delegates to. Any *new* generic or template
   that needs a private `Spec` field has to be split the same way.
 
