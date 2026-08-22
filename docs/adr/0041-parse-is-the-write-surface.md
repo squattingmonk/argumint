@@ -189,17 +189,23 @@ do: a matched Message Argument takes over the leaf's action (ADR 0013).
 With the raises moved off it, `parse` means exactly one thing everywhere —
 record one contribution, at one tier.
 
-`action` is a dependency inversion: help rendering (`genHelp`) lives in
-`argumint.nim`, which imports `fsm.nim` and not the reverse, so the FSM
-cannot render help itself and calls back up through the method instead.
+`action` is a dependency inversion: help rendering (`genHelp`) lives above
+`fsm.nim` in the import graph, so the FSM does not render help itself and
+calls back up through the method instead.
 
-That is a consequence of where `genHelp` sits, **not** a constraint —
+That was a consequence of where `genHelp` sat, **not** a constraint —
 everything it needs (`formatUsage`, the display base methods, `Spec`'s own
 fields) is already in `backend`, so it could move below `fsm` and let the
-FSM raise `HelpError` directly. Verified by moving it: compiles, and the
-rendered output is byte-identical. The method is worth keeping regardless,
-as the extension point for a custom side-effecting Arg — but as a choice,
-not a necessity.
+FSM raise `HelpError` directly.
+
+**Update:** issue #50 made the move, for the unrelated reason that
+`argumint.nim` had grown to 1621 lines. `genHelp` now lives in `help.nim`,
+directly above `backend`, and the FSM *could* raise `HelpError` itself. The
+inversion is retained deliberately: raising from `fsm.nim` would reintroduce
+the `of HelpArg` test this ADR removed, and one unified signature is what
+lets `parseMessageArgs` dispatch once. Now that the alternative has been
+measured rather than assumed, `action`'s value is what it always was — the
+extension point for a custom side-effecting Arg.
 
 ### `clear` returns an Arg to its coded-default state
 

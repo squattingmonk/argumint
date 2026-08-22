@@ -772,7 +772,7 @@ proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate]
   ## a `flagOp*` call's own `help` override -- see `flag*`) is only trusted when `arg`'s
   ## variants genuinely diverge in what they do, i.e. `variantDesc` returns
   ## more than one distinct value across them; otherwise every variant
-  ## shares `arg.help`. This mirrors `argumint.variantGroups`'s own
+  ## shares `arg.help`. This mirrors `help.variantGroups`'s own
   ## "collapse to one group whenever every variant agrees" rule (used by
   ## `genHelp`) -- without it, an ordinary flag with no divergent variants
   ## (e.g. a bare bool `flag("--verbose", help = "Be noisy")`) would show
