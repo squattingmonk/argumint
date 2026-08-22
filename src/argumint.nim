@@ -1,8 +1,8 @@
 ## `argumint`'s public API: declare a spec as a tuple of `arg`/`args`/`opt`/
 ## `opts`/`flag`/`command`/`help`/`message`/`version` values, then build and
 ## parse it with `newSpec`/`parse*`/`parseOrQuit*`. A usage string (given
-## explicitly or auto-filled from the declared args -- see `autoFillUsage`)
-## is compiled into an FSM (`argumint/backend`, `argumint/lexer`,
+## explicitly or auto-filled from the declared args) is compiled into an FSM
+## (`argumint/specbuild`, `argumint/backend`, `argumint/lexer`,
 ## `argumint/parser`) that drives actual matching (`argumint/fsm`) --
 ## docopt-style patterns like `[-r] <src>... <dest>` or mutually exclusive
 ## options fall out of that FSM's grammar rather than hand-written
@@ -16,12 +16,12 @@
 
 {.experimental: "openSym".}
 
-import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal]
+import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sugar, strformat, strutils, tables]
 
-import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, fsmgraph, help, parser, validators]
+import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
-  ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
+  ## non-generic code only -- see `dot*` and docs/gotchas.md.
 
 export completion.Shell
 
@@ -78,6 +78,15 @@ export options.Option
 export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
   backend.DefaultStrictOptions
 
+# Public API that issue #49 moved out of this file -- `settings =` needs
+# `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
+# is reachable by bare name from a generated `parse` method (ADR 0017). The
+# plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
+# PEGs) stays out; `tests/test_public_api.nim` holds that line.
+export backend.newSpecSettings, backend.env, backend.toEnvSource
+export backend.subject
+export specbuild.newSpec
+
 # The two operations on a built `Spec` that live in `argumint/fsm` rather
 # than here. `parseOrQuit*(Spec)` was already reachable (it's defined
 # below), so without these `newSpec` -> `parse` was the one broken half of
@@ -131,29 +140,6 @@ const flagOps = CacheTable"flagOps"
 let
   Comma = peg"\s* ',' \s*"
 
-  PositionalVariantFormat = peg"""
-    # Allows you to capture <arg>
-    argument <- ^ {'<' \w (\w / ('-' \w))* '>'} $
-  """
-
-  OptionalVariantFormat = peg"""
-    # Allows you to capture [-o, var] / [--option, var] in -o=<var> / --option=<var>
-    option <- ^ (shortOption / longOption) (equals helpVar)? $
-    equals <- '=' / ':'
-    shortOption <- {'-' \w}
-    longOption <- {'--' \w (\w / ('-' \w))+}
-    helpVar <- '<' {\w (\w / ('-' \w))*} '>'
-  """
-
-  FlagVariantFormat = peg"""
-    # A bare flag spelling, no embedded <op><value> -- that's supplied
-    # explicitly via flagOp's own op/value params instead (see flag*/
-    # flagOp*).
-    flag <- ^ (shortFlag / longFlag) $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-  """
-
   FlagOpVariantFormat = peg"""
     # A flag spelling with an optional embedded <op><value> suffix --
     # convenience sugar for flag*'s own `variants` string only (see
@@ -197,36 +183,6 @@ converter toChar(value: string): char =
   if value.len != 1:
     raise newException(ValueError, fmt"cannot convert {value} to char")
   value[0]
-
-
-# ------------------------------------------------------------------------------
-# This function names an arg in a parse-failure message. Help-text rendering
-# lives in `argumint/help`.
-# ------------------------------------------------------------------------------
-
-
-proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
-  ## How to name `arg` in a parse-failure message. The command line names the
-  ## Variant the user actually typed; a fallback tier names `arg` *plus* where
-  ## the value came from, so a typo in an env var or a config file doesn't read
-  ## as something typed at the prompt. The `env:`/`configKey:` prefixes match
-  ## how help text annotates the same two sources.
-  ##
-  ## Only answerable because `parse` carries the tier -- the variant slot alone
-  ## can't say whether it holds a Variant or a source label. Exported for the
-  ## same reason as `backend.name` (`docs/adr/0017`): the generated `parse`
-  ## methods resolve it by bare name in the caller's module.
-  if variant.len == 0 or seenBy.isNone or seenBy.get notin {byConfig, byEnv}:
-    return arg.name(variant)
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
-  let kind = if seenBy.get == byEnv: "env" else: "configKey"
-  "$# ($#: $#)" % [bare, kind, variant]
 
 
 # ------------------------------------------------------------------------------
@@ -526,202 +482,6 @@ converter toSeqT*[T](arg: ValueArg[T, true]): seq[T] =
 converter toT*[T](arg: FlagArg[T]): T =
   ## Converts a `FlagArg[T]` to a `T`. Delegates to `get*`.
   arg.get
-
-# ------------------------------------------------------------------------------
-# Spec Construction
-# ------------------------------------------------------------------------------
-
-proc addArg(spec: Spec, arg: Arg, varName: string) =
-  if arg.variants.len < 1:
-    raise newException(SpecDefect, fmt"arg {varName} must have at least one variant")
-  spec.args.add(arg)
-  if spec.groups.hasKeyOrPut(arg.group, @[arg]):
-    spec.groups[arg.group].add(arg)
-
-  for variant in arg.variants:
-    case arg.kind
-    of Positional:
-      # Matches `<arg>`
-      if variant =~ PositionalVariantFormat:
-        if spec.arguments.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"argument {matches[0]} already defined")
-      else:
-        raise newException(SpecDefect, fmt"invalid positional arg variant for {varName}: {variant}")
-    of Optional, Flag:
-      # Matches `-o[=<foo>]` or `--option[=<foo>]` but removes any help vars
-      if variant =~ OptionalVariantFormat:
-        if spec.options.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"option {matches[0]} already defined")
-      else:
-        raise newException(SpecDefect, fmt"invalid optional arg variant for {varName}: {variant}")
-    of Command:
-      if spec.commands.hasKeyOrPut(variant, CommandArg(arg)):
-        raise newException(SpecDefect, fmt"command {variant} already defined")
-
-proc addArgs(self: Spec, spec: tuple) =
-  for varName, arg in spec.fieldPairs:
-    when arg is Arg:
-      self.addArg(arg, varName)
-    elif arg is tuple:
-      self.addArgs(arg)
-    else:
-      raise newException(SpecDefect, fmt"all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
-
-proc autoFillUsage(spec: Spec) =
-  ## Fills in usage lines for whatever's unreachable (commands, positional
-  ## args, `[options]`) so callers only need to hand-write the parts they
-  ## want to customize -- see architecture.md's "autoFillUsage" section for
-  ## the exact per-category fill-in rules.
-  var newLines: seq[string]
-
-  proc addLine(line: string) =
-    ## Appends `line` to both the human-readable `spec.usage` and the
-    ## `newLines` list later spliced onto `spec.fsm` -- one call keeps the
-    ## two in sync instead of relying on every call site to remember both.
-    spec.usage.addSep("\n")
-    spec.usage.add line
-    newLines.add line
-
-  let reachable = spec.fsm.referencedArgs()
-  let optionsUnreachable = spec.options.values.toSeq.deduplicate
-    .anyIt(not (it of MessageArg) and it notin reachable)
-  let prefix = if optionsUnreachable: "[options] " else: ""
-  var prefixUsed = false
-
-  let unreachableCommands = spec.args.filterIt(it.kind == Command and it notin reachable)
-  if unreachableCommands.len > 0:
-    let variants = unreachableCommands.mapIt(it.variants).concat
-    let combined = if variants.len > 1: "(" & variants.join(" | ") & ")" else: variants[0]
-    addLine prefix & combined
-    prefixUsed = prefixUsed or optionsUnreachable
-
-  let positionals = spec.args.filterIt(it.kind == Positional)
-  if positionals.len > 0 and positionals.allIt(it notin reachable):
-    addLine prefix & positionals.mapIt(it.name).join(" ")
-    prefixUsed = prefixUsed or optionsUnreachable
-
-  for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
-    let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
-    addLine variants
-
-  if optionsUnreachable and not prefixUsed:
-    addLine "[options]"
-
-  if newLines.len > 0:
-    spec.addUsageLines(spec.fsm, newLines)
-    spec.fsm.prepare()
-
-proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
-    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions): SpecSettings =
-  ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
-  ## param.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be
-  ##   detected (e.g., piped output with `COLUMNS` unset). Pass an explicit
-  ##   width to opt out of auto-detection.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps
-  ##   onto extra indented lines (`0` for unlimited).
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
-  ##   is split on to supply more than one value (`\x1e` is always tried
-  ##   first, since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
-  ##   single Option/Flag can override this delimiter (or opt out of
-  ##   splitting entirely) via `env*`'s two-arg form -- see
-  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `configSources` is Value Precedence's Config Source tier -- an
-  ##   ordered list of `ConfigSource`s (e.g. `iniConfigSource(path)`,
-  ##   `jsonConfigSource(path)`, or a custom subclass), consulted in order
-  ##   for any Option/Flag declaring a `configKey`. A later source's hit
-  ##   fully replaces an earlier one's, never merged. See
-  ##   `docs/adr/0018-config-source.md`.
-  ##
-  ## - `strictOptions` is Strict Option Checking: whether an option-shaped
-  ##   token resolving against no declared option may be accepted as data.
-  ##   On by default, and it governs two slots. In the common
-  ##   `[options] <file>...` shape, off means a typo'd `--recrusive`
-  ##   silently becomes a filename; and with any value-taking option, off
-  ##   means `--name --help` sets `name` to `"--help"` rather than
-  ##   reporting that `--name` has no value. A Non-Option Short -- one dash
-  ##   whose second character isn't an ASCII letter (`-5`, `-3.5`,
-  ##   `-0x1F`) -- is exempt either way, which is what keeps negative
-  ##   numbers usable. Set `false` for a grammar that genuinely takes
-  ##   dash-leading literal text, though a typed `--`, a usage-string
-  ##   `[--]` marker, the leading-space form (`" -x"`), or the attached
-  ##   form (`--name=--nope`) each force one token literally without
-  ##   disabling the check everywhere. See
-  ##   `docs/adr/0034-strict-option-checking.md`.
-  ##
-  ## Hold onto the returned `SpecSettings` and pass the same instance to
-  ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
-  ## it later (e.g. from a `before` hook) and have the change apply live to
-  ## every not-yet-dispatched `Spec` in the tree -- see
-  ## `docs/adr/0013-message-args-fire-after-before.md`.
-  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
-    configSources: configSources, strictOptions: strictOptions)
-
-proc cascadeSpecSettings(spec: Spec, settings: SpecSettings) =
-  ## Shares `settings` by reference with `spec` and every nested subcommand's
-  ## spec, so a value given to the top-level `newSpec`/`parse*` call --  or a
-  ## later mutation of that same `SpecSettings` instance -- applies uniformly
-  ## throughout the whole command tree without needing to be repeated at
-  ## each `command()` call.
-  spec.settings = settings
-  for cmd in spec.commands.values:
-    cmd.spec.cascadeSpecSettings(settings)
-
-converter toEnvSource*(name: string): Option[EnvSource] =
-  ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
-  ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
-  ## form that also overrides the delimiter.
-  some(EnvSource(name: name))
-
-proc env*(name: string, delim: string): Option[EnvSource] =
-  ## Names an environment variable to supply an arg's value, overriding
-  ## the delimiter its raw value is split on for this arg only, instead of
-  ## inheriting `Spec.settings.envDelim`. `delim = ""` means never split this
-  ## arg's env value at all, even on `\x1e` -- see
-  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  some(EnvSource(name: name, delim: some(delim)))
-
-proc beginSpec(usage, prolog, epilog: string): Spec =
-  ## Creates an argless `Spec` for `newSpec*` to populate. Non-generic
-  ## bookend, with `finishSpec` -- see docs/gotchas.md.
-  Spec(usage: usage, prolog: prolog, epilog: epilog)
-
-proc finishSpec(spec: Spec, settings: SpecSettings) =
-  ## Compiles `spec`'s FSM, fills in the usage gaps, and cascades
-  ## `settings`. Non-generic bookend, with `beginSpec` -- see docs/gotchas.md.
-  spec.fsm = spec.genFsm()
-  spec.autoFillUsage()
-  spec.cascadeSpecSettings(settings)
-
-proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
-    settings = newSpecSettings()): Spec =
-  ## Creates a new spec from a spec tuple and builds its FSM.
-  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
-  ##   for how gaps in `usage` are auto-filled.
-  ## - `prolog` is the front matter for help messages generated from this spec.
-  ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
-  ##   `newSpecSettings`. Shared by reference with every nested subcommand's
-  ##   spec (see `cascadeSpecSettings`); mutating it later (e.g. from a
-  ##   `before` hook) applies live throughout the tree.
-  ##
-  ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
-  ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you
-  ## call `result.parse(args, command)` yourself) -- use it when you need
-  ## to handle those yourself, or just call `parse*` on the spec tuple
-  ## directly for the same `newSpec` + parse in one step, still raising on
-  ## failure.
-  ##
-  ## `spec` is **single-use**: parsing more than once accumulates into the
-  ## same Args rather than starting fresh. Use `parsed*`/`parsedOrQuit*` to
-  ## parse a fresh spec per call -- see
-  ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
-  result = beginSpec(usage, prolog, epilog)
-  result.addArgs(spec)
-  result.finishSpec(settings)
 
 # ------------------------------------------------------------------------------
 # Arg constructors
@@ -1056,8 +816,8 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ##
   ## Note: `config` is deliberately not a parameter here: it cascades down
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
-  ## given (see `cascadeSpecSettings`), so it only needs to be specified once
-  ## regardless of how deeply nested this command is.
+  ## given, so it only needs to be specified once regardless of how deeply
+  ## nested this command is.
   result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
@@ -1103,8 +863,8 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
   ##
   ## Note: `config` is deliberately not a parameter here: it cascades down
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
-  ## given (see `cascadeSpecSettings`), so it only needs to be specified once
-  ## regardless of how deeply nested this command is.
+  ## given, so it only needs to be specified once regardless of how deeply
+  ## nested this command is.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
     before = if before.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = before(spec, options, info)),
     action = if action.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = action(spec, options, info)),
@@ -1270,8 +1030,9 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
-  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
-  ##   for how gaps in `usage` are auto-filled.
+  ## - `usage` is the usage string used to build the FSM. See
+  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
+  ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
   ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
@@ -1312,8 +1073,9 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## one step. Raises `SpecDefect` (malformed spec), or `ParseError`/
   ## `ValidationError`/`HelpError`/`MessageError` (parse failure) -- use
   ## `parseOrQuit*` if you want those to print a message and `quit()` instead.
-  ## - `usage` is the usage string used to build the FSM. See `autoFillUsage`
-  ##   for how gaps in `usage` are auto-filled.
+  ## - `usage` is the usage string used to build the FSM. See
+  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
+  ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
   ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see

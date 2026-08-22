@@ -99,17 +99,20 @@ The library reaches its own now-private fields via
 `argumint.nim`, `fsm.nim`, and `parser.nim`. (`completion.nim`, `dot.nim`,
 and `fsmgraph.nim` turned out to touch none.)
 
-**Update:** four modules. Issue #50 split help rendering out of
+**Update:** five modules. Issue #50 split help rendering out of
 `argumint.nim` into `help.nim`, which reads `prolog`/`epilog`/`usage`/
 `args`/`groups` and so carries its own `privateAccess(Spec)`. The
 generic-instantiation constraint below doesn't bite there -- `genHelp` is a
-plain proc.
+plain proc. Issue #49 then split spec construction out into `specbuild.nim`,
+which reads every index field plus `usage`/`fsm`/`settings` and carries one
+too; the constraint below moved with it, since `newSpec` and its `beginSpec`/
+`finishSpec` bookends now live there rather than in `argumint.nim`.
 
 `privateAccess` **does not survive template or generic instantiation in
 another module** — verified by scratch compile, and recorded in
 `docs/gotchas.md`. `newSpec*(spec: tuple, ...)` is generic over the spec
 tuple and so instantiates in the caller's file, where the `privateAccess` in
-`argumint.nim` doesn't reach. Its body is therefore split around two
+its defining module doesn't reach. Its body is therefore split around two
 non-generic bookends, `beginSpec` and `finishSpec`, with only the (private-
 field-free) `addArgs` left generic in between. Any future generic or template
 needing a private `Spec` field must be split the same way.

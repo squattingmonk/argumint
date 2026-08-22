@@ -226,7 +226,7 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
 proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
   ## Parses each of `lines` as a Usage Line and splices its FSM onto `root`
   ## via `addShortcut` -- the shared line-building step behind both `genFsm`
-  ## (the initial build) and `autoFillUsage` (`argumint.nim`, which splices
+  ## (the initial build) and `autoFillUsage` (`argumint/specbuild`, which splices
   ## auto-generated lines onto an already-built `spec.fsm` instead of
   ## re-parsing the whole usage string from scratch). Recomputes `root.
   ## terminal` afterwards rather than leaving it a stateful flag -- see

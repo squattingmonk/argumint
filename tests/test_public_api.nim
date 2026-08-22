@@ -67,6 +67,30 @@ suite "Types nameable after a bare `import argumint`":
     # until something needs it -- see ADR 0030.
     check not compiles(DefaultWidth)
 
+  test "spec construction's public half survives moving out of `argumint.nim`":
+    # Issue #49 split `newSpec` into `argumint/specbuild` and the three
+    # constructors that never read a usage string into `argumint/backend`.
+    # `env`/`toEnvSource` resolved through another path before the move,
+    # which made them no less public -- so assert all of them here.
+    check compiles(newSpecSettings(width = 100))
+    check compiles(env("PORT", ","))
+    check compiles(toEnvSource("PORT"))
+    check compiles(newSpec((verbose: flag("-v", help = ""),)))
+    check compiles(subject(Arg(nil), "-v"))
+
+  test "spec construction's plumbing stays out of the facade":
+    # `beginSpec`/`finishSpec`/`addArgs` are exported from `specbuild` only
+    # because generic `newSpec` instantiates in the caller's file (ADR
+    # 0030); the variant-format PEGs are exported from `backend` only so
+    # its siblings can reach them. Neither is public API. Mirrored by
+    # `test_argumint.nim`'s "Library-internal names ..." suite.
+    check not compiles(beginSpec("", "", ""))
+    check not compiles(finishSpec(Spec(nil), SpecSettings(nil)))
+    check not compiles(Spec(nil).addArgs((verbose: flag("-v", help = ""),)))
+    check not compiles(PositionalVariantFormat)
+    check not compiles(OptionalVariantFormat)
+    check not compiles(FlagVariantFormat)
+
   test "`FlagOp` stays unexported":
     # `FlagArg.ops` is private, so naming `FlagArg[T]` never requires
     # naming its element type. `FlagOpGroup` is the public half.

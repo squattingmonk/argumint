@@ -11,8 +11,8 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
-`lexer` → `backend`/`validators` → `fsmgraph`/`help`/`parser` → `fsm` →
-`argumint`.
+`lexer` → `backend`/`validators` → `fsmgraph`/`help`/`parser` → `fsm`/
+`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -31,11 +31,23 @@ all `backend`'s, and `backend` was already wrapping the usage line. Its
 position below `fsm` is what makes `Arg.action`'s dependency inversion a
 choice rather than a necessity — see "The write side" below.
 
-## 1. Spec construction (`src/argumint.nim`)
+`specbuild.nim` sits above FSM compilation rather than beside the data model
+in `backend`, because building a `Spec` *means* compiling its usage string
+into one: `finishSpec` calls `genFsm` (`parser`) and `autoFillUsage` calls
+`referencedArgs` (`fsmgraph`), both of which import `backend`. Putting spec
+construction in `backend` is a recursive module dependency, and Nim rejects
+it outright. The constructors that never touch a usage string
+(`newSpecSettings`, `env`, `toEnvSource`) do live in `backend`, beside the
+`SpecSettings`/`EnvSource` types they build; so do the variant-format PEGs
+(`PositionalVariantFormat`/`OptionalVariantFormat`/`FlagVariantFormat`) and
+`subject`, which have consumers on both sides of the split.
 
-User calls `arg`, `opt`, `flag`, `command`, `help` to build a tuple of `Arg`
-objects, then `newSpec`/`parse` assembles them into a `Spec` (`backend.nim`).
-Each arg is indexed into `spec.arguments` (positional, keyed by `<name>`),
+## 1. Spec construction (`specbuild.nim`, `src/argumint.nim`)
+
+User calls `arg`, `opt`, `flag`, `command`, `help` (the Arg constructors,
+`src/argumint.nim`) to build a tuple of `Arg` objects, then `newSpec`/`parse`
+(`specbuild.nim`) assembles them into a `Spec` (`backend.nim`). Each arg is
+indexed into `spec.arguments` (positional, keyed by `<name>`),
 `spec.options` (optional/flag, keyed by `-o`/`--option`), or `spec.commands`
 (subcommands, keyed by the command word). If no `usage` string is given, one
 is auto-generated from the declared args (see "autoFillUsage" below).
@@ -53,13 +65,13 @@ Those index fields — along with `prolog`/`epilog`/`usage`/`args`/`fsm` — are
 private to the library; only `Spec.settings` and the three hook fields are
 exported (`docs/adr/0030-core-types-exported-spec-opaque.md`). Internal
 modules reach the rest via `std/importutils.privateAccess(Spec)`, present in
-`argumint.nim`, `fsm.nim`, `help.nim`, and `parser.nim`. That call **does not
-survive template or generic instantiation in another module**, so `newSpec*`
-— which is generic over the spec tuple and therefore instantiates in the
-caller's file — delegates its private-field work to two non-generic bookends,
-`beginSpec` and `finishSpec`, leaving only the field-free `addArgs` generic
-in between. Any new generic or template needing a private `Spec` field has to
-be split the same way; see `docs/gotchas.md`.
+`argumint.nim`, `fsm.nim`, `help.nim`, `parser.nim`, and `specbuild.nim`.
+That call **does not survive template or generic instantiation in another
+module**, so `newSpec*` — which is generic over the spec tuple and therefore
+instantiates in the caller's file — delegates its private-field work to two
+non-generic bookends, `beginSpec` and `finishSpec`, leaving only the
+field-free `addArgs` generic in between. Any new generic or template needing
+a private `Spec` field has to be split the same way; see `docs/gotchas.md`.
 
 ## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`/`fsmgraph.nim`)
 
@@ -711,11 +723,11 @@ lines, so the help text stays inline with the first wrapped variants line.
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via
-`cascadeSpecSettings` (`src/argumint.nim`). `settings` is deliberately not
-a parameter to `command*` itself: since it's the same shared instance
-throughout the tree, it only needs to be set once at the top-level
-`newSpec`/`parse*` call regardless of nesting depth. Being a ref rather
-than four plain fields also means a later mutation of that same
+`cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is
+deliberately not a parameter to `command*` itself: since it's the same
+shared instance throughout the tree, it only needs to be set once at the
+top-level `newSpec`/`parse*` call regardless of nesting depth. Being a ref
+rather than four plain fields also means a later mutation of that same
 `SpecSettings` — e.g. from a `before` hook — applies live to every
 not-yet-dispatched `Spec` in the tree, including the current level's own
 message/help output once `parseMessageArgs` runs after `before` (see

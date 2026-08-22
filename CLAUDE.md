@@ -59,10 +59,11 @@ registration.
 Parsing happens in two distinct phases at a high level, detailed fully in
 `docs/architecture.md`:
 
-1. **Spec construction** (`src/argumint.nim`): user calls `arg`, `opt`,
-   `flag`, `command`, `help` to build a tuple of `Arg` objects; `newSpec`
-   assembles them into a `Spec` (`backend.nim`), auto-generating a usage
-   string from the declared args if none was given.
+1. **Spec construction** (`specbuild.nim`, `src/argumint.nim`): user calls
+   `arg`, `opt`, `flag`, `command`, `help` (`argumint.nim`) to build a tuple
+   of `Arg` objects; `newSpec` (`specbuild.nim`) assembles them into a `Spec`
+   (`backend.nim`), auto-generating a usage string from the declared args if
+   none was given.
 2. **Usage-string compilation → FSM** (`lexer.nim` → `parser.nim` →
    `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
    recursively-descent parsed into a graph of `State`/`Transition` objects
@@ -89,7 +90,7 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   each subcommand's nested spec has positional args only) — but options
   routinely appear alongside either.
 - `arg`/`opt`/`flag`/`command` variant strings are validated with the PEG
-  patterns near the top of `src/argumint.nim` (`PositionalVariantFormat`,
+  patterns in `src/argumint/backend.nim` (`PositionalVariantFormat`,
   `OptionalVariantFormat`, `FlagVariantFormat`) — errors here raise
   `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
   failures are deliberately different exception types).
