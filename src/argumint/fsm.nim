@@ -71,10 +71,17 @@ type
     ## Lexicographic, so `subIdx` only ever breaks a tie *within* one physical
     ## argument and never outweighs reaching the next one. See ADR 0036.
 
+  Level = tuple[spec: Spec, command: string]
+    ## One entered grammar level: the `Spec` owning it, plus the accumulated
+    ## command string naming it (`"app"`, `"app go"`). Recorded root-first on
+    ## `ParseContext.levels` as the walk descends, and read afterwards by
+    ## `dispatch` and `applyFallbacks` -- see architecture.md §5.
+
   ParseContext = object
     maxReach: Reach       ## The greatest Reach of any path explored from this state -- both the running bar siblings are ranked against and, once the walk returns, what the parent reads back as this branch's descendant Reach. See `reach` and ADR 0036
     spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
     command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
+    levels: seq[Level]    ## Every grammar level entered on this path, root-first. Seeded with the root entry by `parse*` (the completion path neither seeds nor reads it) and appended to as `match`'s `Command` branch descends; a losing branch's entry is discarded with the branch, since `walk` clones the whole context per candidate transition
     errorSpec: Spec       ## Spec for the furthest-reaching fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
     errorCommand: string  ## See `errorSpec`
     messages: seq[Complaint] ## A list of complaints indicating failure reason of the furthest-reaching fsm path
@@ -557,6 +564,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
         pc.matches.push(m.cmd, pc.spec, c.cmdName, idx = pc.tokens[0].idx)
         pc.command = fmt"{pc.command} {c.cmdName}"
         pc.spec = m.cmd.spec
+        pc.levels.add (spec: pc.spec, command: pc.command)
         pc.consume(0, c)
         result = true
     if not result:
@@ -900,24 +908,6 @@ proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
         continue
       arg.action(command, spec, variant)
 
-proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, variant: string] =
-  ## The Command actually matched at this spec's own level for this
-  ## invocation, if any -- `cmd` is nil if this spec is the dynamic leaf.
-  ## At most one Command can ever be matched per spec level: `match`'s own
-  ## `Command` branch permanently reassigns `pc.spec` to the matched
-  ## command's own nested spec, so a sibling command word can never be
-  ## recognized afterward.
-  # Iterates `matches` rather than `spec.args`, like `parseMessageArgs`:
-  # `matchSpec == spec` already subsumes "declared at this level". Safe to
-  # search in table order rather than declaration order precisely because
-  # of the at-most-one invariant above -- there is only ever one hit.
-  for arg, ms in matches:
-    if arg.kind != Command:
-      continue
-    for (variant, _, matchSpec, _) in ms:
-      if matchSpec == spec:
-        return (CommandArg(arg), variant)
-
 proc parseAllValues(matches: MatchTable) =
   ## Parses every non-Command, non-MessageArg match across the *whole*
   ## matched tree, before `dispatch` fires any hook -- so no hook runs for
@@ -944,28 +934,29 @@ proc matchedArgs(matches: MatchTable): seq[Arg] =
     if ms.len > 0:
       result.add arg
 
-proc dispatch(spec: Spec, matches: MatchTable, command: string, info: HookInfo) =
-  ## Recursively dispatches `spec` and, if a Command was matched at its own
-  ## level, whichever nested spec that routes to -- firing `before`/
-  ## `action`/`after` per `docs/adr/0009-command-before-action-after-hooks.md`.
-  ## `info` is computed once by `parse*` and threaded through unchanged, so
-  ## every level's hooks see the same whole-invocation view -- see
-  ## `docs/adr/0021-hook-info-matched-args.md`.
+proc dispatch(levels: seq[Level], idx: int, matches: MatchTable, info: HookInfo) =
+  ## Recursively dispatches `levels[idx]` and, if the walk descended past it,
+  ## whichever level it routes to -- firing `before`/`action`/`after` per
+  ## `docs/adr/0009-command-before-action-after-hooks.md`. Stays recursive
+  ## rather than looping: the nested `try`/`finally` is what unwinds `after`
+  ## leaf-to-root. `info` is computed once by `parse*` and threaded through
+  ## unchanged, so every level's hooks see the same whole-invocation view --
+  ## see `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## Values are already parsed for every matched level by the time this
   ## runs (`parseAllValues`, called from `parse*`), so a hook at any depth
   ## sees the whole tree's values, not just its own level's -- see
   ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
+  let (spec, command) = levels[idx]
   if not spec.before.isNil:
     spec.before(info)
   try:
     parseMessageArgs(spec, matches, command)
-    let (cmd, variant) = matchedCommand(spec, matches)
-    if cmd.isNil:
+    if idx == levels.high:
       if not spec.action.isNil:
         spec.action(info)
     else:
-      dispatch(cmd.spec, matches, "{command} {variant}".fmt, info)
+      dispatch(levels, idx + 1, matches, info)
   finally:
     if not spec.after.isNil:
       spec.after(info)
@@ -1069,12 +1060,12 @@ proc applyTier(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Opti
       cursor.applied.incl arg
       setValue(found.get)
 
-proc applyFallbacks(env, configValues: var ValueCursor, spec: Spec, matches: MatchTable,
+proc applyFallbacks(env, configValues: var ValueCursor, levels: seq[Level],
     complaints: var seq[Complaint]) =
-  ## Recurses through every spec level actually entered during this parse
-  ## (mirroring `dispatch`'s own recursion -- see architecture.md §5),
-  ## falling back to each not-yet-supplied Arg's env var, then (only if env
-  ## had nothing) its Config Source value. Deliberately outside `walk`'s
+  ## Sweeps every spec level actually entered during this parse (the chain
+  ## the walk recorded -- see architecture.md §5), falling back to each
+  ## not-yet-supplied Arg's env var, then (only if env had nothing) its
+  ## Config Source value. Deliberately outside `walk`'s
   ## FSM/backtracking, so an Arg only reachable via `[options]` still
   ## picks up its fallback values -- see architecture.md's "Env var
   ## mechanics", `docs/adr/0005-env-supplied-multi-value-options-and-
@@ -1095,25 +1086,23 @@ proc applyFallbacks(env, configValues: var ValueCursor, spec: Spec, matches: Mat
   ## Runs to completion (or raises) entirely before `dispatch` is called --
   ## so a fallback problem at any level blocks every level's hooks from
   ## firing at all, not just that level's, since `dispatch` never starts.
-  for a in spec.args:
-    let arg = a # local copy -- a `for` loop's `lent Arg` can't be captured by the closures below
-    if arg.seenBy > byEnv:
-      continue
-    let envHad = applyTier(env, arg, () => resolveEnv(arg, spec),
-      proc (values: seq[string]) =
-        for v in values:
-          arg.parse(v, arg.envName, some(byEnv)),
-        complaints)
-    if not envHad and arg.seenBy <= byConfig:
-      discard applyTier(configValues, arg, () => resolveConfig(arg, spec),
+  for level in levels:
+    let spec = level.spec # local copy -- a `for` loop's `lent` yield can't be captured by the closures below
+    for a in spec.args:
+      let arg = a # local copy, for the same reason
+      if arg.seenBy > byEnv:
+        continue
+      let envHad = applyTier(env, arg, () => resolveEnv(arg, spec),
         proc (values: seq[string]) =
           for v in values:
-            arg.parse(v, arg.configKey.join, some(byConfig)),
+            arg.parse(v, arg.envName, some(byEnv)),
           complaints)
-
-  let (cmd, _) = matchedCommand(spec, matches)
-  if not cmd.isNil:
-    applyFallbacks(env, configValues, cmd.spec, matches, complaints)
+      if not envHad and arg.seenBy <= byConfig:
+        discard applyTier(configValues, arg, () => resolveConfig(arg, spec),
+          proc (values: seq[string]) =
+            for v in values:
+              arg.parse(v, arg.configKey.join, some(byConfig)),
+            complaints)
 
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
@@ -1145,7 +1134,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     raise newException(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(spec: spec, command: command, errorSpec: spec, errorCommand: command,
-    tokens: tokenizeArgs(args))
+    levels: @[(spec: spec, command: command)], tokens: tokenizeArgs(args))
   if not spec.fsm.walk(pc):
     raiseParseError(formatComplaints(pc.finalComplaints), pc.errorCommand, pc.errorSpec)
 
@@ -1169,12 +1158,12 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     parseAllValues(pc.matches)
 
   reshaped:
-    applyFallbacks(pc.env, pc.configValues, spec, pc.matches, fallbackComplaints)
+    applyFallbacks(pc.env, pc.configValues, pc.levels, fallbackComplaints)
   if fallbackComplaints.len > 0:
     raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
 
   let info = HookInfo(matched: matchedArgs(pc.matches))
-  dispatch(spec, pc.matches, command, info)
+  dispatch(pc.levels, 0, pc.matches, info)
 
 when isMainModule:
   import std/unittest
@@ -1225,6 +1214,11 @@ when isMainModule:
 
   proc specWithConfig(sources: seq[ConfigSource] = @[], args: seq[Arg] = @[]): Spec =
     Spec(settings: SpecSettings(envDelim: ":", configSources: sources), args: args)
+
+  proc level(spec: Spec): Level =
+    ## One entry of the command chain `applyFallbacks` sweeps. The command
+    ## string is unused by that sweep, so these tests leave it empty.
+    (spec: spec, command: "")
 
   suite "ValueCursor.probe (env tier)":
     test "false when the arg has no env var configured":
@@ -1327,9 +1321,8 @@ when isMainModule:
       let arg = newTestArg("--foo", "ARGUMINT_TEST_DIRECT")
       let spec = specWithConfig(args = @[Arg arg])
       var env, configValues: ValueCursor
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints.len == 0
       check arg.recorded == @["hi"]
 
@@ -1341,9 +1334,8 @@ when isMainModule:
       var env, configValues: ValueCursor
       check env.probe(arg, () => resolveEnv(arg, spec))
       check env.probe(arg, () => resolveEnv(arg, spec))
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints.len == 0
       check arg.recorded == @["a", "b"]
 
@@ -1354,9 +1346,8 @@ when isMainModule:
       let spec = specWithConfig(args = @[Arg arg])
       var env, configValues: ValueCursor
       discard env.probe(arg, () => resolveEnv(arg, spec)) # consumes only 1 of the 3 available values
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints == @[complaint("unexpected option", arg.name, names = true)]
 
     test "an arg reachable from two spec levels only complains once":
@@ -1368,10 +1359,8 @@ when isMainModule:
       let spec = specWithConfig(args = @[Arg arg])
       var env, configValues: ValueCursor
       discard env.probe(arg, () => resolveEnv(arg, spec)) # consumes only 1 of 3
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
-      applyFallbacks(env, configValues, spec, matches, complaints) # second level
+      applyFallbacks(env, configValues, @[level(spec), level(spec)], complaints) # same arg, two levels
       check complaints == @[complaint("unexpected option", arg.name, names = true)]
 
     test "skips an arg already explicitly matched on the command line":
@@ -1380,12 +1369,11 @@ when isMainModule:
       let arg = newTestArg("--foo", "ARGUMINT_TEST_SKIP")
       let spec = specWithConfig(args = @[Arg arg])
       var env, configValues: ValueCursor
-      var matches: MatchTable
       # The gate is the Arg's own tier, which `parse*` sets from the match
       # table before calling this -- not a `matches` lookup here. See ADR 0039.
       arg.seenBy = byCli
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints.len == 0
       check arg.recorded.len == 0
 
@@ -1395,9 +1383,8 @@ when isMainModule:
       let source = FakeSource(data: @[(configKey("foo"), @["hi"])])
       let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
       var env, configValues: ValueCursor
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints.len == 0
       check arg.configRecorded == @["hi"]
 
@@ -1407,9 +1394,8 @@ when isMainModule:
       let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
       var env, configValues: ValueCursor
       discard configValues.probe(arg, () => resolveConfig(arg, spec)) # consumes only 1 of 3
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints == @[complaint("unexpected option", arg.name, names = true)]
 
     test "env present takes precedence, config is never consulted":
@@ -1419,9 +1405,8 @@ when isMainModule:
       let source = FakeSource(data: @[(configKey("foo"), @["from-config"])])
       let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
       var env, configValues: ValueCursor
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check arg.recorded == @["from-env"]
       check arg.configRecorded.len == 0
 
@@ -1430,9 +1415,8 @@ when isMainModule:
       let source = FakeSource(data: @[(configKey("foo"), @["from-config"])])
       let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
       var env, configValues: ValueCursor
-      var matches: MatchTable
       var complaints: seq[Complaint]
-      applyFallbacks(env, configValues, spec, matches, complaints)
+      applyFallbacks(env, configValues, @[level(spec)], complaints)
       check complaints.len == 0
       check arg.recorded.len == 0
       check arg.configRecorded == @["from-config"]
