@@ -14,6 +14,11 @@
 # submodule that file can import, so no importer can name it. Its mirror
 # lives in that file's own embedded "the export boundary drawn in issue #27"
 # suite instead.
+#
+# A second: `genHelp` isn't private at all -- it's exported from
+# `argumint/help` and merely not re-exported here (issue #50). Its negative
+# below therefore pairs with `tests/test_help.nim`, which imports that
+# submodule and calls it, rather than with `test_argumint.nim`'s suite.
 
 import std/[os, sequtils, unittest]
 
@@ -89,6 +94,14 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
+
+  test "`genHelp` is reachable only by importing `argumint/help`":
+    # Semi-public on purpose: the umbrella import stays free of it, and a
+    # caller who wants to render help themselves opts in with the submodule.
+    # Mirrored by `tests/test_help.nim`, not by `test_argumint.nim` -- see
+    # the second exception in this file's header.
+    check not compiles(spec.genHelp("prog"))
+    check not compiles(genHelp(spec, "prog"))
 
   test "`settings` and the hooks stay public":
     # `block:` rather than a bare `spec.before = ...`, which `compiles`
