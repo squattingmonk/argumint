@@ -132,8 +132,10 @@ something to silently paper over. This deliberately doesn't mirror
 Validator's own default exemption (`docs/adr/0008`): that exemption exists
 because a `ValueArg`'s default is a genuine substitution tier a sentinel
 value can hide behind, and a Flag's default has no such tier -- it's simply
-the value's initial state, mutated in place by whatever Flag Operations
-follow, so the same allowance doesn't transfer. See
+the value's initial state, which whatever Flag Operations follow then
+mutate, so the same allowance doesn't transfer. That initial state is
+retained rather than merely written through, so `clear` can restore it
+after any number of Flag Operations have run. See
 `docs/adr/0016-flag-clamp.md` for the full reasoning, including the
 rejected `range[T]`-typed-value alternative.
 _Avoid_: Flag Validator (deliberately not a Validator); capitalize when
@@ -190,7 +192,17 @@ invoked bare fires its own Action, while the same Command invoked with a
 further subcommand instead defers to whatever Action fires deeper, only
 wrapping it via Before Hook/After Hook. Never fires alongside a Command
 matched at the same level. Receives a Hook Info value alongside every
-matched level's parsed values. See Before Hook, After Hook.
+matched level's parsed values.
+
+A matched Message Argument takes the Action's place for that level: it is
+what happens *instead of* running the Spec's own callback or recursing into
+a nested Command, so it fires from the same slot, in the same order, under
+the same After Hook guarantee. It is carried by the Arg rather than the
+Spec, and reached through the Arg's own `action` rather than the Spec's
+field — one role, two possible carriers, and the shared name is deliberate.
+See `docs/adr/0013-message-args-fire-after-before.md`.
+
+See Before Hook, After Hook.
 _Avoid_: handler (the removed predecessor); don't use "action" to mean
 Command itself — see Command's own _Avoid_ note
 
@@ -228,7 +240,8 @@ halts parsing instead of capturing a value — a peer of Positional
 Argument, Option, and Command, not a specialization of Flag. Built with
 `message()`/`version()`; Help is the built-in specialization whose
 displayed message is the Spec's dynamically-generated usage/help text
-rather than a fixed author-supplied string.
+rather than a fixed author-supplied string. A matched Message Argument is
+that level's Action for the invocation — see Action.
 _Avoid_: MessageArg (code-level name), display flag
 
 **Options Catch-all**:
@@ -403,8 +416,14 @@ is about *which* values an Arg has already collected, is consulted only by
 a history-aware Validator during matching, and persists across parses; a
 Seen Arg is about *where this parse's* value came from. Resolved for the
 whole matched Spec tree before any hook fires, so it agrees with the Arg's
-readable value at every point a hook can observe either. See
-`docs/adr/0039-per-arg-provenance.md`.
+readable value at every point a hook can observe either -- provenance is
+written by whichever method writes the value, so it can never outrun it.
+Application code may claim a tier for itself: `arg.parse(v, seenBy =
+some(byCli))` makes an Arg Seen at that tier exactly as the command line
+would, and `arg.clear()` makes it unseen again. A write naming no tier
+extends at whatever tier is current, so it leaves an unsupplied Arg
+unsupplied. See `docs/adr/0039-per-arg-provenance.md` and
+`docs/adr/0041-parse-is-the-write-surface.md`.
 _Avoid_: source, origin (both read as the tier itself rather than the fact
 of being supplied), matched (means specifically the command-line tier, per
 `HookInfo.matched`)
@@ -549,6 +568,20 @@ that isn't the one that ended up matching — has no walk-derived count to
 bound it by, so every available value is applied; env is a per-Arg
 concern, not a per-Usage-Line one, so it still applies even to an Arg the
 matched Usage Line never mentions.
+
+A tier's values are arbitrated against whatever provenance the Arg already
+carries, rather than blindly replacing or accumulating onto it. A stronger
+tier clears the Arg first, so a weaker tier's values are replaced; the same
+tier applies without clearing, which is what makes repeated values from one
+tier accumulate; a weaker tier is refused and applies nothing (`arbitrate`,
+in code, is where every write applies that rule). This is what
+makes a value written *before* parsing a pre-seed rather than something the
+tiers silently clobber — a pre-seed claiming the command-line tier is
+appended to by what the user typed, one claiming no tier is discarded by
+any tier that supplies the Arg, and one claiming a tier nothing else
+supplies survives untouched. A tier consulted but resolving nothing never
+clears, so it cannot destroy a pre-seed. See
+`docs/adr/0041-parse-is-the-write-surface.md`.
 
 The coded-default tier is not stored anywhere — it is substituted at read
 time, which is what lets a read replace it. `get(otherwise)` does exactly

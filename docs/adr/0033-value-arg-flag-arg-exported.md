@@ -1,5 +1,12 @@
 # `ValueArg` and `FlagArg` are exported; their state stays private
 
+> **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the base
+> methods listed below now read `envName`/`envDelim`/`configKey`/`parse`/
+> `clear`/`action`. `setFromEnv`/`setFromConfig` are gone — every tier
+> writes through `parse`, which carries the Value Precedence tier it is
+> writing as. The decision here, that the two type *names* are exported
+> while their state stays private, is unaffected.
+
 `docs/adr/0030-core-types-exported-spec-opaque.md` made a `Spec` nameable so
 it could cross a proc or module boundary. It drew its export list around the
 types a caller *receives* from `newSpec*` and reads off `HookInfo`, and did

@@ -1,5 +1,22 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
+> **Extended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the
+> custom-`Arg` method contract this ADR freezes at 1.0 changed, on balance
+> getting smaller. A subtype must now (1) route its `parse` override
+> through the `arbitrate*` template, and (2) override `clear*` if it
+> carries a value, or it will accumulate where it should reset.
+>
+> Three methods left the contract: `setFromEnv*` and `setFromConfig*` are
+> gone (every tier now writes through `parse*`, which carries a `SeenBy`),
+> and `Arg.parse`'s `(command, spec, variant)` overload became the sole
+> `action*`, replacing the narrower `(variant)` form. `envName*`,
+> `envDelim*` and `configKey*` stay — they are how a tier *finds* values,
+> which is still per-Arg. So the method list further down this ADR that
+> names `setFromEnv`/`setFromConfig` is stale.
+>
+> `parse*`, `clear*`, `action*`, `arbitrate*` and `subject*` are all
+> reachable from the facade, so none of this needs a backend import.
+
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md` set the goal that
 "`import argumint` alone is enough". For the core vocabulary types it wasn't:
 after a bare `import argumint`, none of `Arg`, `ArgKind`, `CommandArg`,

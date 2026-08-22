@@ -223,16 +223,23 @@ convert/store values.
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
 machinery, via `applyFallbacks`: for every `Arg` in `spec.args` no
-higher-precedence tier has already supplied (`arg.seenBy < byEnv`), it
-tries the environment-variable tier, then — only if that had nothing — the
-Config Source tier, calling `arg.setFromEnv(...)`/`arg.setFromConfig(...)`
-to apply whichever tier's value through the same conversion/validation
-path a CLI value would take, and recording that tier on `arg.seenBy`.
+*strictly* higher-precedence tier has already supplied
+(`arg.seenBy > byEnv` skips), it tries the environment-variable tier, then
+— only if that had nothing — the Config Source tier, feeding each resolved
+value straight to `arg.parse(v, ctx, some(tier))`, the same conversion/
+validation path a CLI value takes. `ctx` is the source's own label
+(`arg.envName`, or `arg.configKey.join`), which lands in `parse`'s variant
+slot and is what `subject` renders as `--port (env: PORT)` when the value
+turns out to be bad. There is no per-tier method: `parse` records the tier
+as it writes, so provenance can't outrun the value it describes. An Arg already *at* this tier is appended
+to rather than skipped, which is what lets a pre-seed declaring `byEnv`
+still collect the env var's own values (see
+`docs/adr/0041-parse-is-the-write-surface.md`).
 Doing this after `walk` rather than folding it into the FSM means an
 option only reachable via `[options]` (never explicitly attempted during
 matching) still picks up a fallback value; gating on `seenBy` gives an
-explicit CLI value precedence *and* dedupes an Arg reachable from two spec
-levels, both for free (see §5 and
+explicit CLI value precedence for free, while `ValueCursor.applied` is
+what dedupes an Arg reachable from two spec levels (see §5 and
 `docs/adr/0039-per-arg-provenance.md`). See
 `docs/adr/0004-required-options-env-fallback.md`,
 `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
@@ -290,7 +297,9 @@ declared Variants (matching `self.ops`' keys exactly) and is applied via
 *that* Variant's own Flag Operation, not forced through `=`.
 
 A pre-existing nuance, not introduced by the Config Source tier: since
-`applyFallbacks` gates on provenance per-Arg (not per-position),
+`applyFallbacks` gates on provenance per-Arg (not per-position), and a
+real CLI match puts the Arg at `byCli` — strictly above both fallback
+tiers, so both skip it —
 an Arg reachable at more than one position in the matched Usage Line where
 *some* positions matched a real CLI token and others were satisfied by a
 fallback tier *during the walk* (via `probe`, which never writes to
@@ -422,9 +431,10 @@ private — so an arg can cross a proc or module boundary
 `privateAccess` *per instantiation*, not once per generic.
 
 `defineArg[T]` is a template that generates a `method parse` for a given `T`
-(both arities) by calling `parseImpl`, which converts the raw string via an
-implicit `converter` (`toInt`, `toFloat`, `toBool`, `toChar`; strings pass
-through) and then runs the arg's `Validator[T]` (`validators.nim`) if
+(both arities) by calling `parseImpl`, which first arbitrates the declared
+Value Precedence tier via `Arg.arbitrate` (see below), then converts the raw
+string via an implicit `converter` (`toInt`, `toFloat`, `toBool`, `toChar`;
+strings pass through) and runs the arg's `Validator[T]` (`validators.nim`) if
 present — validation always happens against the scalar element type, never
 `seq[T]`, since it runs before the value is stored/appended. `defineArg[T]`
 also generates a per-arity `method defaultStr`, used by `genHelp` to render
@@ -432,6 +442,9 @@ also generates a per-arity `method defaultStr`, used by `genHelp` to render
 scalar default equals `T`'s zero value — `default(T)` — since that's the
 fallback used when no default was given). The base `Arg.defaultStr`
 (commands, flags, message args) returns `""`, so flags never show a default.
+`defineArg[T]` also generates a per-arity `method clear`, which empties the
+value seq and, via `procCall`, the base's provenance -- empty *is* the
+default-applies state (ADR 0008), so there is nothing to restore.
 `defineArg[T]` likewise generates a per-arity `method validatorHelp`, which
 calls `self.validator.help()` when a validator is present — `Validator[T].help`
 returns a short description per kind, or every kind's own `desc` verbatim
@@ -456,6 +469,84 @@ statements are what make that resolve correctly for a caller registering
 their own custom type via `defineArg`/`defineFlag`/`defineSetFlag`, not
 just for code living inside `argumint.nim` itself. See
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
+
+### The write side: `parse`, `arbitrate`, `clear`, `action`
+
+`Arg.parse` is the only thing that writes an Arg's value, on every tier and
+from application code alike. It is re-exported through the facade
+(`export backend.parse, backend.clear, backend.action, backend.arbitrate`),
+so writing a value needs no backend import:
+
+```nim
+port.parse("8080", seenBy = some(byCli))  # declares a tier; visible to `get`
+port.parse("8080")                        # extends the current tier, whatever it is
+port.clear()                              # back to the coded-default state
+flag.parse("", "-v")                      # applies that Variant's Flag Operation
+```
+
+The optional `seenBy` is what makes the export useful at all: every reader
+from ADR 0040 branches on `seen`, so a write that declares no tier is
+written but unreadable. See
+`docs/adr/0041-parse-is-the-write-surface.md`.
+
+The `arbitrate` template holds the tier rule, and every `parse`
+implementation routes through it -- the base one, `parseImpl`, and
+`FlagArg.parse`. Most callers have nothing to do on either branch and use
+the no-body overload:
+
+```nim
+self.arbitrate(seenBy)                 # weaker tier: returns, applies nothing
+```
+
+`parseImpl` uses the two-body form, because the branches need different
+code:
+
+```nim
+self.arbitrate(seenBy):                # extending: check against what's there
+  if not self.validator.isNil: self.validator.validate(tmp, self.value)
+do:                                    # replacing: those values are going away
+  if not self.validator.isNil: self.validator.validate(tmp)
+```
+
+A tier weaker than the one recorded `return`s out of the calling scope
+(`parse` never demotes -- `clear` first if that is what you want); an equal
+one runs the first body and applies without clearing (so values from one
+tier accumulate); a stronger one runs the `do` body, then `clear`s the Arg
+and records the new tier. Because the first CLI match promotes and clears,
+every later match in the same parse lands in the equal-tier branch with no
+extra bookkeeping.
+
+The `do` body running *before* the clear is load-bearing: conversion
+happens before `arbitrate` is reached and validation happens inside it, so
+a `parse` that raises leaves the Arg exactly as it was rather than cleared
+and stamped with a tier it never received a value from. Note also that the
+template's parameter is `tier`, not `seenBy` -- see `docs/gotchas.md` for
+why that matters wherever it expands inside another template.
+
+The base `parse` is a *quiet recorder*: it registers and does nothing else,
+and never raises. That is why `CommandArg` and `MessageArg` need no
+override and still get provenance, and it mirrors how `defaultStr` and
+`completions` already treat the value-less kinds. `clear` has the same
+shape -- exported `{.base.}` no-op, unexported per-type overrides -- and
+always clears provenance alongside the value, since an Arg reading as Seen
+with an empty value seq would make ADR 0040's scalar accessor index it.
+
+`Arg.action` is separate from `parse` and carries the side-effecting kinds.
+One signature serves both: `MessageArg` raises `MessageError` and ignores
+`command`/`spec`, while `HelpArg` uses them to render help before raising
+`HelpError`. That uniformity is what lets `parseMessageArgs` dispatch once,
+with no test for which kind it holds.
+
+The method is a dependency inversion -- help rendering (`genHelp`) currently
+lives in `argumint.nim`, which imports `fsm.nim` and not the reverse, so the
+FSM can't render help itself. That is a consequence of where `genHelp` sits
+rather than a constraint: everything it needs (`formatUsage`, the display
+base methods, `Spec`'s own fields) is already in `backend`, so moving it
+below `fsm` would let the FSM raise directly. The method would still be
+worth keeping as the extension point for a custom side-effecting Arg.
+
+A custom `Arg` subtype (ADR 0030) therefore owes two things: route `parse`
+through `arbitrate`, and override `clear` if it carries a value.
 
 ### Flags
 
@@ -548,13 +639,19 @@ naming, and applies to registering *any* custom Arg type, not just a
 and `docs/gotchas.md`.
 
 `flag*`'s `clamp: FlagClamp[T] = nil` param stores directly onto
-`FlagArg[T].clamp`. `defineFlagArg`'s generated `parse*`/`setFromEnv*`
-(the same two methods that call `self.value.handleFlag(op, arg)` for every
-Flag Operation, CLI- or env-sourced) each call
-`self.value = self.clamp.apply(self.value)` immediately afterward when a
-clamp is present -- so the clamp runs once per Flag Operation actually
-applied, not once per `parse*`/`setFromEnv*` invocation (`setFromEnv*` can
-apply several operations in its own loop, one per env-supplied value).
+`FlagArg[T].clamp`. `defineFlagArg`'s generated `parse*` -- the one method
+that calls `self.value.handleFlag(op, arg)`, whatever tier the Variant came
+from -- calls `self.value = self.clamp.apply(self.value)` immediately
+afterward when a clamp is present. So the clamp runs once per Flag
+Operation actually applied: a tier supplying several Variants calls `parse*`
+once per value, and each call clamps.
+`defineFlagArg` also generates a `method clear`, which restores `value` from
+the private `FlagArg[T].default` field the constructor retained -- a Flag has
+no empty state to fall back to the way a `ValueArg` does, and its operations
+mutate `value` in place, so without that field its construction-time state
+would be unrecoverable. Restoring it can never violate the clamp, because
+spec construction already rejected a default that did.
+
 `flag*` itself also runs `clamp.apply(default) != default` once, at spec
 construction, before returning -- since `FlagArg.value` is seeded directly
 from `default` with no separate substitution tier the way `ValueArg`'s
@@ -669,8 +766,11 @@ than one grammar level. Two consumers still rely on it: `matchedCommand`
 Value parsing no longer does — see `parseAllValues` below.
 
 After a successful walk, and before the env/Config Source sweep, `Spec.parse`
-calls `parseAllValues`, which parses every non-Command, non-`MessageArg` match in
-`pc.matches` — the whole tree, before any hook fires. Because `pc.matches`
+calls `parseAllValues`, which parses every match in `pc.matches` — the whole
+tree, before any hook fires. Commands and Message Args are included rather
+than skipped: they hit the quiet base `Arg.parse`, which records `byCli` and
+does nothing else, which is how they get provenance now that no blanket
+post-walk sweep writes it. Because `pc.matches`
 is already flat across every level, this is a plain loop over the table: no
 spec-tree recursion, no `Match.spec` filtering, and no dedupe pass, since
 an Arg shared by two levels holds all its matches under one key and so is
@@ -691,20 +791,25 @@ read top-down:
 
 ```
 walk
-                 # seenBy = byCli on every matched Arg, from matchedArgs
-parseAllValues   # CLI tier
-applyFallbacks   # env tier if seenBy < byEnv, then config if seenBy < byConfig
+parseAllValues   # CLI tier; each match records seenBy = byCli as it writes
+applyFallbacks   # env tier unless seenBy > byEnv, then config unless > byConfig
 dispatch         # hooks only
 ```
 
-`byCli` is written in `parse*` itself, straight from
-`matchedArgs(pc.matches)` and before anything is converted, so provenance
-is complete for the whole tree — commands and help args included — before
-the first hook, and `applyFallbacks` has a per-Arg gate to read whichever
-of the two tiers' passes runs first. Ordering the passes strongest-first
-is a separate choice, with one consequence: a bad command-line value now
-surfaces before a bad env or config one. See
-`docs/adr/0039-per-arg-provenance.md`.
+Provenance is written per contribution, by whichever `parse` override
+writes the value, so it can never outrun the value it describes.
+`parseAllValues` covers the whole matched tree — commands and Message Args
+included, via the quiet base `parse` that records and nothing else — so
+provenance is complete before the first hook, at any dispatch depth. Each
+contribution is arbitrated by `Arg.arbitrate` against the tier already
+recorded: a stronger tier clears first, an equal one appends, a weaker one
+applies nothing. The first CLI match therefore clears any pre-seed and
+records `byCli`, which moves every later match into the append branch with
+no "is this the first value" bookkeeping. Ordering the passes
+strongest-first is a separate choice, with one consequence: a bad
+command-line value surfaces before a bad env or config one. See
+`docs/adr/0039-per-arg-provenance.md` and
+`docs/adr/0041-parse-is-the-write-surface.md`.
 
 `Spec.parse` then builds a `HookInfo(matched:
 seq[Arg])` from `pc.matches` -- every Arg with at least one match, across
@@ -714,8 +819,8 @@ walk) -- then recursively re-walks the *declared* Spec tree -- not
 `dispatch(spec, pc.matches, command, info)`, threading `info` unchanged
 through every recursive call. At each `Spec` level: `spec.before(info)`
 fires, if set, with every matched level's values already parsed;
-`parseMessageArgs` then parses (and raises
-on) any matched `MessageArg`/`HelpArg` at this level (still filtered by
+`parseMessageArgs` then fires (via `Arg.action`, and
+raises on) any matched `MessageArg`/`HelpArg` at this level (still filtered by
 the `Match`'s `Spec` provenance, so a shared `help()` fires at the level it
 was typed at rather than the shallowest one declaring it); `matchedCommand`
 finds whichever single Command was matched at this level, if any (at most
