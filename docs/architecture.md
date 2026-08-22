@@ -261,7 +261,8 @@ convert/store values.
 
 After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
 `Arg.parse` above) does one more pass entirely outside the FSM/backtracking
-machinery, via `applyFallbacks`: for every `Arg` in `spec.args` no
+machinery, via `applyFallbacks`: for every `Arg` declared by any level the
+walk entered (see the command chain under "Dispatch order") that no
 *strictly* higher-precedence tier has already supplied
 (`arg.seenBy > byEnv` skips), it tries the environment-variable tier, then
 — only if that had nothing — the Config Source tier, feeding each resolved
@@ -845,9 +846,10 @@ match — safe because `ParseContext` is a plain `object`, not a `ref
 object`, so `walk`'s backtracking clones it per candidate branch and only
 commits the winning branch back) — this is what lets dispatch scope a
 match to the correct level even when the same `Arg` is reachable at more
-than one grammar level. Two consumers still rely on it: `matchedCommand`
-(which also drives `applyFallbacks`' recursion) and `parseMessageArgs`.
-Value parsing no longer does — see `parseAllValues` below.
+than one grammar level. Exactly one consumer relies on it:
+`parseMessageArgs`. Value parsing no longer does (see `parseAllValues`
+below), and neither does dispatch, which reads the chain of levels the
+walk recorded as it descended — see below.
 
 After a successful walk, and before the env/Config Source sweep, `Spec.parse`
 calls `parseAllValues`, which parses every match in `pc.matches` — the whole
@@ -895,24 +897,40 @@ command-line value surfaces before a bad env or config one. See
 `docs/adr/0039-per-arg-provenance.md` and
 `docs/adr/0041-parse-is-the-write-surface.md`.
 
-`Spec.parse` then builds a `HookInfo(matched:
-seq[Arg])` from `pc.matches` -- every Arg with at least one match, across
-every level, computed once from the walk already performed (not a second
-walk) -- then recursively re-walks the *declared* Spec tree -- not
-`pc.matches` itself, which carries no scope information on its own -- via
-`dispatch(spec, pc.matches, command, info)`, threading `info` unchanged
-through every recursive call. At each `Spec` level: `spec.before(info)`
-fires, if set, with every matched level's values already parsed;
-`parseMessageArgs` then fires (via `Arg.action`, and
-raises on) any matched `MessageArg`/`HelpArg` at this level (still filtered by
-the `Match`'s `Spec` provenance, so a shared `help()` fires at the level it
-was typed at rather than the shallowest one declaring it); `matchedCommand`
-finds whichever single Command was matched at this level, if any (at most
-one ever can be — a matched `Command` transition permanently updates
-`pc.spec` to the nested spec for the rest of the walk, so a sibling
-command word can never be recognized afterward);
-if none, `spec.action(info)` fires (this Spec is the dynamic leaf for this
-invocation); if one, `dispatch` recurses into its own nested `Spec`;
+The walk already knows which levels it entered, so it records them rather
+than letting the post-walk passes re-derive them. `ParseContext.levels` is
+a root-first `seq[Level]`, where `Level` is `(spec: Spec, command:
+string)`: the `Spec` owning that grammar level, plus the accumulated
+command string naming it (`"app"`, `"app go"`, `"app go stat"`). `parse*`
+seeds it with the root entry; `match`'s `Command` branch appends one entry
+right after it reassigns `pc.spec`/`pc.command`. (The completion path
+neither seeds nor reads the chain, exactly as it already skips
+`errorSpec`/`errorCommand`; its walks still append, so what accumulates
+there is root-less and inert.) Backtracking needs no
+special handling: `ParseContext` is a plain `object` whose every field is a
+value type, so `walk`'s clone-per-candidate/commit-the-winner discipline
+discards a losing branch's chain entry along with the branch. At most one
+Command can be matched per level anyway — a matched `Command` transition
+permanently updates `pc.spec` to the nested spec for the rest of the walk,
+so a sibling command word can never be recognized afterward — which is why
+the chain is a list, not a tree.
+
+Both post-walk passes read it. `applyFallbacks` (§3) is a flat loop over
+the chain, needing neither a `Spec` nor the `MatchTable` to find its next
+level. `dispatch` recurses over an index into it.
+
+`Spec.parse` then builds a `HookInfo(matched: seq[Arg])` from `pc.matches`
+-- every Arg with at least one match, across every level, computed once
+from the walk already performed (not a second walk) -- then descends the
+recorded chain via `dispatch(pc.levels, 0, pc.matches, info)`, threading
+`info` unchanged through every recursive call. At each level:
+`spec.before(info)` fires, if set, with every matched level's values
+already parsed; `parseMessageArgs` then fires (via `Arg.action`, and raises
+on) any matched `MessageArg`/`HelpArg` at this level (still filtered by the
+`Match`'s `Spec` provenance, so a shared `help()` fires at the level it was
+typed at rather than the shallowest one declaring it); if this is the
+chain's last entry, `spec.action(info)` fires (this Spec is the dynamic
+leaf for this invocation); otherwise `dispatch` recurses on the next index;
 finally `spec.after(info)` fires, wrapped in a `try/finally` around the
 message-arg/action-or-recursion step so it's guaranteed to run once
 `before` (or its absence) has completed without raising, regardless of

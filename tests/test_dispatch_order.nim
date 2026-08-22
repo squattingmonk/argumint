@@ -121,10 +121,11 @@ suite "a conversion failure beats a matched Message Argument":
       spec.parse(usage = "[--port=<n>] [--help]", args = @["--port", "abc", "--help"],
                  command = "app")
 
-suite "Match.spec still scopes matches to their own level":
-  # parseAllValues drops the per-level `Match.spec` filter, but
-  # matchedCommand and parseMessageArgs still need it. Both only break when
-  # an Arg is genuinely shared across two spec levels -- see ADR 0032.
+suite "an Arg shared by two levels acts at the level it was typed":
+  # parseAllValues drops the per-level `Match.spec` filter; parseMessageArgs
+  # is the one consumer that still needs it. A shared Command is handled by
+  # the walk's recorded command chain instead -- see ADR 0032 and
+  # architecture.md's "Dispatch order".
 
   test "a Command shared by two levels dispatches at the level it was typed":
     var log: seq[string]
@@ -138,8 +139,8 @@ suite "Match.spec still scopes matches to their own level":
                                              usage = "stat", help = ""))
 
     spec.parse(usage = "go\nstat", args = @["go", "stat", "x"], command = "app")
-    # Without matchedCommand's filter the top level claims the shared
-    # Command as its own and dispatches straight to it, skipping `go`.
+    # The chain records the level the walk actually descended through, so
+    # `go` can't be skipped in favour of the shared Command at the top.
     check log == @["go", "stat"]
     check string(leaf.name) == "x"
 
@@ -157,3 +158,24 @@ suite "Match.spec still scopes matches to their own level":
     # Without parseMessageArgs' filter the top level fires the shared help
     # before descending, so `go`'s before hook never runs.
     check log == @["go"]
+
+suite "only the winning branch's commands dispatch":
+  test "a failed command branch doesn't dispatch that command's hooks":
+    # The matched command chain is recorded during the walk, so it must be
+    # discarded along with a branch that loses -- see architecture.md §5.
+    var log: seq[string]
+    proc goBefore(spec: tuple, info: HookInfo) = log.add "go-before"
+    proc goAction(spec: tuple, info: HookInfo) = log.add "go-action"
+    proc rootAction(spec: tuple, info: HookInfo) = log.add "root-action"
+
+    # `go` needs two positionals; given none, its branch fails and the walk
+    # backtracks to the sibling alternative where "go" is a plain <file>.
+    let sub = (a: arg("<a>", default = "", help = ""), b: arg("<b>", default = "", help = ""))
+    let spec = (file: arg("<file>", default = "", help = ""),
+                go: command("go", sub, before = goBefore, action = goAction,
+                            usage = "<a> <b>", help = ""))
+
+    spec.parse(usage = "go\n<file>", args = @["go"], command = "app",
+               action = rootAction)
+    check string(spec.file) == "go"
+    check log == @["root-action"]
