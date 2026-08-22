@@ -70,8 +70,8 @@ That call **does not survive template or generic instantiation in another
 module**, so `newSpec*` — which is generic over the spec tuple and therefore
 instantiates in the caller's file — delegates its private-field work to two
 non-generic bookends, `beginSpec` and `finishSpec`, leaving only the
-field-free `addArgs` generic in between. Any new generic or template needing a private `Spec` field has to
-be split the same way; see `docs/gotchas.md`.
+field-free `addArgs` generic in between. Any new generic or template needing
+a private `Spec` field has to be split the same way; see `docs/gotchas.md`.
 
 ## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`/`fsmgraph.nim`)
 
@@ -723,11 +723,11 @@ lines, so the help text stays inline with the first wrapped variants line.
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via
-`cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is deliberately not
-a parameter to `command*` itself: since it's the same shared instance
-throughout the tree, it only needs to be set once at the top-level
-`newSpec`/`parse*` call regardless of nesting depth. Being a ref rather
-than four plain fields also means a later mutation of that same
+`cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is
+deliberately not a parameter to `command*` itself: since it's the same
+shared instance throughout the tree, it only needs to be set once at the
+top-level `newSpec`/`parse*` call regardless of nesting depth. Being a ref
+rather than four plain fields also means a later mutation of that same
 `SpecSettings` — e.g. from a `before` hook — applies live to every
 not-yet-dispatched `Spec` in the tree, including the current level's own
 message/help output once `parseMessageArgs` runs after `before` (see
