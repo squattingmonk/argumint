@@ -22,6 +22,7 @@ hand-written validation code.
 - [Detailed Documentation](#detailed-documentation)
   - [Basics](#basics)
   - [Getting Values Out](#getting-values-out)
+  - [Setting Values Yourself](#setting-values-yourself)
     - [Overriding the default at the point of use](#overriding-the-default-at-the-point-of-use)
   - [Usage Strings, Grammar, and the FSM](#usage-strings-grammar-and-the-fsm)
     - [The `[options]` Catch-all](#the-options-catch-all)
@@ -301,6 +302,59 @@ replaces, `otherwise` is never validated and never marks the `Arg` as
 supplied — asking which tier a value actually came from is a separate
 question, answered by an `Arg`'s `seenBy`/`seen` (see `CONTEXT.md`'s *Seen
 Arg* entry and `docs/adr/0039-per-arg-provenance.md`).
+
+### Setting Values Yourself
+
+`parse` is the write side of the same coin. It takes a raw string and puts
+it through exactly the path a command-line value takes — the same
+converter, the same validator, the same clamp — so a programmatic write
+can't end up holding something a real one couldn't:
+
+```nim
+let port = opt("--port=<n>", default = 80, help = "")
+
+port.parse("8080", seenBy = some(byCli))   # seed it as if the user typed it
+port.get                                   # => 8080
+port.seenBy                                # => byCli
+
+port.clear()                               # back to the coded default
+port.get                                   # => 80
+```
+
+The `seenBy` argument names which [Value Precedence](#value-precedence)
+tier you're writing as, and it matters: every accessor reports the coded
+`default` for an `Arg` no tier has supplied, so a write that names no tier
+is stored but never read back. Omitting it means "extend whatever tier is
+current" — useful for adding to an `Arg` a tier already supplied, and a
+no-op for one nothing has.
+
+A tier you declare is then arbitrated against by the real ones, so a value
+written *before* `parse*` runs is a seed rather than something that gets
+silently clobbered:
+
+```nim
+tags.parse("built-in", seenBy = some(byCli))
+spec.parse(args = @["--tag", "mine"])
+tags.get                     # => @["built-in", "mine"] — same tier, so appended
+
+tags.parse("built-in")       # no tier declared
+spec.parse(args = @["--tag", "mine"])
+tags.get                     # => @["mine"] — the command line outranks it, so it replaced
+```
+
+A stronger tier replaces, an equal tier appends, and a weaker one is
+refused — `parse` never demotes an `Arg`. Call `clear` first if handing it
+to a weaker tier is what you actually want. A multi-value `Arg` appends on
+each call, so `clear` plus one `parse` per value is how you replace the
+whole set. A `Flag` is the one shape that reads differently: the value you
+pass *is* the variant whose operation to apply, so one call is one bump:
+
+```nim
+verbose.parse("--verbose", seenBy = some(byCli))
+```
+
+A `Spec` is still single-use either way — see
+[Parsing More Than Once](#parsing-more-than-once).
 
 ### Usage Strings, Grammar, and the FSM
 

@@ -54,6 +54,11 @@ type
       ## Ensures `resolve` runs at most once per Arg for the life of this
       ## cursor, including caching a miss -- unlike an env lookup, a
       ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
+    applied: HashSet[Arg]
+      ## Ensures this tier applies to an Arg at most once, even when the Arg
+      ## is reachable from more than one spec level. Used to ride on the
+      ## `seenBy` gate, which can't do it now that a same-tier Arg is
+      ## appended to rather than skipped.
     complained: HashSet[Arg]
       ## Ensures an Arg reachable from two spec levels only draws one
       ## oversupply complaint -- that branch applies nothing, so `seenBy`
@@ -584,7 +589,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
           # composition order is handled downstream by `RawToken.idx`, not by
           # forcing this scan to find tokens in grammar-declaration order.
           if m.variant == "" or m.opt.aliases(m.variant, c.flagName):
-            pc.matches.push(c.flag, pc.spec, c.flagName, idx = pc.tokens[pos].idx)
+            pc.matches.push(c.flag, pc.spec, c.flagName, c.flagName, pc.tokens[pos].idx)
             pc.consume(pos, c)
             return true
       else:
@@ -893,10 +898,7 @@ proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
     for (variant, value, matchSpec, _) in ms.sortedByIt(it.idx):
       if matchSpec != spec:
         continue
-      if arg of HelpArg:
-        arg.parse(command, spec, variant)
-      else:
-        arg.parse(value, variant)
+      arg.action(command, spec, variant)
 
 proc matchedCommand(spec: Spec, matches: MatchTable): tuple[cmd: CommandArg, variant: string] =
   ## The Command actually matched at this spec's own level for this
@@ -928,14 +930,12 @@ proc parseAllValues(matches: MatchTable) =
   ## per level after that level's `before` -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
   for arg, ms in matches:
-    if arg.kind == Command or arg of MessageArg:
-      continue
     # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
     # order -- Flag Operations are stateful and often non-commutative (e.g.
     # `clamp`), so composition must follow the order the user actually typed
     # them in, regardless of which usage-line position matched which token.
     for (variant, value, _, _) in ms.sortedByIt(it.idx):
-      arg.parse(value, variant)
+      arg.parse(value, variant, some(byCli))
 
 proc matchedArgs(matches: MatchTable): seq[Arg] =
   ## Every Arg with at least one match in `matches`, across every spec
@@ -1047,6 +1047,8 @@ proc applyTier(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Opti
   ## still only resolves once. Returns whether this tier had anything at
   ## all for `arg` -- a real application, or an oversupply complaint --
   ## telling the caller whether to fall through to the next-lower tier.
+  if arg in cursor.applied:
+    return true
   if arg in cursor.consumed:
     result = true
     let consumed = cursor.consumed[arg]
@@ -1057,12 +1059,14 @@ proc applyTier(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Opti
         let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
         complaints.add complaint(kind, arg.name, names = true)
     else:
+      cursor.applied.incl arg
       setValue(cursor.values[arg])
   elif arg notin cursor.tried:
     cursor.tried.incl arg
     let found = resolve()
     if found.isSome:
       result = true
+      cursor.applied.incl arg
       setValue(found.get)
 
 proc applyFallbacks(env, configValues: var ValueCursor, spec: Spec, matches: MatchTable,
@@ -1078,28 +1082,34 @@ proc applyFallbacks(env, configValues: var ValueCursor, spec: Spec, matches: Mat
   ## value-count/`ParseError` rules, shared identically by both tiers.
   ##
   ## Each tier is gated on `Arg.seenBy`, which the command-line tier has
-  ## already written by the time this runs (`parse*`). That single gate does
-  ## two jobs: it skips an Arg the command line supplied, and it stops an Arg
-  ## reachable from more than one spec level being applied twice -- once a
-  ## tier has applied, that Arg's own `seenBy` says so on the second visit.
-  ## See `docs/adr/0039-per-arg-provenance.md`.
+  ## already written by the time this runs (`parseAllValues`). The gate skips
+  ## only a *strictly* stronger tier: an Arg already at this tier is appended
+  ## to, not skipped, so a pre-seed declaring `byEnv` still collects the env
+  ## var's own values. Clearing a weaker pre-seed happens where the write
+  ## does (`parse`), not here -- a tier consulted but resolving nothing must
+  ## leave a pre-seed intact. `ValueCursor.applied`, not this gate, is what
+  ## stops an Arg reachable from two spec levels being applied twice.
+  ## See `docs/adr/0039-per-arg-provenance.md` and
+  ## `docs/adr/0041-parse-is-the-write-surface.md`.
   ##
   ## Runs to completion (or raises) entirely before `dispatch` is called --
   ## so a fallback problem at any level blocks every level's hooks from
   ## firing at all, not just that level's, since `dispatch` never starts.
   for a in spec.args:
     let arg = a # local copy -- a `for` loop's `lent Arg` can't be captured by the closures below
-    if arg.seenBy >= byEnv:
+    if arg.seenBy > byEnv:
       continue
     let envHad = applyTier(env, arg, () => resolveEnv(arg, spec),
       proc (values: seq[string]) =
-        arg.setFromEnv(values)
-        arg.seenBy = byEnv, complaints)
-    if not envHad and arg.seenBy < byConfig:
+        for v in values:
+          arg.parse(v, arg.envName, some(byEnv)),
+        complaints)
+    if not envHad and arg.seenBy <= byConfig:
       discard applyTier(configValues, arg, () => resolveConfig(arg, spec),
         proc (values: seq[string]) =
-          arg.setFromConfig(values)
-          arg.seenBy = byConfig, complaints)
+          for v in values:
+            arg.parse(v, arg.configKey.join, some(byConfig)),
+          complaints)
 
   let (cmd, _) = matchedCommand(spec, matches)
   if not cmd.isNil:
@@ -1139,14 +1149,6 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if not spec.fsm.walk(pc):
     raiseParseError(formatComplaints(pc.finalComplaints), pc.errorCommand, pc.errorSpec)
 
-  # Provenance for the whole matched tree, resolved before anything is
-  # converted: the tiers below gate on it, and every hook must see it
-  # complete even for a subcommand dispatch hasn't reached yet. See
-  # `docs/adr/0039-per-arg-provenance.md`.
-  let matched = matchedArgs(pc.matches)
-  for arg in matched:
-    arg.seenBy = byCli
-
   var fallbackComplaints: seq[Complaint]
   # A conversion/validation failure gets the same complaint-plus-usage shape
   # as any other. Reshaped here because `arg.parse` has no view of its spec
@@ -1171,7 +1173,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if fallbackComplaints.len > 0:
     raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
 
-  let info = HookInfo(matched: matched)
+  let info = HookInfo(matched: matchedArgs(pc.matches))
   dispatch(spec, pc.matches, command, info)
 
 when isMainModule:
@@ -1199,11 +1201,14 @@ when isMainModule:
 
   method envName(self: TestArg): string = self.env
   method envDelim(self: TestArg): options.Option[string] = self.delim
-  method setFromEnv(self: TestArg, values: seq[string]) =
-    self.recorded = values
   method configKey(self: TestArg): ConfigKey = self.cfg
-  method setFromConfig(self: TestArg, values: seq[string]) =
-    self.configRecorded = values
+  method parse(self: TestArg, value: string, variant = "",
+               seenBy: options.Option[SeenBy] = none(SeenBy)) =
+    ## Records per tier, so the fallback sweep's two paths stay
+    ## distinguishable once each tier writes through `parse`.
+    self.arbitrate(seenBy)
+    if seenBy == some(byConfig): self.configRecorded.add value
+    else: self.recorded.add value
 
   method lookup(self: FakeSource, key: ConfigKey): options.Option[seq[string]] =
     for (k, v) in self.data:

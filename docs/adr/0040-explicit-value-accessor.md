@@ -1,5 +1,16 @@
 # `get` is the escape hatch when the value converters can't fire
 
+> **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the last
+> Consequence below says issue #29 will close the state where a by-hand
+> `parse` leaves an Arg holding a value no accessor returns. It is closed
+> for a write that declares a Value Precedence tier
+> (`arg.parse(v, seenBy = some(byCli))`), and kept deliberately for one
+> that doesn't — omitting the tier means "extend at whatever tier is
+> current", which for an unsupplied Arg is no tier at all. `import
+> argumint` now does re-export `parse`, so that state is reachable without
+> a backend import. Everything else below stands, including `seen` as the
+> single supplied-or-not test.
+
 `toT`/`toSeqT` let a parsed Arg be used directly as its value type, and
 that is the documented idiom: `fmt"Copying {file} to {spec.dest}"` reads
 the way it should. Nim converters fire when the expected type is known, so

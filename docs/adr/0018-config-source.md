@@ -1,5 +1,15 @@
 # Config Source: a third Value Precedence tier
 
+> **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the
+> `setFromConfig*` base method described below no longer exists. A Config
+> Source's resolved values now go straight to `Arg.parse`, with the Config
+> Key as the error context, so a custom `Arg` implements one `parse`
+> override instead of one method per tier. `configKey*` is unchanged, and
+> remains how an Arg declares what to look up. Everything else here — the
+> tier's position, the layering rule, the walk-driven consumption and
+> oversupply semantics, and `ConfigSource` as the extension point for a new
+> format — stands as written.
+
 > **Amended by
 > [ADR 0029](0029-config-key-distinct.md)**: `ConfigKey` is now a
 > `distinct seq[string]`, not the plain alias described in point 3 below.

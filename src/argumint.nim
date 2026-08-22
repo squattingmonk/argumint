@@ -85,6 +85,14 @@ export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
 # `CompletionCandidate` usable.
 export fsm.parse, fsm.completeArgs
 
+# The write side of an Arg (#47): `arg.parse(v, seenBy = some(byCli))`
+# pre-seeds a value, `arg.clear()` returns one to its coded default, and
+# `action` is what a `MessageArg`/`HelpArg` overrides. Exported for the same
+# reason as `fsm.parse` above -- reaching them shouldn't need a backend
+# import. See `docs/adr/0041-parse-is-the-write-surface.md` and
+# `docs/adr/0030-core-types-exported-spec-opaque.md`.
+export backend.parse, backend.clear, backend.action, backend.arbitrate
+
 type
   ValueArg*[T: not seq, multi: static bool] = ref object of Arg
     ## What `arg*`/`args*`/`opt*`/`opts*` return. `multi` is `false` for the
@@ -111,6 +119,7 @@ type
     ## type public, fields private. `FlagOp` stays internal: `ops` is
     ## private, so naming `FlagArg[T]` never requires naming it.
     value: T
+    default: T
     ops: OrderedTableRef[string, FlagOp[T]]
     aliases: TableRef[string, seq[string]]
     env: Option[EnvSource]
@@ -193,6 +202,30 @@ converter toChar(value: string): char =
 # ------------------------------------------------------------------------------
 # These functions create help messages.
 # ------------------------------------------------------------------------------
+
+
+proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
+  ## How to name `arg` in a parse-failure message. The command line names the
+  ## Variant the user actually typed; a fallback tier names `arg` *plus* where
+  ## the value came from, so a typo in an env var or a config file doesn't read
+  ## as something typed at the prompt. The `env:`/`configKey:` prefixes match
+  ## how help text annotates the same two sources.
+  ##
+  ## Only answerable because `parse` carries the tier -- the variant slot alone
+  ## can't say whether it holds a Variant or a source label. Exported for the
+  ## same reason as `backend.name` (`docs/adr/0017`): the generated `parse`
+  ## methods resolve it by bare name in the caller's module.
+  if variant.len == 0 or seenBy.isNone or seenBy.get notin {byConfig, byEnv}:
+    return arg.name(variant)
+  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
+  # complaint names the bare option (`--port`) -- so trim with the same PEG
+  # spec construction already keys `spec.options` by. Leaves a Positional
+  # (`<src>`) or Command untouched, since neither matches it.
+  var bare = arg.name
+  if bare =~ OptionalVariantFormat:
+    bare = matches[0]
+  let kind = if seenBy.get == byEnv: "env" else: "configKey"
+  "$# ($#: $#)" % [bare, kind, variant]
 
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
 
@@ -298,24 +331,32 @@ proc genHelp(spec: Spec, command: string): string =
 # Parsing methods
 # ------------------------------------------------------------------------------
 
-proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string) =
+proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: options.Option[SeenBy]) =
   ## Converts a string `value` into a `T` and validates it is an appropriate
   ## value for `self`. Raises a `ParseError` if `value` cannot be converted to a
   ## `T` or a `ValidationError` if the value does not pass `self`'s validator.
+  ## `arbitrate` decides whether this contribution applies at all, and runs
+  ## the Validator against the right history for the branch it takes -- with
+  ## `self.value` when extending, with none when replacing, since those
+  ## values are about to be discarded. See `backend.arbitrate*`.
   ## We do this here because generic methods are deprecated, so we generate
   ## methods for each defined type and have them call this.
   try:
     let tmp: T = value
-    if not self.validator.isNil:
-      self.validator.validate(tmp, self.value)
+    self.arbitrate(seenBy):
+      if not self.validator.isNil:
+        self.validator.validate(tmp, self.value)
+    do:
+      if not self.validator.isNil:
+        self.validator.validate(tmp)
     when multi:
       self.value.add(tmp)
     else:
       self.value = @[tmp]
   except ValidationError as e:
-    raise newException(ValidationError, fmt"for {self.name(variant)}, {e.msg}")
+    raise newException(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
   except ValueError:
-    raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.name(variant)} but got {value.escape}")
+    raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1
@@ -343,11 +384,11 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
   ## version if you want to write your own converter to parse a string into a
   ## `T`.
-  method parse(self: ValueArg[T, false], value: string, variant = "") =
-    self.parseImpl(value, variant)
+  method parse(self: ValueArg[T, false], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
+    self.parseImpl(value, variant, seenBy)
 
-  method parse(self: ValueArg[T, true], value: string, variant = "") =
-    self.parseImpl(value, variant)
+  method parse(self: ValueArg[T, true], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
+    self.parseImpl(value, variant, seenBy)
 
   method defaultStr(self: ValueArg[T, false]): string =
     ## Returns `self`'s default value stringified, or "" if it's still `T`'s
@@ -391,33 +432,23 @@ template defineArg*[T](typeName: typedesc[T]): untyped =
   method envDelim(self: ValueArg[T, true]): Option[string] =
     if self.env.isSome: self.env.get.delim else: none(string)
 
-  method setFromEnv(self: ValueArg[T, false], values: seq[string]) =
-    # multi=false's overwrite-on-each-call already gives last-value-wins.
-    for value in values:
-      self.parseImpl(value, self.envName)
-
-  method setFromEnv(self: ValueArg[T, true], values: seq[string]) =
-    # `multi = true`'s append-on-each-call behavior already gives the
-    # usual multi-value Match Accumulation rule for free.
-    for value in values:
-      self.parseImpl(value, self.envName)
-
   method configKey(self: ValueArg[T, false]): ConfigKey = self.cfgKey
 
   method configKey(self: ValueArg[T, true]): ConfigKey = self.cfgKey
 
-  method setFromConfig(self: ValueArg[T, false], values: seq[string]) =
-    # multi=false's overwrite-on-each-call already gives last-value-wins.
-    # `join` as the error-context string, so a failure names the path the
-    # way help text does (`server.port`) -- see docs/adr/0029-config-key-distinct.md.
-    for value in values:
-      self.parseImpl(value, self.cfgKey.join)
+  method clear(self: ValueArg[T, true]) =
+    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
+    ## coded default's state -- it's substituted at read time, never stored
+    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
+    procCall clear(Arg(self))
+    self.value.setLen 0
 
-  method setFromConfig(self: ValueArg[T, true], values: seq[string]) =
-    # `multi = true`'s append-on-each-call behavior already gives the
-    # usual multi-value Match Accumulation rule for free.
-    for value in values:
-      self.parseImpl(value, self.cfgKey.join)
+  method clear(self: ValueArg[T, false]) =
+    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
+    ## coded default's state -- it's substituted at read time, never stored
+    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
+    procCall clear(Arg(self))
+    self.value.setLen 0
 
 template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Shared implementation for `defineArg`/`defineFlag` below -- kept as
@@ -431,11 +462,16 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
   proc handleFlag(value {.inject.}: var T, op {.inject.}: string, arg {.inject.}: T) =
     flagHandler
 
-  method parse(self: FlagArg[T], _: string, variant = "") =
-    let name = self.name(variant)
-    if not self.ops.hasKey(name):
-      raise newException(SpecDefect, "$# is not a known variant for the flag $#" % [name, self.name])
-    let (op {.inject.}, arg {.inject.}, _) = self.ops[name]
+  method parse(self: FlagArg[T], variantValue: string, variantName: string, seenBy: options.Option[SeenBy] = none(SeenBy)) =
+    ## Flag args pass the seen variant as both the value and the variant in the
+    ## general case. In the case of values sourced from env vars or config keys,
+    ## the seen variant is passed as the value while the env/configKey is the
+    ## variant. We thus re-name the parameters here to make clear what they
+    ## actually do.
+    if not self.ops.hasKey(variantValue):
+      raise newException(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
+    self.arbitrate(seenBy)
+    let (op {.inject.}, arg {.inject.}, _) = self.ops[variantValue]
     self.value.handleFlag(op, arg)
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
@@ -459,32 +495,7 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
   method envDelim(self: FlagArg[T]): Option[string] =
     if self.env.isSome: self.env.get.delim else: none(string)
 
-  method setFromEnv(self: FlagArg[T], values: seq[string]) =
-    # Each value names a declared Variant and is applied via that Variant's
-    # own Flag Operation -- see ADR 0005. Looked up against self.ops
-    # directly (not self.name) so an empty value raises ParseError instead
-    # of defaulting to self.variants[0]. Named variantName, not value --
-    # handleFlag above already injects `value` into this scope. Uses `%`,
-    # not `fmt` (see docs/gotchas.md).
-    for variantName in values:
-      if not self.ops.hasKey(variantName):
-        raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
-      let (op {.inject.}, arg {.inject.}, _) = self.ops[variantName]
-      self.value.handleFlag(op, arg)
-      if not self.clamp.isNil:
-        self.value = self.clamp.apply(self.value)
-
   method configKey(self: FlagArg[T]): ConfigKey = self.cfgKey
-
-  method setFromConfig(self: FlagArg[T], values: seq[string]) =
-    # Identical body to setFromEnv* above -- see docs/adr/0018-config-source.md.
-    for variantName in values:
-      if not self.ops.hasKey(variantName):
-        raise newException(ParseError, "$# names no known variant of the flag $#" % [variantName.escape, self.name])
-      let (op {.inject.}, arg {.inject.}, _) = self.ops[variantName]
-      self.value.handleFlag(op, arg)
-      if not self.clamp.isNil:
-        self.value = self.clamp.apply(self.value)
 
   method aliases(self: FlagArg[T], a, b: string): bool =
     ## Returns whether `a` and `b` are FlagOp Aliases for `self`. `a`/`b`
@@ -496,6 +507,11 @@ template defineFlagArg[T](typeName: typedesc[T], blankDesc: string, flagHandler:
     ## their `FlagOp` shares an op and an arg. The `FlagOp`'s desc does not
     ## matter.
     a == b or (self.aliases.hasKey(a) and b in self.aliases[a])
+
+  method clear(self: FlagArg[T]) =
+    ## Removes the `seenBy` provenance and restores the default value of `self`.
+    procCall clear(Arg(self))
+    self.value = self.default
 
   defineArg typeName
 
@@ -539,13 +555,13 @@ template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
     of "*=": value = value * arg
     else: raise newException(SpecDefect, "set flags only support =, +=, -=, and *= operations")
 
-method parse(self: MessageArg, _: string, variant = "") =
+method action(self: MessageArg, command: string, spec: Spec, variant = "") =
   ## Raises `MessageError` with `self.message`, short-circuiting the rest
   ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
   ## `message*`/`version*`).
   raise newException(MessageError, self.message)
 
-method parse(self: HelpArg, command: string, spec: Spec, variant = "") =
+method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   ## Raises `HelpError` with `spec`'s generated help text for `command`,
   ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
   ## deliver it directly (see `help*`).
@@ -1063,7 +1079,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default
   ##   flag's own declared Variants, same as `env`. Consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, help: help,
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default, help: help,
     group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: configKey,
     ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
   if not clamp.isNil and clamp.apply(default) != default:
@@ -1558,11 +1574,11 @@ when isMainModule:
       f.ops = newOrderedTable[string, FlagOp[Rank]]()
       f.ops["-r"] = ("=", rHigh, "")
       f.ops["-b"] = ("", rLow, "")
-      expect SpecDefect:
-        f.parse("", "--unknown")
+      expect ParseError:
+        f.parse("--unknown")
       try:
-        f.parse("", "--unknown")
-      except SpecDefect as e:
+        f.parse("--unknown")
+      except ParseError as e:
         check "--unknown" in e.msg
         check "-r" in e.msg
       check f.variantDesc("-b") == "Bump to the next rank"
@@ -1575,13 +1591,13 @@ when isMainModule:
       f.ops["-="] = ("-=", {rLow}, "")
       f.ops["*="] = ("*=", {rMid}, "")
 
-      f.parse("", "=")
+      f.parse("=")
       check f.value == {rLow}
-      f.parse("", "+=")
+      f.parse("+=")
       check f.value == {rLow, rMid}
-      f.parse("", "-=")
+      f.parse("-=")
       check f.value == {rMid}
-      f.parse("", "*=")
+      f.parse("*=")
       check f.value == {rMid}
 
     test "two distinct defineSetFlag(enum) instantiations don't cross-wire in the flagOps CacheTable":
@@ -1589,11 +1605,11 @@ when isMainModule:
       # docs/gotchas.md -- calls the real flag[set[Rank]]/flag[set[Grade]]
       # constructors to exercise both the write and read side.
       let rankFlag = flag[set[Rank]](ops = [flagOp("--rank", "+=", {rHigh})], default = {})
-      rankFlag.parse("", "--rank")
+      rankFlag.parse("--rank")
       check rankFlag.value == {rHigh}
 
       let gradeFlag = flag[set[Grade]](ops = [flagOp("--grade", "+=", {gGood})], default = {})
-      gradeFlag.parse("", "--grade")
+      gradeFlag.parse("--grade")
       check gradeFlag.value == {gGood}
       check rankFlag.value == {rHigh} # unaffected by gradeFlag's own +=
 

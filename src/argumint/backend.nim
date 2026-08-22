@@ -13,7 +13,7 @@ import std/[hashes, pegs, strformat, strutils, tables, wordwrap]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead -- see docs/gotchas.md.
-from std/options import some, none, isSome, get
+from std/options import some, none, isSome, isNone, get
 
 import ./[configsource, errors]
 export configsource
@@ -44,7 +44,7 @@ type
     help*: string ## The help string for the argument
     group*: string ## The group where the argument should appear in help messages
     hidden*: bool ## Whether the arg should be shown in help messages
-    seenBy*: SeenBy ## Which Value Precedence tier supplied this Arg -- written centrally by `fsm.parse*`, never by a `parse`/`setFromEnv`/`setFromConfig` override. `byNone` is the zero value, so an unsupplied Arg is correct with no code on the default path. See `seen*` and `docs/adr/0039-per-arg-provenance.md`
+    seenBy*: SeenBy ## Which Value Precedence tier supplied this Arg -- written by whichever `parse` override wrote the value, so provenance can never outrun the value it describes. `byNone` is the zero value, so an unsupplied Arg is correct with no code on the default path. See `seen*` and `docs/adr/0039-per-arg-provenance.md`
 
   CommandArg* = ref object of Arg
     spec*: Spec
@@ -233,20 +233,71 @@ proc showsMessage*(info: HookInfo): bool =
       return true
   false
 
-method parse*(self: Arg, value: string, variant = "") {.base.} =
-  ## Converts/validates/stores a matched `value` (raw command-line/env/config
-  ## string) onto `self`, or otherwise fires `self`'s side effect for the
-  ## variant that matched -- `ValueArg`/`FlagArg`/`MessageArg` (`argumint.nim`)
-  ## all override this. Base case is unreachable for every built-in Arg
-  ## subtype except `HelpArg`, which instead overrides the `(command, spec)`
-  ## overload below since it needs the enclosing spec to render help text.
-  raise newException(Defect, fmt"parse() is not defined for {self.name(variant)}")
+method clear*(self: Arg) {.base.} =
+  ## Removes the `seenBy` provenance of an arg. Value-carrying args should use
+  ## this method to also remove their value, restoring any default.
+  self.seenBy = byNone
 
-method parse*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
-  ## Like the single-`value` overload above, but for an Arg (only `HelpArg`,
-  ## in practice) whose side effect needs the enclosing `spec`/`command` --
-  ## e.g. to render a full help message -- rather than a matched value.
-  raise newException(Defect, fmt"parse() is not defined for {self.name(variant)}")
+template arbitrate*(self: Arg, tier: options.Option[SeenBy], eqBody: untyped, gtBody: untyped): untyped =
+  ## Arbitrates one contribution at Value Precedence `tier` against `self`'s
+  ## current provenance, running whichever body applies. Every `parse`
+  ## override routes through this -- it *is* the tier rule, and rewriting it
+  ## by hand is how an override silently ends up demoting, or accumulating
+  ## where it should reset.
+  ##
+  ## - **first body** -- `tier` is `none()`, or equal to `self.seenBy`: this
+  ##   contribution *extends* what is there, so nothing is cleared and the
+  ##   body runs against `self`'s existing value.
+  ## - **`do` body** -- `tier` outranks `self.seenBy`: this contribution
+  ##   *replaces* what is there. The body runs **before** `self` is cleared,
+  ##   so a body that raises leaves `self` untouched, and one that inspects
+  ##   `self.value` still sees the values about to be discarded.
+  ## - **neither** -- `tier` is weaker than `self.seenBy`: `return`s out of
+  ##   the calling scope. `parse` never demotes; call `clear` first to hand
+  ##   an Arg back to a weaker tier.
+  ##
+  ## The parameter is `tier`, not `seenBy`: naming it after the field the
+  ## body reads off `self` gensyms over that field wherever this expands
+  ## inside another template. See docs/gotchas.md.
+  ## See `docs/adr/0041-parse-is-the-write-surface.md`.
+  let seen = tier.get(otherwise = self.seenBy)
+  if seen < self.seenBy:
+    return
+  elif seen > self.seenBy:
+    gtBody
+    self.clear
+    self.seenBy = seen
+  else:
+    eqBody
+
+template arbitrate*(self: Arg, tier: options.Option[SeenBy]): untyped =
+  ## `arbitrate` for an Arg with nothing to do on either branch -- it still
+  ## skips a weaker tier, and still clears and records on a stronger one.
+  arbitrate(self, tier):
+    discard
+  do:
+    discard
+
+method parse*(self: Arg, value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) {.base.} =
+  ## Called on all seen args after a successful parse. Non-value-carrying args
+  ## like `MessageArg` or `CommandArg` only record `seenBy`. Value-carrying
+  ## args like `ValueArg` and `FlagArg` also implement this to
+  ## convert/validate/store a matched `value` (raw command-line/env/config
+  ## string) onto `self` using the variant that matched.
+  ##
+  ## Overrides must arbitrate through `arbitrate*`.
+  self.arbitrate(seenBy)
+
+method action*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
+  ## Fires this Arg's Action -- what a matched Message Argument does in place
+  ## of the enclosing Spec's own `action` hook (see `CONTEXT.md`'s Action
+  ## entry and `docs/adr/0013-message-args-fire-after-before.md`).
+  ##
+  ## One signature for every kind, rather than one per what each needs:
+  ## `command`/`spec` are what a `HelpArg` uses to render help text, and a
+  ## plain `MessageArg` simply ignores them. That is what lets the per-level
+  ## message pass dispatch once, with no test for which kind it holds.
+  raise newException(Defect, fmt"action() is not defined for {self.name(variant)}")
 
 method defaultStr*(self: Arg): string {.base.} =
   ## Returns `self`'s default value formatted for display in help text (e.g.
@@ -296,15 +347,6 @@ method envDelim*(self: Arg): options.Option[string] {.base.} =
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   none(string)
 
-method setFromEnv*(self: Arg, values: seq[string]) {.base.} =
-  ## Applies an already-fetched, already-split environment variable value
-  ## to this arg, as if each value in `values` had matched on the command
-  ## line in order (but not overriding an explicit CLI value -- callers
-  ## are expected to check that first). Goes through the same
-  ## conversion/validation as a CLI-supplied value. See
-  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-  raise newException(Defect, fmt"setFromEnv() is not defined for {self.name}")
-
 method configKey*(self: Arg): ConfigKey {.base.} =
   ## Returns the structured path this arg's value is looked up under in
   ## Value Precedence's Config Source tier, or `noConfigKey()` if none
@@ -313,15 +355,6 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## one; `ValueArg`/`FlagArg` override this per-type via
   ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
   noConfigKey()
-
-method setFromConfig*(self: Arg, values: seq[string]) {.base.} =
-  ## Applies an already-resolved Config Source value to this arg, the same
-  ## shape as `setFromEnv` (each value in `values` applied as if it had
-  ## matched on the command line, in order, not overriding an explicit CLI
-  ## or env value -- callers are expected to check those first). Goes
-  ## through the same conversion/validation as a CLI-supplied value. See
-  ## `docs/adr/0018-config-source.md`.
-  raise newException(Defect, fmt"setFromConfig() is not defined for {self.name}")
 
 method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## Returns whether `a` and `b` are aliases for `self`. Overridden by

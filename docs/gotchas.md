@@ -55,14 +55,36 @@ inside a template.
   sibling-generated `parse*` method, since `inject` makes those visible
   across the whole template expansion, not just inside `flagHandler`.
 
+- **Never name a template parameter after a field the template body reads
+  off one of its other parameters.** `backend.arbitrate*` takes the tier as
+  `tier: Option[SeenBy]` and reads `self.seenBy`. Naming that parameter
+  `seenBy` instead compiles fine everywhere the template expands inside an
+  ordinary proc, and fails *only* where it expands inside another template
+  — `defineFlagArg`'s generated `parse*` method — with:
+
+  ```
+  Error: undeclared field: 'seenBy`gensym141' for type argumint.FlagArg
+  ```
+
+  The parameter is gensym'd, and in the nested-template expansion the field
+  access `self.seenBy` binds to that gensym'd local rather than to the
+  field. The error names a symbol that appears nowhere in the source, and
+  the call site it points at looks correct, so this costs real time to
+  find. Renaming the parameter is the whole fix — `procCall`ing the base
+  method to dodge the expansion is not, since a `return` inside a template
+  exits whichever proc it expanded into, so the base method's early-out
+  stops short of the override's own body (verified: a weaker tier still
+  applied its Flag Operation).
+
 - **`std/strformat`'s `fmt"..."` cannot resolve *any* local identifier** —
   not `self`, not a plain `let`, not a generic type param like `T` — when
   used inside a `method`/`proc` that is itself generated inside a template
   (as every method in `defineArg`/`defineFlag`/`defineFlagArg` is); it fails
   with "undeclared identifier" even for names clearly in scope. Use `%`
-  (`strutils`) or `&` concatenation instead — e.g. `setFromEnv`'s
-  `ParseError` message is built with `"expected $# for $# but got $#" %
-  [$typeOf(T), self.env, envValue.escape]`, not `fmt"..."`.
+  (`strutils`) or `&` concatenation instead — e.g. `FlagArg.parse`'s
+  unknown-Variant `ParseError` is built with `"$# is not a known variant
+  for the flag $#" % [variantValue.escape, self.subject(variantName,
+  seenBy)]`, not `fmt"..."`.
 
 - **`defineSetFlag`'s body must build the `set[E]` type expression from its
   `elemType: typedesc[E]` *parameter*, not from the bare generic symbol

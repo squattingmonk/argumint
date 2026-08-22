@@ -1,5 +1,29 @@
 # Per-Arg provenance is a field on `Arg`, written centrally
 
+> **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)** in three
+> places. The field, its enum, the weakest-to-strongest ordering, and the
+> uniform-across-Arg-kinds semantics all stand as described here.
+>
+> 1. *"The writes are central, not per-type"* is reversed. Provenance is
+>    now written by whichever `parse` override writes the value --
+>    `setFromEnv`/`setFromConfig` no longer exist, so `parse` is the only
+>    write path for every tier. Of the two reasons given for centralising it, only
+>    one survived: ADR 0032 had already moved every matched level's
+>    conversion ahead of `dispatch`, so a per-contribution write also
+>    completes before the first hook fires. Central stamping also wrote
+>    provenance when nothing had been written, which was a live
+>    `IndexDefect`.
+> 2. The blanket post-walk `byCli` sweep described below is gone;
+>    `parseAllValues` records `byCli` per contribution. The `applyFallbacks`
+>    code block below is stale in the same way — its gates now skip only a
+>    *strictly* stronger tier, and the `setValue` closures no longer stamp.
+> 3. *"`arg in info.matched` and `arg.seenBy == byCli` are equivalent"* no
+>    longer holds. A programmatic write declaring `byCli` sets provenance
+>    without a match-table entry.
+>
+> The `ValueCursor.tried`/`complained` reasoning below is unchanged and
+> gained a third set, `applied`, for the same reason.
+
 After a parse, nothing recorded which Value Precedence tier supplied an
 Arg. `spec.color` reads `"auto"` identically whether the user typed
 `--color=auto` or typed nothing at all, so a program that wants to layer
