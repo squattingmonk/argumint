@@ -941,8 +941,8 @@ per-value description in the data model to draw from. `describeVariants`
 sources each variant's description from `Arg.variantDesc(variant)`
 (`backend.nim`) when an Arg's variants genuinely diverge in what they do
 (e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
-back to the Arg's shared `.help` otherwise — mirroring `argumint.
-variantGroups`'s own grouping rule (used by `genHelp`) so completion's
+back to the Arg's shared `.help` otherwise — mirroring
+`help.variantGroups`'s own grouping rule (used by `genHelp`) so completion's
 descriptions agree with what help text would actually show.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell

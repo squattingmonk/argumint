@@ -1,10 +1,12 @@
 ## Help-text rendering: turns a built `Spec` into the message `--help`
-## prints. Sits directly above `argumint/backend` -- everything it needs
-## (`formatUsage`, the `variantDesc`/`defaultStr`/`validatorHelp`/`envName`/
-## `configKey` base methods, `Spec`'s private fields) lives there, and
-## `backend` was already doing the usage-line half of the same job. See
-## `docs/architecture.md` for the layering and for how the variants column
-## is wrapped.
+## prints. Sits directly above `argumint/backend` -- see
+## `docs/architecture.md` for why, and for how the variants column wraps.
+##
+## `import argumint` alone does not bring `genHelp` into scope; importing
+## this module directly is what makes it callable, so a program can render
+## its own help (to print at another moment, page it, or embed it in a
+## larger message) instead of only receiving it via the `HelpError` a
+## matched `help*` Arg raises.
 
 import std/[importutils, strformat, strutils, tables, wordwrap]
 
@@ -40,6 +42,11 @@ proc variantGroups(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
     result.add (names: names, desc: desc)
 
 proc genHelp*(spec: Spec, command: string): string =
+  ## Renders `spec`'s full help message -- prolog, wrapped usage lines, one
+  ## row per arg grouped per `groupOrder`, then epilog. `command` names the
+  ## program in the usage lines (`HelpArg.action` passes the command path
+  ## that reached this Spec, so a subcommand's help reads `prog ship move`).
+  ## Wrapping is governed by `spec.settings.width`/`maxVariantsWidth`.
   let prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
   let epilog = if spec.epilog.len > 0: spec.epilog else: ""
   let usage = spec.usage.formatUsage(command, spec.settings.width) & "\n"
