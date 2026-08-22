@@ -16,7 +16,7 @@
 
 {.experimental: "openSym".}
 
-import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables, terminal]
+import std/[importutils, macros, macrocache, os, options, pegs, sequtils, sets, sugar, strformat, strutils, tables]
 
 import ./argumint/[backend, completion, configsource, dot, errors, flagclamp, fsm, fsmgraph, help, parser, validators]
 
@@ -78,6 +78,18 @@ export options.Option
 export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
   backend.DefaultStrictOptions
 
+# Spec-construction-adjacent constructors that live beside their own types in
+# `argumint/backend`: `newSpecSettings` for `settings =`, `env`/`toEnvSource`
+# for `env = "PORT"`. All three are public API, so re-export deliberately --
+# `env`/`toEnvSource` happen to resolve through another path too, which makes
+# them no less public.
+export backend.newSpecSettings, backend.env, backend.toEnvSource
+
+# How a parse-failure message names an Arg. Exported for the same reason as
+# `backend.name` (`docs/adr/0017`): the `parse` methods `defineArg` generates
+# resolve it by bare name in the caller's module.
+export backend.subject
+
 # The two operations on a built `Spec` that live in `argumint/fsm` rather
 # than here. `parseOrQuit*(Spec)` was already reachable (it's defined
 # below), so without these `newSpec` -> `parse` was the one broken half of
@@ -131,29 +143,6 @@ const flagOps = CacheTable"flagOps"
 let
   Comma = peg"\s* ',' \s*"
 
-  PositionalVariantFormat = peg"""
-    # Allows you to capture <arg>
-    argument <- ^ {'<' \w (\w / ('-' \w))* '>'} $
-  """
-
-  OptionalVariantFormat = peg"""
-    # Allows you to capture [-o, var] / [--option, var] in -o=<var> / --option=<var>
-    option <- ^ (shortOption / longOption) (equals helpVar)? $
-    equals <- '=' / ':'
-    shortOption <- {'-' \w}
-    longOption <- {'--' \w (\w / ('-' \w))+}
-    helpVar <- '<' {\w (\w / ('-' \w))*} '>'
-  """
-
-  FlagVariantFormat = peg"""
-    # A bare flag spelling, no embedded <op><value> -- that's supplied
-    # explicitly via flagOp's own op/value params instead (see flag*/
-    # flagOp*).
-    flag <- ^ (shortFlag / longFlag) $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-  """
-
   FlagOpVariantFormat = peg"""
     # A flag spelling with an optional embedded <op><value> suffix --
     # convenience sugar for flag*'s own `variants` string only (see
@@ -197,36 +186,6 @@ converter toChar(value: string): char =
   if value.len != 1:
     raise newException(ValueError, fmt"cannot convert {value} to char")
   value[0]
-
-
-# ------------------------------------------------------------------------------
-# This function names an arg in a parse-failure message. Help-text rendering
-# lives in `argumint/help`.
-# ------------------------------------------------------------------------------
-
-
-proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
-  ## How to name `arg` in a parse-failure message. The command line names the
-  ## Variant the user actually typed; a fallback tier names `arg` *plus* where
-  ## the value came from, so a typo in an env var or a config file doesn't read
-  ## as something typed at the prompt. The `env:`/`configKey:` prefixes match
-  ## how help text annotates the same two sources.
-  ##
-  ## Only answerable because `parse` carries the tier -- the variant slot alone
-  ## can't say whether it holds a Variant or a source label. Exported for the
-  ## same reason as `backend.name` (`docs/adr/0017`): the generated `parse`
-  ## methods resolve it by bare name in the caller's module.
-  if variant.len == 0 or seenBy.isNone or seenBy.get notin {byConfig, byEnv}:
-    return arg.name(variant)
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
-  let kind = if seenBy.get == byEnv: "env" else: "configKey"
-  "$# ($#: $#)" % [bare, kind, variant]
 
 
 # ------------------------------------------------------------------------------
@@ -611,55 +570,6 @@ proc autoFillUsage(spec: Spec) =
     spec.addUsageLines(spec.fsm, newLines)
     spec.fsm.prepare()
 
-proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
-    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions): SpecSettings =
-  ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
-  ## param.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be
-  ##   detected (e.g., piped output with `COLUMNS` unset). Pass an explicit
-  ##   width to opt out of auto-detection.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps
-  ##   onto extra indented lines (`0` for unlimited).
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
-  ##   is split on to supply more than one value (`\x1e` is always tried
-  ##   first, since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
-  ##   single Option/Flag can override this delimiter (or opt out of
-  ##   splitting entirely) via `env*`'s two-arg form -- see
-  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `configSources` is Value Precedence's Config Source tier -- an
-  ##   ordered list of `ConfigSource`s (e.g. `iniConfigSource(path)`,
-  ##   `jsonConfigSource(path)`, or a custom subclass), consulted in order
-  ##   for any Option/Flag declaring a `configKey`. A later source's hit
-  ##   fully replaces an earlier one's, never merged. See
-  ##   `docs/adr/0018-config-source.md`.
-  ##
-  ## - `strictOptions` is Strict Option Checking: whether an option-shaped
-  ##   token resolving against no declared option may be accepted as data.
-  ##   On by default, and it governs two slots. In the common
-  ##   `[options] <file>...` shape, off means a typo'd `--recrusive`
-  ##   silently becomes a filename; and with any value-taking option, off
-  ##   means `--name --help` sets `name` to `"--help"` rather than
-  ##   reporting that `--name` has no value. A Non-Option Short -- one dash
-  ##   whose second character isn't an ASCII letter (`-5`, `-3.5`,
-  ##   `-0x1F`) -- is exempt either way, which is what keeps negative
-  ##   numbers usable. Set `false` for a grammar that genuinely takes
-  ##   dash-leading literal text, though a typed `--`, a usage-string
-  ##   `[--]` marker, the leading-space form (`" -x"`), or the attached
-  ##   form (`--name=--nope`) each force one token literally without
-  ##   disabling the check everywhere. See
-  ##   `docs/adr/0034-strict-option-checking.md`.
-  ##
-  ## Hold onto the returned `SpecSettings` and pass the same instance to
-  ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
-  ## it later (e.g. from a `before` hook) and have the change apply live to
-  ## every not-yet-dispatched `Spec` in the tree -- see
-  ## `docs/adr/0013-message-args-fire-after-before.md`.
-  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
-    configSources: configSources, strictOptions: strictOptions)
-
 proc cascadeSpecSettings(spec: Spec, settings: SpecSettings) =
   ## Shares `settings` by reference with `spec` and every nested subcommand's
   ## spec, so a value given to the top-level `newSpec`/`parse*` call --  or a
@@ -669,20 +579,6 @@ proc cascadeSpecSettings(spec: Spec, settings: SpecSettings) =
   spec.settings = settings
   for cmd in spec.commands.values:
     cmd.spec.cascadeSpecSettings(settings)
-
-converter toEnvSource*(name: string): Option[EnvSource] =
-  ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
-  ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
-  ## form that also overrides the delimiter.
-  some(EnvSource(name: name))
-
-proc env*(name: string, delim: string): Option[EnvSource] =
-  ## Names an environment variable to supply an arg's value, overriding
-  ## the delimiter its raw value is split on for this arg only, instead of
-  ## inheriting `Spec.settings.envDelim`. `delim = ""` means never split this
-  ## arg's env value at all, even on `\x1e` -- see
-  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  some(EnvSource(name: name, delim: some(delim)))
 
 proc beginSpec(usage, prolog, epilog: string): Spec =
   ## Creates an argless `Spec` for `newSpec*` to populate. Non-generic
