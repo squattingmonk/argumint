@@ -11,7 +11,8 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
-`lexer` → `backend`/`validators` → `fsmgraph`/`parser` → `fsm` → `argumint`.
+`lexer` → `backend`/`validators` → `fsmgraph`/`help`/`parser` → `fsm` →
+`argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -22,6 +23,13 @@ and `lexer.nim` raises `SpecDefect` while staying free of everything above
 it. The two modules whose own API would be incomplete without one
 (`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
 re-export it, so importing either alone still names what it raises.
+
+`help.nim` sits directly above `backend` because that is as high as it needs
+to sit: `formatUsage`, the `variantDesc`/`defaultStr`/`validatorHelp`/
+`envName`/`configKey` display methods, and `Spec`'s own private fields are
+all `backend`'s, and `backend` was already wrapping the usage line. Its
+position below `fsm` is what makes `Arg.action`'s dependency inversion a
+choice rather than a necessity — see "The write side" below.
 
 ## 1. Spec construction (`src/argumint.nim`)
 
@@ -45,10 +53,10 @@ Those index fields — along with `prolog`/`epilog`/`usage`/`args`/`fsm` — are
 private to the library; only `Spec.settings` and the three hook fields are
 exported (`docs/adr/0030-core-types-exported-spec-opaque.md`). Internal
 modules reach the rest via `std/importutils.privateAccess(Spec)`, present in
-`argumint.nim`, `fsm.nim`, and `parser.nim`. That call **does not survive
-template or generic instantiation in another module**, so `newSpec*` — which
-is generic over the spec tuple and therefore instantiates in the caller's
-file — delegates its private-field work to two non-generic bookends,
+`argumint.nim`, `fsm.nim`, `help.nim`, and `parser.nim`. That call **does not
+survive template or generic instantiation in another module**, so `newSpec*`
+— which is generic over the spec tuple and therefore instantiates in the
+caller's file — delegates its private-field work to two non-generic bookends,
 `beginSpec` and `finishSpec`, leaving only the field-free `addArgs` generic
 in between. Any new generic or template needing a private `Spec` field has to
 be split the same way; see `docs/gotchas.md`.
@@ -537,13 +545,13 @@ One signature serves both: `MessageArg` raises `MessageError` and ignores
 `HelpError`. That uniformity is what lets `parseMessageArgs` dispatch once,
 with no test for which kind it holds.
 
-The method is a dependency inversion -- help rendering (`genHelp`) currently
-lives in `argumint.nim`, which imports `fsm.nim` and not the reverse, so the
-FSM can't render help itself. That is a consequence of where `genHelp` sits
-rather than a constraint: everything it needs (`formatUsage`, the display
-base methods, `Spec`'s own fields) is already in `backend`, so moving it
-below `fsm` would let the FSM raise directly. The method would still be
-worth keeping as the extension point for a custom side-effecting Arg.
+The method is a dependency inversion, and a deliberate one. `genHelp` now
+lives in `help.nim`, *below* `fsm.nim` (issue #50), so the FSM could raise
+`HelpError` directly and skip `action` entirely. It doesn't: routing through
+one uniform signature is what lets `parseMessageArgs` stay free of the `of
+HelpArg` test ADR 0041 removed, and `action` is the extension point a custom
+side-effecting Arg plugs into. The alternative has been measured; the
+inversion is what's kept.
 
 A custom `Arg` subtype (ADR 0030) therefore owes two things: route `parse`
 through `arbitrate`, and override `clear` if it carries a value.
@@ -669,12 +677,13 @@ the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
 `Spec.settings.width` (default `terminalWidth()`, itself falling back to
 `DefaultWidth = 80`) and `Spec.settings.maxVariantsWidth` (default
-`DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping: `width` wraps
+`DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping (`help.nim`):
+`width` wraps
 usage lines (`formatUsage`) and each row's help/description text, while
 `maxVariantsWidth` caps the "variants" column (e.g. `-v, --verbose,
 --quiet`) so one arg with many aliases can't inflate the shared column width
 for every other row. `genHelp` goes through `arg.variantGroups()`
-(`argumint.nim`, near `genHelp`), which groups an arg's variants by their
+(`help.nim`, alongside `genHelp`), which groups an arg's variants by their
 `variantDesc` text and returns one group per distinct behavior. `colWidth`
 is computed from the widest single group's joined names, not the widest
 whole-`Arg`'s. Each group becomes its own row using the same 2-space row
@@ -932,8 +941,8 @@ per-value description in the data model to draw from. `describeVariants`
 sources each variant's description from `Arg.variantDesc(variant)`
 (`backend.nim`) when an Arg's variants genuinely diverge in what they do
 (e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
-back to the Arg's shared `.help` otherwise — mirroring `argumint.
-variantGroups`'s own grouping rule (used by `genHelp`) so completion's
+back to the Arg's shared `.help` otherwise — mirroring
+`help.variantGroups`'s own grouping rule (used by `genHelp`) so completion's
 descriptions agree with what help text would actually show.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell

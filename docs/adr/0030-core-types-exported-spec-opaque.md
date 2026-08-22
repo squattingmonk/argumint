@@ -99,6 +99,12 @@ The library reaches its own now-private fields via
 `argumint.nim`, `fsm.nim`, and `parser.nim`. (`completion.nim`, `dot.nim`,
 and `fsmgraph.nim` turned out to touch none.)
 
+**Update:** four modules. Issue #50 split help rendering out of
+`argumint.nim` into `help.nim`, which reads `prolog`/`epilog`/`usage`/
+`args`/`groups` and so carries its own `privateAccess(Spec)`. The
+generic-instantiation constraint below doesn't bite there -- `genHelp` is a
+plain proc.
+
 `privateAccess` **does not survive template or generic instantiation in
 another module** — verified by scratch compile, and recorded in
 `docs/gotchas.md`. `newSpec*(spec: tuple, ...)` is generic over the spec
