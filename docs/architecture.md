@@ -723,7 +723,7 @@ lines, so the help text stays inline with the first wrapped variants line.
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via
-`cascadeSpecSettings` (`src/argumint.nim`). `settings` is deliberately not
+`cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is deliberately not
 a parameter to `command*` itself: since it's the same shared instance
 throughout the tree, it only needs to be set once at the top-level
 `newSpec`/`parse*` call regardless of nesting depth. Being a ref rather
