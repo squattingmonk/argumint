@@ -552,10 +552,17 @@ port.clear()                              # back to the coded-default state
 flag.parse("", "-v")                      # applies that Variant's Flag Operation
 ```
 
-The optional `seenBy` is what makes the export useful at all: every reader
-from ADR 0040 branches on `seen`, so a write that declares no tier is
-written but unreadable. See
-`docs/adr/0041-parse-is-the-write-surface.md`.
+The optional `seenBy` is what makes a tier-less write useful rather than
+merely legal: ADR 0040's readers originally branched on `seen` alone, so a
+write that declared no tier was written but unreadable. ADR 0044 (issue
+#29) changed that per Arg kind -- a scalar `ValueArg` now reads whatever
+is stored regardless of `seen`; a multi `ValueArg` reads stored-or-`seen`,
+so a genuinely empty-but-Seen seq still reads as itself; a `FlagArg` reads
+`seen`-or-differs-from-its-coded-default, so a tier-less write is visible
+once it actually changes the value and invisible only in the narrow case
+where it reproduces the default exactly. See
+`docs/adr/0041-parse-is-the-write-surface.md` and
+`docs/adr/0044-put-typed-write-accessor.md`.
 
 The `arbitrate` template holds the tier rule, and every `parse`
 implementation routes through it -- the base one, `parseImpl`, and
@@ -615,6 +622,15 @@ inversion is what's kept.
 
 A custom `Arg` subtype (ADR 0030) therefore owes two things: route `parse`
 through `arbitrate`, and override `clear` if it carries a value.
+
+`get`/`get(otherwise)` and `put` (issue #29, ADR 0044) are plain generic
+procs over `ValueArg`/`FlagArg`, not methods on `Arg` -- so neither is part
+of the custom-`Arg` contract above, and neither dispatches through a
+subtype's `parse` override. `put` writes `self.value` directly through the
+same `arbitrate`/`putImpl` path every built-in `ValueArg`/`FlagArg` uses;
+a custom `Arg` subtype has no `value` field for it to reach and so cannot
+be driven through `put` at all -- its own `parse` override remains the
+only write path into it.
 
 ### Flags
 
@@ -814,17 +830,23 @@ to the Arg itself — `join`, `in`, `some`, a `case` selector). The
 `get*(arg, otherwise)` overloads are `template`s rather than `proc`s so
 `otherwise` stays unevaluated on the supplied path; each binds `arg` to a
 local so the operand is evaluated exactly once. They read `ValueArg`'s
-private `value` field from an expansion in the caller's module, which works
-for the same reason `defineArg`/`defineFlag` can (`docs/gotchas.md`). All
-three branch on `seen` (ADR 0039), including the `ValueArg` overloads: a
-`FlagArg` has no storage-based alternative, and since ADR 0032/0039
-resolve values and provenance for the whole tree before dispatch, a `seen`
-`ValueArg` always has a stored value to index. The no-arg `get` is
-the same template called with the Arg's coded default as `otherwise`
-(`arg.get(otherwise = arg.default[0])`), so the library holds exactly one
-supplied-or-not test; `FlagArg`'s returns `value` outright, its coded
-default being its starting value rather than a substitution tier. See
-`docs/adr/0040-explicit-value-accessor.md`.
+private `value` field (via `rawValue`/`rawDefault`, `argumint/argtypes`)
+from an expansion in the caller's module, which works for the same reason
+`defineArg`/`defineFlag` can (`docs/gotchas.md`). None of the three branch
+on `seen` alone as originally specified by ADR 0040 — ADR 0044 (issue #29)
+changed each once a tier-less `put`/`parse` could leave provenance and the
+stored value disagreeing on purpose: a scalar `ValueArg` tests only
+whether `rawValue` holds anything; a multi `ValueArg` tests that *or*
+`seen`, so an explicitly Seen-but-empty seq still reads as itself instead
+of falling back; a `FlagArg` tests `seen` *or* `rawValue != rawDefault`,
+so a tier-less write is visible once it actually changes the value. The
+no-arg `get` is the same template called with the Arg's coded default as
+`otherwise` (`arg.get(otherwise = arg.rawDefault[0])` for scalar), so the
+library holds exactly one substitution rule per Arg kind rather than a
+second copy of it; `FlagArg`'s no-arg `get` returns `value` outright, its
+coded default being its starting value rather than a substitution tier.
+See `docs/adr/0040-explicit-value-accessor.md` and
+`docs/adr/0044-put-typed-write-accessor.md`.
 
 ## 5. Subcommands
 

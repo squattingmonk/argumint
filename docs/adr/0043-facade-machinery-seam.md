@@ -8,7 +8,7 @@ where the halves go:
 > the facade can reach it, and withheld from the facade's re-export list so
 > users cannot.
 
-In `argumint/argtypes` it applies four times:
+In `argumint/argtypes` it applies five times:
 
 | Public name (facade) | Machinery (submodule, withheld) |
 | --- | --- |
@@ -16,6 +16,7 @@ In `argumint/argtypes` it applies four times:
 | `flag`/`flagOp` | `initFlagArg`, `splitFlagSpellings`, `parseFlagOpsString`, `checkFlagOp` |
 | `get` (all six overloads), `toT`/`toSeqT` | `rawValue` / `rawDefault` |
 | `defineArg` (both overloads), `defineFlag`, `defineSetFlag` | `defineValueArg` / `defineFlagArg` / `defineSetFlagArg` |
+| `put` (all three overloads) | `putImpl` -- see `docs/adr/0044-put-typed-write-accessor.md` |
 
 A maintainer never has to ask which module a public name lives in. The
 answer is always `argumint.nim`.

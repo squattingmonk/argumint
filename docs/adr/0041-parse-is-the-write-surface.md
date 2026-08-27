@@ -1,5 +1,16 @@
 # `parse` is the write surface, and records its own provenance
 
+> **Amended by [ADR 0044](0044-put-typed-write-accessor.md)**: `put` joins
+> `parse` as a second write spelling — the same arbitration, minus the
+> string conversion, plus a `validate = false` opt-out. The write-surface
+> table below gains a row for it. The "ADR 0040's promise is closable but
+> not closed" Consequence is now closed for a `ValueArg`'s own readers — a
+> tier-less write is always readable through `get`/`get(otherwise)` — and
+> narrowed, not left fully open, for `FlagArg`: a tier-less write is
+> readable there too once it actually changes the value away from the
+> coded default, and stays invisible only in the narrow case where it
+> happens to reproduce the default exactly.
+
 Nothing supported writing a value into an Arg from application code. A
 program that wants to seed a default computed at startup, replay a saved
 session, or layer a source argumint doesn't know about had no way in.
@@ -58,6 +69,7 @@ unconditional. This is the whole write surface, with no new accessors:
 | replace a multi Arg's values | `arg.clear()`, then one `parse` per value |
 | apply a Flag Operation | `flag.parse("", variant)` |
 | hand an Arg to a weaker tier | `arg.clear()`, then `parse` declaring it |
+| write an already-computed `T`, skipping conversion | `arg.put(v)` — see ADR 0044 |
 
 The base implementation is a **quiet recorder**: it records provenance and
 does nothing else, and never raises. This matches how `defaultStr` and

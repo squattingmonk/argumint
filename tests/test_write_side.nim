@@ -75,13 +75,16 @@ suite "seenBy declares a tier; omitting it extends the current one":
     check port.seenBy == byNone
     check not port.seen
 
-  test "a write with no tier is invisible to every accessor":
-    # Every reader branches on `seen` -- ADR 0040. This is the deliberate
-    # "extend, don't declare" case, not a bug.
+  test "a write with no tier is visible to every accessor, though seenBy stays byNone":
+    # `get`/`get(otherwise)` test the stored value, not `seen` -- #29 amends
+    # ADR 0040 for this. `seenBy` itself is untouched; only what the readers
+    # do with a tier-less write changes.
     let port = opt("--port=<n>", default = 80, help = "")
     port.parse("77")
-    check port.get == 80
-    check port.get(otherwise = 1) == 1
+    check port.seenBy == byNone
+    check not port.seen
+    check port.get == 77
+    check port.get(otherwise = 1) == 77
 
   test "a write declaring a tier is visible to every accessor":
     let port = opt("--port=<n>", default = 80, help = "")

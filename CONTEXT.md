@@ -379,8 +379,12 @@ that falls outside their own Validator's rules (see
 `docs/adr/0008-validators-dont-run-against-defaults.md`). A default is
 likewise invisible to Seen Values (see below), a separate consequence of
 the same substitution -- a CLI-supplied value equal to the default won't
-be caught as a duplicate by `unique()`. Every kind takes the same optional
-trailing `desc` param, shown instead of that kind's auto-generated
+be caught as a duplicate by `unique()`. The other exception is a
+programmatic write via `put(v, validate = false)` (see Seen Arg), which
+stores `v` without running the Validator at all -- so a stored value
+having satisfied the Validator is the common case, not a guarantee (see
+`docs/adr/0044-put-typed-write-accessor.md`). Every kind takes the same
+optional trailing `desc` param, shown instead of that kind's auto-generated
 help/failure text when non-empty -- see Validator Failure Message.
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
 
@@ -419,11 +423,29 @@ whole matched Spec tree before any hook fires, so it agrees with the Arg's
 readable value at every point a hook can observe either -- provenance is
 written by whichever method writes the value, so it can never outrun it.
 Application code may claim a tier for itself: `arg.parse(v, seenBy =
-some(byCli))` makes an Arg Seen at that tier exactly as the command line
-would, and `arg.clear()` makes it unseen again. A write naming no tier
-extends at whatever tier is current, so it leaves an unsupplied Arg
-unsupplied. See `docs/adr/0039-per-arg-provenance.md` and
-`docs/adr/0041-parse-is-the-write-surface.md`.
+some(byCli))` (or the typed `arg.put(v, seenBy = some(byCli))`, see below)
+makes an Arg Seen at that tier exactly as the command line would, and
+`arg.clear()` makes it unseen again. A write naming no tier extends at
+whatever tier is current, so it leaves an unsupplied Arg's `seenBy` at
+`byNone` -- still unseen by this entry's own definition. That no longer
+means unreadable, though, and how far it doesn't varies by Arg kind.
+A scalar `ValueArg`'s `get`/`get(otherwise)` test whether a value is
+stored, not `seen` -- unconditionally, since a scalar has no renderable
+"Seen but nothing stored" state to fall back to `seen` for. A multi
+`ValueArg` tests stored-or-`seen`: an explicitly Seen Arg with a genuinely
+empty seq (reachable today only by writing `seenBy` directly, not through
+`put`/`parse`) reads as its own `@[]` rather than substituting the coded
+default or `otherwise`, distinguishing "never supplied" from "supplied as
+empty" -- a distinction only a seq-shaped value can make. A `FlagArg`
+tests `seen` or "differs from the coded default": a tier-less write is
+visible once it actually moves the value, and stays invisible only in the
+narrow case where it happens to reproduce the default exactly, since a
+Flag's `T` has no representable empty state at all. `put` is the typed
+write surface -- `parse` minus the string conversion, for a caller already
+holding a `T` -- and arbitrates identically. See
+`docs/adr/0039-per-arg-provenance.md`,
+`docs/adr/0041-parse-is-the-write-surface.md`, and
+`docs/adr/0044-put-typed-write-accessor.md`.
 _Avoid_: source, origin (both read as the tier itself rather than the fact
 of being supplied), matched (means specifically the command-line tier, per
 `HookInfo.matched`)

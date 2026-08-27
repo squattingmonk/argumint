@@ -165,25 +165,48 @@ method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   ## deliver it directly (see `help*`).
   raise newException(HelpError, spec.genHelp(command))
 
+
+# ------------------------------------------------------------------------------
+# Type write accessors for args.
+# ------------------------------------------------------------------------------
+
+proc put*[T: not seq, multi: static bool](arg: ValueArg[T, multi], value: T, seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
+  ## Sets (or, in the case of a multi-value arg, adds) `arg`'s value to `value`,
+  ## optionally running its validator if `validate` is true; on validation
+  ## failure, raises a `ValidationError`. Unlike `parse`, there's no matched
+  ## token to name a specific variant with, so the error names `arg`'s own
+  ## primary spelling (`putImpl`'s `variant = ""` falls back to
+  ## `arg.variants[0]` via `subject`). The arg's value provenance is set to
+  ## `seenBy` if `some`; if `none`, keeps the arg's existing provenance.
+  putImpl(arg, value, "", seenBy, validate)
+
+proc put*[T](arg: FlagArg[T], value: T, seenBy: Option[SeenBy] = none(SeenBy)) =
+  ## Sets the value of `arg`, always clamping if the arg has a clamp. The
+  ## value's provenance is set to `seenBy` if `some`; if `none`, keeps the arg's
+  ## existing provenance.
+  putImpl(arg, value, seenBy)
+
 # ------------------------------------------------------------------------------
 # Convenience functions that allow easy unpacking of values from args.
 # ------------------------------------------------------------------------------
 
 template get*[T](arg: ValueArg[T, false], otherwise: T): T =
-  ## Returns `arg`'s parsed value if a Value Precedence tier supplied one, and
-  ## `otherwise` if none did -- `arg`'s coded default is ignored, replaced by
-  ## `otherwise` for this call site only. A `template` so `otherwise` is left
-  ## unevaluated on the supplied path; ADR 0040.
+  ## Returns `arg`'s parsed value if it holds one, and `otherwise` if it
+  ## doesn't -- `arg`'s coded default is ignored, replaced by `otherwise` for
+  ## this call site only. Tests the stored value rather than `seen`, so a
+  ## tier-less `put`/`parse` (which stores a value but leaves `seenBy`
+  ## untouched) is visible here. A `template` so `otherwise` is left
+  ## unevaluated on the supplied path; ADR 0040, amended for `put`.
   block:
     let a = arg
-    if a.seen: a.rawValue[0] else: otherwise
+    if a.rawValue.len > 0: a.rawValue[0] else: otherwise
 
 template get*[T](arg: ValueArg[T, true], otherwise: seq[T]): seq[T] =
-  ## Returns `arg`'s accumulated values if a Value Precedence tier supplied
-  ## any, and `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
+  ## Returns `arg`'s accumulated values if it holds any, and `otherwise` if
+  ## it doesn't. See `get*(ValueArg[T, false], T)`.
   block:
     let a = arg
-    if a.seen: a.rawValue else: otherwise
+    if a.seen or a.rawValue.len > 0: a.rawValue else: otherwise
 
 proc get*[T](arg: ValueArg[T, false]): T =
   ## Returns `arg`'s parsed value, substituting its coded default if no Value
@@ -202,7 +225,7 @@ template get*[T](arg: FlagArg[T], otherwise: T): T =
   ## `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
   block:
     let a = arg
-    if a.seen: a.rawValue else: otherwise
+    if a.seen or arg.rawValue != arg.rawDefault: a.rawValue else: otherwise
 
 proc get*[T](arg: FlagArg[T]): T =
   ## Returns `arg`'s value. See `get*(ValueArg[T, false])`.

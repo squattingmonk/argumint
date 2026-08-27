@@ -10,6 +10,20 @@
 > argumint` now does re-export `parse`, so that state is reachable without
 > a backend import. Everything else below stands, including `seen` as the
 > single supplied-or-not test.
+>
+> **Further amended by [ADR 0044](0044-put-typed-write-accessor.md)**: the
+> tier-less case above is closed too, but not by `seen` alone — "`seen` is
+> the supplied-or-not predicate, for every type" and the paragraph below it
+> about the scalar accessor's `value[0]` index depending on that agreement
+> are both stale for every Arg kind except scalar `ValueArg`. A scalar
+> `ValueArg`'s `get`/`get(otherwise)` test whether a value is stored
+> (`rawValue.len > 0`), not `seen`, with no `seen` fallback — it has no
+> renderable empty-but-Seen state. A multi `ValueArg` tests `seen` *or*
+> `rawValue.len > 0`, so an explicitly Seen-but-empty seq reads as itself
+> rather than falling back. `FlagArg` tests `seen` *or* `rawValue !=
+> rawDefault`, so a tier-less write is visible once it actually changes the
+> value, and invisible only in the narrow case where it reproduces the
+> default exactly.
 
 `toT`/`toSeqT` let a parsed Arg be used directly as its value type, and
 that is the documented idiom: `fmt"Copying {file} to {spec.dest}"` reads
