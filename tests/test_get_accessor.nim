@@ -177,11 +177,16 @@ suite "get(otherwise) replaces the coded default at the call site":
     spec.parse(usage = "[--port=<n>]", args = @["--port", "80"], command = "app")
     check spec.port.get(8080) == 80
 
-suite "seen is the supplied-or-not predicate for every Arg kind":
+suite "seen is the supplied-or-not predicate for FlagArg; ValueArg reads test the stored value instead":
   test "a ValueArg that is seen always has a stored value to index":
-    # `get(otherwise)` indexes `value[0]` on the seen branch, so this
-    # agreement is load-bearing. ADR 0032 parses every tier for the whole
-    # tree before dispatch; ADR 0039 writes provenance over the same tree.
+    # `get(otherwise)` indexes `value[0]` whenever a value is stored -- for
+    # every write reached through `parse`/`spec.parse`, `seen` and "holds a
+    # value" agree, so this remains true for the ordinary parsed path. #29
+    # makes the accessor test the stored value directly (not `seen`), which
+    # is what lets a tier-less `put` be read back too -- see
+    # "a ValueArg holding a value is readable even when unseen" below and
+    # `tests/test_put.nim`. ADR 0032 parses every tier for the whole tree
+    # before dispatch; ADR 0039 writes provenance over the same tree.
     let cli = (port: opt("--port=<n>", default = 80, help = ""))
     cli.parse(usage = "[--port=<n>]", args = @["--port", "99"], command = "app")
     check cli.port.seen
@@ -207,6 +212,17 @@ suite "seen is the supplied-or-not predicate for every Arg kind":
     unset.parse(usage = "[--tag=<t>]...", args = @[], command = "app")
     check not unset.tags.seen
     check unset.tags.get(@["z"]) == @["z"]
+
+  test "a ValueArg holding a value is readable even when unseen":
+    # A tier-less `put`/`parse` stores a value but leaves `seenBy` at
+    # `byNone` -- `get`/`get(otherwise)` must not be fooled by that into
+    # falling back. See `tests/test_put.nim` for the exhaustive coverage;
+    # this pins the one-line consequence at this accessor's own seam.
+    let port = opt("--port=<n>", default = 80, help = "")
+    port.put(77)
+    check not port.seen
+    check port.get == 77
+    check port.get(otherwise = 1) == 77
 
   test "a parent hook reads a child's value through get(otherwise)":
     # The window ADR 0032 closed: a parent `before` fires only after every

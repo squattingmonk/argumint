@@ -114,34 +114,50 @@ template rawValue*[T](arg: FlagArg[T]): untyped =
   ## `arg`'s current value, already carrying its coded default.
   arg.value
 
+template rawDefault*[T](arg: FlagArg[T]): untyped =
+  ## `arg`'s coded default value.
+  arg.default
+
 # ------------------------------------------------------------------------------
 # Parsing methods
 # ------------------------------------------------------------------------------
 
-proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: options.Option[SeenBy]) =
-  ## Converts a string `value` into a `T` and validates it is an appropriate
-  ## value for `self`. Raises a `ParseError` if `value` cannot be converted to a
-  ## `T` or a `ValidationError` if the value does not pass `self`'s validator.
-  ## `arbitrate` decides whether this contribution applies at all, and runs
-  ## the Validator against the right history for the branch it takes -- with
-  ## `self.value` when extending, with none when replacing, since those
-  ## values are about to be discarded. See `backend.arbitrate*`.
-  ## We do this here because generic methods are deprecated, so we generate
-  ## methods for each defined type and have them call this.
+proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: options.Option[SeenBy], validate: bool) =
+  ## Sets (or, for a multi Arg, appends) `self`'s value to `value`, running
+  ## `self`'s Validator first unless `validate` is false. Raises a
+  ## `ValidationError` if the value doesn't pass. `arbitrate` decides whether
+  ## this contribution applies at all, and runs the Validator against the right
+  ## history for the branch it takes -- with `self.value` when extending, with
+  ## none when replacing, since those values are about to be discarded. See
+  ## `backend.arbitrate*`. Backs both `put` (`argumint.nim`) and `parseImpl`
+  ## below, which delegates here once it has a `T` in hand. `variant` is
+  ## error-message context only, passed to `subject` on the failure path --
+  ## `parseImpl` hands it the real matched token; `put*` always passes `""`,
+  ## since a programmatic write has no matched token, letting `subject`
+  ## fall back to `self.variants[0]`.
   try:
-    let tmp: T = value
     self.arbitrate(seenBy):
-      if not self.validator.isNil:
-        self.validator.validate(tmp, self.value)
+      if validate and not self.validator.isNil:
+        self.validator.validate(value, self.value)
     do:
-      if not self.validator.isNil:
-        self.validator.validate(tmp)
+      if validate and not self.validator.isNil:
+        self.validator.validate(value)
     when multi:
-      self.value.add(tmp)
+      self.value.add(value)
     else:
-      self.value = @[tmp]
+      self.value = @[value]
   except ValidationError as e:
     raise newException(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
+
+proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: options.Option[SeenBy]) =
+  ## Converts a string `value` into a `T`, then delegates to `putImpl` for
+  ## everything else -- arbitration, validation, storage. Raises `ParseError` if
+  ## `value` can't convert to a `T`; a `ValidationError` from `putImpl` passes
+  ## through unchanged. We do this here because generic methods are deprecated,
+  ## so we generate methods for each defined type and have them call this.
+  try:
+    let tmp: T = value
+    self.putImpl(value = tmp, variant = variant, seenBy = seenBy, validate = true)
   except ValueError:
     raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
 
@@ -255,6 +271,18 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
     ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
     procCall clear(Arg(self))
     self.value.setLen 0
+
+proc putImpl*[T](self: FlagArg[T], value: T, seenBy: options.Option[SeenBy]) =
+  ## Sets the value of `self` directly, arbitrating against `seenBy` like
+  ## every other write, then clamping -- unconditionally and with no
+  ## Validator, since a `FlagArg` has neither. No `variant`/`validate`
+  ## params: nothing here can raise, so there's no message to give context
+  ## to and no check to opt out of. See
+  ## `docs/adr/0044-put-typed-write-accessor.md`.
+  self.arbitrate(seenBy)
+  self.value = value
+  if not self.clamp.isNil:
+    self.value = self.clamp.apply(self.value)
 
 template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Generates the `FlagArg[T]` methods for `T` (and, via `defineValueArg`,

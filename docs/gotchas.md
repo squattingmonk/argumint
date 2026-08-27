@@ -527,3 +527,37 @@ or anything else that generates methods inside a template.
   surfaces in the caller's code, not yours. Hit while designing `parsed*`
   (ADR 0031); differing parameter types are what make an overload legal, not
   differing return types.
+
+- **A `try` expression's type is inferred from the whole expression, not
+  from inside the `try` block -- so binding a conversion at the `let` ahead
+  of the `try` lets its exception escape uncaught.** The obvious-looking
+  spelling for "convert, and re-raise a friendlier error on failure" is
+  wrong:
+
+  ```nim
+  let tmp: T =
+    try: value                     # WRONG -- `try`'s type infers as string
+    except ValueError: raise ...   # from `value`, so the string -> T
+                                    # conversion happens at the `let`,
+                                    # outside the `try` entirely.
+  ```
+
+  The converter's own `ValueError` then escapes uncaught instead of being
+  caught by the `except` branch that looks right next to it -- it surfaces
+  four layers away, as a raw `ValueError` where a `ParseError` was
+  expected. The fix is an ordinary `let` *statement inside* the `try`
+  block, not a `try` *expression* bound to a `let` outside it -- the
+  conversion then genuinely runs under the `try`'s watch:
+
+  ```nim
+  try:
+    let tmp: T = value
+    ...
+  except ValueError: raise ...
+  ```
+
+  Hit extracting `putImpl` out of `parseImpl`
+  (`src/argumint/argtypes.nim`) for issue #29 -- `putImpl` takes an
+  already-converted `T` and knows nothing about strings, so `parseImpl`'s
+  own conversion had to move to guard exactly this. See
+  `docs/adr/0044-put-typed-write-accessor.md`.

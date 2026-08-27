@@ -322,11 +322,12 @@ port.get                                   # => 80
 ```
 
 The `seenBy` argument names which [Value Precedence](#value-precedence)
-tier you're writing as, and it matters: every accessor reports the coded
-`default` for an `Arg` no tier has supplied, so a write that names no tier
-is stored but never read back. Omitting it means "extend whatever tier is
-current" — useful for adding to an `Arg` a tier already supplied, and a
-no-op for one nothing has.
+tier you're writing as. Omitting it means "extend whatever tier is
+current" — useful for adding to an `Arg` a tier already supplied, and for
+seeding one nothing has: the value is stored and `get`/`get(otherwise)`
+return it, but the `Arg` itself stays unseen (`seenBy` stays `byNone`), so
+a real tier can still arbitrate against it exactly as a supplied one would
+(see below).
 
 A tier you declare is then arbitrated against by the real ones, so a value
 written *before* `parse*` runs is a seed rather than something that gets
@@ -351,6 +352,37 @@ pass *is* the variant whose operation to apply, so one call is one bump:
 
 ```nim
 verbose.parse("--verbose", seenBy = some(byCli))
+```
+
+#### Writing an Already-Typed Value
+
+`parse` takes a raw `string` and converts it, which is a problem if you
+already have the `T` you want and no reason to round-trip it back through
+`$`. `put` is `parse` with the conversion step removed — same arbitration,
+same provenance rules, same replace-for-scalar/append-for-multi shape —
+just handed a typed value directly:
+
+```nim
+port.put(8080, seenBy = some(byCli))   # no string, no conversion
+port.get                               # => 8080
+```
+
+It validates by default, same as `parse`, but — unlike `parse` — you can
+opt out at any arity:
+
+```nim
+tags.put("unchecked", seenBy = some(byCli), validate = false)
+```
+
+A `Flag`'s `put` always applies its clamp and never validates — there's no
+`validate` parameter to pass, since a `Flag` has no validator to skip, and
+no `variant` parameter either, since nothing on that path can fail:
+
+```nim
+let level = flag[int](ops = [flagOp("-l", "+=", 1)], default = 0,
+                       clamp = clamp(0..2), help = "")
+level.put(99, seenBy = some(byCli))
+level.get                             # => 2, clamp-coerced like any other write
 ```
 
 A `Spec` is still single-use either way — see
