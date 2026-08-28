@@ -8,7 +8,7 @@ import std/[algorithm, importutils, os, pegs, sets, sequtils, strformat, strutil
 # file -- see docs/gotchas.md.
 from std/options import some, none, isSome, isNone, get
 
-import ./[backend, configsource, errors, fsmgraph, parser]
+import ./[backend, configsource, errors, fsmgraph, parser, tokens]
 export ParseError, SpecDefect, CompletionError
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
@@ -30,7 +30,7 @@ type
     ## complaint must count. Built via `complaint`, never as a bare tuple.
     ## See ADR 0035.
 
-  Leftover = tuple[tokens: seq[RawToken], spec: Spec, optsEnd: bool]
+  Leftover = TokenCursor
     ## One failed branch's unconsumed tokens, plus the context to
     ## re-`classify` them. Recorded during the walk, worded in
     ## `finalComplaints`. Whole token list, not just the first -- `classify`
@@ -78,83 +78,45 @@ type
     ## `dispatch` and `applyFallbacks` -- see architecture.md §5.
 
   ParseContext = object
-    maxReach: Reach       ## The greatest Reach of any path explored from this state -- both the running bar siblings are ranked against and, once the walk returns, what the parent reads back as this branch's descendant Reach. See `reach` and ADR 0036
-    spec: Spec            ## The spec for the *live* walk position -- consulted by classify()/match() as the walk progresses; never retroactively overwritten by a failed sibling's own descent (see errorSpec)
-    command: string       ## The command string up to the current subcommand, for the live walk position -- see `spec`
-    levels: seq[Level]    ## Every grammar level entered on this path, root-first. Seeded with the root entry by `parse*` (the completion path neither seeds nor reads it) and appended to as `match`'s `Command` branch descends; a losing branch's entry is discarded with the branch, since `walk` clones the whole context per candidate transition
-    errorSpec: Spec       ## Spec for the furthest-reaching fsm path's own failure, for the final error message only -- must stay separate from `spec`, see ADR 0019 point 7
-    errorCommand: string  ## See `errorSpec`
-    messages: seq[Complaint] ## A list of complaints indicating failure reason of the furthest-reaching fsm path
-    errorTokens: seq[Leftover] ## What the furthest-reaching fsm path left over, for `finalComplaints` to name. Merged across Reach-tied siblings exactly as `messages` is -- see ADR 0036
-    tokens: seq[RawToken]     ## The arguments left to be parsed
-    optsEnd: bool          ## Whether this path has crossed a literal `--` -- see ADR 0019
-    matches: MatchTable   ## A table of processed matches
-    env: ValueCursor        ## Value Precedence's environment-variable tier -- see `ValueCursor`
-    configValues: ValueCursor ## Value Precedence's Config Source tier -- see `ValueCursor`
-
-  RawToken = object
-    ## A raw command-line token, classified only as far as pure string shape
-    ## can tell without consulting a `Spec` -- see ADR 0019.
-    raw: string     ## The literal token as typed
-    optShape: bool  ## True if `raw` looks like `-o`/`--opt`/`-o=val`/
-      ## `--opt=val`, or a `-xyz`-shaped cluster candidate
-    idx: int        ## Original position in the CLI argv -- a peeled
-      ## cluster remainder inherits its parent token's `idx` rather than
-      ## getting a fresh one. Lets Flag Operation composition sort by true
-      ## typed order instead of grammar/push order -- see `parseAllValues`.
-    subIdx: int     ## How many letters have been peeled off this token's
-      ## parent cluster -- 0 for anything the user typed. Ranking-only, and
-      ## deliberately separate from `idx`, which must keep naming the whole
-      ## physical argument for composition order. See `Reach`.
-    cluster: string ## The Short-Option Cluster this token was peeled from --
-      ## empty when `raw` *is* what the user typed, which is what
-      ## `fromCluster` tests. Peeling destroys the original, so a complaint
-      ## about `-1.5`'s leftover has no other way to say where `-.` came
-      ## from. Read through `userTyped`, never directly. See ADR 0038.
-
-  Classification = object
-    ## What a `RawToken` actually is, resolved lazily against a `Spec` --
-    ## see `classify`, ADR 0019. `consumed`/`remainder` feed `consume`.
-    consumed: int
-    remainder: string
-    starvedOpt: Arg ## Set when this token *is* a declared Optional but no
-      ## value is available for it. The non-accepting outcome that lets the
-      ## leftover-token complaint tell "name unknown" from "name known, no
-      ## value" apart -- see `docs/adr/0034-strict-option-checking.md`.
-      ## `kind` is still `Positional` here (there is no accepting
-      ## classification to report), so consult this before trusting it.
-    starvedName: string ## The variant `starvedOpt` was spelled as
-    case kind: ArgKind
-    of Command:
-      cmd: CommandArg
-      cmdName: string
-    of Optional:
-      opt: Arg
-      optName: string
-      optVal: string
-      optSep: string
-    of Flag:
-      flag: Arg
-      flagName: string
-    of Positional:
-      argVal: string
-
-let
-  OptionValueFormat = peg"""
-    # Allows you to capture [-o, =, val] / [--option, =, val] in -o=val / --option=val
-    option <- ^ {(shortOption / longOption)} ({equals} {value}) $
-    equals <- '=' / ':'
-    shortOption <- '-' \w
-    longOption <- '--' \w (\w / ('-' \w))+
-    value <- _*
-  """
-
-  OptionFormat = peg"""
-  # Allows you to capture -o / --option
-  option <- ^ {(shortOption / longOption)} $
-  shortOption <- '-' \w
-  longOption <- '--' \w (\w / ('-' \w))+
-  """
+    maxReach: Reach
+      ## The greatest Reach of any path explored from this state -- both
+      ## the running bar siblings are ranked against and, once the walk
+      ## returns, what the parent reads back as this branch's descendant
+      ## Reach. See `reach` and ADR 0036
+    cursor: TokenCursor
+      ## The tokens left to parse, the spec for the *live* walk position,
+      ## and whether `--` has been crossed -- consulted by `classify`/
+      ## `match` as the walk progresses; `cursor.spec` is never
+      ## retroactively overwritten by a failed sibling's own descent (see
+      ## errorSpec). See `TokenCursor` (`tokens.nim`)
+    command: string
+      ## The command string up to the current subcommand, for the live
+      ## walk position -- names the level `cursor.spec` governs
+    levels: seq[Level]
+      ## Every grammar level entered on this path, root-first. Seeded with
+      ## the root entry by `parse*` (the completion path neither seeds nor
+      ## reads it) and appended to as `match`'s `Command` branch descends;
+      ## a losing branch's entry is discarded with the branch, since
+      ## `walk` clones the whole context per candidate transition
+    errorSpec: Spec
+      ## Spec for the furthest-reaching fsm path's own failure, for the
+      ## final error message only -- must stay separate from
+      ## `cursor.spec`, see ADR 0019 point 7
+    errorCommand: string
+      ## See `errorSpec`
+    messages: seq[Complaint]
+      ## A list of complaints indicating failure reason of the
+      ## furthest-reaching fsm path
+    errorTokens: seq[Leftover]
+      ## What the furthest-reaching fsm path left over, for
+      ## `finalComplaints` to name. Merged across Reach-tied siblings
+      ## exactly as `messages` is -- see ADR 0036
+    matches: MatchTable
+      ## A table of processed matches
+    env: ValueCursor
+      ## Value Precedence's environment-variable tier -- see `ValueCursor`
+    configValues: ValueCursor
+      ## Value Precedence's Config Source tier -- see `ValueCursor`
 
 proc complaint(kind, subject: string, names = false): Complaint =
   ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
@@ -225,19 +187,6 @@ proc isShortForm(variant: string): bool =
   ## dash. A Command name (no dash at all) is never short-form.
   variant.len > 1 and variant[0] == '-' and variant[1] != '-'
 
-proc userTyped(token: RawToken): string =
-  ## What the user actually put on the command line to produce `token` --
-  ## itself, unless it's a peel of something longer. See `RawToken.cluster`.
-  if token.cluster.len > 0: token.cluster else: token.raw
-
-proc fromCluster(token: RawToken): bool =
-  ## Whether this token is a peeled `-abc` remainder rather than something
-  ## the user typed. Derived, not stored: a `cluster` is carried over on
-  ## exactly the peel that would have set a flag, and is never empty there
-  ## (a peel's parent is a 3+ character dash token). Only the Non-Option
-  ## Short exemption asks -- see `exemptFromStrict`.
-  token.cluster.len > 0
-
 proc unknownOption(token: RawToken, spec: Spec): Complaint =
   ## Names an option-shaped token nothing in `spec` declares. The two arms
   ## are exclusive by construction: only a short form is narrowed and carries
@@ -261,149 +210,6 @@ proc unknownCommand(word: string, spec: Spec): Complaint =
   ## Names a token sitting where `spec` expected one of its commands.
   complaint("unrecognized command",
     word & didYouMean(word, toSeq(spec.commands.keys)), names = true)
-
-proc isOptShape(raw: string): bool =
-  ## Pure string-shape recognition needing no `Spec` -- see ADR 0019.
-  raw =~ OptionFormat or raw =~ OptionValueFormat or
-    (raw.len > 2 and raw[0] == '-' and raw[1] != '-')
-
-proc isNonOptionShort(raw: string): bool =
-  ## A **Non-Option Short**: one leading dash whose second character isn't
-  ## an ASCII letter (`-5`, `-.5`, `-1e9`, `-0x1F`, `-+3`, `-5x`). Two
-  ## leading dashes never qualify. Shape only, deliberately *not* "parses
-  ## as a number" -- that admits `-inf`/`-nan` while rejecting `-0x1F`/
-  ## `-+3`. See `docs/adr/0034-strict-option-checking.md`.
-  raw.len > 1 and raw[0] == '-' and raw[1] != '-' and
-    raw[1] notin {'a'..'z', 'A'..'Z'}
-
-proc exemptFromStrict(token: RawToken): bool =
-  ## Whether Strict Option Checking never applies to `token`. A Non-Option
-  ## Short qualifies only when the user actually typed it: a peeled `-abc`
-  ## remainder is a cluster continuation, so `-1.5`'s leftover `-.5` is
-  ## still an unrecognized option exactly as `-1x`'s `-x` is. See
-  ## `RawToken.fromCluster`.
-  token.raw.isNonOptionShort and not token.fromCluster
-
-proc mustResolve(token: RawToken): bool =
-  ## Whether `token` has to resolve against the spec or else be an error:
-  ## option-shaped, and not exempt. Says nothing about `strictOptions` --
-  ## a starved option is an error either way, so callers that only fire
-  ## under the setting pair this with it. See ADR 0034.
-  token.optShape and not token.exemptFromStrict
-
-proc tokenizeArgs(args: seq[string], start = 0): seq[RawToken] =
-  ## Splits `args[start..]` into `RawToken`s by shape only -- never touches
-  ## `Spec`, never raises -- see ADR 0019.
-  for i in start ..< args.len:
-    result.add RawToken(raw: args[i], optShape: args[i].isOptShape, idx: i)
-
-proc refusesAsValue(spec: Spec, token: RawToken): bool =
-  ## Whether Strict Option Checking stops `token` filling a declared
-  ## Optional's value slot, so `--name --help` starves rather than setting
-  ## `name` to `"--help"`. Same setting as the positional slot
-  ## (`refusesAsPositional`); with strict off an option-shaped token still
-  ## counts as a value and starvation needs end of input.
-  spec.settings.strictOptions and token.mustResolve
-
-proc starved(option: Arg, variant, raw: string): Classification =
-  ## A declared Optional with no value available for it -- see
-  ## `Classification.starvedOpt`.
-  Classification(kind: Positional, argVal: raw, consumed: 1,
-    starvedOpt: option, starvedName: variant)
-
-proc classify(spec: Spec, tokens: seq[RawToken], pos: int, optsEnd: bool): Classification =
-  ## Decides what `tokens[pos]` is against `spec`'s tables -- the lazy half
-  ## of ADR 0019. Never raises: an unresolved option-shaped token falls
-  ## through to the `Positional` fallback at the bottom.
-  let token = tokens[pos]
-  if optsEnd:
-    return Classification(kind: Positional, argVal: token.raw, consumed: 1)
-  if token.raw in spec.commands:
-    return Classification(kind: Command, cmd: spec.commands[token.raw], cmdName: token.raw, consumed: 1)
-  if token.optShape:
-    # Bare `-o`/`--option`; an Optional's value comes from the next token.
-    if token.raw =~ OptionFormat:
-      let variant = token.raw
-      if variant in spec.options:
-        let option = spec.options[variant]
-        case option.kind
-        of Flag:
-          return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1)
-        of Optional:
-          if pos + 1 < tokens.len and not spec.refusesAsValue(tokens[pos + 1]):
-            return Classification(kind: Optional, opt: option, optName: variant, optVal: tokens[pos + 1].raw, consumed: 2)
-          # Declared, but nothing usable follows -- a starved option, not an
-          # unknown name. Errors under both settings.
-          return starved(option, variant, token.raw)
-        else: discard
-    # `-o=val` / `--option=value`.
-    elif token.raw =~ OptionValueFormat:
-      let (variant, sep, value) = (matches[0], matches[1], matches[2])
-      if variant in spec.options and spec.options[variant].kind == Optional:
-        return Classification(kind: Optional, opt: spec.options[variant], optName: variant, optSep: sep, optVal: value, consumed: 1)
-    # A cluster of short options (`-abc`). Only the first letter resolves
-    # here -- a Flag leaves the rest as `remainder` for `consume` to
-    # reinsert; an Optional swallows the rest as its value. See ADR 0019
-    # point 2 on why this can't be decided eagerly.
-    elif token.raw.len > 2 and token.raw[0] == '-' and token.raw[1] != '-':
-      let variant = "-" & token.raw[1]
-      if variant in spec.options:
-        let option = spec.options[variant]
-        let folded = token.raw.substr(2)
-        case option.kind
-        of Flag:
-          return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1,
-            remainder: (if folded.len > 0: "-" & folded else: ""))
-        of Optional:
-          # `folded` is never empty here -- the branch guard is `raw.len > 2`
-          # -- so an Optional reached through a cluster always has its value
-          # attached and can't starve. Bare `-p` goes through `OptionFormat`.
-          if fmt"{variant}{folded}" =~ OptionValueFormat:
-            return Classification(kind: Optional, opt: option, optName: variant, optSep: matches[1], optVal: matches[2], consumed: 1)
-          else:
-            return Classification(kind: Optional, opt: option, optName: variant, optVal: folded, consumed: 1)
-        else: discard
-  Classification(kind: Positional, argVal: token.raw, consumed: 1)
-
-proc refusesAsPositional(pc: ParseContext, pos: int, c: Classification): bool =
-  ## Whether an `Argument` matcher must decline `pc.tokens[pos]` as opaque
-  ## literal text -- refuse-to-match, never raise, so the token stays
-  ## leftover for `walk` to word and backtracking survives. See ADR 0034.
-  ##
-  ## A starved declared Optional is refused whatever `strictOptions` says;
-  ## otherwise this is ADR 0019 gap 3's case, and `pc.optsEnd` is what
-  ## exempts a post-`--` token -- `classify` short-circuits it to a plain
-  ## `Positional` that would otherwise look exactly like an unknown option.
-  if not c.starvedOpt.isNil:
-    return true
-  pc.spec.settings.strictOptions and not pc.optsEnd and c.kind == Positional and
-    pc.tokens[pos].mustResolve
-
-proc consume(pc: var ParseContext, pos: int, c: Classification) =
-  ## Removes/reinserts the raw token(s) an accepted `Classification`
-  ## accounts for at `pos` -- see `classify`'s cluster branch, ADR 0019.
-  let parent = pc.tokens[pos]
-  pc.tokens.delete pos
-  if c.consumed == 2:
-    pc.tokens.delete pos # the value that was tokens[pos + 1]
-  elif c.remainder.len > 0:
-    # Inherits the parent token's idx -- it's the same physical CLI argument,
-    # just partially consumed -- but advances `subIdx`, one more letter of it
-    # now being accounted for. See `RawToken.idx`/`.subIdx`.
-    pc.tokens.insert(RawToken(raw: c.remainder, optShape: c.remainder.isOptShape,
-      idx: parent.idx, subIdx: parent.subIdx + 1,
-      # Carried so a complaint can say which typed token this came out of;
-      # peeling destroys it otherwise. Also what makes `fromCluster` true.
-      cluster: parent.userTyped), pos)
-
-proc consumeOptsEnd(pc: var ParseContext, pos: int): bool =
-  ## Drops a not-yet-consumed literal `--` at `pos` and marks this path
-  ## past the end of options -- see ADR 0019. Returns whether it did so,
-  ## so callers can re-examine `pos` without incrementing.
-  if not pc.optsEnd and pc.tokens[pos].raw == "--":
-    pc.tokens.delete pos
-    pc.optsEnd = true
-    result = true
 
 proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "", idx = 0) =
   ## Adds a matched arg's seen variant and value to the table of matches,
@@ -470,8 +276,8 @@ proc addLeftover(pc: var ParseContext, leftover: Leftover) =
 proc addLeftover(pc: var ParseContext) =
   ## Records what this branch couldn't consume, for `finalComplaints` to
   ## word later.
-  if pc.tokens.len > 0:
-    pc.addLeftover((pc.tokens, pc.spec, pc.optsEnd))
+  if pc.cursor.len > 0:
+    pc.addLeftover(pc.cursor)
 
 proc starvedComplaint(c: Classification): Complaint =
   ## The unconditional "declared, but nothing to give it" complaint -- see
@@ -488,19 +294,19 @@ proc addStarved(pc: var ParseContext): bool =
   ## Classifies for itself rather than taking a `Classification`: the
   ## `[options]` catch-all has to re-ask after rolling its own per-probe
   ## messages back. See ADR 0034.
-  if pc.tokens.len == 0 or not pc.tokens[0].optShape:
+  if pc.cursor.len == 0 or not pc.cursor[0].optShape:
     return false
-  let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
+  let c = pc.cursor.classify(0)
   if c.starvedOpt.isNil:
     return false
   pc.addUnique starvedComplaint(c)
-  if pc.tokens.len > 1 and pc.tokens[1].mustResolve:
+  if pc.cursor.len > 1 and pc.cursor[1].mustResolve:
     # Named only when genuinely unknown -- the token that starved this one
     # may be a declared option itself (`--port --port 80`), and calling
     # *that* unrecognized is the wording ADR 0034 exists to fix.
-    let starver = classify(pc.spec, pc.tokens, 1, pc.optsEnd)
+    let starver = pc.cursor.classify(1)
     if starver.kind == Positional and starver.starvedOpt.isNil:
-      pc.addUnique unknownOption(pc.tokens[1], pc.spec)
+      pc.addUnique unknownOption(pc.cursor[1], pc.cursor.spec)
   true
 
 proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
@@ -515,11 +321,11 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # A shortcut consumes no tokens and always indicates success.
     result = true
   of OptsEnd:
-    # Always matches, forcing pc.optsEnd regardless of whether a literal
-    # `--` is actually there to consume -- see ADR 0020.
-    if pc.tokens.len > 0:
-      discard pc.consumeOptsEnd(0)
-    pc.optsEnd = true
+    # Always matches, forcing pc.cursor.optsEnd regardless of whether a
+    # literal `--` is actually there to consume -- see ADR 0020.
+    if pc.cursor.len > 0:
+      discard pc.cursor.consumeOptsEnd(0)
+    pc.cursor.optsEnd = true
     result = true
   of Argument:
     # Skip Option/Flag-classified tokens (order-independent -- see ADR
@@ -527,19 +333,19 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # like a Positional one -- the scan must not skip past it looking
     # further ahead, see ADR 0019 point 6 on why that breaks ordering.
     var pos = 0
-    while pos < pc.tokens.len:
-      if pc.consumeOptsEnd(pos):
+    while pos < pc.cursor.len:
+      if pc.cursor.consumeOptsEnd(pos):
         continue
-      let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
+      let c = pc.cursor.classify(pos)
       case c.kind
       of Positional, Command:
-        if pc.refusesAsPositional(pos, c):
+        if pc.cursor.refusesAsPositional(pos, c):
           # Left unconsumed so it survives as a leftover for `walk` to name
           # -- see `refusesAsPositional`.
           pos.inc
         else:
-          pc.matches.push(m.arg, pc.spec, m.arg.name, pc.tokens[pos].raw, pc.tokens[pos].idx)
-          pc.consume(pos, c)
+          pc.matches.push(m.arg, pc.cursor.spec, m.arg.name, pc.cursor[pos].raw, pc.cursor[pos].idx)
+          pc.cursor.consume(pos, c)
           result = true
           break
       else:
@@ -558,14 +364,14 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # If the next token classifies as this specific command, consume it and
     # return true. Otherwise return false -- a Command matcher never scans
     # past position 0 (see `docs/architecture.md`).
-    if pc.tokens.len > 0 and not pc.consumeOptsEnd(0):
-      let c = classify(pc.spec, pc.tokens, 0, pc.optsEnd)
+    if pc.cursor.len > 0 and not pc.cursor.consumeOptsEnd(0):
+      let c = pc.cursor.classify(0)
       if c.kind == Command and c.cmd == m.cmd:
-        pc.matches.push(m.cmd, pc.spec, c.cmdName, idx = pc.tokens[0].idx)
+        pc.matches.push(m.cmd, pc.cursor.spec, c.cmdName, idx = pc.cursor[0].idx)
         pc.command = fmt"{pc.command} {c.cmdName}"
-        pc.spec = m.cmd.spec
-        pc.levels.add (spec: pc.spec, command: pc.command)
-        pc.consume(0, c)
+        pc.cursor.spec = m.cmd.spec
+        pc.levels.add (spec: pc.cursor.spec, command: pc.command)
+        pc.cursor.consume(0, c)
         result = true
     if not result:
       pc.messages.add complaint("missing command", m.cmd.name)
@@ -577,15 +383,15 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # doesn't matter -- see the Argument branch above on why a
     # Command-classified token doesn't need special-casing here either.
     var pos = 0
-    while pos < pc.tokens.len:
-      if pc.consumeOptsEnd(pos):
+    while pos < pc.cursor.len:
+      if pc.cursor.consumeOptsEnd(pos):
         continue
-      let c = classify(pc.spec, pc.tokens, pos, pc.optsEnd)
+      let c = pc.cursor.classify(pos)
       case c.kind
       of Optional:
         if c.opt == m.opt:
-          pc.matches.push(c.opt, pc.spec, c.optName, c.optVal, pc.tokens[pos].idx)
-          pc.consume(pos, c)
+          pc.matches.push(c.opt, pc.cursor.spec, c.optName, c.optVal, pc.cursor[pos].idx)
+          pc.cursor.consume(pos, c)
           return true
       of Flag:
         if c.flag == m.opt:
@@ -597,8 +403,8 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
           # composition order is handled downstream by `RawToken.idx`, not by
           # forcing this scan to find tokens in grammar-declaration order.
           if m.variant == "" or m.opt.aliases(m.variant, c.flagName):
-            pc.matches.push(c.flag, pc.spec, c.flagName, c.flagName, pc.tokens[pos].idx)
-            pc.consume(pos, c)
+            pc.matches.push(c.flag, pc.cursor.spec, c.flagName, c.flagName, pc.cursor[pos].idx)
+            pc.cursor.consume(pos, c)
             return true
       else:
         discard
@@ -610,7 +416,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # out to a local `let` first -- the closures below can't capture `pc`
     # itself (a `var ParseContext` parameter) without violating memory
     # safety.
-    let spec = pc.spec
+    let spec = pc.cursor.spec
     if pc.env.probe(m.opt, () => resolveEnv(m.opt, spec)):
       return true
     if pc.configValues.probe(m.opt, () => resolveConfig(m.opt, spec)):
@@ -623,8 +429,8 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # A failed Option matcher never reaches `walk`'s tail, so it records its
     # own leftover -- see ADR 0035, and ADR 0019 point 4 on why this can't
     # live in tokenization.
-    if not pc.addStarved() and pc.tokens.len > 0 and pc.tokens[0].optShape:
-      if classify(pc.spec, pc.tokens, 0, pc.optsEnd).kind == Positional:
+    if not pc.addStarved() and pc.cursor.len > 0 and pc.cursor[0].optShape:
+      if pc.cursor.classify(0).kind == Positional:
         pc.addLeftover()
   of Options:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
@@ -648,14 +454,14 @@ proc reach(pc: ParseContext): Reach =
   ## This path's Reach (`CONTEXT.md`): where the first token it could not
   ## consume sits, or `int.high` if it consumed everything. Ranks failed
   ## branches in `walk` -- see ADR 0036.
-  if pc.tokens.len == 0: (int.high, 0)
-  else: (pc.tokens[0].idx, pc.tokens[0].subIdx)
+  if pc.cursor.len == 0: (int.high, 0)
+  else: (pc.cursor[0].idx, pc.cursor[0].subIdx)
 
 proc walk(s: State, pc: var ParseContext): bool =
   ## Recursively matches each transition in `s` until a terminal state is
   ## reached or all branches have been tried. Returns `true` if a terminal state
   ## was reached. Matched values may be stored in `pc` by matchers.
-  if s.terminal and pc.tokens.len == 0:
+  if s.terminal and pc.cursor.len == 0:
     return true
 
   # Try each transition. If it matches, recursively descend into the next state.
@@ -671,14 +477,15 @@ proc walk(s: State, pc: var ParseContext): bool =
         pc = fresh
         return true
 
-    # A failed descent leaves `fresh.tokens` where this transition left them,
-    # so the branch's real Reach is whatever its deepest descendant managed.
+    # A failed descent leaves `fresh.cursor`'s tokens where this transition
+    # left them, so the branch's real Reach is whatever its deepest
+    # descendant managed.
     let branchReach = max(fresh.reach, fresh.maxReach)
     if branchReach > pc.maxReach or (pc.messages.len == 0 and pc.errorTokens.len == 0):
       # `maxReach` only ever rises -- adopting a lesser branch's complaints
       # must not lower the bar later siblings tie against. See ADR 0036.
       pc.maxReach = max(pc.maxReach, branchReach)
-      pc.errorSpec = fresh.spec
+      pc.errorSpec = fresh.cursor.spec
       pc.messages = fresh.messages
       pc.errorTokens = fresh.errorTokens
       pc.errorCommand = fresh.command
@@ -700,7 +507,7 @@ proc walk(s: State, pc: var ParseContext): bool =
   # Every transition failed at a state the grammar would have stopped at, so
   # what's left is the token the user got wrong. Starved goes first (ADR
   # 0034); the guard keeps a deeper offender surfacing over this one (0035).
-  if s.terminal and pc.tokens.len > 0 and pc.errorTokens.len == 0:
+  if s.terminal and pc.cursor.len > 0 and pc.errorTokens.len == 0:
     if not pc.addStarved():
       pc.addLeftover()
 
@@ -718,13 +525,13 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
   ## env-satisfied `Option`); anything that consumes a real token recurses
   ## with a fresh `seen`, since that's a strictly smaller sub-problem.
   ## Revisiting a `State` within one zero-token layer can't discover
-  ## anything new, since its transitions and `pc.tokens` are unchanged --
-  ## so skipping it is safe, not just an optimization.
+  ## anything new, since its transitions and `pc.cursor`'s tokens are
+  ## unchanged -- so skipping it is safe, not just an optimization.
   if s in seen:
     return
   seen.incl s
 
-  if pc.tokens.len == 0:
+  if pc.cursor.len == 0:
     acc.add (s, pc)
 
   for tr in s.transitions:
@@ -732,7 +539,7 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
     # `atTerminal` stays false: completion collects live branches, never
     # complaints, so the suppression it gates is moot here -- see ADR 0037.
     if tr.matcher.match(fresh, atTerminal = false):
-      if fresh.tokens.len < pc.tokens.len:
+      if fresh.cursor.len < pc.cursor.len:
         var freshSeen: HashSet[State]
         collectFrontier(tr.next, fresh, acc, freshSeen)
       else:
@@ -817,11 +624,11 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
     for tr in state.transitions:
       let candidates =
         case tr.matcher.kind
-        of Option: describeVariants(tr.matcher.opt, pc.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
+        of Option: describeVariants(tr.matcher.opt, pc.cursor.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
         of Options:
           collect:
             for opt in tr.matcher.opts:
-              for c in describeVariants(opt, pc.spec.bareVariants(opt)): c
+              for c in describeVariants(opt, pc.cursor.spec.bareVariants(opt)): c
         of Command: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
         of Argument:
           collect:
@@ -845,7 +652,7 @@ proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
       of Options: candidates = tr.matcher.opts
       else: discard
       for arg in candidates:
-        if arg.kind == Optional and name in pc.spec.bareVariants(arg) and arg notin seenArgs:
+        if arg.kind == Optional and name in pc.cursor.spec.bareVariants(arg) and arg notin seenArgs:
           seenArgs.incl arg
           result.add arg
 
@@ -868,7 +675,7 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
     let committed = priorWords[0 ..< priorWords.high]
     var frontier: Frontier
     var seen: HashSet[State]
-    var pc = ParseContext(spec: spec, command: command, tokens: tokenizeArgs(committed))
+    var pc = ParseContext(cursor: initCursor(spec, committed), command: command)
     collectFrontier(spec.fsm, pc, frontier, seen)
     let pending = frontier.pendingOptionalArgs(priorWords[^1])
     if pending.len > 0:
@@ -882,7 +689,7 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
   # Case (a): ordinary "what word can come next" completion.
   var frontier: Frontier
   var seen: HashSet[State]
-  var pc = ParseContext(spec: spec, command: command, tokens: tokenizeArgs(priorWords))
+  var pc = ParseContext(cursor: initCursor(spec, priorWords), command: command)
   collectFrontier(spec.fsm, pc, frontier, seen)
   result = frontier.candidateWords(wordBeingCompleted)
 
@@ -987,16 +794,15 @@ proc finalComplaints(pc: ParseContext): seq[Complaint] =
     # `shp` is lexically a positional. See ADR 0035.
     let wantedCommand = result.anyIt(it.kind == "missing command")
     for leftover in pc.errorTokens:
-      let (tokens, spec, optsEnd) = leftover
-      let c = classify(spec, tokens, 0, optsEnd)
+      let c = leftover.classify(0)
       # Only a token that could have *been* a command qualifies: an
       # option-shaped one is an option problem, and past a `--` nothing is a
       # command name. Both guards needed, or this arm swallows every leftover.
       let mistypedCommand = wantedCommand and c.kind != Command and
-        not optsEnd and not tokens[0].optShape
+        not leftover.optsEnd and not leftover.tokens[0].optShape
       result.add:
         if not c.starvedOpt.isNil: starvedComplaint(c)
-        elif mistypedCommand: unknownCommand(tokens[0].raw, spec)
+        elif mistypedCommand: unknownCommand(leftover.tokens[0].raw, leftover.spec)
         else:
           case c.kind
           of Command: complaint("unexpected command", c.cmdName, names = true)
@@ -1006,7 +812,8 @@ proc finalComplaints(pc: ParseContext): seq[Complaint] =
           of Positional:
             # `optsEnd` consulted directly: past a `--` everything
             # classifies `Positional`, whatever it looks like.
-            if tokens[0].optShape and not optsEnd: unknownOption(tokens[0], spec)
+            if leftover.tokens[0].optShape and not leftover.optsEnd:
+              unknownOption(leftover.tokens[0], leftover.spec)
             else: complaint("unexpected argument", c.argVal, names = true)
       named = true
   if not named:
@@ -1133,8 +940,8 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
       for c in spec.completeArgs(args[1 ..< args.len], command): "{c.value}\t{c.help}".fmt
     raise newException(CompletionError, lines.join("\n"))
 
-  var pc = ParseContext(spec: spec, command: command, errorSpec: spec, errorCommand: command,
-    levels: @[(spec: spec, command: command)], tokens: tokenizeArgs(args))
+  var pc = ParseContext(cursor: initCursor(spec, args), command: command,
+    errorSpec: spec, errorCommand: command, levels: @[(spec: spec, command: command)])
   if not spec.fsm.walk(pc):
     raiseParseError(formatComplaints(pc.finalComplaints), pc.errorCommand, pc.errorSpec)
 
@@ -1146,10 +953,10 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     try:
       body
     except ParseError as e:
-      raiseParseError(formatComplaints(@[complaint("", e.msg)]), pc.command, pc.spec)
+      raiseParseError(formatComplaints(@[complaint("", e.msg)]), pc.command, pc.cursor.spec)
     except ValidationError as e:
       raise newException(ValidationError,
-        formatComplaints(@[complaint("", e.msg)]).withUsage(pc.command, pc.spec))
+        formatComplaints(@[complaint("", e.msg)]).withUsage(pc.command, pc.cursor.spec))
 
   # Tiers applied strongest-first, which is Value Precedence read top-down.
   # Consequence: a bad command-line value now surfaces before a bad env one,
@@ -1160,7 +967,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   reshaped:
     applyFallbacks(pc.env, pc.configValues, pc.levels, fallbackComplaints)
   if fallbackComplaints.len > 0:
-    raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.spec)
+    raiseParseError(formatComplaints(fallbackComplaints), pc.command, pc.cursor.spec)
 
   let info = HookInfo(matched: matchedArgs(pc.matches))
   dispatch(pc.levels, 0, pc.matches, info)

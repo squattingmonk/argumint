@@ -12,7 +12,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
 `lexer` → `backend`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`fsm`/`specbuild` → `argumint`.
+`tokens` → `fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -61,6 +61,21 @@ the type (see `docs/gotchas.md`). `argtypes` is exported for the facade's
 benefit and withheld from its re-export list, exactly like `specbuild`'s
 `beginSpec`/`finishSpec`; it is an implementation-detail module, not a
 promised import path.
+
+`tokens.nim` sits directly above `backend` and below `fsm`, and holds
+`RawToken`/`Classification` plus every operation that decides what one
+token *is* against a `Spec`: `classify` (ADR 0019), `refusesAsPositional`
+(ADR 0034), `consume`/`consumeOptsEnd`, and the shape-only predicates
+(`isOptShape`, `isNonOptionShort`, `exemptFromStrict`, `mustResolve`,
+`userTyped`, `fromCluster`). A `TokenCursor` carries a token stream
+together with the `Spec` governing it and whether `--` has been crossed,
+replacing what used to be four arguments threaded by hand through every
+call. `fsm.nim` embeds one in `ParseContext` (`cursor`) and owns everything
+`tokens.nim` deliberately doesn't: the backtracking walk, failure wording
+(`docs/adr/0035-parse-failure-reporting.md` onward), and the Value
+Precedence tiers. Unlike `argtypes`, `tokens` needs no withholding — only
+`fsm.nim` imports it, so it's invisible to the facade by construction, the
+same shape as the `fsmgraph.nim` split out of `backend.nim`.
 
 ## 1. Spec construction (`specbuild.nim`, `src/argumint.nim`)
 
@@ -145,15 +160,20 @@ reachable through that line's own `[options]`. See
 `docs/adr/0002-catch-all-options-repeatable-by-default.md` for why the
 catch-all's default differs from an explicitly-named Arg's.
 
-## 3. Runtime matching (`fsm.nim`)
+## 3. Runtime matching (`fsm.nim`, token classification in `tokens.nim`)
 
 Actual `os.commandLineParams()` (or passed-in `args`) are first split into
-`RawToken`s (`tokenizeArgs`) via *shape-only* recognition — no `Spec`
-lookups at all: does a token look like `-o`/`--opt`/`-o=val`/`--opt=val`/a
-`-xyz`-shaped cluster candidate, or is it a literal `--`? This is the only
-thing that's genuinely position-independent; everything else about a raw
-token's meaning depends on which `Spec` governs this position, which is
-only known once the walk has actually gotten there (see below).
+`RawToken`s (`tokens.initCursor`, `tokenizeArgs` internally) via
+*shape-only* recognition — no `Spec` lookups at all: does a token look like
+`-o`/`--opt`/`-o=val`/`--opt=val`/a `-xyz`-shaped cluster candidate, or is
+it a literal `--`? This is the only thing that's genuinely
+position-independent; everything else about a raw token's meaning depends
+on which `Spec` governs this position, which is only known once the walk
+has actually gotten there (see below). `initCursor` pairs the result with
+the root `Spec` into a `TokenCursor` (`tokens.nim`) — a token stream plus
+the `Spec` governing it and whether `--` has been crossed, the three
+pieces of state every classification question below needs together.
+`fsm.nim`'s `ParseContext` embeds one as `cursor`.
 
 `walk` then recursively tries the FSM's transitions against the token
 stream, backtracking via a copied `ParseContext` (`fresh = pc`) on each
@@ -161,17 +181,17 @@ branch attempt, accumulating the best-effort error `messages` from the
 failed path that got *furthest into the input* so error messages point at the
 most specific match attempt, not just "invalid arguments". Classification of *what a `RawToken`
 actually is* — Command, Option/Flag (and which one), or plain positional
-text — is decided lazily, inline, by `match`'s own `Command`/`Option`/
-`Options`/`Argument` branches, each checking a token's fitness for *itself*
-against `pc.spec` (the Spec currently in scope for this specific walk
-attempt, already updated by a matched `Command` transition) rather than
-trusting a precomputed global answer:
+text — is decided lazily by `tokens.classify`, called inline from `match`'s
+own `Command`/`Option`/`Options`/`Argument` branches, each checking a
+token's fitness for *itself* against `pc.cursor.spec` (the Spec currently
+in scope for this specific walk attempt, already updated by a matched
+`Command` transition) rather than trusting a precomputed global answer:
 
-- **Command** checks the raw string against `pc.spec.commands` directly —
-  only at the very next position, never scanning further (a Command
+- **Command** checks the raw string against `cursor.spec.commands` directly
+  — only at the very next position, never scanning further (a Command
   matcher never looks past position 0).
 - **Option**/**Options** resolves cluster-splitting/attached-`=value`
-  syntax against `pc.spec.options`, scanning forward past tokens that
+  syntax against `cursor.spec.options`, scanning forward past tokens that
   don't classify as *this specific* Arg; if a shape doesn't resolve to any
   declared option at all, the matcher simply doesn't match — no
   exception — leaving the token for a different matcher to try.
@@ -189,21 +209,23 @@ trusting a precomputed global answer:
   same `consumed`/`remainder` shape for the same raw token, so there's
   nothing left to distinguish once the scan has decided to stop — both
   are handled by one `of Positional, Command:` arm. That arm is gated by
-  `refusesAsPositional` — Strict Option Checking, `SpecSettings.strictOptions`,
-  default on: a `Positional` result that is option-shaped, unresolved, and
-  not a Non-Option Short is skipped rather than accepted, so it survives as
-  a leftover token for `finalComplaints` to name (see §3b). The same
-  setting gates the value slot inside `classify` (`refusesAsValue`), so a
-  declared Optional followed by an unrelated option starves instead of
-  eating it. Both refuse rather than raise, keeping backtracking intact.
-  See `docs/adr/0034-strict-option-checking.md`, which narrows ADR 0019's
-  gap 3 without touching the classification mechanism itself.
+  `tokens.refusesAsPositional` — Strict Option Checking,
+  `SpecSettings.strictOptions`, default on: a `Positional` result that is
+  option-shaped, unresolved, and not a Non-Option Short is skipped rather
+  than accepted, so it survives as a leftover token for `finalComplaints`
+  to name (see §3b). The same setting gates the value slot inside
+  `classify` (a private `refusesAsValue` in `tokens.nim`), so a declared
+  Optional followed by an unrelated option starves instead of eating it.
+  Both refuse rather than raise, keeping backtracking intact. See
+  `docs/adr/0034-strict-option-checking.md`, which narrows ADR 0019's gap 3
+  without touching the classification mechanism itself.
 
   A post-`--` token is exempt because `refusesAsPositional` consults
-  `pc.optsEnd` directly: `classify` short-circuits past all option-shape
-  reasoning once end-of-options is crossed, which yields a plain
-  `Positional` indistinguishable from an unknown option's, so the gate has
-  to know about `optsEnd` itself rather than reading it off the result.
+  `cursor.optsEnd` directly: `classify` short-circuits past all
+  option-shape reasoning once end-of-options is crossed, which yields a
+  plain `Positional` indistinguishable from an unknown option's, so the
+  gate has to know about `optsEnd` itself rather than reading it off the
+  result.
 
 `classify` also carries a non-accepting outcome, `starvedOpt`/`starvedName`,
 set when a token *is* a declared Optional but no value is available. That is
@@ -236,23 +258,26 @@ the same backtracking machinery that already exists for everything else.
 this safe without a separate cache: a failed branch attempt's guesses are
 simply discarded along with the rest of its `fresh` copy, and a different
 attempt that revisits the same raw position starts from its own
-independent copy and reclassifies independently.
+independent copy and reclassifies independently. `TokenCursor`
+(`tokens.nim`) is the same shape one level down — also a plain value
+object — so embedding it in `ParseContext` as `cursor` doesn't change this
+argument, only where the fields live.
 
 One place still needed decoupling despite that: `walk`'s merge step, which
 records the furthest-reaching failed branch's spec/command for the final error
-message, used to write into the *same* `ParseContext.spec`/`.command`
+message, used to write into the *same* `ParseContext.cursor.spec`/`.command`
 fields a later sibling transition's own `fresh` copy starts from — harmless
 before this change (a failed Command descent could never be followed by a
 sibling Argument attempt reusing the same leftover token), but reachable
 now. `ParseContext` has dedicated `errorSpec`/`errorCommand` fields for
 this, written only by the merge step and read only when formatting the
-final failure message, so `.spec`/`.command` stay reserved for live walk
-state. See `docs/adr/0019-lazy-token-classification.md`. `errorTokens`
+final failure message, so `cursor.spec`/`.command` stay reserved for live
+walk state. See `docs/adr/0019-lazy-token-classification.md`. `errorTokens`
 (§3b) is a third field on the same terms.
 
 A literal `--` is recognized in the same eager shape pass and, the first
-time the walk encounters it on a given path, sets `pc.optsEnd = true`
-(dropped, never handed to any matcher as a value) — from then on, on that
+time the walk encounters it on a given path, sets `pc.cursor.optsEnd =
+true` (dropped, never handed to any matcher as a value) — from then on, on that
 path, Option/Options/Command stop resolving shapes/names entirely and
 every remaining token is available to Argument only, exactly as before.
 
@@ -362,9 +387,11 @@ the bottom of `walk`'s transition loop:
   Complaint that points at a token the user actually typed — a property of
   the Complaint, never inferred from its wording, so ADR 0034's
   starved-option complaint participates without being special-cased.
-- **`errorTokens`**, a `seq[Leftover]`: what a failed branch couldn't
-  consume, plus the `Spec`/`optsEnd` needed to re-`classify` it. Recorded
-  during the walk, worded only afterwards, so the wording can draw on the
+- **`errorTokens`**, a `seq[Leftover]` (`Leftover = tokens.TokenCursor`):
+  what a failed branch couldn't consume, plus the `Spec`/`optsEnd` needed to
+  re-`classify` it — the same cursor `pc.cursor` already is, just recorded
+  under a name that reads as "what's left" rather than "where we are".
+  Recorded during the walk, worded only afterwards, so the wording can draw on the
   whole message rather than one branch's local view. Three recording sites:
   the tail of `walk` (a terminal state whose every transition failed — the
   general case); a failed `Command` matcher (the only place that knows a
@@ -397,7 +424,7 @@ same-kind complaints onto one `|`-joined line.
 
 `finalComplaints` then builds the message: word each leftover (as an
 `unrecognized command` when a Command was expected there, otherwise from
-`classify`'s answer), then drop every `missing option` — and `missing
+`tokens.classify`'s answer), then drop every `missing option` — and `missing
 command` too, if the named token stood in a command's position. One further
 suppression happens at the complaint site itself, since only it knows the
 context: the `Options` catch-all never complains at all, an option reached
