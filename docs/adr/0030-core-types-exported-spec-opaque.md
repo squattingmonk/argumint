@@ -1,5 +1,18 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
+> **Extended by [ADR 0046](0046-arg-value-source-contract.md)**: the
+> fallback half of the custom-`Arg` contract is now two methods, not three
+> — `envName`/`envDelim` collapsed into one `envSource*` returning
+> `Option[EnvSource]`, with `envName` surviving as a derived proc. All of
+> `envSource*`, `configKey*` and `envName*` are re-exported from
+> `argumint.nim`.
+>
+> That ADR also **corrects the final Consequences bullet below**, which is
+> wrong: a hand-written subtype *can* override these from a caller's module
+> and always could — Nim attaches the override to `backend`'s method family
+> because `Arg` is in scope. What it could not do was *read* them back.
+> Verified by scratch compile.
+
 > **Extended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the
 > custom-`Arg` method contract this ADR freezes at 1.0 changed, on balance
 > getting smaller. A subtype must now (1) route its `parse` override
@@ -174,3 +187,11 @@ private field from a caller-instantiated body.
   module. That contract is what issues #21 (a `reset` for reusing a `Spec`)
   and #22 (per-Arg value provenance) both extend, and settling it is their
   work, not this ADR's.
+
+  **Corrected by [ADR 0046](0046-arg-value-source-contract.md):** the last
+  sentence is false. Being unexported prevented *calling* these methods
+  from a caller's module, not *overriding* them — Nim attaches an override
+  to `backend`'s method family on the strength of `Arg` being in scope, and
+  the tiers dispatch to it correctly. The distinction went unnoticed
+  because nothing in-tree tested the fallback half of the contract. It does
+  now.

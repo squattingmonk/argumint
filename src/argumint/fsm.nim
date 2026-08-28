@@ -6,7 +6,7 @@ import std/[algorithm, importutils, os, pegs, sets, sequtils, strformat, strutil
 # `options.Option[T]` instead, since a bare `import std/options` breaks
 # every `case ... of Option:` branch matching `MatcherKind.Option` in this
 # file -- see docs/gotchas.md.
-from std/options import some, none, isSome, get
+from std/options import some, none, isSome, isNone, get
 
 import ./[backend, configsource, errors, fsmgraph, parser]
 export ParseError, SpecDefect, CompletionError
@@ -421,11 +421,11 @@ proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value 
 proc resolveEnv(arg: Arg, spec: Spec): options.Option[seq[string]] =
   ## Resolver for `ValueCursor.probe`'s env tier -- see architecture.md's
   ## "Env var mechanics".
-  let envName = arg.envName
-  if envName.len == 0 or not existsEnv(envName):
+  let source = arg.envSource
+  if source.isNone or not existsEnv(source.get.name):
     none(seq[string])
   else:
-    some(splitEnvValue(getEnv(envName), arg.envDelim, spec.settings.envDelim))
+    some(splitEnvValue(getEnv(source.get.name), source.get.delim, spec.settings.envDelim))
 
 proc resolveConfig(arg: Arg, spec: Spec): options.Option[seq[string]] =
   ## Resolver for `ValueCursor.probe`'s Config Source tier -- see
@@ -1174,8 +1174,7 @@ when isMainModule:
       ## applyFallbacks directly, without going through argumint.nim's
       ## ValueArg/FlagArg (which import this module, so the reverse import
       ## isn't available here).
-      env: string
-      delim: options.Option[string]
+      env: options.Option[EnvSource]
       cfg: ConfigKey
       recorded: seq[string]
       configRecorded: seq[string]
@@ -1188,8 +1187,7 @@ when isMainModule:
       ## resolves once per Arg even across several `probe` calls.
       lookups: int
 
-  method envName(self: TestArg): string = self.env
-  method envDelim(self: TestArg): options.Option[string] = self.delim
+  method envSource(self: TestArg): options.Option[EnvSource] = self.env
   method configKey(self: TestArg): ConfigKey = self.cfg
   method parse(self: TestArg, value: string, variant = "",
                seenBy: options.Option[SeenBy] = none(SeenBy)) =
@@ -1210,7 +1208,12 @@ when isMainModule:
     some(@["x"])
 
   proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = noConfigKey()): TestArg =
-    TestArg(kind: Optional, variants: @[name], env: env, delim: delim, cfg: cfg)
+    ## `env`/`delim` stay separate params for the call sites' benefit; they
+    ## assemble into the single `EnvSource` the contract now hands back.
+    let source =
+      if env.len == 0: none(EnvSource)
+      else: some(EnvSource(name: env, delim: delim))
+    TestArg(kind: Optional, variants: @[name], env: source, cfg: cfg)
 
   proc specWithConfig(sources: seq[ConfigSource] = @[], args: seq[Arg] = @[]): Spec =
     Spec(settings: SpecSettings(envDelim: ":", configSources: sources), args: args)

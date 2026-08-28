@@ -19,6 +19,15 @@
 > it demote unconditionally in one call instead of `clear()` then a
 > declaring `parse`.
 
+> **Further amended by [ADR 0046](0046-arg-value-source-contract.md)**: the
+> header below names `envName*`, `envDelim*` and `configKey*` as the three
+> methods that "stay" in the custom-`Arg` contract. There are now two —
+> `envName`/`envDelim` collapsed into one `envSource*` returning
+> `Option[EnvSource]`, since they only ever read the one field and could
+> otherwise disagree. `envName` remains, derived from `envSource` as a
+> plain proc rather than an overridable method. All are reachable from the
+> facade, as that header says the write side already is.
+
 Nothing supported writing a value into an Arg from application code. A
 program that wants to seed a default computed at startup, replay a saved
 session, or layer a source argumint doesn't know about had no way in.

@@ -471,22 +471,30 @@ method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## per-type via `defineArg`.
   ""
 
-method envName*(self: Arg): string {.base.} =
-  ## Returns the environment variable configured to supply this arg's
-  ## value, or "" if none. Base case (positional args, commands, message
-  ## args) has no notion of one; `ValueArg`/`FlagArg` override this
-  ## per-type via `defineArg`/`defineFlagArg`. Consulted regardless of
-  ## whether the arg is required or optional in the usage grammar -- see
-  ## `docs/adr/0004-required-options-env-fallback.md`.
-  ""
-
-method envDelim*(self: Arg): options.Option[string] {.base.} =
-  ## Returns this arg's own `EnvSource.delim` override, or `none` if it has
-  ## none configured (including if it has no `envName` at all). Base case
-  ## mirrors `envName`; `ValueArg`/`FlagArg` override this per-type via
-  ## `defineArg`/`defineFlagArg`. See
+method envSource*(self: Arg): options.Option[EnvSource] {.base.} =
+  ## Returns the Env Source configured to supply this arg's value -- the
+  ## environment variable's name plus any per-Arg delimiter override -- or
+  ## `none` if this arg has no environment-variable tier. Base case
+  ## (positional args, commands, message args) has none; `ValueArg`/
+  ## `FlagArg` override this per-type via `defineArg`/`defineFlagArg`.
+  ##
+  ## One method rather than a name/delimiter pair, so the two can't
+  ## disagree: a delimiter override with no variable to apply it to is a
+  ## meaningless state (see `EnvSource`). Consulted regardless of whether
+  ## the arg is required or optional in the usage grammar -- see
+  ## `docs/adr/0004-required-options-env-fallback.md` and
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  none(string)
+  none(EnvSource)
+
+proc envName*(self: Arg): string =
+  ## The name of the environment variable configured to supply this arg's
+  ## value, or `""` if it has no Env Source. Derived from `envSource`
+  ## rather than dispatched, so it is not part of the custom-`Arg`
+  ## contract -- override `envSource` and this follows. Display- and
+  ## label-shaped: it names the source in help text (`env: PORT`) and in
+  ## the variant slot of a failing `parse` (see `subject`).
+  let source = self.envSource
+  if source.isSome: source.get.name else: ""
 
 method configKey*(self: Arg): ConfigKey {.base.} =
   ## Returns the structured path this arg's value is looked up under in
