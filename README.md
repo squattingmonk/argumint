@@ -22,8 +22,10 @@ hand-written validation code.
 - [Detailed Documentation](#detailed-documentation)
   - [Basics](#basics)
   - [Getting Values Out](#getting-values-out)
-  - [Setting Values Yourself](#setting-values-yourself)
     - [Overriding the default at the point of use](#overriding-the-default-at-the-point-of-use)
+  - [Setting Values Yourself](#setting-values-yourself)
+    - [Writing an Already-Typed Value](#writing-an-already-typed-value)
+    - [Replacing a Multi Arg's Values in One Call](#replacing-a-multi-args-values-in-one-call)
   - [Usage Strings, Grammar, and the FSM](#usage-strings-grammar-and-the-fsm)
     - [The `[options]` Catch-all](#the-options-catch-all)
     - [The End-of-Options Marker](#the-end-of-options-marker)
@@ -346,8 +348,9 @@ tags.get                     # => @["mine"] — the command line outranks it, so
 A stronger tier replaces, an equal tier appends, and a weaker one is
 refused — `parse` never demotes an `Arg`. Call `clear` first if handing it
 to a weaker tier is what you actually want. A multi-value `Arg` appends on
-each call, so `clear` plus one `parse` per value is how you replace the
-whole set. A `Flag` is the one shape that reads differently: the value you
+each call, so `clear` plus one `parse` per value replaces the whole set —
+or use `replace` (below) for the typed, one-call, atomic version of the
+same idiom. A `Flag` is the one shape that reads differently: the value you
 pass *is* the variant whose operation to apply, so one call is one bump:
 
 ```nim
@@ -384,6 +387,37 @@ let level = flag[int](ops = [flagOp("-l", "+=", 1)], default = 0,
 level.put(99, seenBy = some(byCli))
 level.get                             # => 2, clamp-coerced like any other write
 ```
+
+#### Replacing a Multi Arg's Values in One Call
+
+`clear` then one `put`/`parse` per value works, but it isn't atomic: if a
+value partway through the batch fails validation, the `Arg` is left
+holding a prefix of the new values with the old ones already gone.
+`replace` is a typed, one-call, atomic version of the same idiom — every
+value is validated before anything is written, so a rejected batch leaves
+the `Arg` exactly as it was:
+
+```nim
+tags.put("old", seenBy = some(byCli))
+tags.replace(@["a", "b"], seenBy = some(byCli))
+tags.get                               # => @["a", "b"] -- "old" is gone
+
+tags.replace(@["a", "a"], seenBy = some(byCli))  # fails against a unique validator
+tags.get                               # => @["a", "b"] -- untouched by the failed call
+```
+
+Each candidate is validated against the other new values already accepted
+in the same call, never against the values it's replacing — the `Arg`'s
+own prior values are about to be discarded, so checking against them would
+reject a value the batch is about to be the only holder of.
+
+Unlike `put`/`parse`, `replace` never arbitrates against the `Arg`'s
+current tier: it always applies, which means it can demote — the explicit
+spelling for handing an `Arg` to a weaker tier, in one call instead of
+`clear` followed by a loop. Omitting `seenBy` keeps whichever tier the
+`Arg` already carries rather than clearing it, since `replace` overwrites
+the value and the provenance together and there's nothing left for a
+`clear` to undo.
 
 A `Spec` is still single-use either way — see
 [Parsing More Than Once](#parsing-more-than-once).

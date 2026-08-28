@@ -1,5 +1,12 @@
 # `put` is the typed write accessor; reads test the stored value, not `seen`
 
+> **Amended by [ADR 0045](0045-replace-typed-atomic-multi-value-write.md)**:
+> the "typed one-call replace for a multi-valued Arg" left open below
+> shipped as `replace`, mirroring `put`'s shape (typed, optional `seenBy`,
+> a `validate` opt-out) but never arbitrating — it always overwrites value
+> and provenance together, which is what makes it able to demote in one
+> atomic call.
+
 ADR 0041 made `parse` the whole write surface: an application can seed,
 replace, or extend an Arg's value from code, and it arbitrates against the
 Arg's incoming provenance the same way every Value Precedence tier does.

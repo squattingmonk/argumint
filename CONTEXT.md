@@ -442,10 +442,15 @@ visible once it actually moves the value, and stays invisible only in the
 narrow case where it happens to reproduce the default exactly, since a
 Flag's `T` has no representable empty state at all. `put` is the typed
 write surface -- `parse` minus the string conversion, for a caller already
-holding a `T` -- and arbitrates identically. See
+holding a `T` -- and arbitrates identically. `replace` is the one write
+that does not arbitrate: it overwrites a multi `ValueArg`'s whole value
+seq and its `seenBy` together in a single atomic call, so it may demote a
+stronger tier on purpose, and a tier-less call keeps the Arg's existing
+provenance rather than extending at it. See
 `docs/adr/0039-per-arg-provenance.md`,
-`docs/adr/0041-parse-is-the-write-surface.md`, and
-`docs/adr/0044-put-typed-write-accessor.md`.
+`docs/adr/0041-parse-is-the-write-surface.md`,
+`docs/adr/0044-put-typed-write-accessor.md`, and
+`docs/adr/0045-replace-typed-atomic-multi-value-write.md`.
 _Avoid_: source, origin (both read as the tier itself rather than the fact
 of being supplied), matched (means specifically the command-line tier, per
 `HookInfo.matched`)

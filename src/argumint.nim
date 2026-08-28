@@ -186,6 +186,17 @@ proc put*[T](arg: FlagArg[T], value: T, seenBy: Option[SeenBy] = none(SeenBy)) =
   ## existing provenance.
   putImpl(arg, value, seenBy)
 
+proc replace*[T: not seq](arg: ValueArg[T, true], values: seq[T], seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
+  ## Replaces all values of `arg` with the values in `values`, optionally
+  ## running the validator if `validate` is true; on validation failure, raises
+  ## a `ValidationError`. The arg's value provenance is set to `seenBy` if
+  ## `some`; if `none`, keeps the arg's existing provenance. Unlike `put()`,
+  ## this can be used to downgrade an arg's provenance. Both the value
+  ## assignment and the provenance update happen after all values are validated.
+  ## Similar to calling `clear()` followed by `put()` for each value, except if
+  ## `ValidationError` is raised the values and provenance are left untouched.
+  replaceImpl(arg, values, seenBy, validate)
+
 # ------------------------------------------------------------------------------
 # Convenience functions that allow easy unpacking of values from args.
 # ------------------------------------------------------------------------------
