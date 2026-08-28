@@ -20,6 +20,8 @@ type
   CustomArg = ref object of Arg
     ## A hand-rolled Arg per ADR 0030's custom-Arg contract.
     vals: seq[string]
+    envSrc: Option[EnvSource] ## Backs `envSource` -- see ADR 0046.
+    cfg: ConfigKey            ## Backs `configKey`.
 
   VariantProbe = ref object of MessageArg
     ## Records which of its own Variants `action` was dispatched with.
@@ -39,6 +41,13 @@ method parse(self: CustomArg, value: string, variant = "",
 method clear(self: CustomArg) =
   procCall clear(Arg(self))
   self.vals.setLen 0
+
+# The fallback half of the contract: one method per Value Precedence tier.
+# `envName` is deliberately absent -- it is derived from `envSource`, not
+# overridden. See `docs/adr/0046-arg-value-source-contract.md`.
+method envSource(self: CustomArg): Option[EnvSource] = self.envSrc
+
+method configKey(self: CustomArg): ConfigKey = self.cfg
 
 method lookup(self: EmptySource, key: ConfigKey): Option[seq[string]] =
   some(newSeq[string]())
@@ -325,6 +334,68 @@ suite "arbitrate is the tier rule a custom Arg subtype routes through":
     c.parse("y")
     check c.vals == @["a", "y"]
     check c.seenBy == byCli
+
+suite "a custom Arg subtype opts into the fallback tiers (#59)":
+  # The half of ADR 0030's custom-Arg contract that had no coverage at all
+  # before #59 -- and that ADR 0030's own Consequences section wrongly
+  # described as unreachable from a caller's module. It always was
+  # reachable: Nim attaches an override to `backend`'s method family
+  # because `Arg` is in scope. This file imports `argumint` alone, so that
+  # these compile and dispatch at all is half the assertion.
+  # See `docs/adr/0046-arg-value-source-contract.md`.
+
+  test "overriding envSource joins the environment-variable tier":
+    putEnv("ARGUMINT_TEST_CUSTOM_ENV", "from-env")
+    defer: delEnv("ARGUMINT_TEST_CUSTOM_ENV")
+    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
+                      envSrc: some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_ENV")))
+    let spec = (foo: c)
+    spec.parse(usage = "[--foo]", args = @[], command = "prog")
+    check c.vals == @["from-env"]
+    check c.seenBy == byEnv
+
+  test "the delimiter override travels with the name, in the one record":
+    # The whole point of the collapse: a subtype can no longer supply a
+    # delimiter without a variable to apply it to, because there is only
+    # one method to override and `EnvSource` carries both.
+    putEnv("ARGUMINT_TEST_CUSTOM_MULTI", "a;b")
+    defer: delEnv("ARGUMINT_TEST_CUSTOM_MULTI")
+    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
+                      envSrc: env("ARGUMINT_TEST_CUSTOM_MULTI", ";"))
+    let spec = (foo: c)
+    spec.parse(usage = "[--foo]...", args = @[], command = "prog")
+    check c.vals == @["a", "b"]
+
+  test "overriding configKey joins the Config Source tier":
+    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
+                      cfg: configKey("foo"))
+    let spec = (foo: c)
+    spec.parse(usage = "[--foo]", args = @[], command = "prog",
+               settings = withConfig({"foo": @["from-config"]}))
+    check c.vals == @["from-config"]
+    check c.seenBy == byConfig
+
+  test "env still outranks config for a custom Arg, same as any other":
+    putEnv("ARGUMINT_TEST_CUSTOM_BOTH", "won")
+    defer: delEnv("ARGUMINT_TEST_CUSTOM_BOTH")
+    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
+                      envSrc: some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_BOTH")),
+                      cfg: configKey("foo"))
+    let spec = (foo: c)
+    spec.parse(usage = "[--foo]", args = @[], command = "prog",
+               settings = withConfig({"foo": @["lost"]}))
+    check c.vals == @["won"]
+    check c.seenBy == byEnv
+
+  test "envName is derived from envSource, never overridden separately":
+    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
+                      envSrc: env("SOME_VAR", ","))
+    check c.envName == "SOME_VAR"
+    check c.envSource.get.delim == some(",")
+    let bare = CustomArg(kind: Optional, variants: @["--bar"], help: "")
+    check bare.envSource.isNone
+    check bare.envName == ""
+    check bare.configKey.len == 0
 
 suite "tier arbitration: S < T clears, then applies":
   test "an undeclared pre-seed is discarded by the command line":
