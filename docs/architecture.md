@@ -26,7 +26,8 @@ re-export it, so importing either alone still names what it raises.
 
 `help.nim` sits directly above `backend` because that is as high as it needs
 to sit: `formatUsage`, the `variantDesc`/`defaultStr`/`validatorHelp`/
-`envName`/`configKey` display methods, and `Spec`'s own private fields are
+`configKey` display methods, the derived `envName` beside them, and `Spec`'s
+own private fields are
 all `backend`'s, and `backend` was already wrapping the usage line. Its
 position below `fsm` is what makes `Arg.action`'s dependency inversion a
 choice rather than a necessity — see "The write side" below.
@@ -622,6 +623,12 @@ inversion is what's kept.
 
 A custom `Arg` subtype (ADR 0030) therefore owes two things: route `parse`
 through `arbitrate`, and override `clear` if it carries a value.
+
+To opt into either fallback tier it overrides one method per tier —
+`envSource` (returning the whole `Option[EnvSource]`, name and delimiter
+override together) and `configKey`. `envName` is *not* one of them: it is a
+plain proc derived from `envSource`, so a subtype gets it for free and
+cannot make the two disagree.
 
 `get`/`get(otherwise)` and `put` (issue #29, ADR 0044) are plain generic
 procs over `ValueArg`/`FlagArg`, not methods on `Arg` -- so neither is part

@@ -259,17 +259,9 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
   method completions(self: ValueArg[T, true]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
 
-  method envName(self: ValueArg[T, false]): string =
-    if self.env.isSome: self.env.get.name else: ""
+  method envSource(self: ValueArg[T, false]): Option[EnvSource] = self.env
 
-  method envName(self: ValueArg[T, true]): string =
-    if self.env.isSome: self.env.get.name else: ""
-
-  method envDelim(self: ValueArg[T, false]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
-
-  method envDelim(self: ValueArg[T, true]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
+  method envSource(self: ValueArg[T, true]): Option[EnvSource] = self.env
 
   method configKey(self: ValueArg[T, false]): ConfigKey = self.cfgKey
 
@@ -343,11 +335,7 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     of "-=": "Decrease by " & $vArg
     else: blankDesc
 
-  method envName(self: FlagArg[T]): string =
-    if self.env.isSome: self.env.get.name else: ""
-
-  method envDelim(self: FlagArg[T]): Option[string] =
-    if self.env.isSome: self.env.get.delim else: none(string)
+  method envSource(self: FlagArg[T]): Option[EnvSource] = self.env
 
   method configKey(self: FlagArg[T]): ConfigKey = self.cfgKey
 
