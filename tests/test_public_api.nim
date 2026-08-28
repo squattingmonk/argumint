@@ -84,6 +84,35 @@ suite "Types nameable after a bare `import argumint`":
     check compiles(newSpec((verbose: flag("-v", help = ""),)))
     check compiles(subject(Arg(nil), "-v"))
 
+  test "an Arg's value sources are readable, not just overridable":
+    # #59: `envSource`/`configKey` were overridable from a caller's module
+    # all along -- Nim attaches the override to `backend`'s method family
+    # because `Arg` is in scope -- but neither could be *read* back, which
+    # a caller rendering its own help needs (`genHelp` is opt-in, ADR 0042).
+    # `envName` is the derived proc over `envSource`, not a third method.
+    # See `docs/adr/0046-arg-value-source-contract.md`.
+    let port = opt("--port=<n>", env = env("PORT", ","),
+                   configKey = configKey("server", "port"), help = "")
+    check port.envSource.isSome
+    check port.envSource.get.name == "PORT"
+    check port.envSource.get.delim == some(",")
+    check port.envName == "PORT"
+    check port.configKey.join == "server.port"
+
+    # An Arg with neither tier reads as empty rather than failing to compile.
+    let name = arg("<name>", help = "")
+    check name.envSource.isNone
+    check name.envName == ""
+    check name.configKey.len == 0
+
+  test "`envDelim` is gone, folded into `envSource` (#59)":
+    # The pair could disagree; one method can't. A `not compiles` also
+    # passes for a name that never existed, so this pairs with the positive
+    # above rather than with `test_argumint.nim` -- there is no internal
+    # `envDelim` left for that suite to name.
+    let port = opt("--port=<n>", env = env("PORT", ","), help = "")
+    check not compiles(port.envDelim)
+
   test "spec construction's plumbing stays out of the facade":
     # `beginSpec`/`finishSpec`/`addArgs` are exported from `specbuild` only
     # because generic `newSpec` instantiates in the caller's file (ADR

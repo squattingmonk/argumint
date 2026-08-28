@@ -40,9 +40,15 @@ export strutils.escape
 # `clamp`/`adjust`'s `desc: Option[string]` param (argumint/flagclamp, see
 # issue #12) makes `Option`-construction part of the public API surface --
 # re-exported narrowly (not wholesale `std/options`, which would flood the
-# namespace with `isSome`/`get`/`map`/... unrelated to spec construction),
-# so `import argumint` alone is enough to write `desc = some("...")`.
+# namespace with `map`/`filter`/`flatMap`/... unrelated to spec
+# construction), so `import argumint` alone is enough to write
+# `desc = some("...")`.
+#
+# The three accessors joined them in #59, when `envSource*` became the first
+# exported signature to *return* an `Option` -- reading one back needs them,
+# which is ADR 0029's demonstrated-caller bar met.
 export options.some, options.none
+export options.isSome, options.isNone, options.get
 
 # `before`/`action`/`after` hooks' `info: HookInfo` parameter -- see
 # docs/adr/0021-hook-info-matched-args.md.
@@ -101,6 +107,15 @@ export fsm.parse, fsm.completeArgs
 # import. See `docs/adr/0041-parse-is-the-write-surface.md` and
 # `docs/adr/0030-core-types-exported-spec-opaque.md`.
 export backend.parse, backend.clear, backend.action, backend.arbitrate
+
+# How a Value Precedence tier *finds* an Arg's value (#59): the two methods
+# a custom `Arg` subtype overrides to opt into the env and Config Source
+# tiers, plus the `envName` derived from the first. Overriding never needed
+# these exported -- Nim attaches an override to `backend`'s method family
+# because `Arg` itself is in scope -- but *reading* one did, which is what
+# a caller rendering its own help needs, `genHelp` being opt-in (ADR 0042).
+# See `docs/adr/0046-arg-value-source-contract.md`.
+export backend.envSource, backend.configKey, backend.envName
 
 # The two Arg types whose machinery issue #51 moved into
 # `argumint/argtypes`. Only their names travel back here: the private

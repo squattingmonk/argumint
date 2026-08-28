@@ -628,7 +628,13 @@ To opt into either fallback tier it overrides one method per tier —
 `envSource` (returning the whole `Option[EnvSource]`, name and delimiter
 override together) and `configKey`. `envName` is *not* one of them: it is a
 plain proc derived from `envSource`, so a subtype gets it for free and
-cannot make the two disagree.
+cannot make the two disagree. Both methods and the derived proc are
+re-exported from `argumint.nim`, so overriding *or reading* either needs no
+`backend` import — the read half is what a caller rendering its own help
+needs, `genHelp` being opt-in (ADR 0042). Overriding never actually needed
+the export: Nim attaches an override to `backend`'s method family because
+`Arg` is in scope. See
+`docs/adr/0046-arg-value-source-contract.md`.
 
 `get`/`get(otherwise)` and `put` (issue #29, ADR 0044) are plain generic
 procs over `ValueArg`/`FlagArg`, not methods on `Arg` -- so neither is part
