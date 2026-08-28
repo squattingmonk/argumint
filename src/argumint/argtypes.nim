@@ -122,6 +122,23 @@ template rawDefault*[T](arg: FlagArg[T]): untyped =
 # Parsing methods
 # ------------------------------------------------------------------------------
 
+proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: options.Option[SeenBy], validate: bool) =
+  ## Validates every candidate in `values` against the prefix of `values`
+  ## already accepted -- `self`'s own prior values never enter that history,
+  ## since they're about to be discarded -- then, only if all of them pass,
+  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitrate`
+  ## call: unlike `putImpl`, `replaceImpl` always applies, tier or no tier,
+  ## which is what lets it demote. Raising mid-validation leaves both fields
+  ## untouched, so there's no `clear()` to undo on failure.
+  try:
+    if validate and not self.validator.isNil:
+      for idx, value in values:
+        self.validator.validate(value, values[0..<idx])
+  except ValidationError as e:
+    raise newException(ValidationError, fmt"for {self.name()}, {e.msg}")
+  self.value = values
+  self.seenBy = seenBy.get(otherwise = self.seenBy)
+
 proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: options.Option[SeenBy], validate: bool) =
   ## Sets (or, for a multi Arg, appends) `self`'s value to `value`, running
   ## `self`'s Validator first unless `validate` is false. Raises a

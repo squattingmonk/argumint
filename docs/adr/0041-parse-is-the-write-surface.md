@@ -11,6 +11,14 @@
 > coded default, and stays invisible only in the narrow case where it
 > happens to reproduce the default exactly.
 
+> **Further amended by [ADR 0045](0045-replace-typed-atomic-multi-value-write.md)**:
+> `replace` gives a multi-valued `ValueArg` an atomic, one-call
+> replacement, closing the "replace a multi Arg's values" row's
+> non-atomicity below. Unlike `parse`/`put`, it does not arbitrate at all —
+> it always overwrites value and provenance together, which is what lets
+> it demote unconditionally in one call instead of `clear()` then a
+> declaring `parse`.
+
 Nothing supported writing a value into an Arg from application code. A
 program that wants to seed a default computed at startup, replay a saved
 session, or layer a source argumint doesn't know about had no way in.
@@ -66,9 +74,10 @@ unconditional. This is the whole write surface, with no new accessors:
 | --- | --- |
 | append a value | `arg.parse(v)` |
 | append and declare a tier | `arg.parse(v, seenBy = some(t))` |
-| replace a multi Arg's values | `arg.clear()`, then one `parse` per value |
+| replace a multi Arg's values, non-atomically, from strings | `arg.clear()`, then one `parse` per value |
+| replace a multi Arg's values, atomically, from a `seq[T]` | `arg.replace(values)` — see ADR 0045 |
 | apply a Flag Operation | `flag.parse("", variant)` |
-| hand an Arg to a weaker tier | `arg.clear()`, then `parse` declaring it |
+| hand an Arg to a weaker tier | `arg.clear()`, then `parse` declaring it, or `arg.replace(values, seenBy = some(weakerTier))` |
 | write an already-computed `T`, skipping conversion | `arg.put(v)` — see ADR 0044 |
 
 The base implementation is a **quiet recorder**: it records provenance and
