@@ -71,9 +71,11 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    (data model in `backend.nim`, graph construction/simplification in
    `fsmgraph.nim`), one `Matcher` per token kind (`Argument`, `Option`,
    `Options`, `Command`, `OptsEnd`, `Shortcut`).
-3. **Runtime matching** (`fsm.nim`): command-line args are tokenized and
-   walked against the FSM with backtracking, then a post-walk sweep applies
-   any configured environment-variable fallbacks.
+3. **Runtime matching** (`fsm.nim`, token classification in `tokens.nim`):
+   command-line args are tokenized and classified against the live `Spec`
+   lazily via a `TokenCursor` (`tokens.nim`), walked against the FSM with
+   backtracking, then a post-walk sweep applies any configured
+   environment-variable fallbacks.
 4. **Value conversion** (`argtypes.nim`, `src/argumint.nim`): `ValueArg`/
    `FlagArg` convert, validate, and store matched values; flags apply Flag
    Operations instead of a plain converter. Every public name lives in
