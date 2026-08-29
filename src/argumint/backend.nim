@@ -21,7 +21,7 @@ import std/[hashes, pegs, strformat, strutils, tables, terminal, wordwrap]
 # `options.Option[T]` instead -- see docs/gotchas.md.
 from std/options import some, none, isSome, isNone, get
 
-import ./[configsource, errors]
+import ./configsource
 export configsource
 
 
@@ -302,21 +302,6 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
     let lineWidth = max(width - prefix.len, 20)
     lines.add prefix & line.wrapWords(lineWidth, splitLongWords = false, newLine = "\n" & indent)
   result = lines.join("\n")
-
-proc withUsage*(msg: string, command: string, spec: Spec): string =
-  ## `msg` followed by `spec.usage` formatted via `formatUsage` -- the shape
-  ## every parse-time failure message uses, whatever exception carries it.
-  "{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt
-
-proc raiseParseError*(msg: string) =
-  ## Raises `ParseError` with `msg` verbatim, no usage block appended -- use
-  ## the `(msg, command, spec)` overload when a usage block should follow.
-  raise newException(ParseError, msg)
-
-proc raiseParseError*(msg: string, command: string, spec: Spec) =
-  ## Raises `ParseError` with `msg` followed by `spec.usage` formatted via
-  ## `formatUsage` -- the shape most parse-time failures use.
-  raiseParseError(msg.withUsage(command, spec))
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.
