@@ -3,8 +3,9 @@
 ## `Classification` are the data model; a `TokenCursor` carries a token
 ## stream together with the `Spec` governing it and whether `--` has been
 ## crossed, since those three answer every question in this file together.
-## `fsm.nim` owns the walk itself, failure reporting, and the value tiers --
-## see `docs/architecture.md` §3.
+## `fsm.nim` owns the walk itself; failure reporting and the Value
+## Precedence fallback tiers moved out to `complaints.nim`/`precedence.nim`
+## -- see `docs/architecture.md` §3.
 
 import std/[importutils, pegs, strformat, tables]
 

@@ -8,7 +8,7 @@ import std/[algorithm, importutils, os, sets, sequtils, strformat, strutils, sug
 # file -- see docs/gotchas.md.
 from std/options import some, none, isSome, isNone, get
 
-import ./[backend, complaints, configsource, errors, fsmgraph, parser, tokens]
+import ./[backend, complaints, configsource, errors, fsmgraph, parser, precedence, tokens]
 export ParseError, SpecDefect, CompletionError
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
@@ -22,33 +22,6 @@ type
     ## by it instead of relying on push order, which is grammar-position
     ## order, not typed order.
   MatchTable = OrderedTable[Arg, seq[Match]]
-
-  ValueCursor = object
-    ## Owns one Value Precedence fallback tier (env or Config Source) --
-    ## see architecture.md's "Env var mechanics",
-    ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
-    ## `docs/adr/0018-config-source.md`. Shared shape for both tiers:
-    ## `probe` resolves and caches an Arg's available values (via a
-    ## tier-specific `resolve` closure -- see `resolveEnv`/`resolveConfig`)
-    ## the first time it's consulted during the walk, then hands out one
-    ## value per subsequent call; `applyFallbacks`'s post-walk sweep reads
-    ## `consumed`/`values` back to apply whatever the walk consumed (or
-    ## complain about oversupply).
-    values: Table[Arg, seq[string]]
-    consumed: Table[Arg, int]
-    tried: HashSet[Arg]
-      ## Ensures `resolve` runs at most once per Arg for the life of this
-      ## cursor, including caching a miss -- unlike an env lookup, a
-      ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
-    applied: HashSet[Arg]
-      ## Ensures this tier applies to an Arg at most once, even when the Arg
-      ## is reachable from more than one spec level. Used to ride on the
-      ## `seenBy` gate, which can't do it now that a same-tier Arg is
-      ## appended to rather than skipped.
-    complained: HashSet[Arg]
-      ## Ensures an Arg reachable from two spec levels only draws one
-      ## oversupply complaint -- that branch applies nothing, so `seenBy`
-      ## can't gate it the way it gates a real application. See ADR 0039.
 
   Reach = tuple[idx, subIdx: int]
     ## How far into the user's input a path got (`CONTEXT.md`): the argv
@@ -90,10 +63,9 @@ type
       ## `complaints.nim` and `docs/architecture.md` §3b.
     matches: MatchTable
       ## A table of processed matches
-    env: ValueCursor
-      ## Value Precedence's environment-variable tier -- see `ValueCursor`
-    configValues: ValueCursor
-      ## Value Precedence's Config Source tier -- see `ValueCursor`
+    tiers: Tiers
+      ## Value Precedence's two fallback tiers -- see `Tiers`
+      ## (`precedence.nim`)
 
 proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "", idx = 0) =
   ## Adds a matched arg's seen variant and value to the table of matches,
@@ -107,42 +79,6 @@ proc push(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value 
   ## composed, so its ordering doesn't matter -- see `Match`).
   if matches.hasKeyOrPut(arg, @[(variant, value, spec, idx)]):
     matches[arg].add (variant, value, spec, idx)
-
-proc resolveEnv(arg: Arg, spec: Spec): options.Option[seq[string]] =
-  ## Resolver for `ValueCursor.probe`'s env tier -- see architecture.md's
-  ## "Env var mechanics".
-  let source = arg.envSource
-  if source.isNone or not existsEnv(source.get.name):
-    none(seq[string])
-  else:
-    some(splitEnvValue(getEnv(source.get.name), source.get.delim, spec.settings.envDelim))
-
-proc resolveConfig(arg: Arg, spec: Spec): options.Option[seq[string]] =
-  ## Resolver for `ValueCursor.probe`'s Config Source tier -- see
-  ## `docs/adr/0018-config-source.md`.
-  let key = arg.configKey
-  if key.len == 0:
-    none(seq[string])
-  else:
-    lookupConfigSources(spec.settings.configSources, key)
-
-proc probe(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Option[seq[string]]): bool =
-  ## Lets a fallback tier's value stand in for a missing CLI value during
-  ## the walk -- see `ValueCursor`. `resolve` is called at most once per
-  ## `arg` for the life of `cursor` (see `ValueCursor.tried`). Returning
-  ## `false` just lets the walk fail normally; the actual value-setting
-  ## happens later, in `applyFallbacks`'s post-walk sweep.
-  if arg notin cursor.tried:
-    cursor.tried.incl arg
-    let found = resolve()
-    if found.isSome:
-      cursor.values[arg] = found.get
-  if arg notin cursor.values:
-    return false
-  let consumed = cursor.consumed.getOrDefault(arg, 0)
-  if consumed < cursor.values[arg].len:
-    cursor.consumed[arg] = consumed + 1
-    return true
 
 proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
   ## Checks if `m` matches a token in `tokens`. May consume a token and may add
@@ -247,14 +183,8 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
 
     # No CLI token matched; let the configured env var, then a Config
     # Source, stand in instead -- see architecture.md's "Env var
-    # mechanics" and `docs/adr/0018-config-source.md`. `spec` is copied
-    # out to a local `let` first -- the closures below can't capture `pc`
-    # itself (a `var ParseContext` parameter) without violating memory
-    # safety.
-    let spec = pc.cursor.spec
-    if pc.env.probe(m.opt, () => resolveEnv(m.opt, spec)):
-      return true
-    if pc.configValues.probe(m.opt, () => resolveConfig(m.opt, spec)):
+    # mechanics" and `docs/adr/0018-config-source.md`.
+    if pc.tiers.probe(m.opt, pc.cursor.spec):
       return true
 
     # Unconditional on purpose -- a `m.opt notin pc.matches` guard can't tell
@@ -592,91 +522,6 @@ proc dispatch(levels: seq[Level], idx: int, matches: MatchTable, info: HookInfo)
     if not spec.after.isNil:
       spec.after(info)
 
-proc applyTier(cursor: var ValueCursor, arg: Arg, resolve: proc (): options.Option[seq[string]],
-    setValue: proc (values: seq[string]), report: var Report): bool =
-  ## Applies one Value Precedence fallback tier's contribution to `arg` in
-  ## `applyFallbacks`'s post-walk sweep, mirroring `probe`'s own
-  ## consumption-count semantics: if the walk actually visited `arg`'s
-  ## matcher and pulled values from this tier (`arg in cursor.consumed`),
-  ## apply everything the tier had available, or complain if the walk
-  ## didn't consume all of it (more values than the grammar had positions
-  ## for). If the matcher was visited but `resolve` found nothing (`arg in
-  ## cursor.tried` but not `cursor.consumed`), there's nothing to apply --
-  ## and, per `ValueCursor.tried`'s own contract, `resolve` must not be
-  ## called again here even though it would return the same answer, since
-  ## it may be an arbitrarily expensive user-supplied `ConfigSource.lookup`.
-  ## Only when the matcher was never visited at all this walk (reachable
-  ## only via a different, unmatched Usage Line -- `arg notin cursor.tried`)
-  ## does this resolve fresh and apply every available value -- recording
-  ## that in `cursor.tried` too, so an Arg reachable from two spec levels
-  ## still only resolves once. Returns whether this tier had anything at
-  ## all for `arg` -- a real application, or an oversupply complaint --
-  ## telling the caller whether to fall through to the next-lower tier.
-  if arg in cursor.applied:
-    return true
-  if arg in cursor.consumed:
-    result = true
-    let consumed = cursor.consumed[arg]
-    let total = cursor.values[arg].len
-    if consumed < total:
-      if arg notin cursor.complained:
-        cursor.complained.incl arg
-        report.unexpected(arg)
-    else:
-      cursor.applied.incl arg
-      setValue(cursor.values[arg])
-  elif arg notin cursor.tried:
-    cursor.tried.incl arg
-    let found = resolve()
-    if found.isSome:
-      result = true
-      cursor.applied.incl arg
-      setValue(found.get)
-
-proc applyFallbacks(env, configValues: var ValueCursor, levels: seq[Level],
-    report: var Report) =
-  ## Sweeps every spec level actually entered during this parse (the chain
-  ## the walk recorded -- see architecture.md §5), falling back to each
-  ## not-yet-supplied Arg's env var, then (only if env had nothing) its
-  ## Config Source value. Deliberately outside `walk`'s
-  ## FSM/backtracking, so an Arg only reachable via `[options]` still
-  ## picks up its fallback values -- see architecture.md's "Env var
-  ## mechanics", `docs/adr/0005-env-supplied-multi-value-options-and-
-  ## flags.md`, and `docs/adr/0018-config-source.md` for the
-  ## value-count/`ParseError` rules, shared identically by both tiers.
-  ##
-  ## Each tier is gated on `Arg.seenBy`, which the command-line tier has
-  ## already written by the time this runs (`parseAllValues`). The gate skips
-  ## only a *strictly* stronger tier: an Arg already at this tier is appended
-  ## to, not skipped, so a pre-seed declaring `byEnv` still collects the env
-  ## var's own values. Clearing a weaker pre-seed happens where the write
-  ## does (`parse`), not here -- a tier consulted but resolving nothing must
-  ## leave a pre-seed intact. `ValueCursor.applied`, not this gate, is what
-  ## stops an Arg reachable from two spec levels being applied twice.
-  ## See `docs/adr/0039-per-arg-provenance.md` and
-  ## `docs/adr/0041-parse-is-the-write-surface.md`.
-  ##
-  ## Runs to completion (or raises) entirely before `dispatch` is called --
-  ## so a fallback problem at any level blocks every level's hooks from
-  ## firing at all, not just that level's, since `dispatch` never starts.
-  for level in levels:
-    let spec = level.spec # local copy -- a `for` loop's `lent` yield can't be captured by the closures below
-    for a in spec.args:
-      let arg = a # local copy, for the same reason
-      if arg.seenBy > byEnv:
-        continue
-      let envHad = applyTier(env, arg, () => resolveEnv(arg, spec),
-        proc (values: seq[string]) =
-          for v in values:
-            arg.parse(v, arg.envName, some(byEnv)),
-          report)
-      if not envHad and arg.seenBy <= byConfig:
-        discard applyTier(configValues, arg, () => resolveConfig(arg, spec),
-          proc (values: seq[string]) =
-            for v in values:
-              arg.parse(v, arg.configKey.join, some(byConfig)),
-            report)
-
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = extractFilename(getAppFilename())) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
@@ -734,268 +579,10 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
 
   var fallback = initReport(pc.cursor.spec, pc.command)
   reshaped:
-    applyFallbacks(pc.env, pc.configValues, pc.levels, fallback)
+    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec), fallback)
   if not fallback.isEmpty:
     fallback.raiseParseFailure()
 
   let info = HookInfo(matched: matchedArgs(pc.matches))
   dispatch(pc.levels, 0, pc.matches, info)
 
-when isMainModule:
-  import std/unittest
-
-  type
-    TestArg = ref object of Arg
-      ## A minimal concrete Arg for exercising ValueCursor.probe/
-      ## applyFallbacks directly, without going through argumint.nim's
-      ## ValueArg/FlagArg (which import this module, so the reverse import
-      ## isn't available here).
-      env: options.Option[EnvSource]
-      cfg: ConfigKey
-      recorded: seq[string]
-      configRecorded: seq[string]
-
-    FakeSource = ref object of ConfigSource
-      data: seq[(ConfigKey, seq[string])]
-
-    CountingSource = ref object of ConfigSource
-      ## Counts `lookup` calls, to verify `ValueCursor.probe` only ever
-      ## resolves once per Arg even across several `probe` calls.
-      lookups: int
-
-  method envSource(self: TestArg): options.Option[EnvSource] = self.env
-  method configKey(self: TestArg): ConfigKey = self.cfg
-  method parse(self: TestArg, value: string, variant = "",
-               seenBy: options.Option[SeenBy] = none(SeenBy)) =
-    ## Records per tier, so the fallback sweep's two paths stay
-    ## distinguishable once each tier writes through `parse`.
-    self.arbitrate(seenBy)
-    if seenBy == some(byConfig): self.configRecorded.add value
-    else: self.recorded.add value
-
-  method lookup(self: FakeSource, key: ConfigKey): options.Option[seq[string]] =
-    for (k, v) in self.data:
-      if k == key:
-        return some(v)
-    none(seq[string])
-
-  method lookup(self: CountingSource, key: ConfigKey): options.Option[seq[string]] =
-    self.lookups.inc
-    some(@["x"])
-
-  proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = noConfigKey()): TestArg =
-    ## `env`/`delim` stay separate params for the call sites' benefit; they
-    ## assemble into the single `EnvSource` the contract now hands back.
-    let source =
-      if env.len == 0: none(EnvSource)
-      else: some(EnvSource(name: env, delim: delim))
-    TestArg(kind: Optional, variants: @[name], env: source, cfg: cfg)
-
-  proc specWithConfig(sources: seq[ConfigSource] = @[], args: seq[Arg] = @[]): Spec =
-    Spec(settings: SpecSettings(envDelim: ":", configSources: sources), args: args)
-
-  proc level(spec: Spec): Level =
-    ## One entry of the command chain `applyFallbacks` sweeps. The command
-    ## string is unused by that sweep, so these tests leave it empty.
-    (spec: spec, command: "")
-
-  suite "ValueCursor.probe (env tier)":
-    test "false when the arg has no env var configured":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo")
-      let spec = specWithConfig()
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-    test "false when the configured env var isn't set":
-      delEnv("ARGUMINT_TEST_UNSET")
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_UNSET")
-      let spec = specWithConfig()
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-    test "hands out a single value once, then reports exhausted":
-      putEnv("ARGUMINT_TEST_SINGLE", "hello")
-      defer: delEnv("ARGUMINT_TEST_SINGLE")
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_SINGLE")
-      let spec = specWithConfig()
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-    test "hands out each delimiter-split value in order":
-      putEnv("ARGUMINT_TEST_MULTI", "a:b:c")
-      defer: delEnv("ARGUMINT_TEST_MULTI")
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_MULTI")
-      let spec = specWithConfig()
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-    test "a per-arg delim override is used instead of Spec.settings.envDelim":
-      putEnv("ARGUMINT_TEST_OVERRIDE", "a;b;c")
-      defer: delEnv("ARGUMINT_TEST_OVERRIDE")
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_OVERRIDE", some(";"))
-      let spec = specWithConfig()
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-    test "an empty per-arg delim override means the whole value is a single element":
-      putEnv("ARGUMINT_TEST_NOSPLIT", "a:b")
-      defer: delEnv("ARGUMINT_TEST_NOSPLIT")
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_NOSPLIT", some(""))
-      let spec = specWithConfig()
-      check cursor.probe(arg, () => resolveEnv(arg, spec))
-      check not cursor.probe(arg, () => resolveEnv(arg, spec))
-
-  suite "ValueCursor.probe (config tier)":
-    test "false when the arg has no config key configured":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo")
-      let spec = specWithConfig(@[ConfigSource FakeSource(data: @[(configKey("foo"), @["x"])])])
-      check not cursor.probe(arg, () => resolveConfig(arg, spec))
-
-    test "false when no configured source has the key":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let spec = specWithConfig(@[ConfigSource FakeSource(data: @[])])
-      check not cursor.probe(arg, () => resolveConfig(arg, spec))
-
-    test "hands out each value in order, then reports exhausted":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let spec = specWithConfig(@[ConfigSource FakeSource(data: @[(configKey("foo"), @["a", "b"])])])
-      check cursor.probe(arg, () => resolveConfig(arg, spec))
-      check cursor.probe(arg, () => resolveConfig(arg, spec))
-      check not cursor.probe(arg, () => resolveConfig(arg, spec))
-
-    test "a later source's hit fully replaces an earlier one's":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let spec = specWithConfig(@[
-        ConfigSource FakeSource(data: @[(configKey("foo"), @["a", "b"])]),
-        ConfigSource FakeSource(data: @[(configKey("foo"), @["c"])]),
-      ])
-      check cursor.probe(arg, () => resolveConfig(arg, spec))
-      check not cursor.probe(arg, () => resolveConfig(arg, spec))
-
-    test "resolve runs at most once per arg, even across several probes":
-      var cursor: ValueCursor
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let source = CountingSource()
-      let spec = specWithConfig(@[ConfigSource source])
-      check cursor.probe(arg, () => resolveConfig(arg, spec))
-      check not cursor.probe(arg, () => resolveConfig(arg, spec))
-      check source.lookups == 1
-
-  suite "applyFallbacks (env tier)":
-    test "sets an unconsulted arg's value directly from env":
-      putEnv("ARGUMINT_TEST_DIRECT", "hi")
-      defer: delEnv("ARGUMINT_TEST_DIRECT")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_DIRECT")
-      let spec = specWithConfig(args = @[Arg arg])
-      var env, configValues: ValueCursor
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.isEmpty
-      check arg.recorded == @["hi"]
-
-    test "applies every split value once the walk fully consumed them":
-      putEnv("ARGUMINT_TEST_CONSUMED", "a:b")
-      defer: delEnv("ARGUMINT_TEST_CONSUMED")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_CONSUMED")
-      let spec = specWithConfig(args = @[Arg arg])
-      var env, configValues: ValueCursor
-      check env.probe(arg, () => resolveEnv(arg, spec))
-      check env.probe(arg, () => resolveEnv(arg, spec))
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.isEmpty
-      check arg.recorded == @["a", "b"]
-
-    test "complains about env values the walk didn't consume":
-      putEnv("ARGUMINT_TEST_LEFTOVER", "a:b:c")
-      defer: delEnv("ARGUMINT_TEST_LEFTOVER")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_LEFTOVER")
-      let spec = specWithConfig(args = @[Arg arg])
-      var env, configValues: ValueCursor
-      discard env.probe(arg, () => resolveEnv(arg, spec)) # consumes only 1 of the 3 available values
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
-
-    test "an arg reachable from two spec levels only complains once":
-      # The oversupply branch applies nothing, so `seenBy` stays `byNone` and
-      # can't gate the second visit -- `cursor.complained` does. See ADR 0039.
-      putEnv("ARGUMINT_TEST_TWICE", "a:b:c")
-      defer: delEnv("ARGUMINT_TEST_TWICE")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_TWICE")
-      let spec = specWithConfig(args = @[Arg arg])
-      var env, configValues: ValueCursor
-      discard env.probe(arg, () => resolveEnv(arg, spec)) # consumes only 1 of 3
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec), level(spec)], report) # same arg, two levels
-      check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
-
-    test "skips an arg already explicitly matched on the command line":
-      putEnv("ARGUMINT_TEST_SKIP", "hi")
-      defer: delEnv("ARGUMINT_TEST_SKIP")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_SKIP")
-      let spec = specWithConfig(args = @[Arg arg])
-      var env, configValues: ValueCursor
-      # The gate is the Arg's own tier, which `parse*` sets from the match
-      # table before calling this -- not a `matches` lookup here. See ADR 0039.
-      arg.seenBy = byCli
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.isEmpty
-      check arg.recorded.len == 0
-
-  suite "applyFallbacks (config tier)":
-    test "sets an unconsulted arg's value directly from a Config Source":
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let source = FakeSource(data: @[(configKey("foo"), @["hi"])])
-      let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
-      var env, configValues: ValueCursor
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.isEmpty
-      check arg.configRecorded == @["hi"]
-
-    test "complains about config values the walk didn't consume":
-      let arg = newTestArg("--foo", cfg = configKey("foo"))
-      let source = FakeSource(data: @[(configKey("foo"), @["a", "b", "c"])])
-      let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
-      var env, configValues: ValueCursor
-      discard configValues.probe(arg, () => resolveConfig(arg, spec)) # consumes only 1 of 3
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
-
-    test "env present takes precedence, config is never consulted":
-      putEnv("ARGUMINT_TEST_PRECEDENCE", "from-env")
-      defer: delEnv("ARGUMINT_TEST_PRECEDENCE")
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_PRECEDENCE", cfg = configKey("foo"))
-      let source = FakeSource(data: @[(configKey("foo"), @["from-config"])])
-      let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
-      var env, configValues: ValueCursor
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check arg.recorded == @["from-env"]
-      check arg.configRecorded.len == 0
-
-    test "falls through to config when env is unset":
-      let arg = newTestArg("--foo", "ARGUMINT_TEST_ABSENT", cfg = configKey("foo"))
-      let source = FakeSource(data: @[(configKey("foo"), @["from-config"])])
-      let spec = specWithConfig(@[ConfigSource source], args = @[Arg arg])
-      var env, configValues: ValueCursor
-      var report = initReport(spec, "")
-      applyFallbacks(env, configValues, @[level(spec)], report)
-      check report.isEmpty
-      check arg.recorded.len == 0
-      check arg.configRecorded == @["from-config"]

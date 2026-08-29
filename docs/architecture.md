@@ -12,7 +12,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
 `lexer` → `backend`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`tokens` → `complaints` → `fsm`/`specbuild` → `argumint`.
+`tokens` → `complaints` → `precedence` → `fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -87,10 +87,27 @@ record during the walk without wording anything, and `finalComplaints`/
 `failureMessage`/`raiseParseFailure` word and render only once the walk is
 over. `fsm.nim` embeds one `Report` in `ParseContext` (`report`) and owns
 everything `complaints.nim` deliberately doesn't: the backtracking walk
-itself and the Value Precedence tiers (both env and Config Source now
-report through the same `Report`, converted from a bare `seq[Complaint]`
-alongside this split). Unlike `argtypes`, `complaints` needs no withholding
-— only `fsm.nim` imports it, the same shape as `tokens.nim`.
+itself (the Value Precedence tiers, which also report through a `Report`,
+moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
+`complaints` needs no withholding — `fsm.nim` and `precedence.nim` both
+import it, the same shape as `tokens.nim`.
+
+`precedence.nim` sits directly above `complaints`/`configsource` and below
+`fsm`, and holds everything Value Precedence's fallback tiers name:
+`FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so iteration
+order *is* the precedence order), `Tiers` (one `ValueCursor` per tier),
+`probe`, and `applyFallbacks`. `Tiers` replaces what used to be two loose
+`ParseContext` fields (`env`/`configValues`) plus six ad hoc closure
+constructions at their four call sites (`match`'s `Option` arm, and
+`applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve: proc
+(): Option[seq[string]]` parameter existed to keep `ValueCursor`
+tier-agnostic, but there are exactly two tiers, both compiled in, so it
+bought genericity nowhere it was spent; dispatching on `FallbackTier` via
+`case` inline replaces it, and also removes a `let spec = pc.cursor.spec`
+workaround `match`'s `Option` arm needed only because a closure can't
+capture a `var ParseContext` parameter. `fsm.nim` keeps only the walk
+itself and dispatch. Unlike `argtypes`, `precedence` needs no withholding —
+only `fsm.nim` imports it, the same shape as `tokens.nim`/`complaints.nim`.
 
 ## 1. Spec construction (`specbuild.nim`, `src/argumint.nim`)
 
@@ -302,94 +319,6 @@ A successful walk populates `pc.matches: OrderedTable[Arg, seq[Match]]`,
 which is then fed back into each `Arg`'s `parse` method to actually
 convert/store values.
 
-After a successful walk, `Spec.parse` (`fsm.nim`, not to be confused with
-`Arg.parse` above) does one more pass entirely outside the FSM/backtracking
-machinery, via `applyFallbacks`: for every `Arg` declared by any level the
-walk entered (see the command chain under "Dispatch order") that no
-*strictly* higher-precedence tier has already supplied
-(`arg.seenBy > byEnv` skips), it tries the environment-variable tier, then
-— only if that had nothing — the Config Source tier, feeding each resolved
-value straight to `arg.parse(v, ctx, some(tier))`, the same conversion/
-validation path a CLI value takes. `ctx` is the source's own label
-(`arg.envName`, or `arg.configKey.join`), which lands in `parse`'s variant
-slot and is what `subject` renders as `--port (env: PORT)` when the value
-turns out to be bad. There is no per-tier method: `parse` records the tier
-as it writes, so provenance can't outrun the value it describes. An Arg already *at* this tier is appended
-to rather than skipped, which is what lets a pre-seed declaring `byEnv`
-still collect the env var's own values (see
-`docs/adr/0041-parse-is-the-write-surface.md`).
-Doing this after `walk` rather than folding it into the FSM means an
-option only reachable via `[options]` (never explicitly attempted during
-matching) still picks up a fallback value; gating on `seenBy` gives an
-explicit CLI value precedence for free, while `ValueCursor.applied` is
-what dedupes an Arg reachable from two spec levels (see §5 and
-`docs/adr/0039-per-arg-provenance.md`). See
-`docs/adr/0004-required-options-env-fallback.md`,
-`docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
-`docs/adr/0018-config-source.md` for the design decisions behind the two
-fallback tiers; CONTEXT.md's Value Precedence / Env Delimiter / Config
-Source entries have the user-facing semantics.
-
-### Env var / Config Source mechanics
-
-Value Precedence's environment-variable and Config Source tiers share one
-mechanism, `fsm.nim`'s `ValueCursor` type (embedded twice on
-`ParseContext`, as `env` and `configValues`), rather than two independent
-implementations. `ValueCursor.probe` is consulted from `match`'s `Option`
-branch during the walk — CLI token first, then `pc.env.probe`, then (only
-if env had nothing) `pc.configValues.probe` — lazily resolving and caching
-an Arg's available values (via a tier-specific `resolve` closure,
-`resolveEnv`/`resolveConfig`) and handing out the next unconsumed value
-each time that Arg's matcher is visited. `resolve` runs at most once per
-Arg per cursor (cached in `ValueCursor.tried`, including a miss) — cheap
-either way for env (`existsEnv`), but load-bearing for Config Source, since
-a user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
-decides in advance how many times a matcher gets visited — it falls out
-entirely from however many times `walk` actually visits it: a real repeat
-(`...`, or reachable only through `[options]`) loops back and keeps
-consuming until the list runs out; the same Arg named more than once in one
-Usage Line with no `...` is just two separate matcher instances, and the
-cursor is consulted twice either way.
-
-The two tiers differ only in how they arrive at that per-Arg `seq[string]`
-of candidate values. `resolveEnv`: the raw env string is always split
-(`backend.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
-since that's how fish auto-joins a native list variable's elements when
-exporting it to a subprocess, otherwise on `Spec.settings.envDelim`
-(cascades like `width`, default `:`), keeping empty segments as literal
-values rather than dropping them. `resolveConfig`: `arg.configKey` is
-looked up via `lookupConfigSources(spec.settings.configSources, key)`,
-which already returns an assembled `seq[string]` (the last layered source
-with a hit for that key, in full — see CONTEXT.md's Config Source entry
-for why there's no delimiter-splitting step here at all).
-
-After a successful walk, `Spec.parse`'s post-walk sweep (`applyFallbacks`,
-via the per-Arg, per-tier helper `applyTier`) applies exactly as many
-values as the walk consumed for each Arg from whichever tier supplied them
-(cached on that tier's own `ValueCursor`), falling through to the
-Config Source tier only when the env tier had nothing at all for that Arg;
-if values are left over (the tier had more than the grammar had positions
-for), that's a `ParseError` — `"unexpected option"`/`"unexpected flag"`,
-the same wording already used for a genuinely excess CLI token — rather
-than a silent truncation to a prefix of the values. An Arg whose matcher
-was never consulted at all this walk (reachable only through a different,
-unmatched Usage Line of the same spec) has no walk-derived count to bound
-it by, so every available value from whichever tier resolves is applied.
-For `flag`, each value (from either tier) names one of the Arg's own
-declared Variants (matching `self.ops`' keys exactly) and is applied via
-*that* Variant's own Flag Operation, not forced through `=`.
-
-A pre-existing nuance, not introduced by the Config Source tier: since
-`applyFallbacks` gates on provenance per-Arg (not per-position), and a
-real CLI match puts the Arg at `byCli` — strictly above both fallback
-tiers, so both skip it —
-an Arg reachable at more than one position in the matched Usage Line where
-*some* positions matched a real CLI token and others were satisfied by a
-fallback tier *during the walk* (via `probe`, which never writes to
-`pc.matches`) has its walk-time fallback contribution silently dropped —
-`applyFallbacks` never even looks at it, since the Arg already has a real
-match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
-
 ## 3b. Failure reporting (`complaints.nim`)
 
 Everything above concerns a walk that fails; this is what the user sees when
@@ -515,6 +444,102 @@ or validation failure — whose raise site in `arg.parse` has no view of the
 Spec — comes out in that same shape: a one-off `Report` seeded with the live
 `(spec, command)`, given a single `note`, then raised or re-raised. See
 `docs/adr/0035-parse-failure-reporting.md`.
+
+## 3c. Value Precedence fallbacks (`precedence.nim`)
+
+After a successful walk, `fsm.parse*` does one more pass entirely outside
+the FSM/backtracking machinery, via `precedence.applyFallbacks`: for every
+`Arg` declared by any level the walk entered (see the command chain under
+"Dispatch order") that no *strictly* higher-precedence tier has already
+supplied (`arg.seenBy > byEnv` skips), it tries the environment-variable
+tier, then — only if that had nothing — the Config Source tier, feeding
+each resolved value straight to `arg.parse(v, ctx, some(tier))`, the same
+conversion/validation path a CLI value takes. `ctx` is the source's own
+label (`arg.envName`, or `arg.configKey.join`), which lands in `parse`'s
+variant slot and is what `subject` renders as `--port (env: PORT)` when
+the value turns out to be bad. There is no per-tier method: `parse`
+records the tier as it writes, so provenance can't outrun the value it
+describes. An Arg already *at* this tier is appended to rather than
+skipped, which is what lets a pre-seed declaring `byEnv` still collect the
+env var's own values (see `docs/adr/0041-parse-is-the-write-surface.md`).
+Doing this after `walk` rather than folding it into the FSM means an
+option only reachable via `[options]` (never explicitly attempted during
+matching) still picks up a fallback value; gating on `seenBy` gives an
+explicit CLI value precedence for free, while `ValueCursor.applied` is
+what dedupes an Arg reachable from two spec levels (see §5 and
+`docs/adr/0039-per-arg-provenance.md`). See
+`docs/adr/0004-required-options-env-fallback.md`,
+`docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
+`docs/adr/0018-config-source.md` for the design decisions behind the two
+fallback tiers; CONTEXT.md's Value Precedence / Env Delimiter / Config
+Source entries have the user-facing semantics.
+
+### Env var / Config Source mechanics
+
+Value Precedence's environment-variable and Config Source tiers share one
+mechanism, `precedence.nim`'s `ValueCursor` type — one per tier, indexed
+by `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first) inside
+`Tiers` (embedded on `ParseContext` as `tiers`) — rather than two
+independent implementations. `Tiers.probe` is consulted from `match`'s
+`Option` branch during the walk — CLI token first, then each tier's own
+`ValueCursor.probe` in `FallbackTier` order (env, then, only if env had
+nothing, Config Source) — lazily resolving and caching an Arg's available
+values (via a `case` dispatch on `FallbackTier` to `resolveEnv`/
+`resolveConfig`) and handing out the next unconsumed value each time that
+Arg's matcher is visited. `resolve` runs at most once per Arg per cursor
+(cached in `ValueCursor.tried`, including a miss) — cheap either way for
+env (`existsEnv`), but load-bearing for Config Source, since a
+user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
+decides in advance how many times a matcher gets visited — it falls out
+entirely from however many times `walk` actually visits it: a real repeat
+(`...`, or reachable only through `[options]`) loops back and keeps
+consuming until the list runs out; the same Arg named more than once in one
+Usage Line with no `...` is just two separate matcher instances, and the
+cursor is consulted twice either way.
+
+The two tiers differ only in how they arrive at that per-Arg `seq[string]`
+of candidate values. `resolveEnv`: the raw env string is always split
+(`backend.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
+since that's how fish auto-joins a native list variable's elements when
+exporting it to a subprocess, otherwise on `Spec.settings.envDelim`
+(cascades like `width`, default `:`), keeping empty segments as literal
+values rather than dropping them. `resolveConfig`: `arg.configKey` is
+looked up via `lookupConfigSources(spec.settings.configSources, key)`,
+which already returns an assembled `seq[string]` (the last layered source
+with a hit for that key, in full — see CONTEXT.md's Config Source entry
+for why there's no delimiter-splitting step here at all).
+
+After a successful walk, `applyFallbacks` (via the per-Arg, per-tier
+helper `applyTier`) applies exactly as many values as the walk consumed
+for each Arg from whichever tier supplied them (cached on that tier's own
+`ValueCursor`), falling through to the Config Source tier only when the
+env tier had nothing at all for that Arg; if values are left over (the
+tier had more than the grammar had positions for), that's a `ParseError`
+— `"unexpected option"`/`"unexpected flag"`, the same wording already
+used for a genuinely excess CLI token — rather than a silent truncation to
+a prefix of the values. An Arg whose matcher was never consulted at all
+this walk (reachable only through a different, unmatched Usage Line of
+the same spec) has no walk-derived count to bound it by, so every
+available value from whichever tier resolves is applied. For `flag`, each
+value (from either tier) names one of the Arg's own declared Variants
+(matching `self.ops`' keys exactly) and is applied via *that* Variant's
+own Flag Operation, not forced through `=`. The one-loop-two-tiers shape
+(`for arg... for t in FallbackTier: if arg.seenBy > t.seenBy: break; if
+tiers.applyTier(t, ...): break`) states this fallthrough once, instead of
+two hard-coded gates written differently for each tier — equivalent
+because `FallbackTier` descends in strength, so `seenBy > byEnv` already
+implies `seenBy > byConfig`.
+
+A pre-existing nuance, not introduced by the Config Source tier: since
+`applyFallbacks` gates on provenance per-Arg (not per-position), and a
+real CLI match puts the Arg at `byCli` — strictly above both fallback
+tiers, so both skip it —
+an Arg reachable at more than one position in the matched Usage Line where
+*some* positions matched a real CLI token and others were satisfied by a
+fallback tier *during the walk* (via `probe`, which never writes to
+`pc.matches`) has its walk-time fallback contribution silently dropped —
+`applyFallbacks` never even looks at it, since the Arg already has a real
+match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 
 ## 4. Value conversion (`argtypes.nim`, `src/argumint.nim`)
 
@@ -891,7 +916,7 @@ not-yet-dispatched `Spec` in the tree, including the current level's own
 message/help output once `parseMessageArgs` runs after `before` (see
 `docs/adr/0013-message-args-fire-after-before.md`). `envDelim` and
 `configSources` are the exceptions: both fallback tiers' resolution
-(`applyFallbacks`, §3) runs to completion across the whole tree before
+(`applyFallbacks`, §3c) runs to completion across the whole tree before
 `dispatch`/any hook is ever called, so a hook-time mutation to either has
 no effect on that parse's fallback-tier handling, even though both are
 cascaded the same way for consistency (see
@@ -1015,9 +1040,12 @@ permanently updates `pc.spec` to the nested spec for the rest of the walk,
 so a sibling command word can never be recognized afterward — which is why
 the chain is a list, not a tree.
 
-Both post-walk passes read it. `applyFallbacks` (§3) is a flat loop over
-the chain, needing neither a `Spec` nor the `MatchTable` to find its next
-level. `dispatch` recurses over an index into it.
+Both post-walk passes read it. `applyFallbacks` (§3c) is a flat loop over
+the chain's specs (`fsm.parse*` passes `pc.levels.mapIt(it.spec)` --
+`precedence.applyFallbacks` itself has no need of the command string half
+of `Level`), needing neither a `Spec` lookup of its own nor the
+`MatchTable` to find its next level. `dispatch` recurses over an index
+into `pc.levels` directly, since it does need the command string.
 
 `Spec.parse` then builds a `HookInfo(matched: seq[Arg])` from `pc.matches`
 -- every Arg with at least one match, across every level, computed once
