@@ -12,7 +12,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
 `lexer` → `backend`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`tokens` → `fsm`/`specbuild` → `argumint`.
+`tokens` → `complaints` → `fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -62,20 +62,35 @@ benefit and withheld from its re-export list, exactly like `specbuild`'s
 `beginSpec`/`finishSpec`; it is an implementation-detail module, not a
 promised import path.
 
-`tokens.nim` sits directly above `backend` and below `fsm`, and holds
-`RawToken`/`Classification` plus every operation that decides what one
+`tokens.nim` sits directly above `backend` and below `complaints`/`fsm`, and
+holds `RawToken`/`Classification` plus every operation that decides what one
 token *is* against a `Spec`: `classify` (ADR 0019), `refusesAsPositional`
 (ADR 0034), `consume`/`consumeOptsEnd`, and the shape-only predicates
 (`isOptShape`, `isNonOptionShort`, `exemptFromStrict`, `mustResolve`,
 `userTyped`, `fromCluster`). A `TokenCursor` carries a token stream
 together with the `Spec` governing it and whether `--` has been crossed,
 replacing what used to be four arguments threaded by hand through every
-call. `fsm.nim` embeds one in `ParseContext` (`cursor`) and owns everything
-`tokens.nim` deliberately doesn't: the backtracking walk, failure wording
-(`docs/adr/0035-parse-failure-reporting.md` onward), and the Value
-Precedence tiers. Unlike `argtypes`, `tokens` needs no withholding — only
-`fsm.nim` imports it, so it's invisible to the facade by construction, the
+call. Unlike `argtypes`, `tokens` needs no withholding — only `complaints`/
+`fsm.nim` import it, so it's invisible to the facade by construction, the
 same shape as the `fsmgraph.nim` split out of `backend.nim`.
+
+`complaints.nim` sits directly above `tokens` and below `fsm`, and holds
+everything ADR 0035 (parse-failure reporting) onward names: `Complaint`,
+`Leftover` (still `= TokenCursor`, now local to this module), the
+Did-You-Mean rule (`didYouMean`/`osaDistance`/`unknownOption`/
+`unknownCommand`), and a `Report` object replacing what used to be four
+loose `ParseContext` fields (`messages`/`errorTokens`/`errorSpec`/
+`errorCommand`) written and read together at exactly two sites (`walk`'s
+tie-break/adoption, and the one raise site). `Report`'s two-phase shape
+mirrors the walk itself: verbs like `missingOption`/`leftover`/`starved`
+record during the walk without wording anything, and `finalComplaints`/
+`failureMessage`/`raiseParseFailure` word and render only once the walk is
+over. `fsm.nim` embeds one `Report` in `ParseContext` (`report`) and owns
+everything `complaints.nim` deliberately doesn't: the backtracking walk
+itself and the Value Precedence tiers (both env and Config Source now
+report through the same `Report`, converted from a bare `seq[Complaint]`
+alongside this split). Unlike `argtypes`, `complaints` needs no withholding
+— only `fsm.nim` imports it, the same shape as `tokens.nim`.
 
 ## 1. Spec construction (`specbuild.nim`, `src/argumint.nim`)
 
@@ -234,9 +249,10 @@ than calling a name it recognizes unrecognized, and it is an error under
 both settings.
 
 Four failure paths ask that question — the `Option` matcher, the `Options`
-catch-all, the `Argument` matcher, and `walk`'s tail — so
-`addStarved` classifies the leading token for itself and returns whether it
-complained, letting each caller fall back to its own blunter wording. Two of
+catch-all, the `Argument` matcher, and `walk`'s tail — so `Report.starved`
+(`complaints.nim`) classifies the leading token for itself and returns
+whether it complained, letting each caller fall back to its own blunter
+wording. Two of
 them are why it can't simply be handed a `Classification` computed once:
 `Options` rolls back each failed probe's messages, so the question has to be
 re-asked *after* the rollback, and `Argument` reports its own `missing
@@ -269,11 +285,12 @@ message, used to write into the *same* `ParseContext.cursor.spec`/`.command`
 fields a later sibling transition's own `fresh` copy starts from — harmless
 before this change (a failed Command descent could never be followed by a
 sibling Argument attempt reusing the same leftover token), but reachable
-now. `ParseContext` has dedicated `errorSpec`/`errorCommand` fields for
-this, written only by the merge step and read only when formatting the
-final failure message, so `cursor.spec`/`.command` stay reserved for live
-walk state. See `docs/adr/0019-lazy-token-classification.md`. `errorTokens`
-(§3b) is a third field on the same terms.
+now. `ParseContext.report` (`complaints.Report`, §3b) carries dedicated
+`spec`/`command` fields of its own for this, written only by `Report.adopt`
+(the merge step) and read only when formatting the final failure message, so
+`cursor.spec`/`.command` stay reserved for live walk state. See
+`docs/adr/0019-lazy-token-classification.md`. `Report`'s leftovers (§3b) are
+recorded on the same terms.
 
 A literal `--` is recognized in the same eager shape pass and, the first
 time the walk encounters it on a given path, sets `pc.cursor.optsEnd =
@@ -373,33 +390,47 @@ fallback tier *during the walk* (via `probe`, which never writes to
 `applyFallbacks` never even looks at it, since the Arg already has a real
 match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 
-## 3b. Failure reporting (`fsm.nim`)
+## 3b. Failure reporting (`complaints.nim`)
 
 Everything above concerns a walk that fails; this is what the user sees when
-it does. Two channels accumulate during the walk, both on `ParseContext` and
-both subject to the same replace-on-further / merge-on-tied bookkeeping at
-the bottom of `walk`'s transition loop:
+it does. A `Report` (embedded in `ParseContext` as `report`) accumulates two
+channels during the walk, both subject to the same replace-on-further /
+merge-on-tied bookkeeping at the bottom of `walk`'s transition loop
+(`Report.adopt`/`Report.merge`) — `fsm.nim` never reaches into either channel
+directly, only through `Report`'s verbs:
 
-- **`messages`**, a `seq[Complaint]`. A `Complaint` is `(kind, subject,
-  names)`. `kind` groups same-kind complaints onto one `|`-joined line at
-  render time and is empty for a conversion/validation failure, which
-  renders as a bare sentence under the same bullet. `names` marks a
-  Complaint that points at a token the user actually typed — a property of
-  the Complaint, never inferred from its wording, so ADR 0034's
+- **messages**, recorded via `missingArgument`/`missingCommand`/
+  `missingOption`/`unexpected`/`note`, each building a `Complaint` — `(kind,
+  subject, names)`. `kind` groups same-kind complaints onto one `|`-joined
+  line at render time and is empty for a conversion/validation failure
+  (`note`), which renders as a bare sentence under the same bullet. `names`
+  marks a Complaint that points at a token the user actually typed — a
+  property of the Complaint, never inferred from its wording, so ADR 0034's
   starved-option complaint participates without being special-cased.
-- **`errorTokens`**, a `seq[Leftover]` (`Leftover = tokens.TokenCursor`):
-  what a failed branch couldn't consume, plus the `Spec`/`optsEnd` needed to
-  re-`classify` it — the same cursor `pc.cursor` already is, just recorded
-  under a name that reads as "what's left" rather than "where we are".
-  Recorded during the walk, worded only afterwards, so the wording can draw on the
-  whole message rather than one branch's local view. Three recording sites:
-  the tail of `walk` (a terminal state whose every transition failed — the
+- **leftovers**, recorded via `Report.leftover`/`Report.starved` — each a
+  `Leftover` (`= tokens.TokenCursor`): what a failed branch couldn't consume,
+  plus the `Spec`/`optsEnd` needed to re-`classify` it — the same cursor
+  `pc.cursor` already is, just recorded under a name that reads as "what's
+  left" rather than "where we are". Recorded during the walk, worded only
+  afterwards (`finalComplaints`), so the wording can draw on the whole
+  message rather than one branch's local view. Three recording sites: the
+  tail of `walk` (a terminal state whose every transition failed — the
   general case); a failed `Command` matcher (the only place that knows a
   Command was expected *at this exact position*, and which fires whether or
   not the grammar has a terminal state the leftover could reach); and a
   failed `Option` matcher holding an unresolved option-shaped token, which
   likewise never reaches `walk`'s tail and is what names the headline
   `unrecognized option: --nope` case.
+
+`Report` also carries the failing `spec`/`command` (what used to be
+`ParseContext.errorSpec`/`.errorCommand`) — all four pieces are written
+together at `Report.adopt` (`walk`'s one adoption site) and read together at
+the one raise site (`Report.raiseParseFailure`), so they travel as one value
+rather than four fields kept in lockstep by convention. `adopt` takes
+`spec`/`command` as explicit arguments rather than reading them off the
+adopted `Report` itself, because the failing position comes from the
+branch's own *live* cursor, which must never retroactively overwrite
+`pc.cursor.spec` — see ADR 0019 point 7.
 
 Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
 matchers it satisfied: where the first token it could not consume sits, whole
@@ -417,18 +448,21 @@ untouched; being a global argv index, Reach is comparable across nesting
 levels in a way `depth` never was.
 
 `maxReach` only ever rises, including when a lesser branch's complaints
-are adopted because nothing has complained yet — otherwise a branch that got
-nowhere sets the bar every later sibling ties against, and gets to name the
-offending token. The tie merge itself is deliberate: it is what accumulates
-same-kind complaints onto one `|`-joined line.
+are adopted because nothing has complained yet (`Report.isEmpty`) —
+otherwise a branch that got nowhere sets the bar every later sibling ties
+against, and gets to name the offending token. The tie merge itself
+(`Report.merge`) is deliberate: it is what accumulates same-kind complaints
+onto one `|`-joined line.
 
 `finalComplaints` then builds the message: word each leftover (as an
 `unrecognized command` when a Command was expected there, otherwise from
 `tokens.classify`'s answer), then drop every `missing option` — and `missing
 command` too, if the named token stood in a command's position. One further
 suppression happens at the complaint site itself, since only it knows the
-context: the `Options` catch-all never complains at all, an option reached
-that way being optional by construction.
+context: the `Options` catch-all probes each option via `Report.mark`/
+`.rollback` (a snapshot-and-restore pair over both channels) and never
+complains at all on failure, an option reached that way being optional by
+construction.
 
 The `Argument` matcher suppresses on the same terms, but has to be *told* its
 context. `[X]` compiles to a Shortcut bypassing the group, and `prepare`'s
@@ -472,10 +506,14 @@ so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
 stand in, being ranking-only and textless. See ADR 0038.
 
 `formatComplaints` renders the bullets with no leading newline;
-`raiseParseError`/`withUsage` (`backend.nim`) append the usage block; and
-`parse*` wraps `applyFallbacks`/`parseAllValues` so a conversion or
-validation failure — whose raise site in `arg.parse` has no view of the Spec
-— comes out in that same shape. See
+`Report.failureMessage` appends the usage block via `withUsage`
+(`backend.nim`), and `Report.raiseParseFailure` raises it as a `ParseError`.
+`fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
+bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
+report through the same object rather than a second shape) so a conversion
+or validation failure — whose raise site in `arg.parse` has no view of the
+Spec — comes out in that same shape: a one-off `Report` seeded with the live
+`(spec, command)`, given a single `note`, then raised or re-raised. See
 `docs/adr/0035-parse-failure-reporting.md`.
 
 ## 4. Value conversion (`argtypes.nim`, `src/argumint.nim`)
@@ -966,9 +1004,9 @@ string)`: the `Spec` owning that grammar level, plus the accumulated
 command string naming it (`"app"`, `"app go"`, `"app go stat"`). `parse*`
 seeds it with the root entry; `match`'s `Command` branch appends one entry
 right after it reassigns `pc.spec`/`pc.command`. (The completion path
-neither seeds nor reads the chain, exactly as it already skips
-`errorSpec`/`errorCommand`; its walks still append, so what accumulates
-there is root-less and inert.) Backtracking needs no
+neither seeds nor reads the chain, exactly as it already skips `report`'s
+`spec`/`command`; its walks still append, so what accumulates there is
+root-less and inert.) Backtracking needs no
 special handling: `ParseContext` is a plain `object` whose every field is a
 value type, so `walk`'s clone-per-candidate/commit-the-winner discipline
 discards a losing branch's chain entry along with the branch. At most one
