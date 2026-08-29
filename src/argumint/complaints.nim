@@ -8,7 +8,7 @@
 ## `docs/architecture.md` §3b.
 import std/[algorithm, importutils, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, tokens]
+import ./[backend, errors, tokens]
 
 privateAccess(Spec) ## Reaches `Spec`'s private `usage`/`options`/`commands`
   ## (ADR 0030) -- non-generic code only, see docs/gotchas.md.
@@ -343,8 +343,9 @@ proc failureMessage*(r: Report): string =
   ## The complaint list plus the usage block -- what `raiseParseFailure`
   ## raises verbatim, and what a reshaped conversion/validation failure
   ## (`fsm.parse*`) uses for its own exception instead. See ADR 0035.
-  formatComplaints(r.finalComplaints).withUsage(r.command, r.spec)
+  let msg = formatComplaints(r.finalComplaints)
+  "{msg}\n\n{r.spec.usage.formatUsage(r.command, r.spec.settings.width)}".fmt
 
 proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.
-  raiseParseError(r.failureMessage)
+  raise newException(ParseError, r.failureMessage)

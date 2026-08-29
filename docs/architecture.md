@@ -506,7 +506,7 @@ so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
 stand in, being ranking-only and textless. See ADR 0038.
 
 `formatComplaints` renders the bullets with no leading newline;
-`Report.failureMessage` appends the usage block via `withUsage`
+`Report.failureMessage` appends the usage block via `formatUsage`
 (`backend.nim`), and `Report.raiseParseFailure` raises it as a `ParseError`.
 `fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
 bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
