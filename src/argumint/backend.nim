@@ -309,14 +309,10 @@ proc withUsage*(msg: string, command: string, spec: Spec): string =
   "{msg}\n\n{spec.usage.formatUsage(command, spec.settings.width)}".fmt
 
 proc raiseParseError*(msg: string) =
-  ## Raises `ParseError` with `msg` verbatim, no usage block appended -- use
-  ## the `(msg, command, spec)` overload when a usage block should follow.
+  ## Raises `ParseError` with `msg` verbatim -- callers wanting a usage block
+  ## appended pass it `msg.withUsage(command, spec)` (or, for a `Report`,
+  ## use `Report.raiseParseFailure*` (`complaints.nim`) directly).
   raise newException(ParseError, msg)
-
-proc raiseParseError*(msg: string, command: string, spec: Spec) =
-  ## Raises `ParseError` with `msg` followed by `spec.usage` formatted via
-  ## `formatUsage` -- the shape most parse-time failures use.
-  raiseParseError(msg.withUsage(command, spec))
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.
