@@ -27,13 +27,14 @@ registration.
   unexpected "missing option"/"unexpected arg" errors, compile first (`nim c
   file`) then run the binary directly with the same args to rule this out.
 - Run the full test suite with `nimble test`, which compiles and runs
-  `src/argumint/validators.nim`'s, `src/argumint/flagclamp.nim`'s,
-  `src/argumint/fsm.nim`'s, and `src/argumint/argtypes.nim`'s own embedded
-  `std/unittest` blocks (plus a bare compile of `src/argumint.nim`, which
-  has none of its own) and every `tests/test_*.nim` file (each is its own
-  standalone `std/unittest` suite; `tests/config.nims` adds `src` to the
-  path for anything placed there). Add new tests as new `tests/test_*.nim`
-  files -- no per-file wiring needed beyond that naming convention.
+  `src/argumint/validators.nim`'s, `src/argumint/flagclamp.nim`'s, and
+  `src/argumint/argtypes.nim`'s own embedded `std/unittest` blocks (plus a
+  bare compile of `src/argumint/fsm.nim` and `src/argumint.nim`, neither of
+  which has one of their own) and every `tests/test_*.nim` file (each is
+  its own standalone `std/unittest` suite; `tests/config.nims` adds `src`
+  to the path for anything placed there). Add new tests as new
+  `tests/test_*.nim` files -- no per-file wiring needed beyond that naming
+  convention.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code
@@ -72,11 +73,13 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    `fsmgraph.nim`), one `Matcher` per token kind (`Argument`, `Option`,
    `Options`, `Command`, `OptsEnd`, `Shortcut`).
 3. **Runtime matching** (`fsm.nim`, token classification in `tokens.nim`,
-   failure reporting in `complaints.nim`): command-line args are tokenized
-   and classified against the live `Spec` lazily via a `TokenCursor`
-   (`tokens.nim`), walked against the FSM with backtracking -- recording any
-   failure into a `Report` (`complaints.nim`) along the way -- then a
-   post-walk sweep applies any configured environment-variable fallbacks.
+   failure reporting in `complaints.nim`, Value Precedence fallback tiers in
+   `precedence.nim`): command-line args are tokenized and classified against
+   the live `Spec` lazily via a `TokenCursor` (`tokens.nim`), walked against
+   the FSM with backtracking -- recording any failure into a `Report`
+   (`complaints.nim`) along the way -- then a post-walk sweep
+   (`precedence.applyFallbacks`) applies any configured environment-variable
+   or Config Source fallbacks.
 4. **Value conversion** (`argtypes.nim`, `src/argumint.nim`): `ValueArg`/
    `FlagArg` convert, validate, and store matched values; flags apply Flag
    Operations instead of a plain converter. Every public name lives in
