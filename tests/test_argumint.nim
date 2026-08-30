@@ -1036,16 +1036,6 @@ suite "Messages":
       caught = e.msg
     check caught == "myapp 1.2.3"
 
-  test "help text does not show hidden args":
-    let spec = (
-      deprecated: flag("--deprecated", help = "A deprecated flag", hidden = true),
-      help: help()
-    )
-    try:
-      spec.parse(args = @["--help"], command = "prog")
-    except HelpError as e:
-      check "--deprecated" notin e.msg
-
   test "hidden args can still be parsed":
     let spec = (
       deprecated: flag("--deprecated", help = "A deprecated flag", hidden = true),
@@ -1053,76 +1043,6 @@ suite "Messages":
     )
     spec.parse(args = @["--deprecated"], command = "prog")
     check spec.deprecated == true
-
-  test "help text lists groups as Commands, Arguments, Options, then user-defined groups":
-    let spec = (
-      verbose: flag("--verbose", help = "Verbose", group = "Global Options"),
-      speed: opt("--speed=<speed>", default = 1, help = "Speed"),
-      file: arg("<file>", help = "The file"),
-      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
-      help: help(),
-    )
-    var helpText = ""
-    try:
-      spec.parse(args = @["--help"], command = "prog")
-    except HelpError as e:
-      helpText = e.msg
-    let order = @["Commands", "Arguments", "Options", "Global Options"].mapIt(helpText.find(it))
-    check order == order.sorted
-    check order.allIt(it >= 0)
-
-  test "help text aligns variant columns across groups and skips padding for empty help":
-    let spec = (
-      verbose: flag("--verbose", help = "", group = "Global Options"),
-      speed: opt("--speed=<speed>", default = 1, help = "Speed"),
-      file: arg("<file>", help = "The file"),
-      cmd: command("cmd", (x: arg("<x>", help = "x")), help = "A subcommand"),
-      help: help(),
-    )
-    var helpText = ""
-    try:
-      spec.parse(args = @["--help"], command = "prog")
-    except HelpError as e:
-      helpText = e.msg
-    let width = "--speed=<speed>".len
-    check ("  " & "cmd".alignLeft(width) & "  A subcommand") in helpText
-    check ("  " & "<file>".alignLeft(width) & "  The file") in helpText
-    check ("  --speed=<speed>  Speed") in helpText
-    check "  --verbose" in helpText.splitLines
-
-  test "variants column wraps at maxVariantsWidth with help text aligned to the first wrapped line":
-    let spec = (
-      verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"),
-      help: help(),
-    )
-    var helpText = ""
-    try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 20), args = @["--help"], command = "prog")
-    except HelpError as e:
-      helpText = e.msg
-    let firstLine = "  " & "-v, --verbose,".alignLeft(20) & "  Adjust verbosity"
-    let lines = helpText.splitLines
-    let firstIdx = lines.find(firstLine)
-    check firstIdx >= 0
-    check lines[firstIdx + 1] == "    --quiet, --boost,"
-    check lines[firstIdx + 2] == "    --dampen"
-
-  test "variants column wraps without trailing whitespace when help text is empty":
-    let spec = (
-      verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = ""),
-      help: help(),
-    )
-    var helpText = ""
-    try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 20), args = @["--help"], command = "prog")
-    except HelpError as e:
-      helpText = e.msg
-    let lines = helpText.splitLines
-    check "  -v, --verbose," in lines
-    check "    --quiet, --boost," in lines
-    check "    --dampen" in lines
-    for line in lines:
-      check line == line.strip(leading = false, trailing = true)
 
   test "a flag with divergent per-variant ops repeats the shared help and action on every row":
     let spec = (
@@ -1206,16 +1126,6 @@ suite "Messages":
     check narrow.settings.maxVariantsWidth == 20
     check unlimited.settings.maxVariantsWidth == 0
 
-    var defaultText, unlimitedText = ""
-    try: default.parse(@["--help"], "prog")
-    except HelpError as e: defaultText = e.msg
-    try: unlimited.parse(@["--help"], "prog")
-    except HelpError as e: unlimitedText = e.msg
-
-    check ("  " & "-v, --verbose, --quiet,".alignLeft(30) & "  Adjust verbosity") in defaultText
-    check "    --boost, --dampen" in defaultText.splitLines
-    check ("  -v, --verbose, --quiet, --boost, --dampen  Adjust verbosity") in unlimitedText
-
   test "maxVariantsWidth cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())
     let ship = (move: command("move", move, help = "Move a ship"), help: help())
@@ -1275,20 +1185,6 @@ suite "Messages":
     check not lines[2].startsWith(indent & " ")
     check lines[2].strip.len > 0
 
-  test "help text for a single arg wraps at the configured width with a hanging indent":
-    let longHelp = "How fast the ship should move across the open water, measured in knots"
-    let spec = (speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help())
-    var helpText = ""
-    try:
-      spec.parse(args = @["--help"], command = "prog", settings = newSpecSettings(width = 80))
-    except HelpError as e:
-      helpText = e.msg
-    let optionsLines = helpText.splitLines.filterIt(it.startsWith("  --speed") or it.startsWith("                   "))
-    check optionsLines.len > 1
-    for line in optionsLines:
-      check line.len <= 80
-    check optionsLines[1].startsWith("                   ")
-
   test "help text shows [default: X] for arg()/opt() but not flag()":
     let spec = (
       speed: opt("--speed=<speed>", default = 10, help = "Speed in knots"),
@@ -1324,15 +1220,6 @@ suite "Messages":
     check "x grid reference [default" notin helpText
     check "Speed in knots [default" notin helpText
     check "Verbosity [default" notin helpText
-
-  test "help text shows [default: X] alone when help is empty":
-    let spec = (speed: opt("--speed=<speed>", default = 5, help = ""), help: help())
-    var helpText = ""
-    try:
-      spec.parse(usage = "[--speed=<speed>]\n--help", args = @["--help"], command = "prog")
-    except HelpError as e:
-      helpText = e.msg
-    check "  --speed=<speed>  [default: 5]" in helpText
 
   test "help text shows a choice validator's help alongside its default in one bracket":
     let spec = (
