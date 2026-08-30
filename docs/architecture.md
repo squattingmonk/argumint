@@ -872,35 +872,45 @@ the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
 `Spec.settings.width` (default `terminalWidth()`, itself falling back to
 `DefaultWidth = 80`) and `Spec.settings.maxVariantsWidth` (default
-`DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping (`help.nim`):
-`width` wraps
-usage lines (`formatUsage`) and each row's help/description text, while
-`maxVariantsWidth` caps the "variants" column (e.g. `-v, --verbose,
---quiet`) so one arg with many aliases can't inflate the shared column width
-for every other row. `genHelp` goes through `arg.variantGroups()`
-(`help.nim`, alongside `genHelp`), which groups an arg's variants by their
-`variantDesc` text and returns one group per distinct behavior. `colWidth`
-is computed from the widest single group's joined names, not the widest
-whole-`Arg`'s. Each group becomes its own row using the same 2-space row
-margin — groups are peers (different variants of the same `Arg`), not a
-wrap continuation of one another, so they render at the same indent; only a
-group's own text wrapping onto multiple lines uses the deeper 4-space
-`continuationIndent`. Every group's row shows the arg's shared `help` text
-and arg-level annotations (`validatorHelp`/`defaultStr`/`envName`/
-`configKey`), not just the first-declared variant's — that repetition, not
-indentation, is what visually ties divergent rows together as variants of
-the same value. When `variantGroups().len > 1` and a group's own
-`variantDesc` is non-empty, that desc is appended as `[action: ...]`
-(deliberately labeled `action:`, not `default:`, so it can't collide with a
-hypothetical future `[default: <value>]` for a flag's own starting value) —
-but only when `help` is non-empty, since otherwise there'd be nothing for
-the bracket to disambiguate from; in that case each row shows its own
-`variantDesc` directly instead, with no shared text to repeat. When a row's
-variants exceed the cap, `genHelp` wraps them into their own
-`wrapWords`-wrapped lines and zips them line-by-line against the
-(independently wrapped) help-text
-lines, so the help text stays inline with the first wrapped variants line.
-`0` disables the cap.
+`DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping (`help.nim`),
+now split across four named pieces sitting between `genHelp` and
+`variantGroups`: `width` wraps usage lines (`formatUsage`) and, via
+`render`, each row's help/description text, while `maxVariantsWidth`
+(applied in `variantsColWidth`) caps the "variants" column (e.g. `-v,
+--verbose, --quiet`) so one arg with many aliases can't inflate the shared
+column width for every other row. `genHelp` builds each arg's rows via
+`rows(arg: Arg): seq[Row]`, which resolves one `Row` per
+`arg.variantGroups()` group — `variantGroups` (`help.nim`, alongside
+`rows`) groups an arg's variants by their `variantDesc` text and returns
+one group per distinct behavior. `colWidth` itself comes from
+`variantsColWidth(spec: Spec): int`, computed from the widest single
+group's joined names (via `rows`), not the widest whole-`Arg`'s — and,
+deliberately unfiltered by `hidden`, a hidden arg's long variant name still
+counts toward the column width even though its own row never renders
+(existing behavior, preserved as-is rather than endorsed). Each group
+becomes its own row using the same 2-space `Margin` — groups are peers
+(different variants of the same `Arg`), not a wrap continuation of one
+another, so they render at the same indent; only a group's own text
+wrapping onto multiple lines uses the deeper 4-space `ContinuationIndent`.
+Both constants, and the wrap/zip logic that uses them, live in
+`render(rows: seq[Row], width, colWidth: int): string`. Every group's row
+shows the arg's shared `help` text and arg-level annotations
+(`validatorHelp`/`defaultStr`/`envName`/`configKey`, assembled in that
+order by `annotations(arg: Arg, action = ""): seq[string]`), not just the
+first-declared variant's — that repetition, not indentation, is what
+visually ties divergent rows together as variants of the same value. When
+`variantGroups().len > 1` and a group's own `variantDesc` is non-empty,
+`rows` passes that desc to `annotations` as `action`, appended last as
+`[action: ...]` (deliberately labeled `action:`, not `default:`, so it
+can't collide with a hypothetical future `[default: <value>]` for a flag's
+own starting value) — but only when `help` is non-empty, since otherwise
+there'd be nothing for the bracket to disambiguate from; in that case
+`rows` uses the group's own `variantDesc` directly as the row's text
+instead, with no shared text to repeat. When a row's variants exceed the
+cap, `render` wraps them into their own `wrapWords`-wrapped lines and zips
+them line-by-line against the (independently wrapped) help-text lines, so
+the help text stays inline with the first wrapped variants line. `0`
+disables the cap.
 
 `width`/`maxVariantsWidth`/`envDelim`/`configSources` live together on
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`

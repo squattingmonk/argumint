@@ -561,3 +561,9 @@ or anything else that generates methods inside a template.
   already-converted `T` and knows nothing about strings, so `parseImpl`'s
   own conversion had to move to guard exactly this. See
   `docs/adr/0044-put-typed-write-accessor.md`.
+
+- **`std/unittest`'s `check x == @[]` fails with "cannot infer the type of
+  the sequence".** `check` rewrites `==` into separately-evaluated
+  sub-expressions for its failure output, which loses the bidirectional
+  inference that would otherwise let `@[]` take its type from `x`. Use
+  `x.len == 0` instead.
