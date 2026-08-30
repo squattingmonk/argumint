@@ -5,6 +5,7 @@
 /src/argumint/flagclamp
 /src/argumint/fsm
 /src/argumint/argtypes
+/src/argumint/help
 /src/argumint/configsource.out
 /src/argumint/configsource/ini
 /src/argumint/configsource/json
