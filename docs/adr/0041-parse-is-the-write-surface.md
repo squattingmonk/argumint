@@ -237,6 +237,14 @@ lets `parseMessageArgs` dispatch once. Now that the alternative has been
 measured rather than assumed, `action`'s value is what it always was — the
 extension point for a custom side-effecting Arg.
 
+**Update 2:** issue #68 moved `formatUsage` itself out of `backend` and into
+`help.nim` alongside `genHelp`, so the "everything it needs is already in
+`backend`" premise above no longer holds even for the parts that used to
+justify it — the display base methods and `Spec`'s own fields are still
+`backend`'s, but `formatUsage` isn't anymore. This only strengthens the
+point: the dependency-inversion argument is now entirely self-contained in
+`help.nim`, not split across two modules.
+
 ### `clear` returns an Arg to its coded-default state
 
 An exported `{.base.}` method with a quiet no-op base and unexported

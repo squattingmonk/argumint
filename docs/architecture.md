@@ -25,12 +25,15 @@ it. The two modules whose own API would be incomplete without one
 re-export it, so importing either alone still names what it raises.
 
 `help.nim` sits directly above `backend` because that is as high as it needs
-to sit: `formatUsage`, the `variantDesc`/`defaultStr`/`validatorHelp`/
-`configKey` display methods, the derived `envName` beside them, and `Spec`'s
-own private fields are
-all `backend`'s, and `backend` was already wrapping the usage line. Its
-position below `fsm` is what makes `Arg.action`'s dependency inversion a
-choice rather than a necessity — see "The write side" below.
+to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display
+methods, the derived `envName` beside them, and `Spec`'s own private fields
+are all `backend`'s. `formatUsage` and the `usageLines` helper beneath it
+(splitting a raw usage string into one alternative per line, merging
+hand-indented continuations, and preserving blank lines rather than
+swallowing them — issue #68) live in `help.nim` itself, not `backend`;
+`backend` no longer does any wrapping of its own. Its position below `fsm`
+is what makes `Arg.action`'s dependency inversion a choice rather than a
+necessity — see "The write side" below.
 
 `specbuild.nim` sits above FSM compilation rather than beside the data model
 in `backend`, because building a `Spec` *means* compiling its usage string
@@ -436,7 +439,9 @@ stand in, being ranking-only and textless. See ADR 0038.
 
 `formatComplaints` renders the bullets with no leading newline;
 `Report.failureMessage` appends the usage block via `formatUsage`
-(`backend.nim`), and `Report.raiseParseFailure` raises it as a `ParseError`.
+(`help.nim`, issue #68 -- `complaints.nim` imports it for exactly this, a new
+dependency below `tokens` in the chain rather than a new layer), and
+`Report.raiseParseFailure` raises it as a `ParseError`.
 `fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
 bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
 report through the same object rather than a second shape) so a conversion

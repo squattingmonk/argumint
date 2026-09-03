@@ -15,7 +15,7 @@
 ## which names an Arg in a parse-failure message. See `docs/architecture.md`
 ## for where that line falls and why.
 
-import std/[hashes, pegs, strformat, strutils, tables, terminal, wordwrap]
+import std/[hashes, pegs, strformat, strutils, tables, terminal]
 
 # `Option` (the type) deliberately left unqualified-unimported --
 # `options.Option[T]` instead -- see docs/gotchas.md.
@@ -288,20 +288,6 @@ proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDel
   elif EnvListSep in value: value.split(EnvListSep)
   elif delimOverride.isSome: value.split(delimOverride.get)
   else: value.split(envDelim)
-
-proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
-  ## Formats `usage` (a spec's raw usage string, one alternative per line) as
-  ## a "Usage:" block, prefixing each alternative with `command`. Lines
-  ## longer than `width` are wrapped, with continuations hanging-indented to
-  ## align under the first token after `command` rather than restarting at
-  ## the left margin.
-  var lines = @["Usage:"]
-  for line in usage.split(peg"\n!\s"):
-    let prefix = "  {command} ".fmt
-    let indent = ' '.repeat(prefix.len)
-    let lineWidth = max(width - prefix.len, 20)
-    lines.add prefix & line.wrapWords(lineWidth, splitLongWords = false, newLine = "\n" & indent)
-  result = lines.join("\n")
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.
