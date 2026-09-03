@@ -8,7 +8,7 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[importutils, strformat, strutils, tables, wordwrap]
+import std/[importutils, pegs, strformat, strutils, tables, wordwrap]
 
 import ./backend
 
@@ -125,6 +125,33 @@ proc render(rows: seq[Row], width: int, colWidth: int): string =
     result.addSep("\n")
     result.add argLines.join("\n")
 
+proc usageLines(usage: string): seq[string] =
+  ## Splits a usage message into usage lines. Lines prefixed with whitespace are
+  ## treated as belonging to the previous usage line. Blank lines (and even a
+  ## blank usage message) are treated as a blank usage line.
+  for line in usage.splitLines:
+    if result.len > 0 and line.startsWith(peg"\s"):
+      result[^1] = fmt"{result[^1]} {line.strip}".strip
+    else:
+      result.add line.strip
+
+proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
+  ## Formats `usage` (a spec's raw usage string, one alternative per line) as
+  ## a "Usage:" block, prefixing each alternative with `command`. Lines
+  ## longer than `width` are wrapped, with continuations hanging-indented to
+  ## align under the first token after `command` rather than restarting at
+  ## the left margin.
+  var lines = @["Usage:"]
+  let
+    prefix = "{Margin}{command} ".fmt
+    indent = ' '.repeat(prefix.len)
+    lineWidth = max(width, 20)
+
+  for line in usage.usageLines:
+    lines.add fmt"{prefix}{line}".wrapWords(lineWidth,
+      splitLongWords = false, newLine = "\n{indent}".fmt)
+  result = lines.join("\n")
+
 proc genHelp*(spec: Spec, command: string): string =
   ## Renders `spec`'s full help message -- prolog, wrapped usage lines, one row
   ## per arg grouped per `groupOrder`, then epilog. `command` names the program
@@ -133,8 +160,8 @@ proc genHelp*(spec: Spec, command: string): string =
   ## governed by `spec.settings.width`/`maxVariantsWidth`.
   let
     prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
-    epilog = if spec.epilog.len > 0: spec.epilog else: ""
-    usage = spec.usage.formatUsage(command, spec.settings.width) & "\n"
+    epilog = if spec.epilog.len > 0: "\n\n" & spec.epilog else: ""
+    usage = spec.usage.formatUsage(command, spec.settings.width)
     colWidth = spec.variantsColWidth()
 
   var lines: seq[string]
@@ -148,6 +175,8 @@ proc genHelp*(spec: Spec, command: string): string =
       lines.add("\n{group}".fmt)
       lines.add(groupRows.render(spec.settings.width, colWidth))
 
+  if lines.len > 0:
+    lines.insert ""
   let args = lines.join("\n")
   result = fmt"{prolog}{usage}{args}{epilog}"
 
@@ -425,28 +454,90 @@ when isMainModule:
       groups["Another Group"] = @[]
       check Spec(groups: groups).groupOrder() == @["Options", "Global Options", "Another Group"]
 
-  suite "genHelp":
-    test "a spec with no prolog, epilog, args, or groups returns just the usage line followed by a newline":
-      # FIXME: formatUsage should be showing the program here. See issue #68.
-      # Expected to break this test when fixed.
-      let spec = Spec(settings: newSpecSettings())
-      check spec.genHelp(command = "prog") == "Usage:\n"
+  suite "usageLines":
+    test "a blank usage message is one blank usage line":
+      check usageLines("") == @[""]
 
-    test "a spec with nothing but a usage string shows that usage string followed by a newline":
+    test "a usage message with no newlines is one usage line":
+      check usageLines("<foo> [--bar]") == @["<foo> [--bar]"]
+
+    test "each line in a usage message is another usage line":
+      check usageLines("<foo>\n--bar") == @["<foo>", "--bar"]
+
+    test "blank lines count as their own usage lines":
+      check usageLines("<foo>\n") == @["<foo>", ""]
+      check usageLines("\n<foo>") == @["", "<foo>"]
+
+    test "lines prefixed with whitespace belong to the previous usage line":
+      check usageLines("<foo>\n  --bar") == @["<foo> --bar"]
+
+    test "if the first line is prefixed with whitespace, it is still its own line":
+      check usageLines("  <foo>") == @["<foo>"]
+
+    test "leading and trailing whitespace are removed from usage lines":
+      check usageLines("<foo>  ") == @["<foo>"]
+      check usageLines("  <foo>") == @["<foo>"]
+
+    test "a blank line can be continued if the following line is prefixed by whitespace":
+      check usageLines("\n  <foo>") == @["<foo>"]
+      check usageLines("<foo>\n\n  <bar>") == @["<foo>", "<bar>"]
+
+    test "usage lines containing only whitespace belong to the previous usage line":
+      check usageLines("<foo>\n  ") == @["<foo>"]
+      check usageLines("<foo>\n  \n  <bar>") == @["<foo> <bar>"]
+
+  suite "formatUsage":
+    test "a blank usage message is still prefixed with the command name":
+      check formatUsage("", "prog") == "Usage:\n  prog"
+
+    test "a single usage line is prefixed with the command name":
+      check formatUsage("<foo> [--bar]", "prog") == "Usage:\n  prog <foo> [--bar]"
+
+    test "multiple usage lines are each prefixed by the command name":
+      check formatUsage("<foo>\n<bar>", "prog") == "Usage:\n  prog <foo>\n  prog <bar>"
+
+    test "blank lines get the command name prefix":
+      check formatUsage("\n<foo>", "prog") == "Usage:\n  prog\n  prog <foo>"
+      check formatUsage("<foo>\n", "prog") == "Usage:\n  prog <foo>\n  prog"
+      check formatUsage("<foo>\n\n", "prog") == "Usage:\n  prog <foo>\n  prog\n  prog"
+      check formatUsage("<foo>\n\n<bar>", "prog") == "Usage:\n  prog <foo>\n  prog\n  prog <bar>"
+      check formatUsage("<foo>\n\n  <bar>", "prog") == "Usage:\n  prog <foo>\n  prog <bar>"
+
+    test "lines beginning with whitespace are joined to the previous usage line":
+      check formatUsage("<foo>\n  <bar>\n<baz>", "prog") == "Usage:\n  prog <foo> <bar>\n  prog <baz>"
+
+    test "usage lines are wrapped to width with a hanging indent matching command prefix length":
+      let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
+      check formatUsage(usage, "prog", width = 40) == "Usage:\n  prog <foo> [--bar] (--baz |\n       --qux=<qux>)\n  prog <foobar>"
+
+    test "min width for a usage line is 20":
+      let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
+      check formatUsage(usage, "prog", width = 10) == "Usage:\n  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
+
+    test "words longer than width are not split when wrapping":
+      let usage = "<foo> [--bar --aVeryLongOptionName"
+      check formatUsage(usage, "prog", width = 20) == "Usage:\n  prog <foo> [--bar\n       --aVeryLongOptionName"
+
+  suite "genHelp":
+    test "a spec with no prolog, epilog, args, or groups returns a usage block with a bare command usage line":
+      let spec = Spec(settings: newSpecSettings())
+      check spec.genHelp(command = "prog") == "Usage:\n  prog"
+
+    test "a spec with nothing but a usage string shows a usage block with that usage string":
       let
         spec = Spec(settings: newSpecSettings(), usage: "<foo> [--bar]")
         actual = spec.genHelp(command = "prog")
-        expected = "Usage:\n  prog <foo> [--bar]\n"
+        expected = "Usage:\n  prog <foo> [--bar]"
 
       check actual == expected
 
     test "prolog appears at the beginning of the message when set, separated by two newlines":
       let spec = Spec(settings: newSpecSettings(), prolog: "foo")
-      check spec.genHelp(command = "prog") == "foo\n\nUsage:\n"
+      check spec.genHelp(command = "prog") == "foo\n\nUsage:\n  prog"
 
-    test "epilog appears at the end of the message when set":
+    test "epilog appears at the end of the message when set, separated by two newlines":
       let spec = Spec(settings: newSpecSettings(), epilog: "bar")
-      check spec.genHelp(command = "prog") == "Usage:\nbar"
+      check spec.genHelp(command = "prog") == "Usage:\n  prog\n\nbar"
 
     test "a spec with one group containing one arg lists the arg's row under the group name, below usage":
       let
@@ -461,9 +552,7 @@ when isMainModule:
         """.strip(leading = false).dedent()
       check spec.genHelp(command = "prog") == expected
 
-    test "arg groups are not separated by a newline from any epilog text":
-      # FIXME: There should be two newlines separating a group block from any
-      # epilog text. Filed as issue #69. Expect this to go red once fixed.
+    test "arg groups are separated from the epilog by a blank line":
       let
         spec = newSpec(
           (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
@@ -473,7 +562,9 @@ when isMainModule:
           prog <foo>
 
         Arguments
-          <foo>  A sample argbar
+          <foo>  A sample arg
+
+        bar
         """.strip(leading = false).dedent()
       check spec.genHelp(command = "prog") == expected
     

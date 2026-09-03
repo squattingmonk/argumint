@@ -8,7 +8,7 @@
 ## `docs/architecture.md` §3b.
 import std/[algorithm, importutils, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, errors, tokens]
+import ./[backend, errors, help, tokens]
 
 privateAccess(Spec) ## Reaches `Spec`'s private `usage`/`options`/`commands`
   ## (ADR 0030) -- non-generic code only, see docs/gotchas.md.
