@@ -14,16 +14,22 @@ requires "nim >= 2.2.4"
 
 # Tasks
 
+proc nimFilesRec(dir: string): seq[string] =
+  ## Every `.nim` file under `dir`, recursing into subdirectories
+  ## (`listFiles`/`listDirs` alone only see one level).
+  for file in listFiles(dir):
+    if file.endsWith(".nim"):
+      result.add file
+  for subdir in listDirs(dir):
+    result.add nimFilesRec(subdir)
+
 task test, "Run the test suite":
-  exec "nim c -r src/argumint/validators.nim"
-  exec "nim c -r src/argumint/flagclamp.nim"
-  exec "nim c -r src/argumint/configsource.nim"
-  exec "nim c -r src/argumint/configsource/ini.nim"
-  exec "nim c -r src/argumint/configsource/json.nim"
-  exec "nim c -r src/argumint/fsm.nim"
-  exec "nim c -r src/argumint/argtypes.nim"
-  exec "nim c -r src/argumint/help.nim"
-  exec "nim c -r src/argumint.nim"
+  # Compiling and running every source file both sanity-compiles modules with
+  # no `when isMainModule` block (a stand-in for `nim check`) and executes
+  # the embedded `std/unittest` blocks of modules that have one -- so a new
+  # file's tests run without any wiring here.
+  for file in nimFilesRec("src"):
+    exec "nim c -r " & file
   for file in listFiles("tests"):
     if file.endsWith(".nim"):
       exec "nim c -r " & file

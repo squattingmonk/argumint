@@ -26,16 +26,17 @@ registration.
   the compiled binary depending on Nim version -- if a run fails with
   unexpected "missing option"/"unexpected arg" errors, compile first (`nim c
   file`) then run the binary directly with the same args to rule this out.
-- Run the full test suite with `nimble test`, which compiles and runs
-  `src/argumint/validators.nim`'s, `src/argumint/flagclamp.nim`'s,
-  `src/argumint/argtypes.nim`'s, and `src/argumint/help.nim`'s own embedded
-  `std/unittest` blocks (plus a bare compile of `src/argumint/fsm.nim` and
-  `src/argumint.nim`, neither of which has one of their own) and every
-  `tests/test_*.nim` file (each is its own standalone `std/unittest` suite;
-  `tests/config.nims` adds `src` to the path for anything placed there).
-  Add new tests as new `tests/test_*.nim` files -- no per-file wiring needed
-  beyond that naming
-  convention.
+- Run the full test suite with `nimble test`, which compiles and runs every
+  `.nim` file under `src/` (recursing into subdirectories like
+  `src/argumint/configsource/`) plus every `tests/test_*.nim` file. A source
+  file with a `when isMainModule` block (e.g. `src/argumint/validators.nim`,
+  `help.nim`, `tokens.nim`) gets its embedded `std/unittest` suite run; one
+  without (e.g. `src/argumint/fsm.nim`, `src/argumint.nim`) just gets a bare
+  compile-check. Each `tests/test_*.nim` file is its own standalone
+  `std/unittest` suite (`tests/config.nims` adds `src` to the path for
+  anything placed there). Add new tests either as a `when isMainModule`
+  block in the module under test or as a new `tests/test_*.nim` file -- no
+  per-file wiring needed beyond that.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code
