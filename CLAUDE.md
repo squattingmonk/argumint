@@ -28,13 +28,14 @@ registration.
   file`) then run the binary directly with the same args to rule this out.
 - Run the full test suite with `nimble test`, which compiles and runs every
   `.nim` file under `src/` (recursing into subdirectories like
-  `src/argumint/configsource/`) plus every `tests/test_*.nim` file. A source
-  file with a `when isMainModule` block (e.g. `src/argumint/validators.nim`,
-  `help.nim`, `tokens.nim`) gets its embedded `std/unittest` suite run; one
-  without (e.g. `src/argumint/fsm.nim`, `src/argumint.nim`) just gets a bare
-  compile-check. Each `tests/test_*.nim` file is its own standalone
-  `std/unittest` suite (`tests/config.nims` adds `src` to the path for
-  anything placed there). Add new tests either as a `when isMainModule`
+  `src/argumint/configsource/`) plus every `tests/test_*.nim` file. Many
+  source files under `src/` have a `when isMainModule` block testing their
+  own API with an embedded `std/unittest` suite, which gets run; one without
+  just gets a bare compile-check. Each `tests/test_*.nim` file is its own
+  standalone `std/unittest` suite (`tests/config.nims` adds `src` to the
+  path for anything placed there) -- reserved for cross-module integration
+  tests or ones needing extra fixtures (e.g. `test_precedence.nim`,
+  `configsource`'s tests). Add new tests either as a `when isMainModule`
   block in the module under test or as a new `tests/test_*.nim` file -- no
   per-file wiring needed beyond that.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
