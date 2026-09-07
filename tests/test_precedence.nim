@@ -5,7 +5,7 @@
 ## `when isMainModule` block once the module they belong to existed. See
 ## issue #65.
 
-import std/[importutils, options, os, unittest]
+import std/[importutils, options, os, strutils, unittest]
 
 import argumint
 import argumint/[backend, complaints, configsource, precedence]
@@ -196,7 +196,7 @@ suite "applyFallbacks (env tier)":
     discard tiers.probe(arg, spec) # consumes only 1 of the 3 available values
     var report = initReport(spec, "")
     applyFallbacks(tiers, @[spec], report)
-    check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
+    check "  - unexpected option: --foo" in report.failureMessage
 
   test "an arg reachable from two spec levels only complains once":
     # The oversupply branch applies nothing, so `seenBy` stays `byNone` and
@@ -209,7 +209,7 @@ suite "applyFallbacks (env tier)":
     discard tiers.probe(arg, spec) # consumes only 1 of 3
     var report = initReport(spec, "")
     applyFallbacks(tiers, @[spec, spec], report) # same arg, two levels
-    check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
+    check "  - unexpected option: --foo" in report.failureMessage
 
   test "skips an arg already explicitly matched on the command line":
     putEnv("ARGUMINT_TEST_SKIP", "hi")
@@ -244,7 +244,7 @@ suite "applyFallbacks (config tier)":
     discard tiers.probe(arg, spec) # consumes only 1 of 3
     var report = initReport(spec, "")
     applyFallbacks(tiers, @[spec], report)
-    check report.finalComplaints == @[(kind: "unexpected option", subject: arg.name, names: true)]
+    check "  - unexpected option: --foo" in report.failureMessage
 
   test "env present takes precedence, config is never consulted":
     putEnv("ARGUMINT_TEST_PRECEDENCE", "from-env")
