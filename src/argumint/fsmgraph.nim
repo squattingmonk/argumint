@@ -28,18 +28,9 @@ proc name*(m: Matcher): string {.inline.} =
       for opt in m.opts: opt.name
     fmt"""Opts({names.join(" | ")})"""
 
-func isShortcut*(m: Matcher): bool {.inline.} =
+func isShortcut(m: Matcher): bool {.inline.} =
   ## Returns whether a given matcher is a shortcut.
   m.kind == Shortcut
-
-proc underlyingArg*(m: Matcher): Arg =
-  ## The Arg an Option or Argument matcher matches directly, or `nil` for any
-  ## other kind -- `Options`/`Command`/`Shortcut` don't match a single Arg the
-  ## way a caller collapsing a trivial choice alternative needs.
-  case m.kind
-  of Option: m.opt
-  of Argument: m.arg
-  else: nil
 
 proc excludeOptions*(m: Matcher, exclude: HashSet[Arg]) =
   ## Removes every Arg in `exclude` from an `Options` matcher's candidate
@@ -48,7 +39,7 @@ proc excludeOptions*(m: Matcher, exclude: HashSet[Arg]) =
   assert m.kind == Options
   m.opts = m.opts.filterIt(it notin exclude)
 
-proc newShortcut*(): Matcher =
+proc newShortcut(): Matcher =
   ## Returns a new shortcut `Matcher`. A shortcut will always match.
   Matcher(kind: Shortcut)
 

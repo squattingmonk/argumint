@@ -64,11 +64,11 @@ proc close*(lex: var SpecLexer) =
   ## Closes the lexer's associated spec stream.
   lexbase.close(lex)
 
-proc getColumn*(lex: SpecLexer): int {.inline.} =
+proc getColumn(lex: SpecLexer): int {.inline.} =
   ## Returns the column the lexer has arrived at.
   lexbase.getColNumber(lex, lex.bufPos)
 
-proc getLine*(lex: SpecLexer): int {.inline.} =
+proc getLine(lex: SpecLexer): int {.inline.} =
   ## Returns the current column the lexer has arrived at.
   lex.lineNumber
 
