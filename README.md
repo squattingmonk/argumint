@@ -1534,6 +1534,22 @@ are grouped under `Commands`. You can control which group an `Arg` appears in
 constructor. Within the group, `Arg`s are ordered in the order they are declared
 in the spec.
 
+Usage lines and help text wrap at `SpecSettings.width` (default: the
+detected terminal width, falling back to 80 columns); the variants column
+(`-v, --verbose`) wraps once it exceeds `SpecSettings.maxVariantsWidth`
+(default 30; `0` means unlimited). Set either via `newSpecSettings`, passed
+as `parse`/`parseOrQuit`'s `settings` argument:
+
+```nim
+spec.parseOrQuit(settings = newSpecSettings(width = 100, maxVariantsWidth = 40))
+```
+
+A variant name or help-text word too long to fit its column splits at the
+character level rather than overflowing it whole. If that's undesirable for
+a particular spec (e.g. one with unusually long option names), raise
+`maxVariantsWidth`/`width` to fit, or set `maxVariantsWidth = 0` to disable
+the variants-column cap entirely.
+
 ### Shell Completion
 
 Completion candidates are resolved dynamically: a shell asks for them by

@@ -567,3 +567,15 @@ or anything else that generates methods inside a template.
   sub-expressions for its failure output, which loses the bidirectional
   inference that would otherwise let `@[]` take its type from `x`. Use
   `x.len == 0` instead.
+
+- **`std/wordwrap.wrapWords(splitLongWords = true)` drops the separator
+  before a word it has to split.** When a word longer than `maxLineWidth`
+  immediately follows a shorter word on the same line, the char-splitting
+  branch never flushes the pending separator before it starts emitting
+  characters -- e.g. wrapping `"-x, --longflag"` at width 10 comes back as
+  `"-x,--longf"` (the space after the comma is silently eaten), even though
+  the separator's width was already budgeted for. The "word fits normally"
+  branch a few lines up does flush it (`result.add(lastSep)`); the split
+  branch just forgets to. `help.nim` forks a corrected local `wrapWords`
+  with that one line added rather than depending on the buggy stdlib
+  version -- see `render()`/`formatUsage()`. Present as of Nim 2.2.10.

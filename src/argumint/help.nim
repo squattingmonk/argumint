@@ -8,7 +8,7 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[importutils, pegs, strformat, strutils, tables, wordwrap]
+import std/[importutils, pegs, strformat, strutils, tables, unicode]
 
 import ./backend
 
@@ -24,6 +24,64 @@ type
 const Margin = "  "
 const ContinuationIndent = "    "
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
+
+proc olen(s: string; start, lastExclusive: int): int =
+  var i = start
+  while i < lastExclusive:
+    inc result
+    inc i, graphemeLen(s, i)
+
+proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
+  ## Word-wraps `s`, splitting a word longer than `maxLineWidth` at the
+  ## character level instead of overflowing it whole. Forked from
+  ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
+  ## drops the separator immediately before a word that needs splitting (e.g.
+  ## wrapping "-x, --longflag" at width 10 comes back as "-x,--longf", eating
+  ## the space) instead of flushing it first, like the "word fits" path does.
+  ## See docs/gotchas.md.
+  result = newStringOfCap(s.len + s.len shr 6)
+  var spaceLeft = maxLineWidth
+  var lastSep = ""
+
+  var i = 0
+  while true:
+    var j = i
+    let isSep = j < s.len and s[j] in Whitespace
+    while j < s.len and (s[j] in Whitespace) == isSep: inc(j)
+    if j <= i: break
+    if isSep:
+      lastSep.setLen 0
+      for k in i..<j:
+        if s[k] notin {'\L', '\C'}: lastSep.add s[k]
+      if lastSep.len == 0:
+        lastSep.add ' '
+        dec spaceLeft
+      else:
+        spaceLeft -= olen(lastSep, 0, lastSep.len)
+    else:
+      let wlen = olen(s, i, j)
+      if wlen > spaceLeft:
+        if wlen > maxLineWidth:
+          if lastSep.len > 0 and spaceLeft > 0:
+            result.add(lastSep)
+          var k = 0
+          while k < j - i:
+            if spaceLeft <= 0:
+              spaceLeft = maxLineWidth
+              result.add newLine
+            dec spaceLeft
+            let L = graphemeLen(s, k + i)
+            for m in 0 ..< L: result.add s[i + k + m]
+            inc k, L
+        else:
+          spaceLeft = maxLineWidth - wlen
+          result.add(newLine)
+          for k in i..<j: result.add(s[k])
+      else:
+        spaceLeft -= wlen
+        result.add(lastSep)
+        for k in i..<j: result.add(s[k])
+    i = j
 
 proc annotations(arg: Arg, action = ""): seq[string] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
@@ -101,9 +159,9 @@ proc render(rows: seq[Row], width: int, colWidth: int): string =
   let helpWidth = max(width - (colWidth + 4), 20)
   var argLines = newSeq[string]()
   for row in rows:
-    let variantLines = row.variants.wrapWords(colWidth, splitLongWords = false).splitLines
+    let variantLines = row.variants.wrapWords(colWidth).splitLines
     if row.text.len > 0:
-      let textLines = row.text.wrapWords(helpWidth, splitLongWords = false).splitLines
+      let textLines = row.text.wrapWords(helpWidth).splitLines
       for j in 0 ..< max(variantLines.len, textLines.len):
         let
           v = if j < variantLines.len: variantLines[j] else: ""
@@ -148,8 +206,7 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
     lineWidth = max(width, 20)
 
   for line in usage.usageLines:
-    lines.add fmt"{prefix}{line}".wrapWords(lineWidth,
-      splitLongWords = false, newLine = "\n{indent}".fmt)
+    lines.add fmt"{prefix}{line}".wrapWords(lineWidth, newLine = "\n{indent}".fmt)
   result = lines.join("\n")
 
 proc genHelp*(spec: Spec, command: string): string =
@@ -382,22 +439,19 @@ when isMainModule:
         rendered = render(@[row], width = 30, colWidth = 5)
       check rendered == expected
 
-    test "a variant name longer than colWidth is not split mid-word":
-      # FIXME: The split here is ugly. Filed as #70.
+    test "a variant name longer than colWidth is split":
       let
-        row = (variants: "--extraordinarily-long-option-name", text: "A really long option name")
-        expected = "              A really long option\n    --extraordinarily-long-option-name  name"
+        row = (variants: "-x, --extraordinarily-long-option-name", text: "A really long option name")
+        expected = "  -x, --extr  A really long option\n    aordinaril  name\n    y-long-opt\n    ion-name"
         rendered = render(@[row], width = 30, colWidth = 10)
 
       check rendered == expected
 
-    test "long help text words are not split mid-word":
-      # FIXME: The split here is ugly. Filed as #70.
+    test "a help text word longer than helpWidth is split":
       let
-        row = (variants: "-x", text: "a veryLongSingleWordThatExceedsTwentyCharacters")
-        expected = "  -x          a\n                veryLongSingleWordThatExceedsTwentyCharacters"
-        rendered = render(@[row], width = 30, colWidth = 10)
-
+        row = (variants: "-x", text: "aVeryLongSingleWordThatExceedsTwentyCharacters")
+        expected = "  -x  aVeryLongSingleWordThatE\n        xceedsTwentyCharacters"
+        rendered = render(@[row], width = 30, colWidth = 2)
       check rendered == expected
 
     test "variants column and text columns wrap independently":
@@ -514,9 +568,9 @@ when isMainModule:
       let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
       check formatUsage(usage, "prog", width = 10) == "Usage:\n  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
 
-    test "words longer than width are not split when wrapping":
-      let usage = "<foo> [--bar --aVeryLongOptionName"
-      check formatUsage(usage, "prog", width = 20) == "Usage:\n  prog <foo> [--bar\n       --aVeryLongOptionName"
+    test "words longer than width are split when wrapping":
+      let usage = "<foo> [--bar --aVeryLongOptionName]"
+      check formatUsage(usage, "prog", width = 20) == "Usage:\n  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
   suite "genHelp":
     test "a spec with no prolog, epilog, args, or groups returns a usage block with a bare command usage line":
