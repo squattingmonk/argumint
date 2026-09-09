@@ -18,46 +18,46 @@ proc name*(m: Matcher): string {.inline.} =
   ## Returns the name of the matcher. Usually, this will be the first declared
   ## variant of its arg, but some matchers have special names.
   case m.kind
-  of Shortcut: "*"
-  of OptsEnd: "--"
-  of Command: fmt"Cmd({m.cmd.name})"
-  of Argument: fmt"Arg({m.arg.name})"
-  of Option: fmt"Opt({m.opt.name})"
-  of Options:
+  of mkShortcut: "*"
+  of mkOptsEnd: "--"
+  of mkCommand: fmt"Cmd({m.cmd.name})"
+  of mkArgument: fmt"Arg({m.arg.name})"
+  of mkOption: fmt"Opt({m.opt.name})"
+  of mkOptions:
     let names = collect:
       for opt in m.opts: opt.name
     fmt"""Opts({names.join(" | ")})"""
 
 func isShortcut(m: Matcher): bool {.inline.} =
   ## Returns whether a given matcher is a shortcut.
-  m.kind == Shortcut
+  m.kind == mkShortcut
 
 proc excludeOptions*(m: Matcher, exclude: HashSet[Arg]) =
   ## Removes every Arg in `exclude` from an `Options` matcher's candidate
   ## list -- used so `[options]` can drop an option mentioned explicitly
   ## elsewhere on the same Usage Line (see `parser.genFsm`).
-  assert m.kind == Options
+  assert m.kind == mkOptions
   m.opts = m.opts.filterIt(it notin exclude)
 
 proc newShortcut(): Matcher =
   ## Returns a new shortcut `Matcher`. A shortcut will always match.
-  Matcher(kind: Shortcut)
+  Matcher(kind: mkShortcut)
 
 proc newOptsEndMatcher*(): Matcher =
   ## Returns a new end-of-options-marker `Matcher`. Always matches -- see
   ## `docs/adr/0020-usage-string-end-of-options-marker.md`.
-  Matcher(kind: OptsEnd)
+  Matcher(kind: mkOptsEnd)
 
 proc newArgMatcher*(arg: Arg): Matcher =
   ## Creates a new `Matcher` for an argument `arg`.
   assert arg.kind == Positional
-  Matcher(kind: Argument, arg: arg)
+  Matcher(kind: mkArgument, arg: arg)
 
 proc newOptMatcher*(opt: Arg, variant = ""): Matcher =
   ## Creates a new `Matcher` for an option or flag `opt`. `variant` is the
   ## variant `opt` was indexed with on the usage line.
   assert opt.kind in [Optional, Flag]
-  Matcher(kind: Option, opt: opt, variant: variant)
+  Matcher(kind: mkOption, opt: opt, variant: variant)
 
 proc newOptsMatcher*(opts: openArray[Arg], variants: seq[string]): Matcher =
   ## Creates a new `Matcher` for an option or flag in `opts`. `variants` are the
@@ -65,7 +65,7 @@ proc newOptsMatcher*(opts: openArray[Arg], variants: seq[string]): Matcher =
   ## option cluster matchers).
   assert opts.allIt(it.kind in [Optional, Flag])
   assert opts.len == variants.len
-  Matcher(kind: Options, opts: @opts, variants: variants)
+  Matcher(kind: mkOptions, opts: @opts, variants: variants)
 
 proc newOptsMatcher*(opts: openArray[Arg]): Matcher =
   ## Creates a new `Matcher` for an option or flag in `opts`.
@@ -74,7 +74,7 @@ proc newOptsMatcher*(opts: openArray[Arg]): Matcher =
 proc newCmdMatcher*(cmd: CommandArg): Matcher =
   ## Creates a new `Matcher` for a command `cmd`.
   assert cmd.kind == Command
-  Matcher(kind: Command, cmd: cmd)
+  Matcher(kind: mkCommand, cmd: cmd)
 
 func newState*(terminal = false): State =
   ## Creates a new `State`. If `terminal` is true and there are no more
@@ -118,14 +118,14 @@ proc collectArgs(s: State, args: var HashSet[Arg], visited = newTable[State, boo
     return
   for tr in s.transitions:
     case tr.matcher.kind
-    of Argument: args.incl tr.matcher.arg
-    of Option: args.incl tr.matcher.opt
-    of Options:
+    of mkArgument: args.incl tr.matcher.arg
+    of mkOption: args.incl tr.matcher.opt
+    of mkOptions:
       for opt in tr.matcher.opts:
         args.incl opt
-    of Command: args.incl tr.matcher.cmd
-    of OptsEnd: discard
-    of Shortcut: discard
+    of mkCommand: args.incl tr.matcher.cmd
+    of mkOptsEnd: discard
+    of mkShortcut: discard
     tr.next.collectArgs(args, visited)
 
 proc referencedArgs*(s: State): HashSet[Arg] =

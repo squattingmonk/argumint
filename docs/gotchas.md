@@ -293,7 +293,14 @@ or anything else that generates methods inside a template.
   `options.Option[T]` everywhere -- `from ... import` still allows this
   qualified form for `Option` even though it wasn't named in the import
   list, so no separate `import std/options` is needed at all. See
-  `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
+  `docs/adr/0015-per-arg-env-delimiter-overrides.md`. **Resolved**:
+  `MatcherKind`'s members were renamed to `mk`-prefixed names (`mkOption`,
+  `mkOptions`, ...) so nothing in `backend.nim`/`fsm.nim` collides with
+  `std/options.Option` any more -- both files now do a plain `import
+  std/options`, and the `options.Option[T]` qualification this entry
+  describes (which had spread to `precedence.nim`/`argtypes.nim` too, past
+  where the collision itself ever reached) is gone project-wide in favor of
+  bare `Option[T]`.
 
 - **A `##` doc comment as the first statement inside a `{.pure.}` enum's
   body broke expected-type-based disambiguation for a same-named value in
@@ -319,7 +326,9 @@ or anything else that generates methods inside a template.
   — treat any `##` comment as the first statement inside a `{.pure.}`
   enum sharing a value name with another enum in scope as suspect, and
   verify with a scratch compile rather than assuming comment placement
-  inside an enum body is inert.
+  inside an enum body is inert. **Resolved**: `MatcherKind` no longer
+  shares any value name with `ArgKind` -- see the `mk`-prefix rename note
+  in the entry below.
 
 - **A generated method's unqualified calls resolve against whatever module
   *instantiates* the generic/template, not against `argumint.nim`'s own
@@ -381,6 +390,10 @@ or anything else that generates methods inside a template.
   instantiation time (e.g. locking a helper proc name); it's the wrong
   tool when the symbol is ambiguous *by name* regardless of timing, since
   there's no unambiguous single thing to bind to without type context.
+  **Resolved**: `MatcherKind`'s members were renamed to `mk`-prefixed
+  names, so `Command` no longer names anything in `MatcherKind` and this
+  exact ambiguity can't recur -- the `kind: ArgKind.Command` qualification
+  stays in place as good practice, not as the only thing preventing it.
 
 - **A generic macro's own bound `[T]` doesn't resolve inside its body --
   it reads as an unresolved `"GenericParam"` regardless of how `T` was

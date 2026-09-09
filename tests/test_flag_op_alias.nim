@@ -23,8 +23,8 @@
 ## CLI orderings.
 ##
 ## Two tests exercise the fix through a short-option cluster
-## (`MatcherKind.Options`/`newOptsMatcher`) instead of a plain Option/Flag
-## atom, since `fsm.match`'s `of Options:` branch is a separate code path.
+## (`MatcherKind.mkOptions`/`newOptsMatcher`) instead of a plain Option/Flag
+## atom, since `fsm.match`'s `of mkOptions:` branch is a separate code path.
 ## One test guards a regression the fix's first draft introduced: `of
 ## Flag:`'s alias check must only fire for the *same* Arg, not any
 ## unrelated Flag, or order-independent scanning (ADR 0019) breaks for two

@@ -65,7 +65,7 @@ proc sourceLabel(t: FallbackTier, arg: Arg): string =
   of ftEnv: arg.envName
   of ftConfig: arg.configKey.join
 
-proc resolveEnv(arg: Arg, spec: Spec): options.Option[seq[string]] =
+proc resolveEnv(arg: Arg, spec: Spec): Option[seq[string]] =
   ## Resolver for the env tier -- see architecture.md's "Env var mechanics".
   let source = arg.envSource
   if source.isNone or not existsEnv(source.get.name):
@@ -73,7 +73,7 @@ proc resolveEnv(arg: Arg, spec: Spec): options.Option[seq[string]] =
   else:
     some(splitEnvValue(getEnv(source.get.name), source.get.delim, spec.settings.envDelim))
 
-proc resolveConfig(arg: Arg, spec: Spec): options.Option[seq[string]] =
+proc resolveConfig(arg: Arg, spec: Spec): Option[seq[string]] =
   ## Resolver for the Config Source tier -- see
   ## `docs/adr/0018-config-source.md`.
   let key = arg.configKey
@@ -82,7 +82,7 @@ proc resolveConfig(arg: Arg, spec: Spec): options.Option[seq[string]] =
   else:
     lookupConfigSources(spec.settings.configSources, key)
 
-proc resolve(t: FallbackTier, arg: Arg, spec: Spec): options.Option[seq[string]] =
+proc resolve(t: FallbackTier, arg: Arg, spec: Spec): Option[seq[string]] =
   case t
   of ftEnv: resolveEnv(arg, spec)
   of ftConfig: resolveConfig(arg, spec)
