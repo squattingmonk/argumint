@@ -23,8 +23,6 @@ import ./argumint/[argtypes, backend, completion, configsource, dot, errors, fla
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `dot*` and docs/gotchas.md.
 
-export completion.Shell
-
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
 export errors
@@ -68,7 +66,6 @@ export backend.EnvSource
 # Per-Arg provenance: `spec.port.seenBy == byCli`, `spec.verbose.seen`. See
 # docs/adr/0039-per-arg-provenance.md.
 export backend.SeenBy, backend.seen
-export fsm.CompletionCandidate
 
 # `Option` itself, not just `some`/`none` above: `opt*`/`opts*`/`flag*`'s
 # `env` param and `EnvSource.delim` are both `Option`-typed, so writing a
@@ -98,7 +95,8 @@ export specbuild.newSpec
 # below), so without these `newSpec` -> `parse` was the one broken half of
 # an otherwise-complete pair. `completeArgs*` is what makes the exported
 # `CompletionCandidate` usable.
-export fsm.parse, fsm.completeArgs
+export fsm.parse
+export completion.completeArgs, completion.Shell, completion.CompletionCandidate
 
 # The write side of an Arg (#47): `arg.parse(v, seenBy = some(byCli))`
 # pre-seeds a value, `arg.clear()` returns one to its coded default, and

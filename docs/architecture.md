@@ -12,7 +12,8 @@ assumes that vocabulary and focuses on code-level mechanics. See
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
 `lexer` → `backend`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`tokens` → `complaints` → `precedence` → `fsm`/`specbuild` → `argumint`.
+`tokens` → `complaints` → `precedence` → `matching` → `completion` →
+`fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -73,44 +74,74 @@ token *is* against a `Spec`: `classify` (ADR 0019), `refusesAsPositional`
 `userTyped`, `fromCluster`). A `TokenCursor` carries a token stream
 together with the `Spec` governing it and whether `--` has been crossed,
 replacing what used to be four arguments threaded by hand through every
-call. Unlike `argtypes`, `tokens` needs no withholding — only `complaints`/
-`fsm.nim` import it, so it's invisible to the facade by construction, the
-same shape as the `fsmgraph.nim` split out of `backend.nim`.
+call. Unlike `argtypes`, `tokens` needs no withholding — `complaints`,
+`matching`, `completion`, and `fsm.nim` all import it, so it's invisible to
+the facade by construction, the same shape as the `fsmgraph.nim` split out
+of `backend.nim`.
 
-`complaints.nim` sits directly above `tokens` and below `fsm`, and holds
-everything ADR 0035 (parse-failure reporting) onward names: `Complaint`,
-`Leftover` (still `= TokenCursor`, now local to this module), the
-Did-You-Mean rule (`didYouMean`/`osaDistance`/`unknownOption`/
-`unknownCommand`), and a `Report` object replacing what used to be four
-loose `ParseContext` fields (`messages`/`errorTokens`/`errorSpec`/
-`errorCommand`) written and read together at exactly two sites (`walk`'s
-tie-break/adoption, and the one raise site). `Report`'s two-phase shape
-mirrors the walk itself: verbs like `missingOption`/`leftover`/`starved`
-record during the walk without wording anything, and `finalComplaints`/
-`failureMessage`/`raiseParseFailure` word and render only once the walk is
-over. `fsm.nim` embeds one `Report` in `ParseContext` (`report`) and owns
-everything `complaints.nim` deliberately doesn't: the backtracking walk
-itself (the Value Precedence tiers, which also report through a `Report`,
+`complaints.nim` sits directly above `tokens` and below `precedence`/
+`matching`/`fsm`, and holds everything ADR 0035 (parse-failure reporting)
+onward names: `Complaint`, `Leftover` (still `= TokenCursor`, now local to
+this module), the Did-You-Mean rule (`didYouMean`/`osaDistance`/
+`unknownOption`/`unknownCommand`), and a `Report` object replacing what used
+to be four loose `ParseContext` fields (`messages`/`errorTokens`/
+`errorSpec`/`errorCommand`) written and read together at exactly two sites
+(`walk`'s tie-break/adoption, and the one raise site). `Report`'s two-phase
+shape mirrors the walk itself: verbs like `missingOption`/`leftover`/
+`starved` record during the walk without wording anything, and
+`finalComplaints`/`failureMessage`/`raiseParseFailure` word and render only
+once the walk is over. `matching.nim`'s `ParseContext` embeds one `Report`
+(`report`); neither `walk` (`fsm.nim`) nor `match`/`push` (`matching.nim`)
+reach into it directly, only through `Report`'s verbs. `fsm.nim` owns the
+backtracking walk itself; `matching.nim` owns the `match`/`push` primitives
+both `walk` and `completion.collectFrontier` drive against a shared
+`ParseContext` — split out in issue #78, since neither could be split by
+caller (the Value Precedence tiers, which also report through a `Report`,
 moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
-`complaints` needs no withholding — `fsm.nim` and `precedence.nim` both
-import it, the same shape as `tokens.nim`.
+`complaints` needs no withholding — `matching.nim` and `precedence.nim`
+both import it, the same shape as `tokens.nim`.
 
 `precedence.nim` sits directly above `complaints`/`configsource` and below
-`fsm`, and holds everything Value Precedence's fallback tiers name:
-`FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so iteration
-order *is* the precedence order), `Tiers` (one `ValueCursor` per tier),
-`probe`, and `applyFallbacks`. `Tiers` replaces what used to be two loose
-`ParseContext` fields (`env`/`configValues`) plus six ad hoc closure
-constructions at their four call sites (`match`'s `mkOption` arm, and
-`applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve: proc
-(): Option[seq[string]]` parameter existed to keep `ValueCursor`
+`matching`/`fsm`, and holds everything Value Precedence's fallback tiers
+name: `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so
+iteration order *is* the precedence order), `Tiers` (one `ValueCursor` per
+tier), `probe`, and `applyFallbacks`. `Tiers` replaces what used to be two
+loose `ParseContext` fields (`env`/`configValues`) plus six ad hoc closure
+constructions at their four call sites (`matching.match`'s `mkOption` arm,
+and `applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve:
+proc (): Option[seq[string]]` parameter existed to keep `ValueCursor`
 tier-agnostic, but there are exactly two tiers, both compiled in, so it
 bought genericity nowhere it was spent; dispatching on `FallbackTier` via
 `case` inline replaces it, and also removes a `let spec = pc.cursor.spec`
 workaround `match`'s `mkOption` arm needed only because a closure can't
 capture a `var ParseContext` parameter. `fsm.nim` keeps only the walk
-itself and dispatch. Unlike `argtypes`, `precedence` needs no withholding —
-only `fsm.nim` imports it, the same shape as `tokens.nim`/`complaints.nim`.
+itself and dispatch — `match`/`push` moved out to `matching.nim` entirely
+in issue #78, so this is no longer just a division of labor within one
+file. Unlike `argtypes`, `precedence` needs no withholding — `matching.nim`
+and `fsm.nim` both import it, the same shape as `tokens.nim`/`complaints.nim`.
+
+`matching.nim` sits directly above `precedence` and below `completion`/
+`fsm`, and holds the matching primitives both the parse walk and shell
+completion drive: `Match`/`MatchTable`/`Reach`/`Level` (types) and
+`ParseContext`, plus `push`/`match` (the proc that applies one `Matcher`
+against the live cursor, mutating `pc.report`/`pc.tiers`/`pc.matches` as a
+side effect). Both `walk` (`fsm.nim`) and `collectFrontier` (`completion.
+nim`) call `match` directly, and `match` touches every field on
+`ParseContext` regardless of which caller is driving it, so this couldn't
+be split by caller — it's one cohesive unit sitting below both. It needs no
+`privateAccess(Spec)` of its own: `match` never touches a private `Spec`
+field directly, only through `TokenCursor` methods `tokens.nim` already
+encapsulates. See issue #78.
+
+`completion.nim` sits directly above `matching` and below `fsm`, and —
+beyond the always-existing `genCompletionScript*` (§6) — now also holds the
+FSM-walking half of shell completion: `Frontier`, `collectFrontier`,
+`CompletionCandidate`, `bareVariants`, `describeVariants`, `addUnseen`,
+`candidateWords`, `pendingOptionalArgs`, and `completeArgs*`, moved from
+`fsm.nim` in issue #78 once `matching.nim` existed to import instead of
+`fsm.nim` (avoiding the import cycle `completion` ↔ `fsm` a direct move
+would otherwise have needed). It picks up its own `privateAccess(Spec)` for
+`bareVariants`' `spec.options` read.
 
 ## 1. Spec construction (`specbuild.nim`, `src/argumint.nim`)
 
@@ -135,7 +166,8 @@ Those index fields — along with `prolog`/`epilog`/`usage`/`args`/`fsm` — are
 private to the library; only `Spec.settings` and the three hook fields are
 exported (`docs/adr/0030-core-types-exported-spec-opaque.md`). Internal
 modules reach the rest via `std/importutils.privateAccess(Spec)`, present in
-`argumint.nim`, `fsm.nim`, `help.nim`, `parser.nim`, and `specbuild.nim`.
+`argumint.nim`, `completion.nim`, `fsm.nim`, `help.nim`, `parser.nim`, and
+`specbuild.nim`.
 That call **does not survive template or generic instantiation in another
 module**, so `newSpec*` — which is generic over the spec tuple and therefore
 instantiates in the caller's file — delegates its private-field work to two
@@ -195,7 +227,7 @@ reachable through that line's own `[options]`. See
 `docs/adr/0002-catch-all-options-repeatable-by-default.md` for why the
 catch-all's default differs from an explicitly-named Arg's.
 
-## 3. Runtime matching (`fsm.nim`, token classification in `tokens.nim`)
+## 3. Runtime matching (`walk` in `fsm.nim`, matching primitives in `matching.nim`, token classification in `tokens.nim`)
 
 Actual `os.commandLineParams()` (or passed-in `args`) are first split into
 `RawToken`s (`tokens.initCursor`, `tokenizeArgs` internally) via
@@ -208,7 +240,7 @@ has actually gotten there (see below). `initCursor` pairs the result with
 the root `Spec` into a `TokenCursor` (`tokens.nim`) — a token stream plus
 the `Spec` governing it and whether `--` has been crossed, the three
 pieces of state every classification question below needs together.
-`fsm.nim`'s `ParseContext` embeds one as `cursor`.
+`matching.nim`'s `ParseContext` embeds one as `cursor`.
 
 `walk` then recursively tries the FSM's transitions against the token
 stream, backtracking via a copied `ParseContext` (`fresh = pc`) on each
@@ -328,8 +360,9 @@ Everything above concerns a walk that fails; this is what the user sees when
 it does. A `Report` (embedded in `ParseContext` as `report`) accumulates two
 channels during the walk, both subject to the same replace-on-further /
 merge-on-tied bookkeeping at the bottom of `walk`'s transition loop
-(`Report.adopt`/`Report.merge`) — `fsm.nim` never reaches into either channel
-directly, only through `Report`'s verbs:
+(`Report.adopt`/`Report.merge`) — neither `walk` (`fsm.nim`) nor `match`/
+`push` (`matching.nim`) reach into either channel directly, only through
+`Report`'s verbs:
 
 - **messages**, recorded via `missingArgument`/`missingCommand`/
   `missingOption`/`unexpected`/`note`, each building a `Complaint` — `(kind,
@@ -981,7 +1014,7 @@ shortcut back to a single continuation state in the parent graph.
 Runtime matching (§3 above) populates one flat `pc.matches:
 OrderedTable[Arg, seq[Match]]` across the *entire* spliced FSM, regardless
 of depth. Each `Match` additionally carries the `Spec` it was recorded
-under (`fsm.nim`'s `push`, reading `pc.spec` at the exact moment of the
+under (`matching.nim`'s `push`, reading `pc.spec` at the exact moment of the
 match — safe because `ParseContext` is a plain `object`, not a `ref
 object`, so `walk`'s backtracking clones it per candidate branch and only
 commits the winning branch back) — this is what lets dispatch scope a
@@ -1140,22 +1173,25 @@ differs by category:
   Weaving `[options]` into an arbitrary hand-written line that's missing it
   is not attempted.
 
-## 6. Shell completion (`fsm.completeArgs*`, `completion.nim`)
+## 6. Shell completion (`completion.nim`)
 
 A compiled binary's `parse*`/`parseOrQuit*` intercepts a magic leading arg,
 `mycli __complete <partial words...>`, before any real FSM matching, env
-fallback, or dispatch — short-circuiting into `fsm.completeArgs*`, which
-re-walks `spec.fsm` to resolve candidates dynamically rather than via a
-static generated script. See
+fallback, or dispatch — short-circuiting into `completion.completeArgs*`,
+which re-walks `spec.fsm` to resolve candidates dynamically rather than via
+a static generated script. See
 `docs/adr/0012-fsm-driven-shell-completion.md` for why.
 
-`fsm.collectFrontier` generalizes `walk`'s single-winner backtracking into
-"every state simultaneously still reachable after consuming the tokens
+`completion.collectFrontier` generalizes `walk`'s single-winner backtracking
+into "every state simultaneously still reachable after consuming the tokens
 typed so far" (a `Frontier`), since several Usage Lines or `choice`
 alternatives can all still be live for a command line that isn't finished
-yet. It reuses `Matcher.match` unmodified, so env-var fallback (`docs/adr/
+yet. It reuses `matching.match` unmodified, so env-var fallback (`docs/adr/
 0004`, `docs/adr/0005`) applies to completion exactly as it would to a real
-parse. `completeArgs*` reads each live frontier state's own outgoing
+parse — see issue #78 for why this lives beside `completeArgs*` in
+`completion.nim` rather than in `fsm.nim` alongside `walk`, the module it
+originally sketched into. `completeArgs*` reads each live frontier state's
+own outgoing
 transitions for next-word candidates (`candidateWords`) — or, when the last
 already-typed word is itself a bare Optional-kind option name still
 awaiting its value (`pendingOptionalArgs`), completes that Arg's own
@@ -1170,7 +1206,7 @@ used only for help-text rendering.
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated only for an Arg's own name (option/flag/command
-candidates, via `fsm.describeVariants`), never for one of its enumerated
+candidates, via `completion.describeVariants`), never for one of its enumerated
 *values* (an `mkArgument` matcher's `completions()`, or a pending option's
 own `completions()`), which always carry `help == ""` — there's no
 per-value description in the data model to draw from. `describeVariants`
