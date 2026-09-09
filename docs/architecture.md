@@ -101,13 +101,13 @@ import it, the same shape as `tokens.nim`.
 order *is* the precedence order), `Tiers` (one `ValueCursor` per tier),
 `probe`, and `applyFallbacks`. `Tiers` replaces what used to be two loose
 `ParseContext` fields (`env`/`configValues`) plus six ad hoc closure
-constructions at their four call sites (`match`'s `Option` arm, and
+constructions at their four call sites (`match`'s `mkOption` arm, and
 `applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve: proc
 (): Option[seq[string]]` parameter existed to keep `ValueCursor`
 tier-agnostic, but there are exactly two tiers, both compiled in, so it
 bought genericity nowhere it was spent; dispatching on `FallbackTier` via
 `case` inline replaces it, and also removes a `let spec = pc.cursor.spec`
-workaround `match`'s `Option` arm needed only because a closure can't
+workaround `match`'s `mkOption` arm needed only because a closure can't
 capture a `var ParseContext` parameter. `fsm.nim` keeps only the walk
 itself and dispatch. Unlike `argtypes`, `precedence` needs no withholding —
 only `fsm.nim` imports it, the same shape as `tokens.nim`/`complaints.nim`.
@@ -150,9 +150,9 @@ and recursively-descent parsed (`atom`/`sequence`/`choice` in `parser.nim`)
 into a graph of `State`/`Transition` objects (their data model lives in
 `backend.nim`; the construction/simplification operations below live in
 `fsmgraph.nim`). Each token becomes a `Matcher`
-(`Argument`, `Option`, `Options`, `Command`, `OptsEnd` for a usage-string
-End-of-Options Marker (`--`) -- see
-`docs/adr/0020-usage-string-end-of-options-marker.md` -- or `Shortcut` for
+(`mkArgument`, `mkOption`, `mkOptions`, `mkCommand`, `mkOptsEnd` for a
+usage-string End-of-Options Marker (`--`) -- see
+`docs/adr/0020-usage-string-end-of-options-marker.md` -- or `mkShortcut` for
 optional/repeated branches). `fsmgraph.prepare` (`simplify` +
 `sortTransitions`) collapses shortcut chains and orders transitions by
 matcher priority (`ord(MatcherKind)`) so, e.g., positional args aren't
@@ -178,11 +178,11 @@ While parsing a Usage Line, `atom`'s own `tkShortOption`/`tkLongOption`/
 `tkShortOptions` branches record each option they see into
 `SpecParser.explicitOptions` (reset per line, not once for the whole Usage
 String), so the `[options]` catch-all (`tkAnyOption`) can exclude them from
-its own `Options` matcher — e.g. in `[options] --verbose`, `--verbose` can
+its own `mkOptions` matcher — e.g. in `[options] --verbose`, `--verbose` can
 only be matched once (via its own explicit atom), not once via `[options]`
 and again via the explicit mention. Because a `[options]` atom earlier in
 the line can't yet know about an explicit mention later in the same line,
-its `Options` matcher is built unfiltered and its `Matcher` (a `ref`, see
+its `mkOptions` matcher is built unfiltered and its `Matcher` (a `ref`, see
 `backend.nim`) stashed in `SpecParser.pendingOptions`; once the whole line
 is parsed and `explicitOptions` is final, `addUsageLines` patches each pending
 matcher's `opts` in place. Using the `Matcher` itself (rather than its
@@ -217,22 +217,22 @@ failed path that got *furthest into the input* so error messages point at the
 most specific match attempt, not just "invalid arguments". Classification of *what a `RawToken`
 actually is* — Command, Option/Flag (and which one), or plain positional
 text — is decided lazily by `tokens.classify`, called inline from `match`'s
-own `Command`/`Option`/`Options`/`Argument` branches, each checking a
+own `mkCommand`/`mkOption`/`mkOptions`/`mkArgument` branches, each checking a
 token's fitness for *itself* against `pc.cursor.spec` (the Spec currently
 in scope for this specific walk attempt, already updated by a matched
-`Command` transition) rather than trusting a precomputed global answer:
+`mkCommand` transition) rather than trusting a precomputed global answer:
 
-- **Command** checks the raw string against `cursor.spec.commands` directly
+- **mkCommand** checks the raw string against `cursor.spec.commands` directly
   — only at the very next position, never scanning further (a Command
   matcher never looks past position 0).
-- **Option**/**Options** resolves cluster-splitting/attached-`=value`
+- **mkOption**/**mkOptions** resolves cluster-splitting/attached-`=value`
   syntax against `cursor.spec.options`, scanning forward past tokens that
   don't classify as *this specific* Arg; if a shape doesn't resolve to any
   declared option at all, the matcher simply doesn't match — no
   exception — leaving the token for a different matcher to try.
-- **Argument** scans forward past tokens that classify as a real
-  Option/Flag (`State.prepare`'s priority sort, `Option < Options <
-  Command < Argument < OptsEnd < Shortcut`, see §2, already gave a real
+- **mkArgument** scans forward past tokens that classify as a real
+  Option/Flag (`State.prepare`'s priority sort, `mkOption < mkOptions <
+  mkCommand < mkArgument < mkOptsEnd < mkShortcut`, see §2, already gave a real
   competing sibling transition first crack at the same token), accepting
   the first token
   that classifies as either plain positional text *or* a Command — a real
@@ -268,14 +268,14 @@ what lets the leftover complaint say `option --port requires a value` rather
 than calling a name it recognizes unrecognized, and it is an error under
 both settings.
 
-Four failure paths ask that question — the `Option` matcher, the `Options`
-catch-all, the `Argument` matcher, and `walk`'s tail — so `Report.starved`
+Four failure paths ask that question — the `mkOption` matcher, the `mkOptions`
+catch-all, the `mkArgument` matcher, and `walk`'s tail — so `Report.starved`
 (`complaints.nim`) classifies the leading token for itself and returns
 whether it complained, letting each caller fall back to its own blunter
 wording. Two of
 them are why it can't simply be handed a `Classification` computed once:
-`Options` rolls back each failed probe's messages, so the question has to be
-re-asked *after* the rollback, and `Argument` reports its own `missing
+`mkOptions` rolls back each failed probe's messages, so the question has to be
+re-asked *after* the rollback, and `mkArgument` reports its own `missing
 argument` without ever reaching a terminal state's leftover token. It's also
 added even when other complaints already exist, unlike the other leftover
 wordings — a starved option can never be consumed as anything else, so it is
@@ -347,10 +347,10 @@ directly, only through `Report`'s verbs:
   afterwards (`finalComplaints`), so the wording can draw on the whole
   message rather than one branch's local view. Three recording sites: the
   tail of `walk` (a terminal state whose every transition failed — the
-  general case); a failed `Command` matcher (the only place that knows a
+  general case); a failed `mkCommand` matcher (the only place that knows a
   Command was expected *at this exact position*, and which fires whether or
   not the grammar has a terminal state the leftover could reach); and a
-  failed `Option` matcher holding an unresolved option-shaped token, which
+  failed `mkOption` matcher holding an unresolved option-shaped token, which
   likewise never reaches `walk`'s tail and is what names the headline
   `unrecognized option: --nope` case.
 
@@ -371,7 +371,7 @@ compared lexicographically — a peeled Short-Option Cluster remainder keeps its
 parent's `idx` (Flag Op composition order depends on that), so `subIdx` counts
 letters already peeled to tell "got two letters into `-abc`" apart from "got
 none", without ever outweighing a branch that reached the next argument. An
-`Option` matcher scans ahead, so
+`mkOption` matcher scans ahead, so
 counting matchers lets an options-only usage line skip the token the user got
 wrong, match something later, and outrank the branch that understood the
 leading input — see ADR 0036. A transition scores the greater of its own Reach
@@ -391,12 +391,12 @@ onto one `|`-joined line.
 `tokens.classify`'s answer), then drop every `missing option` — and `missing
 command` too, if the named token stood in a command's position. One further
 suppression happens at the complaint site itself, since only it knows the
-context: the `Options` catch-all probes each option via `Report.mark`/
+context: the `mkOptions` catch-all probes each option via `Report.mark`/
 `.rollback` (a snapshot-and-restore pair over both channels) and never
 complains at all on failure, an option reached that way being optional by
 construction.
 
-The `Argument` matcher suppresses on the same terms, but has to be *told* its
+The `mkArgument` matcher suppresses on the same terms, but has to be *told* its
 context. `[X]` compiles to a Shortcut bypassing the group, and `prepare`'s
 epsilon-closure collapses every Shortcut away, so by walk time the bracket
 survives only as `State.terminal`. `walk` therefore passes the state's
@@ -486,7 +486,7 @@ mechanism, `precedence.nim`'s `ValueCursor` type — one per tier, indexed
 by `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first) inside
 `Tiers` (embedded on `ParseContext` as `tiers`) — rather than two
 independent implementations. `Tiers.probe` is consulted from `match`'s
-`Option` branch during the walk — CLI token first, then each tier's own
+`mkOption` branch during the walk — CLI token first, then each tier's own
 `ValueCursor.probe` in `FallbackTier` order (env, then, only if env had
 nothing, Config Source) — lazily resolving and caching an Arg's available
 values (via a `case` dispatch on `FallbackTier` to `resolveEnv`/
@@ -972,7 +972,7 @@ See `docs/adr/0040-explicit-value-accessor.md` and
 `newSpec` from a nested arg tuple), optionally binding `before`/`action`/
 `after` hook closures onto that nested `Spec` (not onto the `CommandArg`
 itself — see below). A subcommand's FSM is spliced into the parent's FSM
-as a single `Command`-kind transition (see `atom()`'s `tkCommand` branch in
+as a single `mkCommand`-kind transition (see `atom()`'s `tkCommand` branch in
 `parser.nim`), with all of the subcommand's terminal states wired via
 shortcut back to a single continuation state in the parent graph.
 
@@ -1042,7 +1042,7 @@ than letting the post-walk passes re-derive them. `ParseContext.levels` is
 a root-first `seq[Level]`, where `Level` is `(spec: Spec, command:
 string)`: the `Spec` owning that grammar level, plus the accumulated
 command string naming it (`"app"`, `"app go"`, `"app go stat"`). `parse*`
-seeds it with the root entry; `match`'s `Command` branch appends one entry
+seeds it with the root entry; `match`'s `mkCommand` branch appends one entry
 right after it reassigns `pc.spec`/`pc.command`. (The completion path
 neither seeds nor reads the chain, exactly as it already skips `report`'s
 `spec`/`command`; its walks still append, so what accumulates there is
@@ -1050,7 +1050,7 @@ root-less and inert.) Backtracking needs no
 special handling: `ParseContext` is a plain `object` whose every field is a
 value type, so `walk`'s clone-per-candidate/commit-the-winner discipline
 discards a losing branch's chain entry along with the branch. At most one
-Command can be matched per level anyway — a matched `Command` transition
+Command can be matched per level anyway — a matched `mkCommand` transition
 permanently updates `pc.spec` to the nested spec for the rest of the walk,
 so a sibling command word can never be recognized afterward — which is why
 the chain is a list, not a tree.
@@ -1162,7 +1162,7 @@ awaiting its value (`pendingOptionalArgs`), completes that Arg's own
 `completions()` instead (populated from a `Validator`'s enumerable
 candidates — see `validators.completions`/`Arg.completions`). Candidate
 words are read from `spec.options` (the canonical bare-spelling → `Arg`
-map `match`'s `Option`/`Options` branches themselves resolve against), not
+map `match`'s `mkOption`/`mkOptions` branches themselves resolve against), not
 `Arg.variants` directly — the latter, for an Optional-kind `ValueArg`
 (`opt`/`opts`), still carries any declaration-time `=<placeholder>` suffix
 used only for help-text rendering.
@@ -1171,7 +1171,7 @@ Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated only for an Arg's own name (option/flag/command
 candidates, via `fsm.describeVariants`), never for one of its enumerated
-*values* (an `Argument` matcher's `completions()`, or a pending option's
+*values* (an `mkArgument` matcher's `completions()`, or a pending option's
 own `completions()`), which always carry `help == ""` — there's no
 per-value description in the data model to draw from. `describeVariants`
 sources each variant's description from `Arg.variantDesc(variant)`

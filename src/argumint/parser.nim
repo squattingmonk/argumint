@@ -68,8 +68,8 @@ proc trivialArg(child: tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: b
     let tr = child.a.transitions[0]
     if tr.next == child.b:
       case tr.matcher.kind
-      of Option: result = (tr.matcher.opt, tr.matcher.variant)
-      of Argument: result = (tr.matcher.arg, "")
+      of mkOption: result = (tr.matcher.opt, tr.matcher.variant)
+      of mkArgument: result = (tr.matcher.arg, "")
       else: discard
 
 proc choice(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, b: State, hasCommand: bool, hasOptsEnd: bool] =

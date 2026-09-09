@@ -15,11 +15,7 @@
 ## which names an Arg in a parse-failure message. See `docs/architecture.md`
 ## for where that line falls and why.
 
-import std/[hashes, pegs, strformat, strutils, tables, terminal]
-
-# `Option` (the type) deliberately left unqualified-unimported --
-# `options.Option[T]` instead -- see docs/gotchas.md.
-from std/options import some, none, isSome, isNone, get
+import std/[hashes, options, pegs, strformat, strutils, tables, terminal]
 
 import ./configsource
 export configsource
@@ -76,7 +72,7 @@ type
     ## all" is instead answered by wrapping this whole object in `Option`
     ## wherever it's used (e.g. `ValueArg.env`/`FlagArg.env`).
     name*: string
-    delim*: options.Option[string] ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
+    delim*: Option[string] ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
 
   HookInfo* = object
     matched*: seq[Arg] ## Every Arg matched during this invocation, across
@@ -120,10 +116,9 @@ type
     matcher*: Matcher
     next*: State
 
-  # Declaration order doubles as match priority (`priority`/
-  # `sortTransitions`, below)
+  # Declaration order doubles as match priority (`priority`/ `sortTransitions`).
   MatcherKind* {.pure.} = enum
-    Option, Options, Command, Argument, OptsEnd, Shortcut
+    mkOption, mkOptions, mkCommand, mkArgument, mkOptsEnd, mkShortcut
 
   Matcher* = ref object
     ## A `ref` so a Matcher created for a `[options]` atom (see `parser.atom`'s
@@ -134,15 +129,15 @@ type
     ## `docs/gotchas.md`). A value-type `Matcher` would make every such copy
     ## independent, silently discarding the patch.
     case kind*: MatcherKind
-    of Argument:
+    of mkArgument:
       arg*: Arg
-    of Option:
+    of mkOption:
       opt*: Arg
       variant*: string
-    of Options:
+    of mkOptions:
       opts*: seq[Arg]
       variants*: seq[string]
-    of Command:
+    of mkCommand:
       cmd*: CommandArg
     else:
       discard
@@ -251,13 +246,13 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
     configSources: configSources, strictOptions: strictOptions)
 
-converter toEnvSource*(name: string): options.Option[EnvSource] =
+converter toEnvSource*(name: string): Option[EnvSource] =
   ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
   ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
   ## form that also overrides the delimiter.
   some(EnvSource(name: name))
 
-proc env*(name: string, delim: string): options.Option[EnvSource] =
+proc env*(name: string, delim: string): Option[EnvSource] =
   ## Names an environment variable to supply an arg's value, overriding
   ## the delimiter its raw value is split on for this arg only, instead of
   ## inheriting `Spec.settings.envDelim`. `delim = ""` means never split this
@@ -265,7 +260,7 @@ proc env*(name: string, delim: string): options.Option[EnvSource] =
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   some(EnvSource(name: name, delim: some(delim)))
 
-proc splitEnvValue*(value: string, delimOverride: options.Option[string], envDelim: string): seq[string] =
+proc splitEnvValue*(value: string, delimOverride: Option[string], envDelim: string): seq[string] =
   ## Splits a raw env var's value into the (possibly several) values it
   ## supplies to Value Precedence's environment-variable tier. Resolves in
   ## order, most-specific first -- see
@@ -308,7 +303,7 @@ proc seen*(self: Arg): bool =
   ## `docs/adr/0039-per-arg-provenance.md`.
   self.seenBy > byNone
 
-proc subject*(arg: Arg, variant: string, seenBy: options.Option[SeenBy] = none(SeenBy)): string =
+proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
   ## How to name `arg` in a parse-failure message. The command line names the
   ## Variant the user actually typed; a fallback tier names `arg` *plus* where
   ## the value came from, so a typo in an env var or a config file doesn't read
@@ -350,7 +345,7 @@ method clear*(self: Arg) {.base.} =
   ## this method to also remove their value, restoring any default.
   self.seenBy = byNone
 
-template arbitrate*(self: Arg, tier: options.Option[SeenBy], eqBody: untyped, gtBody: untyped): untyped =
+template arbitrate*(self: Arg, tier: Option[SeenBy], eqBody: untyped, gtBody: untyped): untyped =
   ## Arbitrates one contribution at Value Precedence `tier` against `self`'s
   ## current provenance, running whichever body applies. Every `parse`
   ## override routes through this -- it *is* the tier rule, and rewriting it
@@ -382,7 +377,7 @@ template arbitrate*(self: Arg, tier: options.Option[SeenBy], eqBody: untyped, gt
   else:
     eqBody
 
-template arbitrate*(self: Arg, tier: options.Option[SeenBy]): untyped =
+template arbitrate*(self: Arg, tier: Option[SeenBy]): untyped =
   ## `arbitrate` for an Arg with nothing to do on either branch -- it still
   ## skips a weaker tier, and still clears and records on a stronger one.
   arbitrate(self, tier):
@@ -390,7 +385,7 @@ template arbitrate*(self: Arg, tier: options.Option[SeenBy]): untyped =
   do:
     discard
 
-method parse*(self: Arg, value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) {.base.} =
+method parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) {.base.} =
   ## Called on all seen args after a successful parse. Non-value-carrying args
   ## like `MessageArg` or `CommandArg` only record `seenBy`. Value-carrying
   ## args like `ValueArg` and `FlagArg` also implement this to
@@ -442,7 +437,7 @@ method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## per-type via `defineArg`.
   ""
 
-method envSource*(self: Arg): options.Option[EnvSource] {.base.} =
+method envSource*(self: Arg): Option[EnvSource] {.base.} =
   ## Returns the Env Source configured to supply this arg's value -- the
   ## environment variable's name plus any per-Arg delimiter override -- or
   ## `none` if this arg has no environment-variable tier. Base case

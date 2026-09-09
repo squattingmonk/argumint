@@ -1289,7 +1289,7 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       matcher: Matcher
       matcherKind: MatcherKind
     check (state.isNil, transition.isNil, matcher.isNil) == (true, true, true)
-    check matcherKind == MatcherKind.Option # first declared value
+    check matcherKind == MatcherKind.mkOption # first declared value
 
   test "`ValueArg`/`FlagArg`'s private fields exist":
     # Reached here only via the `privateAccess` calls at the top of this

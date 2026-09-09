@@ -122,7 +122,7 @@ template rawDefault*[T](arg: FlagArg[T]): untyped =
 # Parsing methods
 # ------------------------------------------------------------------------------
 
-proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: options.Option[SeenBy], validate: bool) =
+proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: Option[SeenBy], validate: bool) =
   ## Validates every candidate in `values` against the prefix of `values`
   ## already accepted -- `self`'s own prior values never enter that history,
   ## since they're about to be discarded -- then, only if all of them pass,
@@ -139,7 +139,7 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: o
   self.value = values
   self.seenBy = seenBy.get(otherwise = self.seenBy)
 
-proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: options.Option[SeenBy], validate: bool) =
+proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: Option[SeenBy], validate: bool) =
   ## Sets (or, for a multi Arg, appends) `self`'s value to `value`, running
   ## `self`'s Validator first unless `validate` is false. Raises a
   ## `ValidationError` if the value doesn't pass. `arbitrate` decides whether
@@ -166,7 +166,7 @@ proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T
   except ValidationError as e:
     raise newException(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
 
-proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: options.Option[SeenBy]) =
+proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: Option[SeenBy]) =
   ## Converts a string `value` into a `T`, then delegates to `putImpl` for
   ## everything else -- arbitration, validation, storage. Raises `ParseError` if
   ## `value` can't convert to a `T`; a `ValidationError` from `putImpl` passes
@@ -223,10 +223,10 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
   ## Generates the `ValueArg[T, false]`/`ValueArg[T, true]` methods for `T`.
   ## The machinery behind `argumint.nim`'s one-argument `defineArg*`; see
   ## there for the user-facing docs.
-  method parse(self: ValueArg[T, false], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
+  method parse(self: ValueArg[T, false], value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
     self.parseImpl(value, variant, seenBy)
 
-  method parse(self: ValueArg[T, true], value: string, variant = "", seenBy: options.Option[SeenBy] = none(SeenBy)) =
+  method parse(self: ValueArg[T, true], value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
     self.parseImpl(value, variant, seenBy)
 
   method defaultStr(self: ValueArg[T, false]): string =
@@ -281,7 +281,7 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
     procCall clear(Arg(self))
     self.value.setLen 0
 
-proc putImpl*[T](self: FlagArg[T], value: T, seenBy: options.Option[SeenBy]) =
+proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## Sets the value of `self` directly, arbitrating against `seenBy` like
   ## every other write, then clamping -- unconditionally and with no
   ## Validator, since a `FlagArg` has neither. No `variant`/`validate`
@@ -308,7 +308,7 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
   proc handleFlag(value {.inject.}: var T, op {.inject.}: string, arg {.inject.}: T) =
     flagHandler
 
-  method parse(self: FlagArg[T], variantValue: string, variantName: string, seenBy: options.Option[SeenBy] = none(SeenBy)) =
+  method parse(self: FlagArg[T], variantValue: string, variantName: string, seenBy: Option[SeenBy] = none(SeenBy)) =
     ## Flag args pass the seen variant as both the value and the variant in the
     ## general case. In the case of values sourced from env vars or config keys,
     ## the seen variant is passed as the value while the env/configKey is the

@@ -1,12 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, importutils, os, sets, sequtils, strformat, strutils, sugar, tables]
-
-# `Option` (the type) deliberately left unqualified-unimported --
-# `options.Option[T]` instead, since a bare `import std/options` breaks
-# every `case ... of Option:` branch matching `MatcherKind.Option` in this
-# file -- see docs/gotchas.md.
-from std/options import some, none, isSome, isNone, get
+import std/[algorithm, importutils, options, os, sets, sequtils, strformat, strutils, sugar, tables]
 
 import ./[backend, complaints, configsource, errors, fsmgraph, parser, precedence, tokens]
 export ParseError, SpecDefect, CompletionError
@@ -88,17 +82,17 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
   ## the grammar could have stopped here, so an `Argument` that finds nothing
   ## was never owed. See ADR 0037.
   case m.kind:
-  of Shortcut:
+  of mkShortcut:
     # A shortcut consumes no tokens and always indicates success.
     result = true
-  of OptsEnd:
+  of mkOptsEnd:
     # Always matches, forcing pc.cursor.optsEnd regardless of whether a
     # literal `--` is actually there to consume -- see ADR 0020.
     if pc.cursor.len > 0:
       discard pc.cursor.consumeOptsEnd(0)
     pc.cursor.optsEnd = true
     result = true
-  of Argument:
+  of mkArgument:
     # Skip Option/Flag-classified tokens (order-independent -- see ADR
     # 0019). A Command-classified token is accepted as literal text just
     # like a Positional one -- the scan must not skip past it looking
@@ -131,7 +125,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       # never reaches `walk`'s tail -- see `Report.starved`. Asked whether or
       # not the complaint above was suppressed: that's about this arg, not it.
       discard pc.report.starved(pc.cursor)
-  of Command:
+  of mkCommand:
     # If the next token classifies as this specific command, consume it and
     # return true. Otherwise return false -- a Command matcher never scans
     # past position 0 (see `docs/architecture.md`).
@@ -149,7 +143,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       # A Command matcher never scans past position 0, so it's the one place
       # that knows a Command was expected *here* -- see ADR 0035.
       pc.report.leftover(pc.cursor)
-  of Option:
+  of mkOption:
     # Skip tokens that don't classify as *this* opt so option/arg order
     # doesn't matter -- see the Argument branch above on why a
     # Command-classified token doesn't need special-casing here either.
@@ -196,7 +190,7 @@ proc match(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     if not pc.report.starved(pc.cursor) and pc.cursor.len > 0 and pc.cursor[0].optShape:
       if pc.cursor.classify(0).kind == Positional:
         pc.report.leftover(pc.cursor)
-  of Options:
+  of mkOptions:
     # Try each option in m.opts (see ADR 0002 for the catch-all repeat rule).
     for (opt, variant) in zip(m.opts, m.variants):
       # Probe only: roll a failed probe's complaints and leftovers back, and
@@ -378,17 +372,17 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
     for tr in state.transitions:
       let candidates =
         case tr.matcher.kind
-        of Option: describeVariants(tr.matcher.opt, pc.cursor.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
-        of Options:
+        of mkOption: describeVariants(tr.matcher.opt, pc.cursor.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
+        of mkOptions:
           collect:
             for opt in tr.matcher.opts:
               for c in describeVariants(opt, pc.cursor.spec.bareVariants(opt)): c
-        of Command: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
-        of Argument:
+        of mkCommand: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
+        of mkArgument:
           collect:
             for v in tr.matcher.arg.completions(): (v, "")
-        of OptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
-        of Shortcut: newSeq[CompletionCandidate]()
+        of mkOptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
+        of mkShortcut: newSeq[CompletionCandidate]()
       result.addUnseen(seen, candidates, prefix)
 
 proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
@@ -402,8 +396,8 @@ proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
     for tr in state.transitions:
       var candidates: seq[Arg]
       case tr.matcher.kind
-      of Option: candidates = @[tr.matcher.opt]
-      of Options: candidates = tr.matcher.opts
+      of mkOption: candidates = @[tr.matcher.opt]
+      of mkOptions: candidates = tr.matcher.opts
       else: discard
       for arg in candidates:
         if arg.kind == Optional and name in pc.cursor.spec.bareVariants(arg) and arg notin seenArgs:

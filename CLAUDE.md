@@ -73,8 +73,8 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
    recursively-descent parsed into a graph of `State`/`Transition` objects
    (data model in `backend.nim`, graph construction/simplification in
-   `fsmgraph.nim`), one `Matcher` per token kind (`Argument`, `Option`,
-   `Options`, `Command`, `OptsEnd`, `Shortcut`).
+   `fsmgraph.nim`), one `Matcher` per token kind (`mkArgument`, `mkOption`,
+   `mkOptions`, `mkCommand`, `mkOptsEnd`, `mkShortcut`).
 3. **Runtime matching** (`fsm.nim`, token classification in `tokens.nim`,
    failure reporting in `complaints.nim`, Value Precedence fallback tiers in
    `precedence.nim`): command-line args are tokenized and classified against
