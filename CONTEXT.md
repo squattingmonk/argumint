@@ -206,6 +206,47 @@ See Before Hook, After Hook.
 _Avoid_: handler (the removed predecessor); don't use "action" to mean
 Command itself — see Command's own _Avoid_ note
 
+**Help**:
+The generated text describing a Spec's Usage String and declared Args,
+produced by a Help Formatter and displayed by a matched Help Message
+Argument (see Message Argument).
+_Avoid_: help text (ambiguous with a single Arg's own declared description
+— see Help Text)
+
+**Help Text**:
+An Arg's author-supplied description, shown by whichever Help Formatter
+renders it. May be paired with Long-Form Help Text — a more detailed
+alternative a Paragraph Style formatter prefers when present. Declared via
+`arg`/`opt`/`flag`/`command`'s `help` parameter, either as a single string
+(Help Text only) or as a `(short, long)` pair.
+_Avoid_: description, help string
+
+**Long-Form Help Text**:
+The more detailed alternative to an Arg's ordinary Help Text, shown by a
+Paragraph Style Help Formatter in its place when declared — never
+alongside it. A Column Style formatter ignores it entirely and always uses
+Help Text, since a fixed-width column has no room for a longer description
+anyway.
+_Avoid_: long help, extended description
+
+**Help Formatter**:
+The pluggable renderer that turns a Spec's declared Args into Help's
+actual text — stateless, since rendering is logic over already-resolved
+data, not something with per-instance identity worth an object hierarchy
+for. Two ship built-in: **Column Style**, which aligns every Arg's
+Variants and Help Text into a two-column table (the original, and still
+default, layout), and **Paragraph Style**, which instead puts each Arg's
+Variants on their own line with its Help Text (or Long-Form Help Text, if
+declared) wrapped as an indented paragraph below — trading column
+alignment for room to write longer descriptions without cramped wrapping.
+A Spec may register more than one Help Message Argument, each with its own
+Help Formatter, so one program could offer e.g. both a column format and a
+paragraph format.
+_Avoid_: formatter (ambiguous outside this context), HelpFormatter
+(code-level name, fine in prose about the API itself), docopt style,
+man-page style (both considered and rejected for this naming — see the ADR
+for this design)
+
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own
 dispatch — its Before Hook, and Action or whatever Command it routed
