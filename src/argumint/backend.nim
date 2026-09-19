@@ -17,7 +17,7 @@
 
 import std/[hashes, options, pegs, strformat, strutils, tables, terminal]
 
-import ./configsource
+import ./[configsource, errors]
 export configsource
 
 
@@ -40,21 +40,31 @@ type
     byEnv ## An environment variable supplied it
     byCli ## The command line supplied it
 
+  HelpText* = tuple[short, long: string]
+
   Arg* = ref object of RootObj
     kind*: ArgKind
-    variants*: seq[string] ## The forms in which the argument may appear
-    help*: string ## The help string for the argument
-    group*: string ## The group where the argument should appear in help messages
-    hidden*: bool ## Whether the arg should be shown in help messages
-    seenBy*: SeenBy ## Which Value Precedence tier supplied this Arg -- written by whichever `parse` override wrote the value, so provenance can never outrun the value it describes. `byNone` is the zero value, so an unsupplied Arg is correct with no code on the default path. See `seen*` and `docs/adr/0039-per-arg-provenance.md`
+    variants*: seq[string]
+      ## The forms in which the argument may appear
+    help*: HelpText
+      ## The help strings shown for this argument in a help message.
+      ## `help.short` is used for the default columns help message format, while
+      ## `help.long` is used for the paragraphs help message format.
+    group*: string
+      ## The group where the argument should appear in help messages
+    hidden*: bool
+      ## Whether the arg should be shown in help messages
+    seenBy*: SeenBy
+      ## Which Value Precedence tier supplied this Arg -- written by whichever
+      ## `parse` override wrote the value, so provenance can never outrun the
+      ## value it describes. `byNone` is the zero value, so an unsupplied Arg is
+      ## correct with no code on the default path. See `seen*` and ADR 0039.
 
   CommandArg* = ref object of Arg
     spec*: Spec
 
   MessageArg* = ref object of Arg
     message*: string
-
-  HelpArg* = ref object of MessageArg
 
   SpecSettings* = ref object
     width*: int ## Column width to wrap usage/help text at
@@ -246,6 +256,10 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
     configSources: configSources, strictOptions: strictOptions)
 
+converter toHelpText*(s: string): HelpText =
+  ## Lets `argumint.nim`'s arg constructors pass help text as a single string.
+  (short: s, long: "")
+
 converter toEnvSource*(name: string): Option[EnvSource] =
   ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
   ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
@@ -405,6 +419,12 @@ method action*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
   ## plain `MessageArg` simply ignores them. That is what lets the per-level
   ## message pass dispatch once, with no test for which kind it holds.
   raise newException(Defect, fmt"action() is not defined for {self.name(variant)}")
+
+method action(self: MessageArg, command: string, spec: Spec, variant = "") =
+  ## Raises `MessageError` with `self.message`, short-circuiting the rest
+  ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
+  ## `message*`/`version*`).
+  raise newException(MessageError, self.message)
 
 method defaultStr*(self: Arg): string {.base.} =
   ## Returns `self`'s default value formatted for display in help text (e.g.

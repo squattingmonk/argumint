@@ -83,7 +83,7 @@ proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate]
   let divergent = descs.toHashSet.len > 1
   for i, v in variants:
     let desc = descs[i]
-    result.add (v, if divergent and desc.len > 0: desc else: arg.help)
+    result.add (v, if divergent and desc.len > 0: desc else: arg.help.short)
 
 proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
     candidates: openArray[CompletionCandidate], prefix: string) =

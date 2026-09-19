@@ -330,5 +330,5 @@ suite "What naming the core types buys a caller":
     check common.len == 2
 
   test "a generic helper can take an arg as a parameter":
-    proc describe[T](a: ValueArg[T, false]): string = a.help
+    proc describe[T](a: ValueArg[T, false]): string = a.help.short
     check describe(opt("-x=<x>", help = "ex")) == "ex"

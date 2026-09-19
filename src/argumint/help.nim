@@ -10,13 +10,18 @@
 
 import std/[importutils, pegs, strformat, strutils, tables, unicode]
 
-import ./backend
+import ./[backend, errors]
 
-privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
-  ## non-generic code only -- see docs/gotchas.md.
+# Reaches `Spec`'s private fields (ADR 0030) from non-generic code only
+privateAccess(Spec)
 
 type
-  Row = tuple[variants, text: string]
+  HelpArg* = ref object of MessageArg
+    formatter*: HelpFormatter
+
+  HelpFormatter* = proc (spec: Spec, command: string): string
+
+  Row* = tuple[variants, text: string]
     ## One line-item in the help table, still unwrapped: `variants` is a
     ## variant-group's names joined by ", "; `text` is its resolved help plus
     ## `[...]` annotations. `render` turns this into output lines.
@@ -31,7 +36,7 @@ proc olen(s: string; start, lastExclusive: int): int =
     inc result
     inc i, graphemeLen(s, i)
 
-proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
+proc wrapWords*(s: string, maxLineWidth: int, newLine = "\n"): string =
   ## Word-wraps `s`, splitting a word longer than `maxLineWidth` at the
   ## character level instead of overflowing it whole. Forked from
   ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
@@ -83,7 +88,7 @@ proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
         for k in i..<j: result.add(s[k])
     i = j
 
-proc annotations(arg: Arg, action = ""): seq[string] =
+proc annotations*(arg: Arg, action = ""): seq[string] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
   ## `variantDesc`).
@@ -100,7 +105,7 @@ proc annotations(arg: Arg, action = ""): seq[string] =
   if action.len > 0:
     result.add fmt"action: {action}"
 
-proc groupOrder(spec: Spec): seq[string] =
+proc groupOrder*(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
   ## then any other (e.g. user-defined) groups in declaration order.
   for group in CanonicalGroups:
@@ -110,7 +115,7 @@ proc groupOrder(spec: Spec): seq[string] =
     if group notin CanonicalGroups:
       result.add group
 
-proc variantGroups(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
+proc variantGroups*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   ## Groups `arg.variants` by their `variantDesc` text, preserving declaration
   ## order (both across groups and within one). Collapses to exactly one group
   ## (`desc` possibly `""`) whenever every variant shares the same description
@@ -123,18 +128,21 @@ proc variantGroups(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   for desc, names in byDesc.pairs:
     result.add (names: names, desc: desc)
 
-proc rows(arg: Arg): seq[Row] =
-  ## One Row per `arg.variantGroups()`. Text is `arg.help`, falling back to the
-  ## group's own `variantDesc` when the arg's variants diverge and that group's
+proc rows*(arg: Arg, preferLong = false): seq[Row] =
+  ## One Row per `arg.variantGroups()`. Text is `arg.help` (or, if `preferLong`
+  ## is `true`, `arg.longHelp` if it's not empty), falling back to the group's
+  ## own `variantDesc` when the arg's variants diverge and that group's
   ## `variantDesc` is non-empty, plus the `[...]` bracket from `annotations`
   ## (`action` included only when divergent AND `arg.help` is non-empty).
   ## Callers filter `arg.hidden` on themselves.
-  let groups = arg.variantGroups()
+  let
+    groups = arg.variantGroups()
+    help = if preferLong and arg.help.long.len > 0: arg.help.long else: arg.help.short
   for vg in groups:
     let
       divergent = groups.len > 1 and vg.desc.len > 0
-      primary = if arg.help.len > 0: arg.help elif divergent: vg.desc else: ""
-      action = if divergent and arg.help.len > 0: vg.desc else: ""
+      primary = if help.len > 0: help elif divergent: vg.desc else: ""
+      action = if divergent and help.len > 0: vg.desc else: ""
       annotations = arg.annotations(action = action)
       bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
       text = if bracket.len == 0: primary elif primary.len == 0: bracket else: fmt"{primary} {bracket}"
@@ -151,7 +159,7 @@ proc variantsColWidth(spec: Spec): int =
   if spec.settings.maxVariantsWidth > 0 and result > spec.settings.maxVariantsWidth:
     result = spec.settings.maxVariantsWidth
 
-proc render(rows: seq[Row], width: int, colWidth: int): string =
+proc renderColumn(rows: seq[Row], width: int, colWidth: int): string =
   ## Wraps + zips `rows` into the table's text block: variants wrap at
   ## `colWidth`, text wraps at `max(width - (2 + colWidth + 2), 20)`, zipped
   ## line-by-line. First line of a row gets `Margin`; wrap continuations get
@@ -209,18 +217,8 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
     lines.add fmt"{prefix}{line}".wrapWords(lineWidth, newLine = "\n{indent}".fmt)
   result = lines.join("\n")
 
-proc genHelp*(spec: Spec, command: string): string =
-  ## Renders `spec`'s full help message -- prolog, wrapped usage lines, one row
-  ## per arg grouped per `groupOrder`, then epilog. `command` names the program
-  ## in the usage lines (`HelpArg.action` passes the command path that reached
-  ## this Spec, so a subcommand's help reads `prog ship move`). Wrapping is
-  ## governed by `spec.settings.width`/`maxVariantsWidth`.
-  let
-    prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
-    epilog = if spec.epilog.len > 0: "\n\n" & spec.epilog else: ""
-    usage = spec.usage.formatUsage(command, spec.settings.width)
-    colWidth = spec.variantsColWidth()
-
+proc formatColumn*(spec: Spec, command = ""): string =
+  let colWidth = spec.variantsColWidth()
   var lines: seq[string]
   for group in spec.groupOrder:
     var groupRows: seq[Row]
@@ -230,12 +228,61 @@ proc genHelp*(spec: Spec, command: string): string =
       groupRows.add arg.rows()
     if groupRows.len > 0:
       lines.add("\n{group}".fmt)
-      lines.add(groupRows.render(spec.settings.width, colWidth))
+      lines.add(groupRows.renderColumn(spec.settings.width, colWidth))
 
   if lines.len > 0:
     lines.insert ""
-  let args = lines.join("\n")
+  result = lines.join("\n")
+
+proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
+  let
+    variantsWidth = max(width - Margin.len, 20 - Margin.len)
+    helpWidth = max(width - ContinuationIndent.len, 20 - ContinuationIndent.len)
+  for row in rows:
+    var lines: seq[string]
+    for line in row.variants.wrapWords(variantsWidth).splitLines:
+      lines.add fmt"{Margin}{line}"
+    if row.text.len > 0:
+      for line in row.text.wrapWords(helpWidth).splitLines:
+        lines.add fmt"{ContinuationIndent}{line}"
+    if lines.len > 0:
+      result.addSep "\n\n"
+      result.add lines.join("\n")
+
+proc formatParagraph*(spec: Spec, command = ""): string =
+  var lines: seq[string]
+  for group in spec.groupOrder:
+    var groupRows: seq[Row]
+    for arg in spec.groups[group]:
+      if arg.hidden:
+        continue
+      groupRows.add arg.rows(preferLong = true)
+    if groupRows.len > 0:
+      lines.add "\n{group}".fmt
+      lines.add renderParagraph(groupRows, width = spec.settings.width)
+  if lines.len > 0:
+    lines.insert ""
+  result = lines.join("\n")
+
+proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
+  ## Renders `spec`'s full help message -- prolog, wrapped usage lines, one row
+  ## per arg grouped per `groupOrder`, then epilog. `command` names the program
+  ## in the usage lines (`HelpArg.action` passes the command path that reached
+  ## this Spec, so a subcommand's help reads `prog ship move`). Wrapping is
+  ## governed by `spec.settings.width`/`maxVariantsWidth`.
+  let
+    prolog = if spec.prolog.len > 0: spec.prolog & "\n\n" else: ""
+    epilog = if spec.epilog.len > 0: "\n\n" & spec.epilog else: ""
+    usage = spec.usage.formatUsage(command, spec.settings.width)
+    args = formatter(spec, command)
   result = fmt"{prolog}{usage}{args}{epilog}"
+
+method action(self: HelpArg, command: string, spec: Spec, variant = "") =
+  ## Raises `HelpError` with `spec`'s generated help text for `command`,
+  ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
+  ## deliver it directly (see `help*`).
+  let formatter = if self.formatter.isNil: formatColumn else: self.formatter
+  raise newException(HelpError, spec.genHelp(command, formatter))
 
 when isMainModule:
   import std/[options, unittest]
@@ -377,6 +424,12 @@ when isMainModule:
       let arg = TestArg(variants: @["--speed=<speed>"], defaultStrVal: "5")
       check arg.rows() == @[(variants: "--speed=<speed>", text: "[default: 5]")]
 
+    test "a non-divergent group uses long help if preferLong is true":
+      let
+        arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
+        expected = @[(variants: "-x", text: "long help text")]
+      check arg.rows(preferLong = true) == expected
+
   suite "variantsColWidth":
     test "colWidth matches the length of the longest joined variants row across all args in the spec":
       let
@@ -405,18 +458,18 @@ when isMainModule:
         spec = Spec(args: @[arg1, arg2], settings: SpecSettings(maxVariantsWidth: 0))
       check spec.variantsColWidth == "-s, --speed=<speed>".len
 
-  suite "render":
+  suite "renderColumn":
     test "a single row that fits on one line needs no wrapping":
       let
         row: Row = (variants: "-v", text: "Verbose")
         expected = "  -v          Verbose"
-      check render(@[row], width = 80, colWidth = 10) == expected
+      check renderColumn(@[row], width = 80, colWidth = 10) == expected
 
     test "the variants column aligns to the given colWidth":
       let
         row: Row = (variants: "-v", text: "Verbose")
         expected = "  -v                    Verbose"
-      check render(@[row], width = 80, colWidth = 20) == expected
+      check renderColumn(@[row], width = 80, colWidth = 20) == expected
 
     test "rows are joined with a newline, each keeping its own margin":
       let
@@ -424,26 +477,26 @@ when isMainModule:
           (variants: "-v", text: "Verbose"),
           (variants: "--quiet", text: "Quiet")]
         expected = "  -v        Verbose\n  --quiet   Quiet"
-      check render(rows, width = 80, colWidth = 8) == expected
+      check renderColumn(rows, width = 80, colWidth = 8) == expected
 
     test "a row with no text shows only the variants, with no alignment padding or trailing whitespace":
       let
         row: Row = (variants: "-v, --verbose", text: "")
         expected  = "  -v, --verbose"
-      check render(@[row], width = 80, colWidth = 20) == expected
+      check renderColumn(@[row], width = 80, colWidth = 20) == expected
 
     test "long help text wraps in its own column, indented deeper than the margin":
       let
         row: Row = (variants: "-x", text: "This is a moderately long help description")
         expected = "  -x     This is a moderately\n           long help description"
-        rendered = render(@[row], width = 30, colWidth = 5)
+        rendered = renderColumn(@[row], width = 30, colWidth = 5)
       check rendered == expected
 
     test "a variant name longer than colWidth is split":
       let
         row = (variants: "-x, --extraordinarily-long-option-name", text: "A really long option name")
         expected = "  -x, --extr  A really long option\n    aordinaril  name\n    y-long-opt\n    ion-name"
-        rendered = render(@[row], width = 30, colWidth = 10)
+        rendered = renderColumn(@[row], width = 30, colWidth = 10)
 
       check rendered == expected
 
@@ -451,7 +504,7 @@ when isMainModule:
       let
         row = (variants: "-x", text: "aVeryLongSingleWordThatExceedsTwentyCharacters")
         expected = "  -x  aVeryLongSingleWordThatE\n        xceedsTwentyCharacters"
-        rendered = render(@[row], width = 30, colWidth = 2)
+        rendered = renderColumn(@[row], width = 30, colWidth = 2)
       check rendered == expected
 
     test "variants column and text columns wrap independently":
@@ -464,7 +517,7 @@ when isMainModule:
             --quiet, --boost,     need to be wrapped
             --dampen
         """.strip(leading = false).dedent.indent(2)
-        rendered = render(arg.rows(), width = 60, colWidth = 20)
+        rendered = renderColumn(arg.rows(), width = 60, colWidth = 20)
 
       check rendered == expected
 
@@ -478,7 +531,7 @@ when isMainModule:
                    long help description
           -q     Be quiet
         """.strip(leading = false).dedent.indent(2)
-        rendered = render(rows, width = 30, colWidth = 5)
+        rendered = renderColumn(rows, width = 30, colWidth = 5)
 
       check rendered == expected
 
@@ -572,6 +625,223 @@ when isMainModule:
       let usage = "<foo> [--bar --aVeryLongOptionName]"
       check formatUsage(usage, "prog", width = 20) == "Usage:\n  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
+  suite "formatColumn":
+    test "an empty spec yields an empty string":
+      let spec = Spec(settings: newSpecSettings())
+      check spec.formatColumn() == ""
+
+    test "a spec with one arg yields two line breaks followed by the group, followed by the arg/help text in column format":
+      let
+        spec = newSpec(
+          (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")))
+        expected = """
+
+
+        Arguments
+          <foo>  A sample arg
+        """.strip(leading = false).dedent()
+      check spec.formatColumn() == expected
+
+    test "a hidden arg is not shown":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
+          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
+
+        expected = """
+
+
+        Options
+          --foo  A sample option
+        """.strip(leading = false).dedent()
+      check spec.formatColumn() == expected
+
+    test "a group is not shown if its only member is hidden":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
+          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Hidden Options", hidden: true)))
+
+        expected = """
+
+
+        Options
+          --foo  A sample option
+        """.strip(leading = false).dedent()
+      check spec.formatColumn() == expected
+
+    test "multiple groups appear in groupOrder's order, each separated by a blank line":
+      let
+        spec = newSpec(
+          (
+            bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options"),
+            foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
+          usage = "<foo> [--bar]")
+        expected = """
+
+
+        Arguments
+          <foo>  A sample arg
+
+        Options
+          --bar  A sample option
+        """.strip(leading = false).dedent()
+      check spec.formatColumn() == expected
+
+    test "each groups aligns its variants column based on the global max colWidth, not its own max colWidth":
+      let
+        spec = newSpec(
+          (
+            bar: Arg(kind: Optional, variants: @["--foobar"], help: "A sample option that is longer than <foo>", group: "Options"),
+            foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
+          usage = "<foo> [--foobar]")
+        expected = """
+
+
+        Arguments
+          <foo>     A sample arg
+
+        Options
+          --foobar  A sample option that is longer than <foo>
+        """.strip(leading = false).dedent()
+      check spec.formatColumn() == expected
+
+  suite "renderParagraph":
+    test "no rows yields an empty string":
+      check renderParagraph(@[]) == ""
+
+    test "a single row with empty help text gets a margin and no blank line after":
+      let rows = @[(variants: "<foo>", text: "")]
+      check renderParagraph(rows) == "  <foo>"
+
+    test "a row's variants are wrapped to the spec's width (min 20), keeping the same left margin":
+      let
+        rows = @[(variants: "-v, --verbose, --boost, --dampen, --quiet", text: "")]
+        expected = "  -v, --verbose,\n  --boost, --dampen,\n  --quiet"
+      check renderParagraph(rows, width = 20) == expected
+      check renderParagraph(rows, width = 10) == expected
+
+    test "a row's variants line is followed by the indented help line":
+      let
+        rows = @[(variants: "-x", text: "This is help text")]
+        expected = "  -x\n    This is help text"
+      check renderParagraph(rows) == expected
+
+    test "long help text is wrapped to the spec's width (min 20), keeping the left margin":
+      let
+        rows = @[(variants: "-x", text: "This help text needs to be wrapped")]
+        expected = "  -x\n    This help text\n    needs to be\n    wrapped"
+      check renderParagraph(rows, width = 20) == expected
+      check renderParagraph(rows, width = 10) == expected
+
+    test "multiple rows have blank lines between them":
+      let
+        rows = @[
+          (variants: "<foo>", text: "This is some help text"),
+          (variants: "<bar>", text: "This is also some help text") ]
+        expected = "  <foo>\n    This is some help text\n\n  <bar>\n    This is also some help text"
+      check renderParagraph(rows) == expected
+
+  suite "formatParagraph":
+    test "a spec with no args yields a blank usage string":
+      let spec = Spec(settings: newSpecSettings())
+      check spec.formatParagraph() == ""
+
+    test "a spec with args yields two line breaks, followed by the group, followed by the args in the group":
+      let
+        spec = newSpec(
+          (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")))
+        expected = """
+
+
+        Arguments
+          <foo>
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
+    test "long help text is preferred if available, falling back to short help text if not":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Positional, variants: @["<foo>"], help: ("Short help text", "Long help text"), group: "Arguments"),
+          bar: Arg(kind: Positional, variants: @["<bar>"], help: "Fallback short text", group: "Arguments")))
+        expected = """
+
+
+        Arguments
+          <foo>
+            Long help text
+
+          <bar>
+            Fallback short text
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
+    test "args are grouped by group in groupOrder, with each group separated by a blank line":
+      let
+        spec = newSpec((
+          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options"),
+          foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
+          baz: Arg(kind: Positional, variants: @["<baz>"], help: "Another sample arg", group: "Arguments")))
+        expected = """
+
+
+        Arguments
+          <foo>
+            A sample arg
+
+          <baz>
+            Another sample arg
+
+        Options
+          --bar
+            A sample option
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
+    test "a hidden arg is not shown":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
+          bar: Arg(kind: Positional, variants: @["<bar>"], help: "Another sample arg", group: "Arguments", hidden: true)))
+        expected = """
+
+
+        Arguments
+          <foo>
+            A sample arg
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
+    test "a group with only hidden members is not shown":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
+          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options", hidden: true)))
+        expected = """
+
+
+        Arguments
+          <foo>
+            A sample arg
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
+    test "spec width is successfully passed to renderParagraph":
+      let
+        spec = newSpec(
+          (foo: Arg(kind: Positional, variants: @["<foo>"], help: "This help text needs to be wrapped", group: "Arguments")),
+          settings = newSpecSettings(width = 20))
+        expected = """
+
+
+        Arguments
+          <foo>
+            This help text
+            needs to be
+            wrapped
+        """.strip(leading = false).dedent()
+      check spec.formatParagraph() == expected
+
   suite "genHelp":
     test "a spec with no prolog, epilog, args, or groups returns a usage block with a bare command usage line":
       let spec = Spec(settings: newSpecSettings())
@@ -593,20 +863,29 @@ when isMainModule:
       let spec = Spec(settings: newSpecSettings(), epilog: "bar")
       check spec.genHelp(command = "prog") == "Usage:\n  prog\n\nbar"
 
-    test "a spec with one group containing one arg lists the arg's row under the group name, below usage":
+    test "arg groups are displayed using the passed HelpFormatter, defaulting to formatColumn":
       let
-        spec = newSpec(
-          (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")))
-        expected = """
+        spec = newSpec((foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")))
+        expectedColumn = """
         Usage:
           prog <foo>
 
         Arguments
           <foo>  A sample arg
         """.strip(leading = false).dedent()
-      check spec.genHelp(command = "prog") == expected
+        expectedParagraph = """
+        Usage:
+          prog <foo>
 
-    test "arg groups are separated from the epilog by a blank line":
+        Arguments
+          <foo>
+            A sample arg
+        """.strip(leading = false).dedent()
+      check spec.genHelp(command = "prog") == expectedColumn
+      check spec.genHelp(command = "prog", formatter = formatColumn) == expectedColumn
+      check spec.genHelp(command = "prog", formatter = formatParagraph) == expectedParagraph
+
+    test "arg groups are shown between the usage and the epilog, separated by a blank line":
       let
         spec = newSpec(
           (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
@@ -621,71 +900,39 @@ when isMainModule:
         bar
         """.strip(leading = false).dedent()
       check spec.genHelp(command = "prog") == expected
-    
-    test "a hidden arg is not shown":
+
+  suite "action":
+    test "a HelpArg with no defined formatter uses formatColumn":
       let
-        spec = newSpec((
-          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
-          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
-
+        help = HelpArg(kind: Flag, variants: @["--help"], help: "Display this help message", group: "Options")
+        spec = newSpec((help: help))
         expected = """
-        Usage:
-          prog [options]
-
-        Options
-          --foo  A sample option
-        """.strip(leading = false).dedent()
-      check spec.genHelp(command = "prog") == expected
-
-    test "a group is not shown if its only member is hidden":
-      let
-        spec = newSpec((
-          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
-          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Hidden Options", hidden: true)))
-
-        expected = """
-        Usage:
-          prog [options]
-
-        Options
-          --foo  A sample option
-        """.strip(leading = false).dedent()
-      check spec.genHelp(command = "prog") == expected
-
-    test "multiple groups appear in groupOrder's order, each separated by a blank line":
-      let
-        spec = newSpec(
-          (
-            bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options"),
-            foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
-          usage = "<foo> [--bar]")
-        expected = """
-        Usage:
-          prog <foo> [--bar]
-
-        Arguments
-          <foo>  A sample arg
-
-        Options
-          --bar  A sample option
-        """.strip(leading = false).dedent()
-      check spec.genHelp(command = "prog") == expected
-
-    test "each groups aligns its variants column based on the global max colWidth, not its own max colWidth":
-        let
-          spec = newSpec(
-            (
-              bar: Arg(kind: Optional, variants: @["--foobar"], help: "A sample option that is longer than <foo>", group: "Options"),
-              foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
-            usage = "<foo> [--foobar]")
-          expected = """
           Usage:
-            prog <foo> [--foobar]
-
-          Arguments
-            <foo>     A sample arg
+            prog --help
 
           Options
-            --foobar  A sample option that is longer than <foo>
-          """.strip(leading = false).dedent()
-        check spec.genHelp(command = "prog") == expected
+            --help  Display this help message""".dedent
+
+      try:
+        help.action(command = "prog", spec)
+      except HelpError as e:
+        check e.msg == expected
+
+    test "a HelpArg uses its formatter when explicitly defined":
+      let
+        help = HelpArg(kind: Flag, variants: @["--help"],
+          help: "Display this help message", group: "Options",
+          formatter: formatParagraph)
+        spec = newSpec((help: help))
+        expected = """
+          Usage:
+            prog --help
+
+          Options
+            --help
+              Display this help message""".dedent
+
+      try:
+        help.action(command = "prog", spec)
+      except HelpError as e:
+        check e.msg == expected

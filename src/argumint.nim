@@ -60,7 +60,7 @@ export backend.showsMessage
 # they're FSM plumbing, not API. See
 # docs/adr/0030-core-types-exported-spec-opaque.md.
 export backend.Spec, backend.SpecSettings
-export backend.Arg, backend.ArgKind, backend.CommandArg, backend.MessageArg, backend.HelpArg
+export backend.Arg, backend.ArgKind, backend.CommandArg, backend.MessageArg
 export backend.EnvSource
 
 # Per-Arg provenance: `spec.port.seenBy == byCli`, `spec.verbose.seen`. See
@@ -123,6 +123,11 @@ export backend.envSource, backend.configKey, backend.envName
 # which holds that line.
 export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
 
+# All of the plumbing needed to use the built-in help formatters. To add your
+# own HelpFormatter, you'll need to import argumint/help.
+export backend.HelpText, backend.toHelpText
+export help.HelpArg, help.HelpFormatter, help.formatColumn, help.formatParagraph
+
 # ------------------------------------------------------------------------------
 # Registering a custom type. Each of these is the public, documented name for
 # one of `argumint/argtypes`'s method generators -- see
@@ -165,19 +170,6 @@ template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
   ## - `*=` keeps the given element only if it's already present, dropping
   ##   everything else (intersection).
   defineSetFlagArg elemType
-
-method action(self: MessageArg, command: string, spec: Spec, variant = "") =
-  ## Raises `MessageError` with `self.message`, short-circuiting the rest
-  ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
-  ## `message*`/`version*`).
-  raise newException(MessageError, self.message)
-
-method action(self: HelpArg, command: string, spec: Spec, variant = "") =
-  ## Raises `HelpError` with `spec`'s generated help text for `command`,
-  ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
-  ## deliver it directly (see `help*`).
-  raise newException(HelpError, spec.genHelp(command))
-
 
 # ------------------------------------------------------------------------------
 # Type write accessors for args.
@@ -274,7 +266,9 @@ converter toT*[T](arg: FlagArg[T]): T =
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = default(T), help = "", group = "Arguments", hidden = false, validator: Validator[T] = noValidator[T]()): ValueArg[T, false] =
+proc arg*[T: not seq](variants: string, default: T = default(T),
+    help: HelpText = "", group = "Arguments", hidden = false,
+    validator: Validator[T] = noValidator[T]()): ValueArg[T, false] =
   ## Creates a positional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `arg[int]("<n>")`.
@@ -294,13 +288,17 @@ proc arg*[T: not seq](variants: string, default: T = default(T), help = "", grou
   initValueArg[T, false](kind = Positional, variants = variants, default = @[default],
     help = help, group = group, hidden = hidden, validator = validator)
 
-proc arg*(variants: string, default: string = "", help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, false] =
+proc arg*(variants: string, default: string = "", help: HelpText = "",
+    group = "Arguments", hidden = false,
+    validator: Validator[string] = noValidator[string]()): ValueArg[string, false] =
   ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `arg("<name>")`). See `arg[T]` above
   ## for full parameter docs.
   arg[string](variants, default, help, group, hidden, validator)
 
-proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Arguments", hidden = false, validator: Validator[T] = noValidator[T]()): ValueArg[T, true] =
+proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
+    help: HelpText = "", group = "Arguments", hidden = false,
+    validator: Validator[T] = noValidator[T]()): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -319,13 +317,19 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
   initValueArg[T, true](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
 
-proc args*(variants: string, default: seq[string] = @[], help = "", group = "Arguments", hidden = false, validator: Validator[string] = noValidator[string]()): ValueArg[string, true] =
+proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
+    group = "Arguments", hidden = false,
+    validator: Validator[string] = noValidator[string]()): ValueArg[string, true] =
   ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `args("<src>")`). See `args[T]` above
   ## for full parameter docs.
   args[string](variants, default, help, group, hidden, validator)
 
-proc opt*[T: not seq](variants: string, default: T = default(T), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[T, false] =
+proc opt*[T: not seq](variants: string, default: T = default(T),
+    help: HelpText = "", group = "Options", hidden = false,
+    validator: Validator[T] = noValidator[T](),
+    env: Option[EnvSource] = none(EnvSource),
+    configKey: ConfigKey = noConfigKey()): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `opt[int]("-n")`.
@@ -363,13 +367,21 @@ proc opt*[T: not seq](variants: string, default: T = default(T), help = "", grou
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
 
-proc opt*(variants: string, default: string = "", help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, false] =
+proc opt*(variants: string, default: string = "", help: HelpText = "",
+    group = "Options", hidden = false,
+    validator: Validator[string] = noValidator[string](),
+    env: Option[EnvSource] = none(EnvSource),
+    configKey: ConfigKey = noConfigKey()): ValueArg[string, false] =
   ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opt("--name")`). See `opt[T]` above
   ## for full parameter docs.
   opt[string](variants, default, help, group, hidden, validator, env, configKey)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "", group = "Options", hidden = false, validator: Validator[T] = noValidator[T](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[T, true] =
+proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
+    help: HelpText = "", group = "Options", hidden = false,
+    validator: Validator[T] = noValidator[T](),
+    env: Option[EnvSource] = none(EnvSource),
+    configKey: ConfigKey = noConfigKey()): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -405,7 +417,9 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](), help = "
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
 
-proc opts*(variants: string, default: seq[string] = @[], help = "", group = "Options", hidden = false, validator: Validator[string] = noValidator[string](), env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, true] =
+proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
+    group = "Options", hidden = false, validator: Validator[string] = noValidator[string](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, true] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
   ## for full parameter docs.
@@ -429,7 +443,8 @@ proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[
   checkFlagOp[T](op)
   result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
 
-proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default: T = default(T), help = "", group = "Options",
+proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
+    default: T = default(T), help: HelpText = "", group = "Options",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
@@ -480,9 +495,10 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[], default
     help = help, group = group, hidden = hidden, clamp = clamp,
     env = env, cfgKey = configKey)
 
-proc flag*[T](variants: string = "", ops: string, default: T = default(T), help = "", group = "Options",
-    hidden = false, clamp: FlagClamp[T] = noClamp[T](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
+proc flag*[T](variants: string = "", ops: string, default: T = default(T),
+    help: HelpText = "", group = "Options", hidden = false,
+    clamp: FlagClamp[T] = noClamp[T](), env: Option[EnvSource] = none(EnvSource),
+    configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Convenience overload: `ops` as a comma-separated string of
   ## `<flag><op><value>` entries (e.g. `"--quiet=0, --boost+=5,
   ## --dampen-=2"`), each becoming its own single-spelling explicit FlagOp
@@ -494,7 +510,8 @@ proc flag*[T](variants: string = "", ops: string, default: T = default(T), help 
   ## separate overload rather than folded into `variants` itself.
   flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
 
-proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default: bool = false, help = "", group = "Options",
+proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[],
+    default: bool = false, help: HelpText = "", group = "Options",
     hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
@@ -502,15 +519,17 @@ proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[], default
   ## above for full parameter docs.
   flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
-proc flag*(variants: string = "", ops: string, default: bool = false, help = "", group = "Options",
-    hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
+proc flag*(variants: string = "", ops: string, default: bool = false,
+    help: HelpText = "", group = "Options", hidden = false,
+    clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
   ## lets `T` default to `bool` without an explicit bracket. See `flag[T]`
   ## above for full parameter docs.
   flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
-proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
+proc command*[S](variants: string, spec: S, help: HelpText = "",
+    prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil): CommandArg =
@@ -543,7 +562,8 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
   ## given, so it only needs to be specified once regardless of how deeply
   ## nested this command is.
-  result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
+  result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma),
+    help: help, group: group, hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
     result.spec.before = (info: HookInfo) => before(spec, info)
@@ -552,7 +572,8 @@ proc command*[S](variants: string, spec: S, help = "", prolog = "", epilog = "",
   if not after.isNil:
     result.spec.after = (info: HookInfo) => after(spec, info)
 
-proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
+proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
+    prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
     before: proc(spec: S, opts: O, info: HookInfo) = nil,
     action: proc(spec: S, opts: O, info: HookInfo) = nil,
     after: proc(spec: S, opts: O, info: HookInfo) = nil): CommandArg =
@@ -595,7 +616,8 @@ proc command*[S, O](variants: string, spec: S, options: O, help = "", prolog = "
     action = if action.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = action(spec, options, info)),
     after = if after.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = after(spec, options, info)))
 
-proc help*(variants = "-h, --help", help = "Display this help message", group = "Options", hidden = false): HelpArg =
+proc help*(variants = "-h, --help", help: HelpText = "Display this help message",
+    group = "Options", hidden = false, formatter: HelpFormatter = formatColumn): HelpArg =
   ## Creates a flag which, when matched, displays an auto-generated help message
   ## for the spec in whose context it was called.
   ## - `variants` is a comma-separated list of names by which the flag is
@@ -603,9 +625,11 @@ proc help*(variants = "-h, --help", help = "Display this help message", group = 
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
-  HelpArg(kind: Flag, variants: variants.split(Comma), help: help, group: group, hidden: hidden)
+  HelpArg(kind: Flag, variants: variants.split(Comma), help: help,
+    group: group, hidden: hidden, formatter: formatter)
 
-proc message*(variants: string, text: string, help = "", group = "Options", hidden = false): MessageArg =
+proc message*(variants: string, text: string, help: HelpText = "",
+    group = "Options", hidden = false): MessageArg =
   ## Creates a flag which, when matched, displays `text` and exits
   ## successfully instead of parsing further arguments.
   ## - `variants` is a comma-separated list of names by which the flag is
@@ -614,9 +638,12 @@ proc message*(variants: string, text: string, help = "", group = "Options", hidd
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
   ## - `hidden`, if `true`, prevents the arg from appearing in help messages
-  MessageArg(kind: Flag, variants: variants.split(Comma), message: text, help: help, group: group, hidden: hidden)
+  MessageArg(kind: Flag, variants: variants.split(Comma), message: text,
+    help: help, group: group, hidden: hidden)
 
-proc version*(variants: string, version: string, help = "Display version information", group = "Options", hidden = false): MessageArg =
+proc version*(variants: string, version: string,
+    help: HelpText = "Display version information",
+    group = "Options", hidden = false): MessageArg =
   ## Thin wrapper around `message` for the common case of a version flag.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-v` or `--version`.

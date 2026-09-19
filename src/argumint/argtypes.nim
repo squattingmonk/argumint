@@ -433,7 +433,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOpGroup[T]] =
 # ------------------------------------------------------------------------------
 
 proc initValueArg*[T: not seq; multi: static bool](kind: ArgKind, variants: string, default: seq[T],
-    help, group: string, hidden: bool, validator: Validator[T],
+    help: HelpText, group: string, hidden: bool, validator: Validator[T],
     env = none(EnvSource), cfgKey = noConfigKey()): ValueArg[T, multi] =
   ## Builds a `ValueArg[T, multi]`, splitting `variants` on commas. Behind
   ## `arg*`/`args*` (`kind = Positional`, no `env`/`cfgKey`) and
@@ -445,7 +445,7 @@ proc initValueArg*[T: not seq; multi: static bool](kind: ArgKind, variants: stri
     help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: cfgKey)
 
 proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: T,
-    help, group: string, hidden: bool, clamp: FlagClamp[T],
+    help: HelpText, group: string, hidden: bool, clamp: FlagClamp[T],
     env: Option[EnvSource], cfgKey: ConfigKey): FlagArg[T] =
   ## Builds a `FlagArg[T]` in full -- the ops table, the FlagOp Alias
   ## groups, duplicate-variant detection, and the clamp-versus-default
@@ -454,8 +454,8 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
   ## a thin constructor plus exported `addOp`/`setAliases` mutators, which
   ## would let a caller build a `FlagArg` whose `ops` and `aliases` tables
   ## disagree.
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default, help: help,
-    group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
+  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default,
+    help: help, group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
   if not clamp.isNil and clamp.apply(default) != default:
     raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
