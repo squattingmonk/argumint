@@ -48,6 +48,7 @@ hand-written validation code.
     - [Passing Extra Context to Hooks](#passing-extra-context-to-hooks)
   - [Custom Messages](#custom-messages-message-and-version)
   - [Displaying Help](#displaying-help-help)
+    - [Paragraph Style and Long-Form Help Text](#paragraph-style-and-long-form-help-text)
   - [Shell Completion](#shell-completion)
   - [Parsing More Than Once](#parsing-more-than-once)
   - [Error Handling](#error-handling)
@@ -146,7 +147,10 @@ typed fields — no stringly-typed lookup by flag name.
 - **[Auto-generated, wrapped help](#displaying-help-help)** — usage lines
   and per-arg help text are generated from the spec and wrapped to a
   configurable width; `[default: ...]` and validator constraints are
-  folded into the help text automatically.
+  folded into the help text automatically. Choose between a two-column
+  Column Style (the default) or a Paragraph Style layout with more room
+  for long descriptions, and give an arg a longer, prose-form description
+  that only Paragraph Style shows.
 - **[Shell completion](#shell-completion)** — dynamic, FSM-driven
   `bash`/`zsh`/`fish` completion generated from the same spec that drives
   parsing, so completions can never drift out of sync with what actually
@@ -1549,6 +1553,99 @@ character level rather than overflowing it whole. If that's undesirable for
 a particular spec (e.g. one with unusually long option names), raise
 `maxVariantsWidth`/`width` to fit, or set `maxVariantsWidth = 0` to disable
 the variants-column cap entirely.
+
+#### Paragraph Style and Long-Form Help Text
+
+The help message is rendered by a pluggable `HelpFormatter` (`proc (spec:
+Spec, command: string): string`). Two ship built-in. **Column Style**
+(`formatColumn`, the default shown above) aligns every arg's variants and
+help text into a two-column table. **Paragraph Style** (`formatParagraph`)
+instead puts each arg's variants on their own line, with its help text
+wrapped as an indented paragraph below — more room for args with long
+variant names or long descriptions, at the cost of column alignment. Pass
+it to `help()`'s `formatter` parameter:
+
+```nim
+let spec = (
+  name: arg("<name>", help = "The name to call you"),
+  help: help(formatter = formatParagraph)
+)
+
+spec.parseOrQuit(usage = "<name>", prolog = "Greets someone by name")
+```
+
+```console
+$ ./hello --help
+Greets someone by name
+
+Usage:
+  hello <name>
+  hello (-h | --help)
+
+Arguments
+  <name>
+    The name to call you
+
+Options
+  -h, --help
+    Display this help message
+```
+
+A spec can declare more than one `help()` flag, each with its own
+formatter — e.g. `-h`/`--help` for the default Column Style and a separate
+`--help-verbose` for Paragraph Style.
+
+An arg's `help` parameter can also take a `(short, long)` pair instead of a
+plain string, giving it a longer, prose-form description for specs that
+want more detail than fits comfortably in a two-column table. Paragraph
+Style prefers the long form when it's given; Column Style always uses the
+short form, since a fixed-width column has no room for a longer
+description anyway:
+
+```nim
+let spec = (
+  speed: opt[int]("--speed=<speed>", default = 10, help = (
+    "Speed in knots",
+    "Speed in knots. Must be between 1 and 100; higher speeds increase fuel consumption.")),
+  help: help(formatter = formatParagraph)
+)
+```
+
+```console
+$ ./ship --help
+Usage:
+  ship [--speed=<speed>]
+  ship (-h | --help)
+
+Options
+  --speed=<speed>
+    Speed in knots. Must be between 1 and 100; higher speeds increase fuel
+    consumption. [default: 10]
+
+  -h, --help
+    Display this help message
+```
+
+The same spec under the default Column Style ignores the long form
+entirely:
+
+```console
+$ ./ship --help
+Usage:
+  ship [--speed=<speed>]
+  ship (-h | --help)
+
+Options
+  --speed=<speed>  Speed in knots [default: 10]
+  -h, --help       Display this help message
+```
+
+To write your own `HelpFormatter`, `import argumint/help` directly for
+`Row`, `rows`, `groupOrder`, `variantGroups`, and `annotations` — the same
+row-resolution helpers `formatColumn`/`formatParagraph` are themselves
+built on. These stay reachable only through that direct import rather than
+a plain `import argumint`, keeping this lower-level surface opt-in for
+anyone who doesn't need it.
 
 ### Shell Completion
 
