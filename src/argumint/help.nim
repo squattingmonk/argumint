@@ -241,7 +241,7 @@ proc joinSections*(sections: varargs[string]): string =
       result.addSep "\n\n"
       result.add section
 
-proc formatColumn*(spec: Spec, command = ""): string =
+proc formatColumn*(spec: Spec, command: string): string =
   ## Column Style: prolog, usage, then each group's rows with variants and
   ## help text aligned into two columns shared across every group, then
   ## epilog.
@@ -270,7 +270,7 @@ proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
       result.addSep "\n\n"
       result.add lines.join("\n")
 
-proc formatParagraph*(spec: Spec, command = ""): string =
+proc formatParagraph*(spec: Spec, command: string): string =
   ## Paragraph Style: prolog, usage, then each group's rows with variants on
   ## their own line and (long-form, if given) help text wrapped as an indented
   ## paragraph below, then epilog.
