@@ -8,7 +8,7 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[importutils, pegs, strformat, strutils, tables, unicode]
+import std/[importutils, pegs, sequtils, strformat, strutils, tables, unicode]
 
 import ./[backend, errors]
 
@@ -105,7 +105,7 @@ proc annotations*(arg: Arg, action = ""): seq[string] =
   if action.len > 0:
     result.add fmt"action: {action}"
 
-proc groupOrder*(spec: Spec): seq[string] =
+proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
   ## then any other (e.g. user-defined) groups in declaration order.
   for group in CanonicalGroups:
@@ -114,6 +114,15 @@ proc groupOrder*(spec: Spec): seq[string] =
   for group in spec.groups.keys:
     if group notin CanonicalGroups:
       result.add group
+
+iterator helpGroups*(spec: Spec, showHidden = false, showEmpty = false): tuple[group: string, args: seq[Arg]] =
+  ## Iterates through all groups in `spec`, returning the group along with all
+  ## of its args. If `showHidden` is true, will include hidden args. If
+  ## `showEmpty` is true, will yield groups with no visible args.
+  for group in spec.groupOrder:
+    let args = spec.groups[group].filterIt(showHidden or not it.hidden)
+    if showEmpty or args.len > 0:
+      yield (group: group, args: args)
 
 proc variantGroups*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   ## Groups `arg.variants` by their `variantDesc` text, preserving declaration
@@ -220,15 +229,12 @@ proc formatUsage*(usage: string, command: string, width = DefaultWidth): string 
 proc formatColumn*(spec: Spec, command = ""): string =
   let colWidth = spec.variantsColWidth()
   var lines: seq[string]
-  for group in spec.groupOrder:
+  for group, args in spec.helpGroups:
     var groupRows: seq[Row]
-    for arg in spec.groups[group]:
-      if arg.hidden:
-        continue
+    for arg in args:
       groupRows.add arg.rows()
-    if groupRows.len > 0:
-      lines.add("\n{group}".fmt)
-      lines.add(groupRows.renderColumn(spec.settings.width, colWidth))
+    lines.add("\n{group}".fmt)
+    lines.add(groupRows.renderColumn(spec.settings.width, colWidth))
 
   if lines.len > 0:
     lines.insert ""
@@ -251,15 +257,12 @@ proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
 
 proc formatParagraph*(spec: Spec, command = ""): string =
   var lines: seq[string]
-  for group in spec.groupOrder:
+  for group, args in spec.helpGroups:
     var groupRows: seq[Row]
-    for arg in spec.groups[group]:
-      if arg.hidden:
-        continue
+    for arg in args:
       groupRows.add arg.rows(preferLong = true)
-    if groupRows.len > 0:
-      lines.add "\n{group}".fmt
-      lines.add renderParagraph(groupRows, width = spec.settings.width)
+    lines.add "\n{group}".fmt
+    lines.add renderParagraph(groupRows, width = spec.settings.width)
   if lines.len > 0:
     lines.insert ""
   result = lines.join("\n")
@@ -560,6 +563,45 @@ when isMainModule:
       groups["Options"] = @[]
       groups["Another Group"] = @[]
       check Spec(groups: groups).groupOrder() == @["Options", "Global Options", "Another Group"]
+
+  suite "helpGroups":
+    test "a spec with no args has no groups":
+      let spec = Spec(settings: newSpecSettings())
+      check spec.helpGroups.toSeq.len == 0
+
+    test "groups are displayed in canonical order":
+      let
+        spec = newSpec((
+          c: CommandArg(kind: Command, variants: @["c"], group: "Commands", spec: newSpec(())),
+          v: Arg(kind: Flag, variants: @["-v"], group: "Flags"),
+          x: Arg(kind: Optional, variants: @["-x"], group: "Options"),
+          y: Arg(kind: Positional, variants: @["<y>"], group: "Arguments")))
+        groups = spec.helpGroups.toSeq.mapIt(it.group)
+      check groups == @["Commands", "Arguments", "Options", "Flags"]
+
+    test "hidden args are not shown unless showHidden is true":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
+          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
+        expectedWhenFalse = @["--foo"]
+        expectedWhenTrue = @["--foo", "--bar"]
+
+      for (showHidden, expected) in [(false, expectedWhenFalse), (true, expectedWhenTrue)]:
+        let args = spec.helpGroups(showHidden = showHidden).toSeq[0].args.mapIt(it.name)
+        check args == expected
+
+    test "a group is not shown when it has no visible members unless showEmpty is true":
+      let
+        spec = newSpec((
+          foo: Arg(kind: Optional, variants: @["--foo"], group: "Options"),
+          bar: Arg(kind: Optional, variants: @["--bar"], group: "Options", hidden: true),
+          baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
+
+      check spec.helpGroups.toSeq.mapIt(it.group) == @["Options"]
+      check spec.helpGroups(showHidden = true).toSeq.mapIt(it.group) == @["Options", "Global Options"]
+      check spec.helpGroups(showEmpty = true).toSeq.mapIt(it.group) == @["Options", "Global Options"]
+
 
   suite "usageLines":
     test "a blank usage message is one blank usage line":
