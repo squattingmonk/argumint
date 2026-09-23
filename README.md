@@ -1640,12 +1640,35 @@ Options
   -h, --help       Display this help message
 ```
 
-To write your own `HelpFormatter`, `import argumint/help` directly for
-`Row`, `rows`, `groupOrder`, `variantGroups`, and `annotations` — the same
-row-resolution helpers `formatColumn`/`formatParagraph` are themselves
-built on. These stay reachable only through that direct import rather than
-a plain `import argumint`, keeping this lower-level surface opt-in for
-anyone who doesn't need it.
+A `HelpFormatter` renders the whole message, so a custom one controls
+section order and labels as well as how each arg is laid out. To write one,
+`import argumint/help` directly for the same pieces
+`formatColumn`/`formatParagraph` are built from: `helpGroups` (each group's
+visible args, in display order), `rows`/`Row` (an arg's variants and
+resolved help text), the `prolog`/`epilog`/`usage` accessors, `formatUsage`
+(the wrapped usage lines, without a label), and `joinSections` (joins the
+non-empty parts with a blank line between each):
+
+```nim
+import std/strutils
+import argumint, argumint/help
+
+proc formatShouty(spec: Spec, command: string): string =
+  var groups: seq[string]
+  for name, args in spec.helpGroups:
+    var lines = @[name.toUpperAscii & ":"]
+    for arg in args:
+      for row in arg.rows:
+        lines.add "  " & row.variants & " -- " & row.text
+    groups.add lines.join("\n")
+  let usage = "USAGE:\n" & spec.usage.formatUsage(command, spec.settings.width)
+  joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
+```
+
+These stay reachable only through that direct import rather than a plain
+`import argumint`, keeping this lower-level surface opt-in for anyone who
+doesn't need it. A parse error's usage block doesn't go through a
+formatter; it always uses the standard `Usage:` layout.
 
 ### Shell Completion
 

@@ -28,10 +28,14 @@ re-export it, so importing either alone still names what it raises.
 `help.nim` sits directly above `backend` because that is as high as it needs
 to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display
 methods, the derived `envName` beside them, and `Spec`'s own private fields
-are all `backend`'s. `formatUsage` and the `usageLines` helper beneath it
-(splitting a raw usage string into one alternative per line, merging
-hand-indented continuations, and preserving blank lines rather than
-swallowing them — issue #68) live in `help.nim` itself, not `backend`;
+are all `backend`'s. A `HelpFormatter` renders the whole message from
+pieces `help.nim` exports (`helpGroups`, `rows`, `joinSections`, and the
+`prolog`/`epilog`/`usage` accessors `backend` defines) -- see
+`docs/adr/0048-pluggable-help-formatters.md`. `formatUsage` and the
+`usageLines` helper beneath it (splitting a raw usage string into one
+alternative per line, merging hand-indented continuations, and preserving
+blank lines rather than swallowing them — issue #68) live in `help.nim`
+itself, not `backend`;
 `backend` no longer does any wrapping of its own. Its position below `fsm`
 is what makes `Arg.action`'s dependency inversion a choice rather than a
 necessity — see "The write side" below.

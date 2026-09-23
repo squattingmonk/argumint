@@ -230,10 +230,12 @@ anyway.
 _Avoid_: long help, extended description
 
 **Help Formatter**:
-The pluggable renderer that turns a Spec's declared Args into Help's
-actual text — stateless, since rendering is logic over already-resolved
-data, not something with per-instance identity worth an object hierarchy
-for. Two ship built-in: **Column Style**, which aligns every Arg's
+The pluggable renderer that produces a Spec's whole Help message — its
+prolog, Usage, groups of Args, and epilog, including their order and
+labels. A plain function: it may carry its own configuration (e.g. a
+template) but keeps no state tied to a particular Spec or parse, so it has
+no per-instance identity worth an object hierarchy. A parse error's usage
+block is not rendered by a Help Formatter. Two ship built-in: **Column Style**, which aligns every Arg's
 Variants and Help Text into a two-column table (the original, and still
 default, layout), and **Paragraph Style**, which instead puts each Arg's
 Variants on their own line with its Help Text (or Long-Form Help Text, if
