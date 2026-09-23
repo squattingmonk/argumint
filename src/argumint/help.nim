@@ -29,9 +29,9 @@ type
     ## One line-item in the help table, still unwrapped. An object rather than
     ## a tuple so fields can be added without breaking custom formatters.
     variants*: string
-      ## A variant-group's names joined by ", "
+      ## The names of variants sharing a description, joined by ", "
     text*: string
-      ## The group's resolved help plus `[...]` annotations
+      ## Their resolved help plus `[...]` annotations
 
 const Margin = "  "
 const ContinuationIndent = "    "
@@ -131,13 +131,13 @@ iterator helpGroups*(spec: Spec, showHidden = false, showEmpty = false): tuple[n
     if showEmpty or args.len > 0:
       yield (name: group, args: args)
 
-proc variantGroups*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
-  ## Groups `arg.variants` by their `variantDesc` text, preserving declaration
-  ## order (both across groups and within one). Collapses to exactly one group
-  ## (`desc` possibly `""`) whenever every variant shares the same description
-  ## -- i.e. every arg that isn't a flag with genuinely divergent per-variant
-  ## ops -- so callers that don't care about grouping still see a single group
-  ## covering all of `arg.variants`.
+proc variantsByDesc*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
+  ## Buckets `arg.variants` by their `variantDesc` text, preserving declaration
+  ## order (both across buckets and within one). Collapses to exactly one
+  ## bucket (`desc` possibly `""`) whenever every variant shares the same
+  ## description -- i.e. every arg that isn't a flag with genuinely divergent
+  ## per-variant ops -- so callers that don't care about divergence still see
+  ## a single bucket covering all of `arg.variants`.
   var byDesc = initOrderedTable[string, seq[string]]()
   for v in arg.variants:
     byDesc.mgetOrPut(arg.variantDesc(v), @[]).add v
@@ -145,27 +145,27 @@ proc variantGroups*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
     result.add (names: names, desc: desc)
 
 proc rows*(arg: Arg, preferLong = false): seq[Row] =
-  ## One Row per `arg.variantGroups()`. Text is `arg.help` (or, if `preferLong`
-  ## is `true`, `arg.longHelp` if it's not empty), falling back to the group's
-  ## own `variantDesc` when the arg's variants diverge and that group's
-  ## `variantDesc` is non-empty, plus the `[...]` bracket from `annotations`
+  ## One Row per `arg.variantsByDesc()` bucket. Text is `arg.help.short` (or,
+  ## if `preferLong` is `true`, `arg.help.long` if it's not empty), falling
+  ## back to the bucket's own `variantDesc` when the arg's variants diverge
+  ## and that bucket's `variantDesc` is non-empty, plus the `[...]` bracket from `annotations`
   ## (`action` included only when divergent AND `arg.help` is non-empty).
   ## Callers filter `arg.hidden` on themselves.
   let
-    groups = arg.variantGroups()
+    buckets = arg.variantsByDesc()
     help = if preferLong and arg.help.long.len > 0: arg.help.long else: arg.help.short
-  for vg in groups:
+  for bucket in buckets:
     let
-      divergent = groups.len > 1 and vg.desc.len > 0
-      primary = if help.len > 0: help elif divergent: vg.desc else: ""
-      action = if divergent and help.len > 0: vg.desc else: ""
+      divergent = buckets.len > 1 and bucket.desc.len > 0
+      primary = if help.len > 0: help elif divergent: bucket.desc else: ""
+      action = if divergent and help.len > 0: bucket.desc else: ""
       annotations = arg.annotations(action = action)
       bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
       text = if bracket.len == 0: primary elif primary.len == 0: bracket else: fmt"{primary} {bracket}"
-    result.add Row(variants: vg.names.join(", "), text: text)
+    result.add Row(variants: bucket.names.join(", "), text: text)
 
 proc variantsColWidth(spec: Spec): int =
-  ## Widest single variant-group's joined names across every arg in `spec`
+  ## Widest single `Row.variants` across every arg in `spec`
   ## (including hidden ones -- existing behavior unchanged), capped at
   ## `spec.settings.maxVariantsWidth` unless 0 (unlimited). Built on `rows()`.
   for arg in spec.args:
@@ -356,15 +356,15 @@ when isMainModule:
         ]
       check arg.annotations(action = "a") == expected
 
-  suite "variantGroups":
-    test "an arg with no variants has no groups":
-      check Arg().variantGroups().len == 0
+  suite "variantsByDesc":
+    test "an arg with no variants has no buckets":
+      check Arg().variantsByDesc().len == 0
 
-    test "variants with no variant-specific description are grouped with an empty desc":
-      check Arg(variants: @["-v", "--verbose"], help: "Verbosity").variantGroups() ==
+    test "variants with no variant-specific description share one bucket with an empty desc":
+      check Arg(variants: @["-v", "--verbose"], help: "Verbosity").variantsByDesc() ==
         @[(names: @["-v", "--verbose"], desc: "")]
 
-    test "variants with variant-specific descriptions are grouped by desc":
+    test "variants with variant-specific descriptions are bucketed by desc":
       let
         arg = TestArg(
           variants: @["-d", "--down", "-u", "--up"],
@@ -372,16 +372,16 @@ when isMainModule:
         expected = @[
           (names: @["-d", "--down"], desc: "Move down"),
           (names: @["-u", "--up"], desc: "Move up")]
-      check arg.variantGroups() == expected
+      check arg.variantsByDesc() == expected
 
   suite "rows":
-    # Variants are grouped into a row by description. A group is considered
-    # divergent if it is not the only group and if its variantDesc is non-empty.
-    test "a non-divergent variant group gets one row with the arg's help text":
+    # Variants sharing a description share a row. A bucket is considered
+    # divergent if it is not the only bucket and its variantDesc is non-empty.
+    test "a non-divergent bucket gets one row with the arg's help text":
       check TestArg(variants: @["<name>"], help: "Who to greet").rows() ==
         @[Row(variants: "<name>", text: "Who to greet")]
 
-    test "a single group is non-divergent and ignores variantDesc":
+    test "a single bucket is non-divergent and ignores variantDesc":
       let
         arg = TestArg(
           variants: @["-v"],
@@ -390,7 +390,7 @@ when isMainModule:
         expected = @[Row(variants: "-v", text: "Verbosity")]
       check arg.rows() == expected
 
-    test "a non-divergent group's help text is blank if arg.help is empty":
+    test "a non-divergent bucket's help text is blank if arg.help is empty":
       let
         arg = TestArg(
           variants: @["-v"],
@@ -398,7 +398,7 @@ when isMainModule:
         expected = @[Row(variants: "-v", text: "")]
       check arg.rows() == expected
 
-    test "a divergent group's help text matches variantDesc if arg.help is empty":
+    test "a divergent bucket's help text matches variantDesc if arg.help is empty":
       let
         arg = TestArg(
           variants: @["--direction", "--up", "--down"],
@@ -409,7 +409,7 @@ when isMainModule:
           Row(variants: "--down", text: "Move down")]
       check arg.rows() == expected
 
-    test "a divergent group's help text uses arg.help + action annotation if arg.help is not empty":
+    test "a divergent bucket's help text uses arg.help + action annotation if arg.help is not empty":
       let
         arg = TestArg(
           variants: @["--direction", "--up", "--down"],
@@ -434,11 +434,11 @@ when isMainModule:
           Row(variants: "-u, --up", text: "Direction [action: move up]")]
       check arg.rows() == expected
 
-    test "a non-divergent group's bracket appears alone, with no leading space, when arg.help is empty":
+    test "a non-divergent bucket's bracket appears alone, with no leading space, when arg.help is empty":
       let arg = TestArg(variants: @["--speed=<speed>"], defaultStrVal: "5")
       check arg.rows() == @[Row(variants: "--speed=<speed>", text: "[default: 5]")]
 
-    test "a non-divergent group uses long help if preferLong is true":
+    test "a non-divergent bucket uses long help if preferLong is true":
       let
         arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
         expected = @[Row(variants: "-x", text: "long help text")]

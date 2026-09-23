@@ -814,7 +814,7 @@ separately-declared groups are always independently reachable even if their
 op/value happen to coincide.
 
 `defineArg`/`defineFlag` also generate a `method variantDesc` per type,
-used by `genHelp` (via the `variantGroups` helper) to auto-describe a flag
+used by `genHelp` (via the `variantsByDesc` helper) to auto-describe a flag
 variant when its behavior diverges from its siblings: `desc` (a `flagOp*`
 call's own `help` argument, if given) wins, else it falls back to generic
 wording from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"`
@@ -916,32 +916,32 @@ the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 `DefaultWidth = 80`) and `Spec.settings.maxVariantsWidth` (default
 `DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping (`help.nim`),
 now split across four named pieces sitting between `genHelp` and
-`variantGroups`: `width` wraps usage lines (`formatUsage`) and, via
-`render`, each row's help/description text, while `maxVariantsWidth`
+`variantsByDesc`: `width` wraps usage lines (`formatUsage`) and, via
+`renderColumn`, each row's help/description text, while `maxVariantsWidth`
 (applied in `variantsColWidth`) caps the "variants" column (e.g. `-v,
 --verbose, --quiet`) so one arg with many aliases can't inflate the shared
-column width for every other row. `genHelp` builds each arg's rows via
-`rows(arg: Arg): seq[Row]`, which resolves one `Row` per
-`arg.variantGroups()` group — `variantGroups` (`help.nim`, alongside
-`rows`) groups an arg's variants by their `variantDesc` text and returns
-one group per distinct behavior. `colWidth` itself comes from
+column width for every other row. Each formatter builds an arg's rows via
+`rows(arg: Arg, preferLong = false): seq[Row]`, which resolves one `Row`
+per `arg.variantsByDesc()` bucket — `variantsByDesc` (`help.nim`,
+alongside `rows`) buckets an arg's variants by their `variantDesc` text and
+returns one bucket per distinct behavior. `colWidth` itself comes from
 `variantsColWidth(spec: Spec): int`, computed from the widest single
-group's joined names (via `rows`), not the widest whole-`Arg`'s — and,
+bucket's joined names (via `rows`), not the widest whole-`Arg`'s — and,
 deliberately unfiltered by `hidden`, a hidden arg's long variant name still
 counts toward the column width even though its own row never renders
-(existing behavior, preserved as-is rather than endorsed). Each group
-becomes its own row using the same 2-space `Margin` — groups are peers
+(existing behavior, preserved as-is rather than endorsed). Each bucket
+becomes its own row using the same 2-space `Margin` — buckets are peers
 (different variants of the same `Arg`), not a wrap continuation of one
-another, so they render at the same indent; only a group's own text
+another, so they render at the same indent; only a bucket's own text
 wrapping onto multiple lines uses the deeper 4-space `ContinuationIndent`.
 Both constants, and the wrap/zip logic that uses them, live in
-`render(rows: seq[Row], width, colWidth: int): string`. Every group's row
+`renderColumn(rows: seq[Row], width, colWidth: int): string`. Every bucket's row
 shows the arg's shared `help` text and arg-level annotations
 (`validatorHelp`/`defaultStr`/`envName`/`configKey`, assembled in that
 order by `annotations(arg: Arg, action = ""): seq[string]`), not just the
 first-declared variant's — that repetition, not indentation, is what
 visually ties divergent rows together as variants of the same value. When
-`variantGroups().len > 1` and a group's own `variantDesc` is non-empty,
+`variantsByDesc().len > 1` and a bucket's own `variantDesc` is non-empty,
 `rows` passes that desc to `annotations` as `action`, appended last as
 `[action: ...]` (deliberately labeled `action:`, not `default:`, so it
 can't collide with a hypothetical future `[default: <value>]` for a flag's
@@ -1218,7 +1218,7 @@ sources each variant's description from `Arg.variantDesc(variant)`
 (`backend.nim`) when an Arg's variants genuinely diverge in what they do
 (e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
 back to the Arg's shared `.help` otherwise — mirroring
-`help.variantGroups`'s own grouping rule (used by `genHelp`) so completion's
+`help.variantsByDesc`'s own bucketing rule (used by `genHelp`) so completion's
 descriptions agree with what help text would actually show.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell

@@ -28,7 +28,7 @@ third-party formatter is built the same way:
   left with none. It yields `Arg`s rather than rendered rows so the
   formatter keeps the short/long help choice (ADR 0049) and anything else
   it needs from the Arg.
-- `rows(arg, preferLong)`, `Row`, `variantGroups`, and `annotations` resolve
+- `rows(arg, preferLong)`, `Row`, `variantsByDesc`, and `annotations` resolve
   an Arg into renderable line-items. `Row` is an object rather than a tuple
   so fields can be added later without breaking custom formatters.
 - `prolog`, `epilog`, and `usage` are read-only accessors for `Spec`'s

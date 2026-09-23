@@ -38,8 +38,8 @@ Arg's Variants are interchangeable for matching purposes — any one
 satisfies that Arg's position in the grammar — but whether the *specific*
 Variant seen affects behavior beyond identifying the Arg depends on the
 Arg kind (see Option, Flag, Command, Positional Argument).
-_Avoid_: Alias, spelling, flag name (bare "Alias" names the grouping among
-a Flag's own Variants, not a Variant itself -- see FlagOp Alias)
+_Avoid_: Alias, spelling, flag name (bare "Alias" names a set of a Flag's
+own Variants, not a Variant itself -- see FlagOp Alias)
 
 **Option**:
 A named argument that takes a value via one of its Variants (e.g.
@@ -83,13 +83,13 @@ in prose when referring to the `flagOp*` constructor specifically),
 variant behavior
 
 **FlagOp Alias**:
-The group of a Flag's own Variants that share one Flag Operation --
+The set of a Flag's own Variants that share one Flag Operation --
 declared together, not discovered after the fact by comparing op/value.
 Every spelling in `flag*`'s own `variants` string is automatically one
-such group, since they can only ever share the type's single implicit
+such set, since they can only ever share the type's single implicit
 op/value pair; every spelling passed to one `flagOp*` call is another,
 declared explicitly. Two different `flagOp*` calls are always independent
-groups, never merged into one alias set, even if their op/value happen to
+sets, never merged into one alias set, even if their op/value happen to
 coincide -- see `docs/adr/0027-flag-op-declarations.md` for why. Determines
 which Variants are mutually exclusive alternatives of each other versus
 independently reachable: a `choice`-style Usage Line dedupes among FlagOp
@@ -105,7 +105,7 @@ Variants are unconditionally aliases of one another. See
 `docs/adr/0026-flag-op-alias-exclusivity.md` (issue #8) for the usage-string
 alternation exclusivity, order-independent scanning, true-CLI-order
 composition, and alias-scoped completion mechanics that key off this same
-grouping.
+set.
 _Avoid_: Flag Operation Class, Op class, variant class (earlier working
 terms for this same concept)
 
@@ -248,6 +248,14 @@ _Avoid_: formatter (ambiguous outside this context), HelpFormatter
 (code-level name, fine in prose about the API itself), docopt style,
 man-page style (both considered and rejected for this naming — see the ADR
 for this design)
+
+**Help Group**:
+The heading an Arg is listed under in Help, set by its `group` parameter
+(`Commands`, `Arguments`, or `Options` by default, or any user-chosen
+name). Help Groups appear in a fixed order -- Commands, Arguments,
+Options, then user-defined groups in declaration order -- and a group whose
+Args are all hidden isn't shown.
+_Avoid_: group (alone) for a set of one Arg's Variants -- see FlagOp Alias
 
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own
