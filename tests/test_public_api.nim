@@ -194,6 +194,9 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
+    # `usage`/`prolog`/`epilog` also have read accessors exported from
+    # `argumint/help` for custom Help Formatters; like `genHelp`, they're
+    # mirrored by `tests/test_help.nim` (ADR 0048).
 
   test "`genHelp` is reachable only by importing `argumint/help`":
     # Semi-public on purpose: the umbrella import stays free of it, and a

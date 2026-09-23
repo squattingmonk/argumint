@@ -256,6 +256,20 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
     configSources: configSources, strictOptions: strictOptions)
 
+# Read-only views of private `Spec` fields (ADR 0030) for Help Formatters;
+# re-exported by `argumint/help`, not the facade -- see ADR 0048.
+proc prolog*(spec: Spec): string =
+  ## Front matter for `spec`'s help message.
+  spec.prolog
+
+proc epilog*(spec: Spec): string =
+  ## Back matter for `spec`'s help message.
+  spec.epilog
+
+proc usage*(spec: Spec): string =
+  ## `spec`'s raw usage string, one alternative per line.
+  spec.usage
+
 converter toHelpText*(s: string): HelpText =
   ## Lets `argumint.nim`'s arg constructors pass help text as a single string.
   (short: s, long: "")
