@@ -54,8 +54,11 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
         for row in arg.rows:
           lines.add "  " & row.variants.render & " -- " & row.text.render
       groups.add lines.join("\n")
-    let usage = "USAGE:\n" & spec.usage.usageLines(command, spec.settings.width).render
-    joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
+    let
+      width = spec.settings.width
+      usage = "USAGE:\n" & spec.usage.usageLines(command, width).render
+    joinSections(spec.prolog.proseLines(width).render, usage,
+      joinSections(groups), spec.epilog.proseLines(width).render)
 
   test "it controls the whole message, including section labels":
     let expected = """

@@ -987,8 +987,13 @@ bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
 `srProgram` and styles each line through `lexer.displayTokens`, which runs
 the lexer's own token PEGs over the line without raising, keeping
 whitespace and unknown characters as `tkInvalid` pieces. Headers are
-`srHeader`, and a prolog/epilog gets `markup` and is split at its newlines
-before rendering, so no span a styler sees contains one.
+`srHeader`. A prolog/epilog goes through `proseLines` in two stages:
+`proseBlocks` dedents it (`dedent`) and joins its lines into paragraphs,
+list items, and indented lines, each with `markup` applied after joining,
+then a private `wrap` overload wraps each block hanging under its text
+(ADR 0054). No line it yields contains a newline, so no span a styler sees
+does either. `proseBlocks` takes `metavars`, so Arg help text can reuse
+it.
 
 Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
 only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
