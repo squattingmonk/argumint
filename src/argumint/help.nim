@@ -9,7 +9,6 @@
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
 import std/[pegs, sequtils, strformat, strutils, tables]
-import std/unicode except strip # Buggy -- see docs/gotchas.md.
 
 import ./[backend, errors, lexer, style]
 
