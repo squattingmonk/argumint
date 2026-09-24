@@ -640,3 +640,10 @@ or anything else that generates methods inside a template.
   leg. `style.nim` declares its own `importc` wrappers under different
   names (so they can't clash with newer `winlean`s). Cross-compile Windows
   code with the oldest supported toolchain (`--os:windows --compileOnly`).
+
+- **`unicode.strip` with `leading = false` leaves all-whitespace text
+  alone.** `unicode.strip("  ", leading = false)` returns `"  "`, while
+  `strutils.strip` returns `""` (2.2.4 and 2.2.12). A module importing both
+  gets the `unicode` overload from a bare `strip(leading = false)`, so
+  `help.nim` imports `std/unicode except strip`. Found when a
+  whitespace-only prolog line survived as a blank block.

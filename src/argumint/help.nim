@@ -8,7 +8,8 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[pegs, sequtils, strformat, strutils, tables, unicode]
+import std/[pegs, sequtils, strformat, strutils, tables]
+import std/unicode except strip # Buggy -- see docs/gotchas.md.
 
 import ./[backend, errors, lexer, style]
 
@@ -242,16 +243,114 @@ proc usageSection(spec: Spec, command: string): string =
   header("Usage", styler) & "\n" &
     spec.usage.usageLines(command, spec.settings.width).render(styler)
 
-proc prose(text: string, styler: Styler): string =
-  ## A prolog or epilog with Help Markup, rendered, split at its newlines so
-  ## no span the styler sees contains one.
-  var lines = @[StyledText()]
-  for span in markup(text, keepTicks = styler.isNil).spans:
-    let parts = span.text.split('\n')
-    for i, part in parts:
-      if i > 0: lines.add StyledText()
-      lines[^1].add Span(role: span.role, text: part)
-  lines.render(styler)
+type
+  ProseKind = enum
+    pkBlank, pkParagraph, pkItem, pkLine
+
+  ProseBlock = object
+    ## One paragraph, list item, indented line, or blank line of prose, still
+    ## unwrapped.
+    kind: ProseKind
+      ## What the block is; a `pkBlank` has no `text`
+    indent: int
+      ## Columns before the first line's `marker` (or text, if none)
+    marker: string
+      ## A `pkItem`'s marker and its space (`- `, `10. `), or empty
+    text: StyledText
+      ## The joined text, with Help Markup applied
+
+proc expandIndent(line: string): string =
+  ## `line` with the tabs in its indentation expanded to 8-column tab stops.
+  var i = 0
+  while i < line.len and line[i] in {' ', '\t'}:
+    result.add ' '.repeat(if line[i] == '\t': 8 - result.len mod 8 else: 1)
+    inc i
+  result.add line[i .. ^1]
+
+proc dedentLines(text: string): seq[string] =
+  ## `text`'s lines with the indentation they share removed (`dedent`, after
+  ## expanding tabs), trailing whitespace stripped, and leading and trailing
+  ## blank lines dropped. A `"""` string starting on the line after its
+  ## quotes loses its source indentation this way -- see
+  ## `docs/adr/0054-reflow-prolog-and-epilog.md`.
+  for line in text.splitLines.map(expandIndent).join("\n").dedent.splitLines:
+    result.add line.strip(leading = false)
+  while result.len > 0 and result[0].len == 0: result.delete 0
+  while result.len > 0 and result[^1].len == 0: result.setLen result.len - 1
+
+proc listMarker(line: string): string =
+  ## `line`'s list marker and its space (`- `, `* `, `12. `), or empty.
+  if line.startsWith("- ") or line.startsWith("* "):
+    return line[0 .. 1]
+  var i = 0
+  while i < line.len and line[i] in Digits: inc i
+  if i > 0 and line.continuesWith(". ", i):
+    result = line[0 .. i + 1]
+
+proc proseBlocks(text: string, metavars: openArray[string] = [],
+    keepTicks = true): seq[ProseBlock] =
+  ## Stage one of `proseLines`: `text` dedented and joined into paragraphs,
+  ## list items, and indented lines, each with Help Markup against
+  ## `metavars`. See `proseLines` for the rule.
+  var pending: seq[tuple[shape: ProseBlock, raw: string]]
+  for line in text.dedentLines:
+    let
+      body = line.strip(trailing = false)
+      indent = line.len - body.len
+      marker = body.listMarker
+    if line.len == 0:
+      pending.add (ProseBlock(kind: pkBlank), "")
+    elif marker.len > 0:
+      pending.add (ProseBlock(kind: pkItem, indent: indent, marker: marker),
+        body[marker.len .. ^1].strip)
+    elif pending.len > 0 and (
+        (indent == 0 and pending[^1].shape.kind == pkParagraph) or
+        (indent > 0 and pending[^1].shape.kind == pkItem and
+          indent == pending[^1].shape.indent + pending[^1].shape.marker.len)):
+      pending[^1].raw.add ' ' & body
+    elif indent == 0:
+      pending.add (ProseBlock(kind: pkParagraph), body)
+    else:
+      pending.add (ProseBlock(kind: pkLine, indent: indent), body)
+  for (shape, raw) in pending:
+    result.add shape
+    result[^1].text = markup(raw, metavars, keepTicks)
+
+proc wrap(blocks: seq[ProseBlock], width: int): seq[StyledText] =
+  ## Stage two of `proseLines`: each block wrapped to `width`, continuation
+  ## lines hanging under its text. Text always gets at least 20 columns, like
+  ## row help text, so a deep indent overflows instead of looping.
+  for b in blocks:
+    if b.kind == pkBlank:
+      result.add StyledText()
+      continue
+    let hang = b.indent + b.marker.len
+    for i, line in b.text.wrap(max(width - hang, 20)):
+      let prefix =
+        if i == 0: ' '.repeat(b.indent) & b.marker else: ' '.repeat(hang)
+      result.add styled(prefix) & line
+
+proc proseLines*(text: string, width = DefaultWidth, keepTicks = true): seq[StyledText] =
+  ## Lays out `text` (a prolog or epilog) as wrapped lines with Help Markup,
+  ## one `StyledText` per line, none containing `\n`; empty for blank text.
+  ## `text` is re-flowed, since a `"""` string's line breaks are incidental:
+  ##
+  ## - The indentation every line shares is removed (`dedent`).
+  ## - Consecutive unindented lines join into a paragraph; a blank line
+  ##   separates paragraphs and is kept.
+  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
+  ##   indented to exactly the item's text column continues it; the item wraps
+  ##   hanging at that column.
+  ## - Any other indented line is kept as its own line, wrapping at its indent.
+  ##
+  ## Pass `keepTicks = false` when rendering with a styler, as for `rows`.
+  ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
+  text.proseBlocks(keepTicks = keepTicks).wrap(width)
+
+proc proseSection(text: string, settings: SpecSettings): string =
+  ## The built-ins' prolog or epilog, wrapped at `settings.width`.
+  let styler = settings.style
+  text.proseLines(settings.width, keepTicks = styler.isNil).render(styler)
 
 proc joinSections*(sections: varargs[string]): string =
   ## Joins the non-empty `sections` of a help message with a blank line
@@ -275,8 +374,8 @@ proc formatColumn*(spec: Spec, command: string): string =
       rows.add arg.rows(keepTicks = styler.isNil)
     groups.add header(name, styler) & "\n" &
       rows.renderColumn(spec.settings.width, colWidth, styler)
-  joinSections(spec.prolog.prose(styler), spec.usageSection(command),
-    joinSections(groups), spec.epilog.prose(styler))
+  joinSections(spec.prolog.proseSection(spec.settings), spec.usageSection(command),
+    joinSections(groups), spec.epilog.proseSection(spec.settings))
 
 proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil): string =
   let
@@ -305,8 +404,8 @@ proc formatParagraph*(spec: Spec, command: string): string =
       rows.add arg.rows(arg.help.longOrShort, keepTicks = styler.isNil)
     groups.add header(name, styler) & "\n" &
       rows.renderParagraph(spec.settings.width, styler)
-  joinSections(spec.prolog.prose(styler), spec.usageSection(command),
-    joinSections(groups), spec.epilog.prose(styler))
+  joinSections(spec.prolog.proseSection(spec.settings), spec.usageSection(command),
+    joinSections(groups), spec.epilog.proseSection(spec.settings))
 
 proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
   ## Renders `spec`'s full help message with `formatter`, which owns the
@@ -736,6 +835,116 @@ when isMainModule:
       let usage = "<foo> [--bar --aVeryLongOptionName]"
       check usageLines(usage, "prog", width = 20).render == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
+  suite "proseLines":
+    proc lines(text: string, width = 40): seq[string] =
+      text.proseLines(width).mapIt(it.plain)
+
+    test "empty or all-blank text has no lines":
+      check lines("").len == 0
+      check lines(" \n\n  \n").len == 0
+
+    test "a single line that fits is unchanged":
+      check lines("Copy files around") == @["Copy files around"]
+
+    test "a long line wraps at the width":
+      check lines("A long description that has to wrap at the width given") ==
+        @["A long description that has to wrap at", "the width given"]
+
+    test "consecutive unindented lines join into a paragraph":
+      check lines("Copyright 2026\nMIT License") == @["Copyright 2026 MIT License"]
+
+    test "a blank line separates paragraphs and is kept":
+      check lines("one\ntwo\n\nthree") == @["one two", "", "three"]
+
+    test "leading and trailing blank lines are dropped":
+      check lines("\n\none\n\n") == @["one"]
+
+    test "source indentation is removed when text starts on the next line":
+      check lines("""
+        Naval Fate.
+
+        A long description of the program that
+        wraps.
+        """) == @["Naval Fate.", "", "A long description of the program that",
+          "wraps."]
+
+    test "text right after the quotes keeps the next lines' indentation":
+      check lines("""Naval Fate.
+        Moves ships.""") == @["Naval Fate.", "        Moves ships."]
+
+    test "an indented line stays on its own line":
+      check lines("Run:\n  prog --fast\nthen check.") ==
+        @["Run:", "  prog --fast", "then check."]
+      check lines("Run:\n  prog --fast") == @["Run:", "  prog --fast"]
+
+    test "an overlong indented line wraps at its indent":
+      check lines("x\n    an indented line that is too long to fit\ny") ==
+        @["x", "    an indented line that is too long to", "    fit", "y"]
+
+    test "an indent at or beyond the width still gets 20 columns":
+      let deep = ' '.repeat(40)
+      check lines("x\n" & deep & "words that wrap somewhere after twenty\ny") ==
+        @["x", deep & "words that wrap", deep & "somewhere after", deep & "twenty",
+          "y"]
+
+    test "a width under 20 still wraps at 20":
+      check lines("A paragraph that wraps at twenty columns", 10) ==
+        @["A paragraph that", "wraps at twenty", "columns"]
+      check lines("a b c", 0) == @["a b c"]
+
+    test "leading tabs expand to 8-column tab stops":
+      check lines("\tone\n\ttwo") == @["one two"]
+      check lines("x\n\t  y\nz") == @["x", "          y", "z"]
+      check lines("- a\n\tb\nz") == @["- a", "        b", "z"]
+
+    test "list markers start items, which stay separate":
+      check lines("Modes:\n- fast\n* safe\n10. slow") ==
+        @["Modes:", "- fast", "* safe", "10. slow"]
+
+    test "a line indented to an item's text column continues it":
+      check lines("- fast: skips\n  verification\n10. safe\n    too") ==
+        @["- fast: skips verification", "10. safe too"]
+
+    test "a long item wraps hanging at its text column":
+      check lines("- fast: skips verification entirely, which is quick") ==
+        @["- fast: skips verification entirely,", "  which is quick"]
+
+    test "an item's text column counts one space after its marker":
+      check lines("3.  two\n   joined\n    kept\nx") ==
+        @["3. two joined", "    kept", "x"]
+
+    test "a line indented past an item's text column stays separate":
+      check lines("- fast\n    detail\nx") == @["- fast", "    detail", "x"]
+
+    test "an unindented line after an item starts a paragraph":
+      check lines("- fast\nThen more.") == @["- fast", "Then more."]
+
+    test "a nested item and its continuation follow the rule at their depth":
+      check lines("- top\n  - sub item that is long enough to wrap here\n" &
+          "    continued\n  not continued\n- next") ==
+        @["- top", "  - sub item that is long enough to wrap", "    here continued",
+          "  not continued", "- next"]
+
+    test "a marker needs its space":
+      check lines("-x\n1.5 times") == @["-x 1.5 times"]
+
+    test "Help Markup spans a joined line break":
+      check "Use `--speed\n<kn>` now".proseLines(keepTicks = false).mapIt(
+        it.render(tagged)) == @["Use {option:--speed} {positional:<kn>} now"]
+
+    test "keepTicks keeps or drops the backticks":
+      check lines("See `-x` and ``y``") == @["See `-x` and `y`"]
+      check "See `-x`".proseLines(keepTicks = false).mapIt(it.plain) == @["See -x"]
+
+    test "a wrapped span keeps its role and no span holds a newline":
+      let wrapped = "Now pass `--long-option` to\nturn it on".proseLines(
+        20, keepTicks = false)
+      check wrapped.mapIt(it.render(tagged)) ==
+        @["Now pass", "{option:--long-option} to", "turn it on"]
+      for line in wrapped:
+        for span in line.spans:
+          check '\n' notin span.text
+
   suite "joinSections":
     test "no sections yields an empty string":
       check joinSections() == ""
@@ -772,6 +981,38 @@ when isMainModule:
       let spec = Spec(settings: newSpecSettings(style = nil), epilog: "bar")
       for formatter in formatters:
         check formatter(spec, "prog") == "Usage:\n  prog\n\nbar"
+
+    test "a long prolog and epilog wrap at the width":
+      let
+        long = "A prolog long enough that it cannot possibly fit in forty columns."
+        spec = Spec(settings: newSpecSettings(width = 40, style = nil),
+          prolog: long, epilog: long)
+      for formatter in formatters:
+        let help = formatter(spec, "prog")
+        check help.startsWith("A prolog long enough that it cannot\npossibly fit in forty columns.\n\n")
+        for line in help.splitLines:
+          check line.len <= 40
+
+    test "a multi-line prolog re-flows into paragraphs":
+      let spec = Spec(settings: newSpecSettings(width = 40, style = nil),
+        prolog: """
+          Naval Fate.
+
+          Moves ships and
+          mines around.""")
+      for formatter in formatters:
+        check formatter(spec, "prog").startsWith(
+          "Naval Fate.\n\nMoves ships and mines around.\n\nUsage:")
+
+    test "a subcommand's prolog wraps at its own width":
+      let
+        child = plainSpec((), prolog = "A subcommand prolog long enough to wrap at forty.")
+        parent = plainSpec(
+          (ship: CommandArg(kind: ArgKind.Command, variants: @["ship"], spec: child)),
+          settings = newSpecSettings(width = 40, style = nil))
+      for formatter in formatters:
+        check formatter(parent.commands["ship"].spec, "p ship").startsWith(
+          "A subcommand prolog long enough to wrap\nat forty.\n\n")
 
     test "groups come between the usage block and the epilog, each separated by a blank line":
       let spec = plainSpec(
@@ -1184,10 +1425,11 @@ when isMainModule:
     test "prolog and epilog get Help Markup, context-only":
       for formatter in formatters:
         let help = formatter(styledSpec("See `--speed <kn>` and `$HOME`.",
-          "Try `ship`\nor `--speed=<kn>`."), "p")
+          "Try `ship`\nor `--speed=<kn>`.\n\n  `$HOME`"), "p")
         check help.startsWith(
           "See {option:--speed} {positional:<kn>} and {env:$HOME}.\n\n")
-        check help.endsWith("\n\nTry {literal:ship}\nor {option:--speed}={metavar:<kn>}.")
+        check help.endsWith("\n\nTry {literal:ship} or " &
+          "{option:--speed}={metavar:<kn>}.\n\n  {env:$HOME}")
 
     test "with no styler, prose keeps its backticks and collapses escapes":
       let spec = plainSpec(

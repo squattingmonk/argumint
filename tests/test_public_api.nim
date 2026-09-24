@@ -222,6 +222,7 @@ suite "`Spec` is an opaque handle":
     check not declared(Span)
     check not declared(StyledText)
     check not declared(usageLines)
+    check not declared(proseLines)
 
   test "styling is configurable from `import argumint` alone":
     # `markup` and the span model stay formatter-author names; see

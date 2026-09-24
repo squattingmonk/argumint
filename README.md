@@ -1582,6 +1582,32 @@ An explicit `width` is never capped. Pass `width = detectWidth()` to follow
 the terminal however wide it is, or `width = min(detectWidth(), 120)` for a
 cap of your own.
 
+The prolog and epilog wrap at the same width. Their line breaks are
+re-flowed, so a long one can be written as an indented `"""` string:
+
+```nim
+spec.parseOrQuit(prolog = """
+  Naval Fate: moves ships and lays mines, and
+  keeps lines that run on together in one paragraph.
+
+  Modes:
+  - fast: skips verification, which is quick
+    but unsafe
+  - safe: checks every block
+
+      naval_fate ship new <name>
+  """)
+```
+
+The indentation every line shares is removed (a tab counts as up to 8
+spaces), so start the text on the line after the opening `"""`, not right
+after it. Consecutive lines then join into a paragraph, and a blank line
+separates paragraphs. A line starting with `- `, `* `, or `1. ` starts a
+list item. A line indented to the item's text, like `but unsafe` above,
+continues it, and a long item wraps under its text. Any other indented line
+is kept as its own line. To break a line without starting a new paragraph,
+leave a blank line or indent it.
+
 A variant name or help-text word too long to fit its column splits at the
 character level rather than overflowing it whole. If that's undesirable for
 a particular spec (e.g. one with unusually long option names), raise
@@ -1680,11 +1706,12 @@ section order and labels as well as how each arg is laid out. To write one,
 `formatColumn`/`formatParagraph` are built from: `helpGroups` (each group's
 visible args, in display order), `rows`/`Row` (an arg's variants and
 resolved help text), the `prolog`/`epilog`/`usage` accessors, `usageLines`
-(the wrapped usage lines, without a label), and `joinSections` (joins the
-non-empty parts with a blank line between each). Rows and usage lines are
-`StyledText`, a sequence of spans that each carry a role (option,
-positional, header, ...): lay them out with `wrap` and `len`, then turn each
-line into a string with `render`. Pass `render` the spec's
+(the wrapped usage lines, without a label), `proseLines` (a prolog or
+epilog re-flowed and wrapped, as described above), and `joinSections`
+(joins the non-empty parts with a blank line between each). Rows and usage
+lines are `StyledText`, a sequence of spans that each carry a role
+(option, positional, header, ...): lay them out with `wrap` and `len`, then
+turn each line into a string with `render`. Pass `render` the spec's
 `settings.style` to colour your output as the built-ins do, and use
 `markup` to style your own prose; a formatter that doesn't renders plain:
 
@@ -1700,8 +1727,11 @@ proc formatShouty(spec: Spec, command: string): string =
       for row in arg.rows:
         lines.add "  " & row.variants.render & " -- " & row.text.render
     groups.add lines.join("\n")
-  let usage = "USAGE:\n" & spec.usage.usageLines(command, spec.settings.width).render
-  joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
+  let
+    width = spec.settings.width
+    usage = "USAGE:\n" & spec.usage.usageLines(command, width).render
+  joinSections(spec.prolog.proseLines(width).render, usage,
+    joinSections(groups), spec.epilog.proseLines(width).render)
 ```
 
 These stay reachable only through that direct import rather than a plain
