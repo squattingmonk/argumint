@@ -194,7 +194,9 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
-    # `usage`/`prolog`/`epilog` also have read accessors exported from
+    # Each has a read accessor in `argumint/backend`, withheld from the
+    # facade -- so these pin "withheld", mirrored by `tests/test_argumint.nim`
+    # reading them. `usage`/`prolog`/`epilog` are also re-exported from
     # `argumint/help` for custom Help Formatters; like `genHelp`, they're
     # mirrored by `tests/test_help.nim` (ADR 0048).
 

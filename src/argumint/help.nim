@@ -8,14 +8,11 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[importutils, pegs, sequtils, strformat, strutils, tables, unicode]
+import std/[pegs, sequtils, strformat, strutils, tables, unicode]
 
 import ./[backend, errors]
 
 export backend.prolog, backend.epilog, backend.usage
-
-# Reaches `Spec`'s private fields (ADR 0030) from non-generic code only
-privateAccess(Spec)
 
 type
   HelpArg* = ref object of MessageArg
@@ -297,8 +294,10 @@ method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   raise newException(HelpError, spec.genHelp(command, formatter))
 
 when isMainModule:
-  import std/[options, unittest]
+  import std/[importutils, options, unittest]
   import ./[configsource, specbuild]
+
+  privateAccess(Spec) ## Builds bare `Spec`s for white-box tests (ADR 0030).
 
   type
     TestArg = ref object of Arg

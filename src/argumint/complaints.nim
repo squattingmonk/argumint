@@ -6,13 +6,9 @@
 ## never wording anything itself, then words and renders it once the walk is
 ## over (`finalComplaints`/`failureMessage`/`raiseParseFailure`). See
 ## `docs/architecture.md` §3b.
-import std/[algorithm, importutils, sequtils, strformat, strutils, tables, unicode]
+import std/[algorithm, sequtils, strformat, strutils, tables, unicode]
 
 import ./[backend, errors, help, tokens]
-
-# Reaches `Spec`'s private `usage`/`options`/`commands` (ADR 0030) --
-# non-generic code only, see docs/gotchas.md.
-privateAccess(Spec)
 
 type
   Complaint = tuple[kind: string, subject: string, names: bool]

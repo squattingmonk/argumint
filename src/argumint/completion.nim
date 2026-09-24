@@ -13,13 +13,9 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[importutils, sets, strformat, strutils, sugar, tables]
+import std/[sets, strformat, strutils, sugar, tables]
 
 import ./[backend, matching, tokens]
-
-# Reaches `Spec`'s private fields (ADR 0030) from non-generic code only -- see
-# docs/gotchas.md.
-privateAccess(Spec)
 
 type
   Shell* {.pure.} = enum
@@ -166,7 +162,6 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
         collectFrontier(tr.next, fresh, acc, freshSeen)
       else:
         collectFrontier(tr.next, fresh, acc, seen)
-
 
 proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
   ## Returns shell-completion candidates for `words` -- everything typed

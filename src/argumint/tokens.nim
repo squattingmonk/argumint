@@ -7,12 +7,9 @@
 ## Precedence fallback tiers moved out to `complaints.nim`/`precedence.nim`
 ## -- see `docs/architecture.md` §3.
 
-import std/[importutils, pegs, strformat, tables]
+import std/[pegs, strformat, tables]
 
 import ./backend
-# Reaches `Spec`'s private `options`/`commands` tables (ADR 0030) --
-# non-generic code only, see docs/gotchas.md.
-privateAccess(Spec)
 
 type
   RawToken* = object

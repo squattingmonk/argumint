@@ -7,12 +7,9 @@ import argumint/specbuild
 import argumint/configsource/ini
 import argumint/configsource/json
 
-privateAccess(Spec) ## White-box assertions on `Spec`'s bookkeeping fields,
-  ## which are private to the library as of ADR 0030.
-
-privateAccess(ValueArg[string, false]) ## Same, for the arg types exported
-privateAccess(ValueArg[string, true])  ## by issue #27 -- type public, state
-privateAccess(FlagArg[bool])           ## private, one instantiation each.
+privateAccess(ValueArg[string, false]) ## White-box assertions on the arg
+privateAccess(ValueArg[string, true])  ## types exported by issue #27 -- type
+privateAccess(FlagArg[bool])           ## public, state private.
 
 type Priority = enum
   low, medium, high
@@ -1290,6 +1287,19 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       matcherKind: MatcherKind
     check (state.isNil, transition.isNil, matcher.isNil) == (true, true, true)
     check matcherKind == MatcherKind.mkOption # first declared value
+
+  test "`Spec`'s read accessors exist":
+    let spec = newSpec((name: arg("<name>", help = ""), go: command("go", (x: flag("-x", help = ""))),
+      verbose: flag("-v", help = "")), prolog = "pro", epilog = "epi")
+    check not spec.fsm.isNil
+    check spec.usage.len > 0
+    check spec.args.len == 3
+    check "go" in spec.commands
+    check "<name>" in spec.arguments
+    check "-v" in spec.options
+    check spec.groups.len > 0
+    check spec.prolog == "pro"
+    check spec.epilog == "epi"
 
   test "`ValueArg`/`FlagArg`'s private fields exist":
     # Reached here only via the `privateAccess` calls at the top of this

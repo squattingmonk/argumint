@@ -16,12 +16,9 @@
 
 {.experimental: "openSym".}
 
-import std/[importutils, os, options, pegs, sugar, strformat, strutils]
+import std/[os, options, pegs, sugar, strformat, strutils]
 
 import ./argumint/[argtypes, backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
-
-privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
-  ## non-generic code only -- see `dot*` and docs/gotchas.md.
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
