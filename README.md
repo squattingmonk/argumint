@@ -1910,6 +1910,9 @@ values, so they can never drift out of sync with what the validator would
 actually accept. **Only fish and zsh render `help` inline** in their own
 completion menu; bash's `compgen`/`COMPREPLY` has no per-candidate description
 slot at all, so its generated script strips it before completing bare words.
+A multi-line `help` is shortened to its first paragraph (up to the first blank
+line), dedented and joined onto one line, so a `"""` long description still
+gives a one-line summary.
 
 ### Parsing More Than Once
 

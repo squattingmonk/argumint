@@ -646,5 +646,6 @@ or anything else that generates methods inside a template.
   `strutils.strip` returns `""` (2.2.4 and 2.2.12). A module importing both
   gets the `unicode` overload from a bare `strip(leading = false)`.
   `help.nim` used nothing else from `std/unicode`, so it dropped that
-  import. Found when a whitespace-only prolog line survived as a blank
+  import; `style.nim`, which does use it, imports `std/unicode except
+  strip`. Found when a whitespace-only prolog line survived as a blank
   block.

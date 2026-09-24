@@ -1312,7 +1312,12 @@ sources each variant's description from `Arg.variantDesc(variant)`
 (e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
 back to the Arg's shared `.help` otherwise — mirroring
 `help.variantsByDesc`'s own bucketing rule (used by `genHelp`) so completion's
-descriptions agree with what help text would actually show.
+descriptions agree with what help text would actually show. Either way the
+text goes through `style.firstParagraph` before `plainMarkup`: its first
+paragraph, dedented by the same `dedentLines` help's re-flow uses and
+joined onto one line, so a candidate is always exactly one line. Both are withheld exports
+of `style.nim` (not re-exported by `help.nim`), where `completion.nim`, which
+doesn't import `help`, can reach them.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell
 adapter (`Shell = bash | zsh | fish`) that just shells out to

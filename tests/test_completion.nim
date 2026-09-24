@@ -213,6 +213,18 @@ suite "Completion candidates carry help text":
     check candidates.find("--boost").help == "Increase by 5"
     check candidates.find("--dampen").help == "Decrease by 2"
 
+  test "a divergent variantDesc is flattened to one line too":
+    let spec = (
+      rank: flag[int](ops = [flagOp("--boost", "+=", 5, help = "Raise\n  the rank"),
+        flagOp("--dampen", "-=", 2)], default = 0),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    check built.completeArgs(@[""], "prog").find("--boost").help == "Raise the rank"
+
+  test "a tab in help text becomes a space":
+    let built = newSpec((verbose: flag("--verbose", help = "Be\tnoisy")), usage = "[options]")
+    check built.completeArgs(@[""], "prog").find("--verbose").help == "Be noisy"
+
   test "help text reads as it would with no styler: Help Markup's ticks kept, escapes collapsed":
     let spec = (
       verbose: flag("--verbose", help = "Like `-v`, not ``-q``"),
@@ -261,6 +273,24 @@ suite "__complete entry point":
     except CompletionError as e:
       caught = e.msg
     check caught == "--log-level\tLogging verbosity"
+
+  test "multi-line help is its first paragraph on the candidate's own line":
+    let spec = (
+      level: opt("--level=<n>", help = "First line\nsecond `--level`\n\nMore."),
+      mode: opt("--mode=<m>", help = """
+        Picks a mode.
+
+        Modes:
+        - fast"""),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    var caught = ""
+    try:
+      built.parse(args = @["__complete", "--"], command = "test")
+    except CompletionError as e:
+      caught = e.msg
+    check caught.splitLines == @[
+      "--level\tFirst line second `--level`", "--mode\tPicks a mode."]
 
 suite "genCompletionScript":
   let spec = (

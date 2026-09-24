@@ -58,25 +58,6 @@ type
     text: StyledText
       ## The joined text, with Help Markup applied
 
-proc expandIndent(line: string): string =
-  ## `line` with the tabs in its indentation expanded to 8-column tab stops.
-  var i = 0
-  while i < line.len and line[i] in {' ', '\t'}:
-    result.add ' '.repeat(if line[i] == '\t': 8 - result.len mod 8 else: 1)
-    inc i
-  result.add line[i .. ^1]
-
-proc dedentLines(text: string): seq[string] =
-  ## `text`'s lines with the indentation they share removed (`dedent`, after
-  ## expanding tabs), trailing whitespace stripped, and leading and trailing
-  ## blank lines dropped. A `"""` string starting on the line after its
-  ## quotes loses its source indentation this way -- see
-  ## `docs/adr/0054-reflow-prolog-and-epilog.md`.
-  for line in text.splitLines.map(expandIndent).join("\n").dedent.splitLines:
-    result.add line.strip(leading = false)
-  while result.len > 0 and result[0].len == 0: result.delete 0
-  while result.len > 0 and result[^1].len == 0: result.setLen result.len - 1
-
 proc listMarker(line: string): string =
   ## `line`'s list marker and its space (`- `, `* `, `12. `), or empty.
   if line.startsWith("- ") or line.startsWith("* "):
