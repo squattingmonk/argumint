@@ -187,31 +187,23 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int): string =
   ## line-by-line. First line of a row gets `Margin`; wrap continuations get
   ## `ContinuationIndent`. Rows join with "\n".
   let helpWidth = max(width - (colWidth + 4), 20)
-  var argLines = newSeq[string]()
+  var lines: seq[string]
   for row in rows:
-    let variantLines = row.variants.wrapWords(colWidth).splitLines
-    if row.text.len > 0:
-      let textLines = row.text.wrapWords(helpWidth).splitLines
-      for j in 0 ..< max(variantLines.len, textLines.len):
-        let
-          v = if j < variantLines.len: variantLines[j] else: ""
-          t = if j < textLines.len: textLines[j] else: ""
-        if t.len > 0:
-          let rowMargin = if j == 0: Margin else: ContinuationIndent
-          argLines.add(fmt"{rowMargin}{v.alignLeft(colWidth)}{Margin}{t}")
-        elif j > 0:
-          argLines.add(fmt"{ContinuationIndent}{v}")
-        else:
-          argLines.add(fmt"{Margin}{v}")
-    else:
-      for j, v in variantLines:
-        if j > 0:
-          argLines.add(fmt"{ContinuationIndent}{v}")
-        else:
-          argLines.add(fmt"{Margin}{v}")
-  if argLines.len > 0:
-    result.addSep("\n")
-    result.add argLines.join("\n")
+    let
+      variantLines = row.variants.wrapWords(colWidth).splitLines
+      textLines =
+        if row.text.len > 0: row.text.wrapWords(helpWidth).splitLines
+        else: newSeq[string]()
+    for j in 0 ..< max(variantLines.len, textLines.len):
+      let
+        v = if j < variantLines.len: variantLines[j] else: ""
+        t = if j < textLines.len: textLines[j] else: ""
+        margin = if j == 0: Margin else: ContinuationIndent
+      if t.len > 0:
+        lines.add fmt"{margin}{v.alignLeft(colWidth)}{Margin}{t}"
+      else:
+        lines.add fmt"{margin}{v}"
+  lines.join("\n")
 
 proc usageLines(usage: string): seq[string] =
   ## Splits a usage message into usage lines. Lines prefixed with whitespace are
@@ -967,10 +959,12 @@ when isMainModule:
           Options
             --help  Display this help message""".dedent
 
+      var raised = ""
       try:
         help.action(command = "prog", spec)
       except HelpError as e:
-        check e.msg == expected
+        raised = e.msg
+      check raised == expected
 
     test "a HelpArg uses its formatter when explicitly defined":
       let
@@ -986,7 +980,9 @@ when isMainModule:
             --help
               Display this help message""".dedent
 
+      var raised = ""
       try:
         help.action(command = "prog", spec)
       except HelpError as e:
-        check e.msg == expected
+        raised = e.msg
+      check raised == expected
