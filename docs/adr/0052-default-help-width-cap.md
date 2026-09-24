@@ -5,6 +5,10 @@ DefaultMaxWidth)`, with `DefaultMaxWidth = 100`. On an 80-column terminal,
 or with nothing detected, help wraps exactly as before. On a wider one it
 stops at 100 columns instead of spreading prose across the whole screen.
 
+(`detectWidth` now falls back to `DefaultWidth` rather than
+`terminalWidth()`'s own 80, and both constants can be set with `-d:` -- see
+ADR 0053.)
+
 The cap applies to every *detected* width, `COLUMNS` included: `COLUMNS`
 is just another way of reporting the terminal's size, not the caller
 choosing a width. An explicit `width = n` is never capped.

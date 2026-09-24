@@ -1,4 +1,4 @@
-import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
+import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, unittest]
 
 import argumint
 import argumint/argtypes
@@ -1116,12 +1116,12 @@ suite "Messages":
     check "  -v, --verbose  Adjust verbosity" in helpText
     check "Increment by 1" notin helpText
 
-  test "maxVariantsWidth defaults to 30 and is configurable":
+  test "maxVariantsWidth defaults to DefaultMaxVariantsWidth and is configurable":
     proc mkSpec(): auto = (verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"), help: help())
     let default = newSpec(mkSpec())
     let narrow = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 20))
     let unlimited = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 0))
-    check default.settings.maxVariantsWidth == 30
+    check default.settings.maxVariantsWidth == DefaultMaxVariantsWidth
     check narrow.settings.maxVariantsWidth == 20
     check unlimited.settings.maxVariantsWidth == 0
 
@@ -1265,7 +1265,6 @@ suite "Messages":
   test "a detected width is capped at DefaultMaxWidth":
     putEnv("COLUMNS", "200")
     defer: delEnv("COLUMNS")
-    check DefaultMaxWidth == 100
     check newSpecSettings().width == DefaultMaxWidth
 
   test "an explicit width is never capped":
@@ -1281,11 +1280,27 @@ suite "Messages":
     check appName() == getAppFilename().splitFile.name
     check not appName().endsWith(".exe")
 
-  test "width defaults to terminalWidth() when COLUMNS isn't set":
+  test "width defaults to the capped detected width when COLUMNS isn't set":
     delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check detectWidth() == terminalWidth()
-    check spec.settings.width == min(terminalWidth(), DefaultMaxWidth)
+    check spec.settings.width == min(detectWidth(), DefaultMaxWidth)
+
+  test "chooseWidth: a positive COLUMNS, else the terminal's width, else DefaultWidth":
+    check chooseWidth("200", 120) == 200
+    check chooseWidth("", 120) == 120
+    check chooseWidth("0", 120) == 120
+    check chooseWidth("abc", 120) == 120
+    check chooseWidth("", 0) == DefaultWidth
+    check chooseWidth("0", 0) == DefaultWidth
+
+  test "the stock defaults, unless a -d: define overrides them":
+    # A define only replaces its own constant; see
+    # `tests/test_compile_defines.nim` for them set.
+    when not defined(argumint.width): check DefaultWidth == 80
+    when not defined(argumint.maxWidth): check DefaultMaxWidth == 100
+    when not defined(argumint.maxVariantsWidth): check DefaultMaxVariantsWidth == 30
+    when not defined(argumint.envDelim): check DefaultEnvDelim == ":"
+    when not defined(argumint.strictOptions): check DefaultStrictOptions
 
   test "width cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())

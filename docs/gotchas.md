@@ -627,9 +627,12 @@ or anything else that generates methods inside a template.
 - **`std/terminal.terminalWidth()` only reads `COLUMNS` on POSIX.** The
   Windows branch asks the console handles and falls back to 80, ignoring
   `COLUMNS` entirely -- so `newSpecSettings`'s documented `COLUMNS` override
-  silently didn't apply there. `backend.detectWidth()` checks `COLUMNS`
-  itself before calling `terminalWidth()`. Found cross-compiling the suite
-  with `-d:mingw` and running it under wine.
+  silently didn't apply there. It also can't report that nothing was
+  detected: its 80 fallback looks like a real 80-column terminal. So
+  `backend.detectWidth()` doesn't call it at all -- it checks `COLUMNS`,
+  then `terminalWidthIoctl` on the standard streams, then `DefaultWidth`
+  (ADR 0053). Found cross-compiling the suite with `-d:mingw` and running it
+  under wine.
 
 - **`std/winlean` grows between patch releases.** `getConsoleMode`/
   `setConsoleMode` exist in 2.2.12's `winlean` but not 2.2.4's, so code

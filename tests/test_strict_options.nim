@@ -24,9 +24,8 @@ const NonOptionShorts = ["-5", "-12", "-3.5", "-.5", "-1e9", "-5.",
                          "-0x1F", "-+3", "-5x", "-1_000"]
 
 suite "strictOptions: the setting itself":
-  test "defaults to on and is settable through newSpecSettings":
-    check DefaultStrictOptions
-    check newSpecSettings().strictOptions
+  test "defaults to DefaultStrictOptions and is settable through newSpecSettings":
+    check newSpecSettings().strictOptions == DefaultStrictOptions
     check not newSpecSettings(strictOptions = false).strictOptions
 
   test "a nested subcommand observes the parent's setting without being passed it":
