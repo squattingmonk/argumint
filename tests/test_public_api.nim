@@ -231,6 +231,7 @@ suite "`Spec` is an opaque handle":
     check not declared(markup)
     check not declared(plainMarkup)
     check not declared(styledHelp)
+    check not declared(heading)
     check not declared(metavars)
     check not declared(displayTokens)
     check not declared(quitMessage)

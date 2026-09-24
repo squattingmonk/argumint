@@ -233,13 +233,13 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
       result.add(if i == 0: wrapped else: indent & wrapped)
 
 proc header(name: string, styler: Styler): string =
-  ## A section header (`Usage:`, a group name), rendered.
-  styled(srHeader, name).render(styler)
+  ## A section header (`Usage`, a group name), rendered with its colon.
+  heading(name).render(styler)
 
 proc usageSection(spec: Spec, command: string): string =
   ## The built-ins' labeled usage block.
   let styler = spec.settings.style
-  header("Usage:", styler) & "\n" &
+  header("Usage", styler) & "\n" &
     spec.usage.usageLines(command, spec.settings.width).render(styler)
 
 proc prose(text: string, styler: Styler): string =
@@ -778,7 +778,14 @@ when isMainModule:
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")),
         usage = "<foo>", prolog = "foo", epilog = "bar")
       for formatter in formatters:
-        check formatter(spec, "prog") == "foo\n\nUsage:\n  prog <foo>\n\nArguments\n  <foo>\n\nbar"
+        check formatter(spec, "prog") == "foo\n\nUsage:\n  prog <foo>\n\nArguments:\n  <foo>\n\nbar"
+
+    test "a custom group's header gets a colon too":
+      let spec = plainSpec(
+        (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Output")),
+        usage = "<foo>")
+      for formatter in formatters:
+        check "\n\nOutput:\n  <foo>" in formatter(spec, "prog")
 
   suite "formatColumn":
     test "a group's header is followed by its args in column format":
@@ -790,7 +797,7 @@ when isMainModule:
         Usage:
           prog <foo>
 
-        Arguments
+        Arguments:
           <foo>  A sample arg""".dedent
       check spec.formatColumn("prog") == expected
 
@@ -804,7 +811,7 @@ when isMainModule:
         Usage:
           prog [--foo] [--bar]
 
-        Options
+        Options:
           --foo  A sample option""".dedent
       check spec.formatColumn("prog") == expected
 
@@ -818,7 +825,7 @@ when isMainModule:
         Usage:
           prog [--foo] [--bar]
 
-        Options
+        Options:
           --foo  A sample option""".dedent
       check spec.formatColumn("prog") == expected
 
@@ -833,10 +840,10 @@ when isMainModule:
         Usage:
           prog <foo> [--bar]
 
-        Arguments
+        Arguments:
           <foo>  A sample arg
 
-        Options
+        Options:
           --bar  A sample option""".dedent
       check spec.formatColumn("prog") == expected
 
@@ -851,10 +858,10 @@ when isMainModule:
         Usage:
           prog <foo> [--foobar]
 
-        Arguments
+        Arguments:
           <foo>     A sample arg
 
-        Options
+        Options:
           --foobar  A sample option that is longer than <foo>""".dedent
       check spec.formatColumn("prog") == expected
 
@@ -904,7 +911,7 @@ when isMainModule:
         Usage:
           prog <foo>
 
-        Arguments
+        Arguments:
           <foo>""".dedent
       check spec.formatParagraph("prog") == expected
 
@@ -918,7 +925,7 @@ when isMainModule:
         Usage:
           prog <foo> <bar>
 
-        Arguments
+        Arguments:
           <foo>
             Long help text
 
@@ -937,14 +944,14 @@ when isMainModule:
         Usage:
           prog <foo> <baz> [--bar]
 
-        Arguments
+        Arguments:
           <foo>
             A sample arg
 
           <baz>
             Another sample arg
 
-        Options
+        Options:
           --bar
             A sample option""".dedent
       check spec.formatParagraph("prog") == expected
@@ -959,7 +966,7 @@ when isMainModule:
         Usage:
           prog <foo> [<bar>]
 
-        Arguments
+        Arguments:
           <foo>
             A sample arg""".dedent
       check spec.formatParagraph("prog") == expected
@@ -974,7 +981,7 @@ when isMainModule:
         Usage:
           prog <foo> [--bar]
 
-        Arguments
+        Arguments:
           <foo>
             A sample arg""".dedent
       check spec.formatParagraph("prog") == expected
@@ -988,7 +995,7 @@ when isMainModule:
         Usage:
           prog <foo>
 
-        Arguments
+        Arguments:
           <foo>
             This help text
             needs to be
@@ -1016,7 +1023,7 @@ when isMainModule:
           Usage:
             prog --help
 
-          Options
+          Options:
             --help  Display this help message""".dedent
 
       var raised = ""
@@ -1036,7 +1043,7 @@ when isMainModule:
           Usage:
             prog --help
 
-          Options
+          Options:
             --help
               Display this help message""".dedent
 
@@ -1145,7 +1152,7 @@ when isMainModule:
         settings = newSpecSettings(style = tagged))
       for formatter in formatters:
         let help = formatter(spec, "p")
-        check "{header:Commands}" in help
+        check "{header:Commands:}" in help
         check "  {command:ship}" in help
         check "  {positional:<name>}" in help
         check "{option:--speed}={metavar:<kn>}" in help
@@ -1164,7 +1171,7 @@ when isMainModule:
       for formatter in formatters:
         let help = formatter(styledSpec(), "p")
         check help.startsWith("{header:Usage:}\n  {program:p}")
-        check "{header:Options}\n" in help
+        check "{header:Options:}\n" in help
 
     test "Column Style tags variants and markup":
       check formatColumn(styledSpec(), "p").splitLines[^1] ==
