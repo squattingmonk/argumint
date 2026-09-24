@@ -92,6 +92,11 @@ proc styled*(text: string): StyledText =
   ## `text` as a single `srPlain` span.
   styled(srPlain, text)
 
+proc heading*(name: string): StyledText =
+  ## A section heading (`Usage`, a group name) with its colon, as `srHeader`.
+  ## Shared by help and parse-error output so the two can't drift.
+  styled(srHeader, name & ":")
+
 proc `&`*(a, b: StyledText): StyledText =
   ## `a` followed by `b`.
   result = a
@@ -399,6 +404,10 @@ when isMainModule:
     test "len is the visible width, not the byte count":
       check (styled(srOption, "-x") & styled(srPlain, " ok")).len == 5
       check styled(srPlain, "héllo").len == 5
+
+  suite "heading":
+    test "is the name plus a colon, all srHeader":
+      check heading("Options") == styled(srHeader, "Options:")
 
   suite "alignLeft":
     test "pads with plain spaces to the width":

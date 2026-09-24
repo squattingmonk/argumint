@@ -1253,10 +1253,10 @@ Usage:
   git add
   git (-h | --help)
 
-Commands
+Commands:
   add         Add file contents to the index
 
-Options
+Options:
   -h, --help  Display this help message
 ```
 
@@ -1519,10 +1519,10 @@ Usage:
   hello <name>
   hello (-h | --help)
 
-Arguments
+Arguments:
   <name>      The name to call you
 
-Options
+Options:
   -h, --help  Display this help message
 ```
 
@@ -1585,11 +1585,11 @@ Usage:
   hello <name>
   hello (-h | --help)
 
-Arguments
+Arguments:
   <name>
     The name to call you
 
-Options
+Options:
   -h, --help
     Display this help message
 ```
@@ -1620,7 +1620,7 @@ Usage:
   ship [--speed=<speed>]
   ship (-h | --help)
 
-Options
+Options:
   --speed=<speed>
     Speed in knots. Must be between 1 and 100; higher speeds increase fuel
     consumption. [default: 10]
@@ -1638,7 +1638,7 @@ Usage:
   ship [--speed=<speed>]
   ship (-h | --help)
 
-Options
+Options:
   --speed=<speed>  Speed in knots [default: 10]
   -h, --help       Display this help message
 ```
