@@ -679,7 +679,9 @@ proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
 proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = appName()) =
   ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
-  ## embedding in a larger program.
+  ## embedding in a larger program. Help, `message()`/`version()` text, and
+  ## completion candidates go to stdout with `QuitSuccess`; parse and
+  ## validation errors go to stderr with `QuitFailure`.
   ##
   ## `spec` is **single-use**, same as `parse*(Spec)` -- and, being a built
   ## `Spec` rather than a spec tuple, it has no `parsed*` counterpart. Build
@@ -691,14 +693,10 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
     quit("Parsing error:\n{e.msg}".fmt)
   except ValidationError as e:
     quit("Validation error:\n{e.msg}".fmt)
-  except HelpError as e:
-    quit(e.msg, QuitSuccess)
-  except CompletionError as e:
-    # Must land on stdout, not stderr like quit() -- see docs/gotchas.md.
+  except MessageError as e:
+    # stdout, not stderr like quit() -- see docs/adr/0050-message-output-to-stdout.md.
     echo e.msg
     quit(QuitSuccess)
-  except MessageError as e:
-    quit(e.msg, QuitSuccess)
 
 proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: SpecSettings,
     before, action, after: proc(spec: S, info: HookInfo)): Spec =
