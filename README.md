@@ -21,6 +21,7 @@ hand-written validation code.
 - [Features](#features)
 - [Detailed Documentation](#detailed-documentation)
   - [Basics](#basics)
+    - [Changing the Defaults at Compile Time](#changing-the-defaults-at-compile-time)
   - [Getting Values Out](#getting-values-out)
     - [Overriding the default at the point of use](#overriding-the-default-at-the-point-of-use)
   - [Setting Values Yourself](#setting-values-yourself)
@@ -241,6 +242,31 @@ internals belong to argumint. The exception is `spec.settings`, the
 `newSpecSettings` value shared by reference with every nested command's spec,
 which is meant to be read and mutated — see
 [Value Precedence](#value-precedence).
+
+#### Changing the Defaults at Compile Time
+
+The defaults `newSpecSettings` uses can be changed when the program is
+built, without touching its code. Pass a `-d:` define to `nim c`, or put
+`switch("define", "argumint.maxWidth=80")` in the program's `config.nims`:
+
+| Define | Constant | Default | Allowed |
+|---|---|---|---|
+| `-d:argumint.width=N` | `DefaultWidth` | `80` | at least `20` |
+| `-d:argumint.maxWidth=N` | `DefaultMaxWidth` | `100` | at least `20` |
+| `-d:argumint.maxVariantsWidth=N` | `DefaultMaxVariantsWidth` | `30` | `0` (unlimited) or more |
+| `-d:argumint.envDelim=S` | `DefaultEnvDelim` | `:` | any; empty means env values aren't split |
+| `-d:argumint.strictOptions=B` | `DefaultStrictOptions` | `true` | `true`/`false` |
+
+`width` is the fallback used when no terminal width can be detected, and
+`maxWidth` caps a detected width (see
+[Displaying Help](#displaying-help-help)). A value outside the allowed range
+fails the build with a message naming the define. A setting passed to
+`newSpecSettings` explicitly still wins over its define.
+
+`argumint.strictOptions` changes what the program's own grammar accepts (see
+[Strict Option Checking](#strict-option-checking)), so it's meant for the
+program's author. The width and delimiter defines are safe for anyone
+building the program, such as a packager.
 
 ### Getting Values Out
 
@@ -1543,10 +1569,10 @@ in the spec.
 
 Usage lines and help text wrap at `SpecSettings.width` (default: the
 detected terminal width, capped at `DefaultMaxWidth` = 100 and falling back
-to 80 columns); the variants column (`-v, --verbose`) wraps once it exceeds
-`SpecSettings.maxVariantsWidth` (default 30; `0` means unlimited). Set
-either via `newSpecSettings`, passed as `parse`/`parseOrQuit`'s `settings`
-argument:
+to `DefaultWidth` = 80 columns); the variants column (`-v, --verbose`)
+wraps once it exceeds `SpecSettings.maxVariantsWidth` (default 30; `0`
+means unlimited). Set either via `newSpecSettings`, passed as
+`parse`/`parseOrQuit`'s `settings` argument:
 
 ```nim
 spec.parseOrQuit(settings = newSpecSettings(width = 100, maxVariantsWidth = 40))

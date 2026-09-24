@@ -18,6 +18,8 @@
 import std/[hashes, options, os, parseutils, pegs, strformat, strutils, tables, terminal]
 
 import ./[configsource, errors, style]
+when defined(windows):
+  import std/winlean
 export configsource
 
 
@@ -196,23 +198,40 @@ type
     else:
       discard
 
+# Each `Default*` below can be overridden at compile time with its
+# `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
 const
-  DefaultWidth* = 80
+  DefaultWidth* {.intdefine: "argumint.width".} = 80
     ## `newSpecSettings`'s default `width` when no terminal width can be
-    ## auto-detected (e.g. piped output with `COLUMNS` unset)
-  DefaultMaxWidth* = 100
+    ## auto-detected (e.g. piped output with `COLUMNS` unset). Set with
+    ## `-d:argumint.width`.
+  DefaultMaxWidth* {.intdefine: "argumint.maxWidth".} = 100
     ## The widest `newSpecSettings`'s default `width` gets on a wide
-    ## terminal -- see `docs/adr/0052-default-help-width-cap.md`
-  DefaultMaxVariantsWidth* = 30
-    ## `newSpecSettings`'s default `maxVariantsWidth`
-  DefaultEnvDelim* = ":"
-    ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention
-  DefaultStrictOptions* = true
+    ## terminal -- see `docs/adr/0052-default-help-width-cap.md`. Set with
+    ## `-d:argumint.maxWidth`.
+  DefaultMaxVariantsWidth* {.intdefine: "argumint.maxVariantsWidth".} = 30
+    ## `newSpecSettings`'s default `maxVariantsWidth`. Set with
+    ## `-d:argumint.maxVariantsWidth`.
+  DefaultEnvDelim* {.strdefine: "argumint.envDelim".} = ":"
+    ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention.
+    ## Set with `-d:argumint.envDelim`; empty means env values aren't split.
+  DefaultStrictOptions* {.booldefine: "argumint.strictOptions".} = true
     ## `newSpecSettings`'s default `strictOptions` -- see
-    ## `docs/adr/0034-strict-option-checking.md`
+    ## `docs/adr/0034-strict-option-checking.md`. Set with
+    ## `-d:argumint.strictOptions`.
   EnvListSep* = "\x1e"
     ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg
     ## `EnvSource.delim` override -- see `splitEnvValue`
+
+# 20 is the floor the help renderers already clamp a width to.
+static:
+  doAssert DefaultWidth >= 20,
+    "-d:argumint.width must be at least 20, got " & $DefaultWidth
+  doAssert DefaultMaxWidth >= 20,
+    "-d:argumint.maxWidth must be at least 20, got " & $DefaultMaxWidth
+  doAssert DefaultMaxVariantsWidth >= 0,
+    "-d:argumint.maxVariantsWidth must be 0 (unlimited) or more, got " &
+    $DefaultMaxVariantsWidth
 
 # The comma separator every `variants`/`ops` string is split on, and the
 # formats an `arg`/`opt`/`flag` Variant string must match. Exported for
@@ -271,23 +290,37 @@ proc appName*(): string =
     if result.toLowerAscii.endsWith("." & ExeExt):
       result.setLen(result.len - ExeExt.len - 1)
 
+proc chooseWidth*(columns: string, terminal: int): int =
+  ## `detectWidth`'s rule, given `COLUMNS`'s value and the width the standard
+  ## streams report (`0` if none is a terminal): a positive `columns`, else a
+  ## positive `terminal`, else `DefaultWidth`.
+  if parseSaturatedNatural(columns, result) > 0 and result > 0: return
+  if terminal > 0: terminal else: DefaultWidth
+
 proc detectWidth*(): int =
-  ## The terminal's width, uncapped: a positive `COLUMNS`, else
-  ## `terminalWidth()` (80 if nothing is detected). Checks `COLUMNS` itself
-  ## because `terminalWidth()` only does so on POSIX -- see `docs/gotchas.md`.
-  if parseSaturatedNatural(getEnv("COLUMNS"), result) == 0 or result == 0:
-    result = terminalWidth()
+  ## The terminal's width, uncapped: a positive `COLUMNS`, else the width of
+  ## whichever standard stream is a terminal, else `DefaultWidth`. Doesn't use
+  ## `terminalWidth()`, which reads `COLUMNS` only on POSIX and falls back to
+  ## its own 80 -- see `docs/gotchas.md`.
+  let terminal =
+    when defined(windows):
+      terminalWidthIoctl([getStdHandle(STD_INPUT_HANDLE),
+        getStdHandle(STD_OUTPUT_HANDLE), getStdHandle(STD_ERROR_HANDLE)])
+    else:
+      terminalWidthIoctl([0, 1, 2])
+  chooseWidth(getEnv("COLUMNS"), terminal)
 
 proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
     maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
     strictOptions = DefaultStrictOptions, style = autoStyler()): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
-  ## param.
+  ## param. Every default below can be changed at compile time with a
+  ## `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
   ## - `width` is the column width usage/help text wraps at. Defaults to the
   ##   caller's detected terminal width, capped at `DefaultMaxWidth` (100)
-  ##   so help doesn't sprawl on a wide terminal, or 80 columns when none
-  ##   can be detected (e.g., piped output with `COLUMNS` unset). An
+  ##   so help doesn't sprawl on a wide terminal, or `DefaultWidth` (80)
+  ##   when none can be detected (e.g., piped output with `COLUMNS` unset). An
   ##   explicit width is used as given: `width = detectWidth()` for no cap,
   ##   or `width = min(detectWidth(), 120)` for your own.
   ## - `maxVariantsWidth` caps the variants column's width before it wraps

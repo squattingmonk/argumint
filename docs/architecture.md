@@ -924,11 +924,13 @@ just calls it, and both built-ins join prolog, `"Usage:\n"` plus the
 rendered `usageLines`, one block per `helpGroups` entry, and epilog with
 `joinSections` (ADR 0048). `Spec.settings.width` wraps usage lines
 (`usageLines`) and every row's text. Its default is `detectWidth()`
-(`COLUMNS`, else `terminalWidth()`, else 80), capped at `DefaultMaxWidth =
-100` (ADR 0052). `Spec.settings.maxVariantsWidth` (default
-`DefaultMaxVariantsWidth = 30`) caps Column Style's "variants" column (e.g.
-`-v, --verbose, --quiet`) so one arg with many aliases can't inflate the
-shared column width for every other row. `0` disables the cap.
+(`COLUMNS`, else the terminal's width, else `DefaultWidth = 80`), capped at
+`DefaultMaxWidth = 100` (ADR 0052). All the `newSpecSettings` defaults can
+be set with `-d:argumint.*` defines (ADR 0053).
+`Spec.settings.maxVariantsWidth` (default `DefaultMaxVariantsWidth = 30`)
+caps Column Style's "variants" column (e.g. `-v, --verbose, --quiet`) so
+one arg with many aliases can't inflate the shared column width for every
+other row. `0` disables the cap.
 
 Each formatter builds an arg's rows via `rows(arg: Arg, help =
 arg.help.short): seq[Row]`, which resolves one `Row` per
