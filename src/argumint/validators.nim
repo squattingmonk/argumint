@@ -20,13 +20,13 @@ type
     vkChoice, vkRange, vkCheck, vkCheckSeen, vkAll, vkAny
 
   Validator*[T] = ref object
-    desc: string ## Optional override shown instead of the per-kind
-                 ## auto-generated help/failure text below; "" means no
-                 ## override. Declared outside the `case` so every kind
-                 ## shares one field -- a field name can't be redeclared
-                 ## across separate `of` branches, even with an identical
-                 ## type in each, but a field declared before the `case`
-                 ## discriminator is implicitly shared by all of them.
+    desc: string
+      ## Optional override shown instead of the per-kind auto-generated
+      ## help/failure text below; "" means no override. Declared outside the
+      ## `case` so every kind shares one field -- a field name can't be
+      ## redeclared across separate `of` branches, even with an identical type
+      ## in each, but a field declared before the `case` discriminator is
+      ## implicitly shared by all of them.
     case kind: ValidatorKind
     of vkChoice:
       choices: seq[T]

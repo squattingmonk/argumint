@@ -29,11 +29,14 @@ type
     ## concrete types. Nameable so an arg can cross a proc or module
     ## boundary; its fields stay private, same shape as `Spec` -- see
     ## `docs/adr/0033-value-arg-flag-arg-exported.md`.
-    value: seq[T] ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
+    value: seq[T]
+      ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
     default: seq[T]
     validator: Validator[T]
     env: Option[EnvSource]
-    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineValueArg`.
+    cfgKey: ConfigKey
+      ## Not named `configKey` -- that's the base `Arg` method name; see
+      ## `defineValueArg`.
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
@@ -53,7 +56,9 @@ type
     aliases: TableRef[string, seq[string]]
     env: Option[EnvSource]
     clamp: FlagClamp[T]
-    cfgKey: ConfigKey ## Not named `configKey` -- that's the base `Arg` method name; see `defineFlagArg`.
+    cfgKey: ConfigKey
+      ## Not named `configKey` -- that's the base `Arg` method name; see
+      ## `defineFlagArg`.
 
 const flagOps = CacheTable"flagOps"
   ## Compile-time registry of the Flag Operations each type supports,

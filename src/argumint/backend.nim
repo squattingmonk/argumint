@@ -23,10 +23,15 @@ export configsource
 
 type
   ArgKind* {.pure.} = enum
-    Command ## A subcommand (e.g., `clone`)
-    Positional ## A positional argument (e.g., `<arg>`)
-    Optional ## An optional argument that takes a value (e.g., `-o value` or `--option value`)
-    Flag ## An optional argument that takes no value (e.g., `-f` or `--flag`)
+    Command
+      ## A subcommand (e.g., `clone`)
+    Positional
+      ## A positional argument (e.g., `<arg>`)
+    Optional
+      ## An optional argument that takes a value (e.g., `-o value` or
+      ## `--option value`)
+    Flag
+      ## An optional argument that takes no value (e.g., `-f` or `--flag`)
 
   SeenBy* = enum
     ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
@@ -69,11 +74,24 @@ type
     message*: string
 
   SpecSettings* = ref object
-    width*: int ## Column width to wrap usage/help text at
-    maxVariantsWidth*: int ## Max width of the help text's variants column before wrapping; 0 means unlimited
-    envDelim*: string ## Delimiter an env-configured Option/Flag's raw env value is split on (after `\x1e` and any per-Arg `EnvSource.delim` override, see `splitEnvValue`)
-    configSources*: seq[ConfigSource] ## Value Precedence's Config Source tier, consulted in order -- a later source's hit for the same Arg fully replaces an earlier one's, never merged (see `lookupConfigSources`)
-    strictOptions*: bool ## Strict Option Checking: whether an option-shaped token may be accepted as data, in both a positional slot and an Option's value slot. Default `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See `docs/adr/0034-strict-option-checking.md`
+    width*: int
+      ## Column width to wrap usage/help text at
+    maxVariantsWidth*: int
+      ## Max width of the help text's variants column before wrapping; 0 means
+      ## unlimited
+    envDelim*: string
+      ## Delimiter an env-configured Option/Flag's raw env value is split on
+      ## (after `\x1e` and any per-Arg `EnvSource.delim` override, see
+      ## `splitEnvValue`)
+    configSources*: seq[ConfigSource]
+      ## Value Precedence's Config Source tier, consulted in order -- a later
+      ## source's hit for the same Arg fully replaces an earlier one's, never
+      ## merged (see `lookupConfigSources`)
+    strictOptions*: bool
+      ## Strict Option Checking: whether an option-shaped token may be accepted
+      ## as data, in both a positional slot and an Option's value slot. Default
+      ## `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See
+      ## `docs/adr/0034-strict-option-checking.md`
 
   EnvSource* = object
     ## Names the environment variable configured to supply an Arg's value,
@@ -84,38 +102,59 @@ type
     ## all" is instead answered by wrapping this whole object in `Option`
     ## wherever it's used (e.g. `ValueArg.env`/`FlagArg.env`).
     name*: string
-    delim*: Option[string] ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split this Arg's value at all, even on `\x1e`
+    delim*: Option[string]
+      ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split
+      ## this Arg's value at all, even on `\x1e`
 
   HookInfo* = object
-    matched*: seq[Arg] ## Every Arg matched during this invocation, across
-      ## every spec level in the dispatch chain (not just the receiving
-      ## hook's own level) -- a view onto `fsm.nim`'s internal `MatchTable`
-      ## computed once from the walk `parse*` already performs, not a
-      ## re-walk. E.g. `info.matched.anyIt(it of MessageArg)` (or
-      ## `showsMessage(info)` below) to detect a Message/Help request from
-      ## a `before` hook and skip expensive setup for it -- see
+    matched*: seq[Arg]
+      ## Every Arg matched during this invocation, across every spec level in
+      ## the dispatch chain (not just the receiving hook's own level) -- a view
+      ## onto `fsm.nim`'s internal `MatchTable` computed once from the walk
+      ## `parse*` already performs, not a re-walk. E.g.
+      ## `info.matched.anyIt(it of MessageArg)` (or `showsMessage(info)` below)
+      ## to detect a Message/Help request from a `before` hook and skip
+      ## expensive setup for it -- see
       ## `docs/adr/0021-hook-info-matched-args.md`.
 
   Spec* = ref object
-    ## An opaque handle to a built command-line spec: name it, pass it
-    ## around, hand it back to `parse*`/`parseOrQuit*`/`dot*`/
-    ## `completionScript*`. Every field below that isn't marked `*` is
-    ## argumint's own bookkeeping, deliberately unreachable from outside
-    ## the library -- see
+    ## An opaque handle to a built command-line spec: name it, pass it around,
+    ## hand it back to `parse*`/`parseOrQuit*`/`dot*`/ `completionScript*`.
+    ## Every field below that isn't marked `*` is argumint's own bookkeeping,
+    ## deliberately unreachable from outside the library -- see
     ## `docs/adr/0030-core-types-exported-spec-opaque.md`.
-    prolog: string ## Front matter for a help message
-    epilog: string ## Back matter for a help message
-    usage: string ## Usage string used to build the FSM for parsing
-    args: seq[Arg] ## List of all args known to this spec
-    commands: OrderedTable[string, CommandArg] ## Maps command variants to args
-    arguments: OrderedTable[string, Arg] ## Maps positional arg variants to args
-    options: OrderedTable[string, Arg] ## Maps option and flag arg variants to args
-    groups: OrderedTable[string, seq[Arg]] ## List of args in each group
-    fsm: State ## The initial state for the FSM used for parsing
-    settings*: SpecSettings ## Shared by reference with every nested subcommand's Spec -- mutating it (e.g. from a `before` hook) affects every not-yet-dispatched Spec in the tree, including this one's own message/help output (see `docs/adr/0013-message-args-fire-after-before.md`)
-    before*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, before dispatch descends into any Command matched at this spec's own level
-    action*: proc (info: HookInfo) ## Fires once this spec's own values are parsed, only if this spec is the dynamic leaf (no nested Command matched)
-    after*: proc (info: HookInfo) ## Fires once this spec's own before/action/nested dispatch has run, whether it succeeded or raised
+    prolog: string
+      ## Front matter for a help message
+    epilog: string
+      ## Back matter for a help message
+    usage: string
+      ## Usage string used to build the FSM for parsing
+    args: seq[Arg]
+      ## List of all args known to this spec
+    commands: OrderedTable[string, CommandArg]
+      ## Maps command variants to args
+    arguments: OrderedTable[string, Arg]
+      ## Maps positional arg variants to args
+    options: OrderedTable[string, Arg]
+      ## Maps option and flag arg variants to args
+    groups: OrderedTable[string, seq[Arg]]
+      ## List of args in each group
+    fsm: State
+      ## The initial state for the FSM used for parsing
+    settings*: SpecSettings
+      ## Shared by reference with every nested subcommand's Spec -- mutating it
+      ## (e.g. from a `before` hook) affects every not-yet-dispatched Spec in
+      ## the tree, including this one's own message/help output (see
+      ## `docs/adr/0013-message-args-fire-after-before.md`)
+    before*: proc (info: HookInfo)
+      ## Fires once this spec's own values are parsed, before dispatch descends
+      ## into any Command matched at this spec's own level
+    action*: proc (info: HookInfo)
+      ## Fires once this spec's own values are parsed, only if this spec is the
+      ## dynamic leaf (no nested Command matched)
+    after*: proc (info: HookInfo)
+      ## Fires once this spec's own before/action/nested dispatch has run,
+      ## whether it succeeded or raised
 
   State* = ref object
     ## The basic building block of the FSM. A state can be final or not and has
@@ -154,11 +193,20 @@ type
     else:
       discard
 
-const DefaultWidth* = 80 ## `newSpecSettings`'s default `width` when no terminal width can be auto-detected (e.g. piped output with `COLUMNS` unset)
-const DefaultMaxVariantsWidth* = 30 ## `newSpecSettings`'s default `maxVariantsWidth`
-const DefaultEnvDelim* = ":" ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention
-const DefaultStrictOptions* = true ## `newSpecSettings`'s default `strictOptions` -- see `docs/adr/0034-strict-option-checking.md`
-const EnvListSep* = "\x1e" ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg `EnvSource.delim` override -- see `splitEnvValue`
+const
+  DefaultWidth* = 80
+    ## `newSpecSettings`'s default `width` when no terminal width can be
+    ## auto-detected (e.g. piped output with `COLUMNS` unset)
+  DefaultMaxVariantsWidth* = 30
+    ## `newSpecSettings`'s default `maxVariantsWidth`
+  DefaultEnvDelim* = ":"
+    ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention
+  DefaultStrictOptions* = true
+    ## `newSpecSettings`'s default `strictOptions` -- see
+    ## `docs/adr/0034-strict-option-checking.md`
+  EnvListSep* = "\x1e"
+    ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg
+    ## `EnvSource.delim` override -- see `splitEnvValue`
 
 # The comma separator every `variants`/`ops` string is split on, and the
 # formats an `arg`/`opt`/`flag` Variant string must match. Exported for
@@ -233,7 +281,6 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   ##   for any Option/Flag declaring a `configKey`. A later source's hit
   ##   fully replaces an earlier one's, never merged. See
   ##   `docs/adr/0018-config-source.md`.
-  ##
   ## - `strictOptions` is Strict Option Checking: whether an option-shaped
   ##   token resolving against no declared option may be accepted as data.
   ##   On by default, and it governs two slots. In the common

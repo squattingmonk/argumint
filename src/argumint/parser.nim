@@ -9,24 +9,27 @@ export errors.SpecDefect
 
 type
   SpecParser = ref object
-    lex: SpecLexer ## Tokenizer
-    tok: SpecToken ## Lookahead token
+    lex: SpecLexer
+      ## Tokenizer
+    tok: SpecToken
+      ## Lookahead token
     spec: Spec
-    explicitOptions: HashSet[Arg] ## Options explicitly mentioned on the
-      ## current Usage Line, populated as a side effect of atom's own
-      ## tkShortOption/tkLongOption/tkShortOptions branches as it parses that
-      ## line, so `[options]` can exclude them (see `tkAnyOption` below)
-      ## rather than making them separately repeatable. Reset per line by
-      ## `genFsm`, since `[options]` only excludes what's explicit on its own
-      ## Usage Line, not elsewhere in the Usage String.
-    pendingOptions: seq[Matcher] ## Matchers created by the current line's
-      ## `tkAnyOption` atoms, deferred here because `explicitOptions` isn't
-      ## complete until the whole line has been parsed (a later atom on the
-      ## same line can still name an option `[options]` needs to exclude).
-      ## `genFsm` patches each one's `opts` once the line is done, then
-      ## clears this for the next line. Holds the `Matcher` itself, not the
-      ## `Transition` it started out on -- see `Matcher`'s own doc comment
-      ## (`backend.nim`) for why that distinction matters.
+    explicitOptions: HashSet[Arg]
+      ## Options explicitly mentioned on the current Usage Line, populated as a
+      ## side effect of atom's own tkShortOption/tkLongOption/tkShortOptions
+      ## branches as it parses that line, so `[options]` can exclude them (see
+      ## `tkAnyOption` below) rather than making them separately repeatable.
+      ## Reset per line by `genFsm`, since `[options]` only excludes what's
+      ## explicit on its own Usage Line, not elsewhere in the Usage String.
+    pendingOptions: seq[Matcher]
+      ## Matchers created by the current line's `tkAnyOption` atoms, deferred
+      ## here because `explicitOptions` isn't complete until the whole line has
+      ## been parsed (a later atom on the same line can still name an option
+      ## `[options]` needs to exclude). `genFsm` patches each one's `opts` once
+      ## the line is done, then clears this for the next line. Holds the
+      ## `Matcher` itself, not the `Transition` it started out on -- see
+      ## `Matcher`'s own doc comment (`backend.nim`) for why that distinction
+      ## matters.
 
 const CanAtom = {tkParensOpen, tkBracketOpen, tkCommand..tkAnyOption, tkOptsEnd}
 
@@ -221,15 +224,14 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
     p.next()
 
 proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
-  ## Parses each of `lines` as a Usage Line and splices its FSM onto `root`
-  ## via `addShortcut` -- the shared line-building step behind both `genFsm`
-  ## (the initial build) and `autoFillUsage` (`argumint/specbuild`, which splices
-  ## auto-generated lines onto an already-built `spec.fsm` instead of
-  ## re-parsing the whole usage string from scratch). Recomputes `root.
-  ## terminal` afterwards rather than leaving it a stateful flag -- see
-  ## docs/gotchas.md's "terminal flag" entry for why this needs both a
-  ## before-splice snapshot and an after-splice transition count, not just
-  ## the latter.
+  ## Parses each of `lines` as a Usage Line and splices its FSM onto `root` via
+  ## `addShortcut` -- the shared line-building step behind both `genFsm` (the
+  ## initial build) and `autoFillUsage` (`argumint/specbuild`, which splices
+  ## auto-generated lines onto an already-built `spec.fsm` instead of re-parsing
+  ## the whole usage string from scratch). Recomputes `root.terminal` afterwards
+  ## rather than leaving it a stateful flag -- see docs/gotchas.md's "terminal
+  ## flag" entry for why this needs both a before-splice snapshot and an
+  ## after-splice transition count, not just the latter.
   let hadTransitions = root.transitions.len > 0
   let wasTerminal = root.terminal
   let p = SpecParser(spec: spec)
