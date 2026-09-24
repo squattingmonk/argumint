@@ -33,8 +33,8 @@ README's "Displaying Help" section.
 
 Implementing this exposed a real bug in `std/wordwrap.wrapWords(
 splitLongWords = true)`: it drops the separator immediately before a word
-that needs splitting (`"-x, --longflag"` at width 10 comes back as
-`"-x,--longf"`, eating the space) instead of flushing it first the way its
+that needs splitting (`"-x, --longflag"` at width 9 comes back as
+`"-x,--lon"`, eating the space) instead of flushing it first the way its
 own "word fits" branch does. `help.nim` forks a corrected local `wrapWords`
 with that one fix rather than depending on the buggy stdlib version -- see
 `docs/gotchas.md`.
