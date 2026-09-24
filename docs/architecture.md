@@ -956,11 +956,12 @@ instead.
 Everything a formatter lays out is `StyledText` (`style.nim`): a sequence
 of `Span`s, each a run of text with a `StyleRole`. `Row.variants`,
 `Row.text`, each of `annotations`' parts, and each of `usageLines`' lines
-are `StyledText`. The rule every built-in follows,
-and a custom formatter should too: build `StyledText`, `wrap` it to a width
-(one `StyledText` per line, splitting any span that crosses a break, so no
-span ever holds a `\n`), pad with `len` or `alignLeft` (visible width, in
-graphemes of the plain text), and `render` once per finished line.
+are `StyledText`. The rule every built-in follows, and a custom formatter
+should too: build `StyledText`, `wrap` it (or `wrapProse` it, for
+`Row.text`) to a width (one `StyledText` per line, splitting any span that
+crosses a break, so no span ever holds a `\n`), pad with `len` or
+`alignLeft` (visible width, in graphemes of the plain text), and `render`
+once per finished line.
 `styled(text)` is shorthand for `styled(srPlain, text)`. `render` takes a
 `Styler` (`proc (role, text): string`) applied per span, or nil for plain
 text; because every measurement happens before it runs, a styler can add
@@ -987,13 +988,27 @@ bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
 `srProgram` and styles each line through `lexer.displayTokens`, which runs
 the lexer's own token PEGs over the line without raising, keeping
 whitespace and unknown characters as `tkInvalid` pieces. Headers are
-`srHeader`. A prolog/epilog goes through `proseLines` in two stages:
-`proseBlocks` dedents it (`dedent`) and joins its lines into paragraphs,
-list items, and indented lines, each with `markup` applied after joining,
-then a private `wrap` overload wraps each block hanging under its text
-(ADR 0054). No line it yields contains a newline, so no span a styler sees
-does either. `proseBlocks` takes `metavars`, so Arg help text can reuse
-it.
+`srHeader`.
+
+A prolog/epilog and an Arg's help text share one re-flow rule (ADR 0054),
+in two stages. `proseBlocks` dedents the text (`dedent`) and joins its
+lines into paragraphs, list items, and indented lines, each with `markup`
+applied after joining (against the Arg's `metavars`, for help text), and
+the private `proseText` writes them out as one `StyledText`, a line per
+block with its indent and marker as leading `srPlain` text. That is the
+form `Row.text` takes (ADR 0055): `rows` builds it, appending the
+`annotations` bracket to one-block text or after a blank line otherwise,
+and each part of the bracket is flattened to one line (`oneLine`) so it
+can't span blocks. `wrapProse` is the second stage: it reads each line's
+indent and a marker from its leading `srPlain` span (a backticked `- x` is
+`srLiteral`, so it can't pass for one), and wraps it hanging under its
+text. `proseLines` is the two stages back to back. `renderParagraph` calls
+`wrapProse` directly. `renderColumn` calls the private `layoutProse`
+behind it, which also marks each line `aligned` unless it's a paragraph's
+wrap continuation, so each block starts at the text column even while the
+variants are still wrapping. A blank line in a row stays empty in both,
+with no margin. No line `wrapProse` yields
+contains a newline, so no span a styler sees does either.
 
 Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
 only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
@@ -1021,8 +1036,10 @@ wraps variants at `colWidth` and text at the remaining width, zipping them
 line-by-line so the help text stays inline with the first variants line.
 Each bucket's row starts at the 2-space `Margin` — buckets are peers
 (different variants of the same `Arg`), not a wrap continuation of one
-another; only wrap continuations use the deeper 4-space
-`ContinuationIndent`.
+another. A variants wrap continuation starts at the deeper 4-space
+`ContinuationIndent`, and so does a paragraph's text wrap continuation,
+2 columns right of the text column; each later text block, and a list
+item's or indented line's continuation, starts at the text column itself.
 
 **Paragraph Style** (`formatParagraph`) instead puts each row's variants on
 their own `Margin`-indented lines, wrapped to the full width, with its text

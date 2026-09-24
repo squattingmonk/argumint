@@ -34,18 +34,189 @@ type
     variants*: StyledText
       ## The names of variants sharing a description, joined by ", "
     text*: StyledText
-      ## Their resolved help plus `[...]` annotations
+      ## Their resolved help plus `[...]` annotations, one block per line
+      ## (paragraph, list item, indented line, or blank); lay it out with
+      ## `wrapProse`
 
 const Margin = "  "
 const ContinuationIndent = "    "
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
+
+type
+  ProseKind = enum
+    pkBlank, pkParagraph, pkItem, pkLine
+
+  ProseBlock = object
+    ## One paragraph, list item, indented line, or blank line of prose, still
+    ## unwrapped.
+    kind: ProseKind
+      ## What the block is; a `pkBlank` has no `text`
+    indent: int
+      ## Columns before the first line's `marker` (or text, if none)
+    marker: string
+      ## A `pkItem`'s marker and its space (`- `, `10. `), or empty
+    text: StyledText
+      ## The joined text, with Help Markup applied
+
+proc expandIndent(line: string): string =
+  ## `line` with the tabs in its indentation expanded to 8-column tab stops.
+  var i = 0
+  while i < line.len and line[i] in {' ', '\t'}:
+    result.add ' '.repeat(if line[i] == '\t': 8 - result.len mod 8 else: 1)
+    inc i
+  result.add line[i .. ^1]
+
+proc dedentLines(text: string): seq[string] =
+  ## `text`'s lines with the indentation they share removed (`dedent`, after
+  ## expanding tabs), trailing whitespace stripped, and leading and trailing
+  ## blank lines dropped. A `"""` string starting on the line after its
+  ## quotes loses its source indentation this way -- see
+  ## `docs/adr/0054-reflow-prolog-and-epilog.md`.
+  for line in text.splitLines.map(expandIndent).join("\n").dedent.splitLines:
+    result.add line.strip(leading = false)
+  while result.len > 0 and result[0].len == 0: result.delete 0
+  while result.len > 0 and result[^1].len == 0: result.setLen result.len - 1
+
+proc listMarker(line: string): string =
+  ## `line`'s list marker and its space (`- `, `* `, `12. `), or empty.
+  if line.startsWith("- ") or line.startsWith("* "):
+    return line[0 .. 1]
+  var i = 0
+  while i < line.len and line[i] in Digits: inc i
+  if i > 0 and line.continuesWith(". ", i):
+    result = line[0 .. i + 1]
+
+proc proseBlocks(text: string, metavars: openArray[string] = [],
+    keepTicks = true): seq[ProseBlock] =
+  ## Stage one of `proseLines` and `rows`: `text` dedented and joined into
+  ## paragraphs, list items, and indented lines, each with Help Markup
+  ## against `metavars`. See `proseLines` for the rule.
+  var pending: seq[tuple[shape: ProseBlock, raw: string]]
+  for line in text.dedentLines:
+    let
+      body = line.strip(trailing = false)
+      indent = line.len - body.len
+      marker = body.listMarker
+    if line.len == 0:
+      pending.add (ProseBlock(kind: pkBlank), "")
+    elif marker.len > 0:
+      pending.add (ProseBlock(kind: pkItem, indent: indent, marker: marker),
+        body[marker.len .. ^1].strip)
+    elif pending.len > 0 and (
+        (indent == 0 and pending[^1].shape.kind == pkParagraph) or
+        (indent > 0 and pending[^1].shape.kind == pkItem and
+          indent == pending[^1].shape.indent + pending[^1].shape.marker.len)):
+      pending[^1].raw.add ' ' & body
+    elif indent == 0:
+      pending.add (ProseBlock(kind: pkParagraph), body)
+    else:
+      pending.add (ProseBlock(kind: pkLine, indent: indent), body)
+  for (shape, raw) in pending:
+    result.add shape
+    result[^1].text = markup(raw, metavars, keepTicks)
+
+proc proseText(blocks: seq[ProseBlock]): StyledText =
+  ## `blocks` as one `StyledText`, a line per block, each starting with its
+  ## indent and marker as `srPlain`: the form `Row.text` takes and `wrapProse`
+  ## lays out.
+  for i, b in blocks:
+    if i > 0: result.add styled("\n")
+    result.add styled(' '.repeat(b.indent) & b.marker)
+    result.add b.text
+
+proc blockLines(t: StyledText): seq[StyledText] =
+  ## `t` split at its newlines, keeping each span's role.
+  result = @[StyledText()]
+  for span in t.spans:
+    let parts = span.text.split('\n')
+    for i, part in parts:
+      if i > 0: result.add StyledText()
+      result[^1].add Span(role: span.role, text: part)
+
+proc layoutProse(t: StyledText, width: int):
+    seq[tuple[line: StyledText, aligned: bool]] =
+  ## `wrapProse`'s lines, each marked `aligned` unless it is a wrap
+  ## continuation that doesn't hang: the first line of a block, a blank line,
+  ## and a list item's or indented line's continuation all are.
+  if t.len == 0:
+    return
+  for line in t.blockLines:
+    if line.len == 0:
+      result.add (StyledText(), true)
+      continue
+    # Only an `srPlain` marker counts: "`-`" is a literal, not an item.
+    let
+      lead = if line.spans[0].role == srPlain: line.spans[0].text else: ""
+      indent = lead.len - lead.strip(trailing = false).len
+      hang = indent + lead[indent .. ^1].listMarker.len
+    var body = line
+    if hang > 0:
+      body.spans[0].text = lead[hang .. ^1]
+      if body.spans[0].text.len == 0:
+        body.spans.delete 0
+    if body.len == 0:
+      result.add (styled(lead.strip(leading = false)), true)
+      continue
+    for i, wrapped in body.wrap(max(width - hang, min(width, 20))):
+      let prefix = if i == 0: lead[0 ..< hang] else: ' '.repeat(hang)
+      result.add (styled(prefix) & wrapped, i == 0 or hang > 0)
+
+proc wrapProse*(t: StyledText, width: int): seq[StyledText] =
+  ## Lays out `t` (a `Row.text`, say) as wrapped lines, one `StyledText` per
+  ## line, none containing `\n`; empty if `t` is. Each of `t`'s lines is a
+  ## block: its leading spaces are its indent, followed in the same `srPlain`
+  ## span by an optional list marker (`- `, `* `, `1. `), and its continuation
+  ## lines hang under its text. A blank line comes out empty. A block with no
+  ## indent or marker wraps at exactly `width`; hung text gets at least 20
+  ## columns (or `width`, if narrower), so a deep indent overflows instead of
+  ## looping. See `docs/adr/0055-reflow-arg-help-text.md`.
+  t.layoutProse(width).mapIt(it.line)
+
+proc proseLines*(text: string, width = DefaultWidth, keepTicks = true): seq[StyledText] =
+  ## Lays out `text` (a prolog or epilog) as wrapped lines with Help Markup,
+  ## one `StyledText` per line, none containing `\n`; empty for blank text.
+  ## `text` is re-flowed, since a `"""` string's line breaks are incidental:
+  ##
+  ## - The indentation every line shares is removed (`dedent`).
+  ## - Consecutive unindented lines join into a paragraph; a blank line
+  ##   separates paragraphs and is kept.
+  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
+  ##   indented to exactly the item's text column continues it; the item wraps
+  ##   hanging at that column.
+  ## - Any other indented line is kept as its own line, wrapping at its indent.
+  ##
+  ## Pass `keepTicks = false` when rendering with a styler, as for `rows`.
+  ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
+  text.proseBlocks(keepTicks = keepTicks).proseText.wrapProse(max(width, 20))
+
+proc oneLine(t: StyledText): StyledText =
+  ## `t` with each whitespace run containing a newline collapsed to a space,
+  ## or dropped at either end of `t`.
+  for n, span in t.spans:
+    var
+      text = ""
+      i = 0
+    while i < span.text.len:
+      var j = i
+      while j < span.text.len and span.text[j] in Whitespace: inc j
+      if j == i:
+        text.add span.text[i]
+        inc j
+      elif '\n' notin span.text[i ..< j]:
+        text.add span.text[i ..< j]
+      elif not (result.len == 0 and text.len == 0) and
+          not (n == t.spans.high and j == span.text.len):
+        text.add ' '
+      i = j
+    result.add Span(role: span.role, text: text)
 
 proc annotations*(arg: Arg, action = "", keepTicks = true): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
   ## `variantDesc`). Key labels are `srAnnotation`; values are `srLiteral`,
   ## except env's `srEnv` and action's Help Markup. `keepTicks` is passed on
-  ## to `markup` for the action and a validator's `desc`.
+  ## to `markup` for the action and a validator's `desc`. Each part is one
+  ## line: whitespace around a newline collapses to a space.
   proc entry(key: string, value: StyledText): StyledText =
     styled(srAnnotation, key & ": ") & value
 
@@ -61,6 +232,8 @@ proc annotations*(arg: Arg, action = "", keepTicks = true): seq[StyledText] =
     result.add entry("configKey", styled(srLiteral, configKey.join))
   if action.len > 0:
     result.add entry("action", markup(action, keepTicks = keepTicks))
+  for part in result.mitems:
+    part = part.oneLine
 
 proc styledVariant(arg: Arg, variant: string): StyledText =
   ## `variant` with its role: `srCommand`, `srPositional`, or `srOption`
@@ -123,9 +296,11 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
   ## non-empty). Callers filter `arg.hidden` themselves.
   ##
   ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
-  ## `srMetavar`), and the text gets Help Markup against `arg.metavars`.
-  ## Pass `keepTicks = false` when rendering with a styler, so Help
-  ## Markup's backticks are dropped.
+  ## `srMetavar`). The text is re-flowed into blocks like `proseLines`, with
+  ## Help Markup against `arg.metavars`; the bracket ends a one-block text,
+  ## and follows a longer one as its own block after a blank line. Pass
+  ## `keepTicks = false` when rendering with a styler, so Help Markup's
+  ## backticks are dropped.
   let buckets = arg.variantsByDesc()
   for bucket in buckets:
     let
@@ -133,9 +308,12 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
       annotations = arg.annotations(action, keepTicks)
-    var text = markup(primary, arg.metavars, keepTicks)
+    let blocks = proseBlocks(primary, arg.metavars, keepTicks)
+    var text = blocks.proseText
     if annotations.len > 0:
-      if primary.len > 0:
+      if blocks.len > 1:
+        text.add styled("\n\n")
+      elif blocks.len == 1:
         text.add styled(" ")
       text.add styled(srAnnotation, "[")
       for i, annotation in annotations:
@@ -162,25 +340,28 @@ proc variantsColWidth(spec: Spec): int =
 proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = nil): string =
   ## Wraps + zips `rows` into the table's text block: variants wrap at
   ## `colWidth`, text wraps at `max(width - (2 + colWidth + 2), 20)`, zipped
-  ## line-by-line. First line of a row gets `Margin`; wrap continuations get
-  ## `ContinuationIndent`. Rows join with "\n".
-  let helpWidth = max(width - (colWidth + 4), 20)
+  ## line-by-line. A row's first line gets `Margin`, and later variant lines
+  ## `ContinuationIndent`. Text starts at the text column, or 2 columns in for
+  ## a paragraph's wrap continuation (`layoutProse`'s `aligned`). Rows join
+  ## with "\n".
+  let
+    helpWidth = max(width - (colWidth + 4), 20)
+    textColumn = Margin.len + colWidth + Margin.len
+    hang = ContinuationIndent.len - Margin.len
   var lines: seq[StyledText]
   for row in rows:
     let
       variantLines = row.variants.wrap(colWidth)
-      textLines =
-        if row.text.len > 0: row.text.wrap(helpWidth)
-        else: newSeq[StyledText]()
+      textLines = row.text.layoutProse(helpWidth)
     for j in 0 ..< max(variantLines.len, textLines.len):
-      let
-        margin = if j == 0: Margin else: ContinuationIndent
-        v = if j < variantLines.len: variantLines[j] else: StyledText()
-      var line = styled(margin)
-      if j < textLines.len and textLines[j].len > 0:
-        line.add v.alignLeft(colWidth) & styled(Margin) & textLines[j]
-      else:
-        line.add v
+      var line =
+        if j == 0: styled(Margin) & variantLines[0]
+        elif j < variantLines.len: styled(ContinuationIndent) & variantLines[j]
+        else: StyledText()
+      if j < textLines.len and textLines[j].line.len > 0:
+        let column = textColumn + (if textLines[j].aligned: 0 else: hang)
+        line = line.alignLeft(max(column, line.len + Margin.len)) &
+          textLines[j].line
       lines.add line
   lines.render(styler)
 
@@ -242,110 +423,6 @@ proc usageSection(spec: Spec, command: string): string =
   header("Usage", styler) & "\n" &
     spec.usage.usageLines(command, spec.settings.width).render(styler)
 
-type
-  ProseKind = enum
-    pkBlank, pkParagraph, pkItem, pkLine
-
-  ProseBlock = object
-    ## One paragraph, list item, indented line, or blank line of prose, still
-    ## unwrapped.
-    kind: ProseKind
-      ## What the block is; a `pkBlank` has no `text`
-    indent: int
-      ## Columns before the first line's `marker` (or text, if none)
-    marker: string
-      ## A `pkItem`'s marker and its space (`- `, `10. `), or empty
-    text: StyledText
-      ## The joined text, with Help Markup applied
-
-proc expandIndent(line: string): string =
-  ## `line` with the tabs in its indentation expanded to 8-column tab stops.
-  var i = 0
-  while i < line.len and line[i] in {' ', '\t'}:
-    result.add ' '.repeat(if line[i] == '\t': 8 - result.len mod 8 else: 1)
-    inc i
-  result.add line[i .. ^1]
-
-proc dedentLines(text: string): seq[string] =
-  ## `text`'s lines with the indentation they share removed (`dedent`, after
-  ## expanding tabs), trailing whitespace stripped, and leading and trailing
-  ## blank lines dropped. A `"""` string starting on the line after its
-  ## quotes loses its source indentation this way -- see
-  ## `docs/adr/0054-reflow-prolog-and-epilog.md`.
-  for line in text.splitLines.map(expandIndent).join("\n").dedent.splitLines:
-    result.add line.strip(leading = false)
-  while result.len > 0 and result[0].len == 0: result.delete 0
-  while result.len > 0 and result[^1].len == 0: result.setLen result.len - 1
-
-proc listMarker(line: string): string =
-  ## `line`'s list marker and its space (`- `, `* `, `12. `), or empty.
-  if line.startsWith("- ") or line.startsWith("* "):
-    return line[0 .. 1]
-  var i = 0
-  while i < line.len and line[i] in Digits: inc i
-  if i > 0 and line.continuesWith(". ", i):
-    result = line[0 .. i + 1]
-
-proc proseBlocks(text: string, metavars: openArray[string] = [],
-    keepTicks = true): seq[ProseBlock] =
-  ## Stage one of `proseLines`: `text` dedented and joined into paragraphs,
-  ## list items, and indented lines, each with Help Markup against
-  ## `metavars`. See `proseLines` for the rule.
-  var pending: seq[tuple[shape: ProseBlock, raw: string]]
-  for line in text.dedentLines:
-    let
-      body = line.strip(trailing = false)
-      indent = line.len - body.len
-      marker = body.listMarker
-    if line.len == 0:
-      pending.add (ProseBlock(kind: pkBlank), "")
-    elif marker.len > 0:
-      pending.add (ProseBlock(kind: pkItem, indent: indent, marker: marker),
-        body[marker.len .. ^1].strip)
-    elif pending.len > 0 and (
-        (indent == 0 and pending[^1].shape.kind == pkParagraph) or
-        (indent > 0 and pending[^1].shape.kind == pkItem and
-          indent == pending[^1].shape.indent + pending[^1].shape.marker.len)):
-      pending[^1].raw.add ' ' & body
-    elif indent == 0:
-      pending.add (ProseBlock(kind: pkParagraph), body)
-    else:
-      pending.add (ProseBlock(kind: pkLine, indent: indent), body)
-  for (shape, raw) in pending:
-    result.add shape
-    result[^1].text = markup(raw, metavars, keepTicks)
-
-proc wrap(blocks: seq[ProseBlock], width: int): seq[StyledText] =
-  ## Stage two of `proseLines`: each block wrapped to `width`, continuation
-  ## lines hanging under its text. Text always gets at least 20 columns, like
-  ## row help text, so a deep indent overflows instead of looping.
-  for b in blocks:
-    if b.kind == pkBlank:
-      result.add StyledText()
-      continue
-    let hang = b.indent + b.marker.len
-    for i, line in b.text.wrap(max(width - hang, 20)):
-      let prefix =
-        if i == 0: ' '.repeat(b.indent) & b.marker else: ' '.repeat(hang)
-      result.add styled(prefix) & line
-
-proc proseLines*(text: string, width = DefaultWidth, keepTicks = true): seq[StyledText] =
-  ## Lays out `text` (a prolog or epilog) as wrapped lines with Help Markup,
-  ## one `StyledText` per line, none containing `\n`; empty for blank text.
-  ## `text` is re-flowed, since a `"""` string's line breaks are incidental:
-  ##
-  ## - The indentation every line shares is removed (`dedent`).
-  ## - Consecutive unindented lines join into a paragraph; a blank line
-  ##   separates paragraphs and is kept.
-  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
-  ##   indented to exactly the item's text column continues it; the item wraps
-  ##   hanging at that column.
-  ## - Any other indented line is kept as its own line, wrapping at its indent.
-  ##
-  ## Pass `keepTicks = false` when rendering with a styler, as for `rows`.
-  ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
-  text.proseBlocks(keepTicks = keepTicks).wrap(width)
-
 proc proseSection(text: string, settings: SpecSettings): string =
   ## The built-ins' prolog or epilog, wrapped at `settings.width`.
   let styler = settings.style
@@ -384,9 +461,8 @@ proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil)
     var lines: seq[StyledText]
     for line in row.variants.wrap(variantsWidth):
       lines.add styled(Margin) & line
-    if row.text.len > 0:
-      for line in row.text.wrap(helpWidth):
-        lines.add styled(ContinuationIndent) & line
+    for line in row.text.wrapProse(helpWidth):
+      lines.add(if line.len > 0: styled(ContinuationIndent) & line else: line)
     if lines.len > 0:
       result.addSep "\n\n"
       result.add lines.render(styler)
@@ -500,6 +576,17 @@ when isMainModule:
         ]
       check arg.annotations(action = "a").mapIt(it.plain) == expected
 
+    test "each part is one line, whitespace around a newline collapsing to a space":
+      let arg = TestArg(validatorHelpVal: "one of\n    fast, safe",
+        variants: @["--up", "--down"], descs: {"--up": "a\nb"}.toTable)
+      check arg.annotations("go\n  up").mapIt(it.plain) ==
+        @["one of fast, safe", "action: go up"]
+
+    test "a newline at either end of a part is dropped, not collapsed":
+      let arg = TestArg(validatorHelpVal: "\n  one of fast\n")
+      check arg.annotations("go up\n").mapIt(it.plain) ==
+        @["one of fast", "action: go up"]
+
   suite "variantsByDesc":
     test "an arg with no variants has no buckets":
       check Arg().variantsByDesc().len == 0
@@ -589,6 +676,34 @@ when isMainModule:
     test "the given help text replaces the arg's own":
       let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
       check arg.rows("other text").plain == @[row("-x", "other text")]
+
+    test "help text is re-flowed into blocks, one per line":
+      let arg = TestArg(variants: @["-x"], help: """
+        Picks a mode,
+        quickly.
+
+        Modes:
+        - fast""")
+      check arg.rows().plain == @[row("-x", "Picks a mode, quickly.\n\nModes:\n- fast")]
+
+    test "the bracket ends one-block text":
+      let arg = TestArg(variants: @["-x"], help: "First line\nsecond line",
+        defaultStrVal: "5")
+      check arg.rows().plain == @[row("-x", "First line second line [default: 5]")]
+
+    test "the bracket follows several blocks after a blank line":
+      let arg = TestArg(variants: @["-x"], help: "One.\n\nTwo.", defaultStrVal: "5")
+      check arg.rows().plain == @[row("-x", "One.\n\nTwo.\n\n[default: 5]")]
+
+    test "a divergent bucket's variantDesc as main text is re-flowed":
+      let arg = TestArg(variants: @["--up", "--down"],
+        descs: {"--up": "Move\n  up", "--down": "Move down"}.toTable)
+      check arg.rows().plain == @[row("--up", "Move\n  up"), row("--down", "Move down")]
+
+    test "single-line help starting with a list marker is a list item":
+      let arg = TestArg(variants: @["-x"], help: "- reads as an item and hangs when it wraps")
+      check arg.rows().mapIt(it.text.wrapProse(24).mapIt(it.plain)) ==
+        @[@["- reads as an item and", "  hangs when it wraps"]]
 
   suite "longOrShort":
     test "long help text is preferred when declared":
@@ -708,6 +823,37 @@ when isMainModule:
         rendered = renderColumn(rows, width = 30, colWidth = 5)
 
       check rendered == expected
+
+    test "each block of a row's text starts at the text column":
+      let rows = @[row("-m", "Picks how blocks are checked.\n\nModes:\n" &
+        "- fast: skips verification entirely\n    an indented line that wraps at its indent")]
+      check renderColumn(rows, width = 40, colWidth = 2) ==
+        "  -m  Picks how blocks are checked.\n" &
+        "\n" &
+        "      Modes:\n" &
+        "      - fast: skips verification\n" &
+        "        entirely\n" &
+        "          an indented line that wraps at\n" &
+        "          its indent"
+
+    test "a paragraph's wrap continuations still hang":
+      check renderColumn(@[row("-m", "One.\n\nA second paragraph that wraps")],
+          width = 30, colWidth = 2) ==
+        "  -m  One.\n\n      A second paragraph that\n        wraps"
+
+    test "a block starts at the text column while the variants still wrap":
+      check renderColumn(@[row("-m, --mode, --method", "One.\n\nModes:\n" &
+          "- fast: skips verification entirely")], width = 44, colWidth = 10) ==
+        "  -m,         One.\n" &
+        "    --mode,\n" &
+        "    --method  Modes:\n" &
+        "              - fast: skips verification\n" &
+        "                entirely"
+
+    test "text keeps a gap after a variants line that fills its column":
+      check renderColumn(@[row("-m, --abcdefgh", "One.\nTwo.")],
+          width = 40, colWidth = 10) ==
+        "  -m,         One.\n    --abcdefgh  Two."
 
   suite "groupOrder":
     test "canonical groups appear in Commands, Arguments, Options order regardless of insertion order":
@@ -944,6 +1090,51 @@ when isMainModule:
         for span in line.spans:
           check '\n' notin span.text
 
+  suite "wrapProse":
+    proc lines(t: StyledText, width = 20): seq[string] =
+      t.wrapProse(width).mapIt(it.plain)
+
+    test "empty text has no lines":
+      check StyledText().wrapProse(20).len == 0
+
+    test "a line with no indent or marker wraps at exactly the width":
+      check lines(styled("a line that wraps at ten"), 10) ==
+        @["a line", "that wraps", "at ten"]
+
+    test "each line is a block, and an empty line stays empty":
+      check lines(styled("one\n\ntwo")) == @["one", "", "two"]
+
+    test "a list item hangs under its text":
+      check lines(styled("- an item that wraps under its text")) ==
+        @["- an item that wraps", "  under its text"]
+      check lines(styled("  10. a nested item that wraps"), 24) ==
+        @["  10. a nested item that", "      wraps"]
+
+    test "an indented line keeps its indent":
+      check lines(styled("    an indented line that wraps")) ==
+        @["    an indented line", "    that wraps"]
+
+    test "hung text gets at least 20 columns, or the width if narrower":
+      check lines(styled("- a list item wrapping at twenty"), 21) ==
+        @["- a list item wrapping", "  at twenty"]
+      check lines(styled("- a list item"), 10) == @["- a list", "  item"]
+
+    test "a line of only spaces comes out empty, and a bare marker trimmed":
+      check lines(styled("one\n   \n  - ")) == @["one", "", "  -"]
+
+    test "only an srPlain marker makes a list item":
+      check lines(styled(srLiteral, "- x") & styled(" reads stdin, which wraps")) ==
+        @["- x reads stdin,", "which wraps"]
+
+    test "roles survive the wrap, and no span holds a newline":
+      let wrapped = (styled("- use ") & styled(srOption, "--speed") &
+        styled(" to\ngo faster than before")).wrapProse(20)
+      check wrapped.mapIt(it.render(tagged)) ==
+        @["- use {option:--speed} to", "go faster than", "before"]
+      for line in wrapped:
+        for span in line.spans:
+          check '\n' notin span.text
+
   suite "joinSections":
     test "no sections yields an empty string":
       check joinSections() == ""
@@ -1141,6 +1332,10 @@ when isMainModule:
         expected = "  <foo>\n    This is some help text\n\n  <bar>\n    This is also some help text"
       check renderParagraph(rows) == expected
 
+    test "a blank line in a row's text renders empty, with no indent":
+      check renderParagraph(@[row("-x", "One.\n\nTwo.")]) ==
+        "  -x\n    One.\n\n    Two."
+
   suite "formatParagraph":
     test "a group's header is followed by its args, each on its own line":
       let
@@ -1241,6 +1436,27 @@ when isMainModule:
             needs to be
             wrapped""".dedent
       check spec.formatParagraph("prog") == expected
+
+    test "multi-block help renders as paragraphs and a list under the variants":
+      let spec = plainSpec(
+        (mode: TestArg(kind: ArgKind.Optional, variants: @["-m", "--mode=<m>"],
+          group: "Options", defaultStrVal: "fast", help: (short: "Pick a mode.",
+          long: """
+            Picks how blocks are checked.
+
+            Modes:
+            - fast: skips verification
+            - safe: checks every block"""))),
+        usage = "[options]", settings = newSpecSettings(width = 50, style = nil))
+      check spec.formatParagraph("p").split("Options:\n")[1] == @[
+        "  -m, --mode=<m>",
+        "    Picks how blocks are checked.",
+        "",
+        "    Modes:",
+        "    - fast: skips verification",
+        "    - safe: checks every block",
+        "",
+        "    [default: fast]"].join("\n")
 
   suite "genHelp":
     test "returns the formatter's output verbatim":
