@@ -34,9 +34,13 @@ jobs:
       fail-fast: false
       matrix:
         nim-version: ["2.2.4", "stable"]
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.nim-version == 'stable' }}
+    # Windows runners default to pwsh; every step here is written for bash.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +59,11 @@ jobs:
         id: week
         run: echo "v=$(date -u +%Y-%V)" >> "$GITHUB_OUTPUT"
 
+      # Skipped on Windows: prebuilt binaries install fast there, so there's no
+      # build.sh cost to recoup.
       - name: Cache Nim toolchain
         id: nim-cache
+        if: runner.os != 'Windows'
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.nim_runtime
