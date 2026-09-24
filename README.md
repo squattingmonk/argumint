@@ -1776,8 +1776,9 @@ formatter; it always uses the standard `Usage:` layout.
 When stdout and stderr are both a terminal, help and parse-error output are
 coloured by role: headers bold, options and commands bold cyan,
 `<positionals>` and `<metavars>` cyan, env var names yellow, literal values
-green, URLs blue and underlined, the `[...]` annotation brackets dim, and
-the `Parsing error:` label bold red. Anywhere else, like a pipe, a file, or
+green, URLs blue and underlined, the `[...]` annotation brackets dim, the
+`Parsing error:` label bold red, and the token a parse error blames
+(`srInvalid`) bold yellow. Anywhere else, like a pipe, a file, or
 `TERM=dumb`, the output is plain text, so escape codes never end up in a
 log. `NO_COLOR` (set to anything) turns colour off; `FORCE_COLOR` (set to
 anything) or `CLICOLOR_FORCE` (set to anything but `0`) turns it on even

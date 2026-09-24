@@ -230,6 +230,7 @@ suite "`Spec` is an opaque handle":
     # `docs/adr/0051-help-and-error-styling.md`.
     var theme = defaultTheme
     theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
+    theme[srInvalid] = TextStyle(fg: fgRed)
     let settings = newSpecSettings(style = ansiStyler(theme))
     check not settings.style.isNil
     check compiles(newSpecSettings(style = autoStyler()))
@@ -239,6 +240,7 @@ suite "`Spec` is an opaque handle":
     check not declared(plainMarkup)
     check not declared(styledHelp)
     check not declared(heading)
+    check not declared(styledOption)
     check not declared(firstParagraph)
     check not declared(dedentLines)
     check not declared(metavars)

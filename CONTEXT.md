@@ -269,7 +269,7 @@ What a span of Styled Text is, from a fixed set: a header, the program
 name, a Command, an Option, a Positional Argument, a metavar (an Option's
 value placeholder, the `<kn>` in `--speed=<kn>`), an env var name, a
 literal value, a URL, the annotation brackets and labels, the error label,
-or plain text.
+the token a user got wrong in a parse error, or plain text.
 _Avoid_: style, class, token type
 
 **Styler**:

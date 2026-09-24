@@ -41,9 +41,11 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
       raised = e.msg
     check raised == direct
 
-  test "completion's firstParagraph and shared dedent stay withheld":
+  test "style.nim's shared plain-text and option helpers stay withheld":
     check not declared(firstParagraph)
     check not declared(dedentLines)
+    check not declared(styledOption)
+    check not compiles([styled("a")].join(styled(", ")))
 
 suite "a custom `HelpFormatter` can be written with only `argumint/help`":
   # Regression for the formatter seam being unusable outside the library:

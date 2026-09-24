@@ -474,7 +474,15 @@ omitted when it would only repeat the name. Peeling destroys that original,
 so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
 stand in, being ranking-only and textless. See ADR 0038.
 
-`formatComplaints` renders the bullets with no leading newline;
+A `Complaint`'s subject is `StyledText`, its roles set by whichever
+constructor builds it (ADR 0056), never by `markup`, since it may hold
+typed input: the token the user got wrong is `srInvalid`, what argumint
+declares keeps its own role (a missing option goes through the same
+`styledOption` split as a help row), and the wording is `srPlain`. Two
+complaints are the same if their plain text is (`dedupKey`), so dedup and
+grouping never depend on a role.
+
+`formatComplaints` lays out the bullets with no leading newline;
 `Report.failureMessage` appends the usage block via `usageLines`
 (`help.nim`, issue #68 -- `complaints.nim` imports it for exactly this, a new
 dependency below `tokens` in the chain rather than a new layer), rendered
@@ -978,9 +986,10 @@ space, and inserting line breaks -- never altering a word's bytes.
 
 Roles are assigned where the text is built (ADR 0051). `rows` tags each
 variant by its Arg's kind (`styledVariant`, which splits an option's
-`=<m>` into `srOption`/`srPlain`/`srMetavar`), and runs the help text
-through `markup` with the Arg's own `metavars`, derived from its variants
-by `OptionalVariantFormat`'s `helpVar` capture. `annotations` tags the
+`=<m>` into `srOption`/`srPlain`/`srMetavar` through `style.styledOption`,
+shared with complaints), and runs the help text through `markup` with the
+Arg's own `metavars`, derived from its variants by
+`OptionalVariantFormat`'s `helpVar` capture. `annotations` tags the
 bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
 `srEnv`; the validator part comes from `validatorHelp`, which now returns
 `StyledText` built by `Validator.styledHelp`/`FlagClamp.styledHelp` (whose
