@@ -181,7 +181,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     except ValidationError as e:
       var r = initReport(pc.cursor.spec, pc.command)
       r.note(e.msg)
-      raise newException(ValidationError, r.failureMessage)
+      raise r.failure(ValidationError)
 
   # Tiers applied strongest-first, which is Value Precedence read top-down.
   # Consequence: a bad command-line value now surfaces before a bad env one,

@@ -49,6 +49,7 @@ hand-written validation code.
   - [Custom Messages](#custom-messages-message-and-version)
   - [Displaying Help](#displaying-help-help)
     - [Paragraph Style and Long-Form Help Text](#paragraph-style-and-long-form-help-text)
+    - [Styling Help and Errors](#styling-help-and-errors)
   - [Shell Completion](#shell-completion)
   - [Parsing More Than Once](#parsing-more-than-once)
   - [Error Handling](#error-handling)
@@ -150,7 +151,9 @@ typed fields — no stringly-typed lookup by flag name.
   folded into the help text automatically. Choose between a two-column
   Column Style (the default) or a Paragraph Style layout with more room
   for long descriptions, and give an arg a longer, prose-form description
-  that only Paragraph Style shows.
+  that only Paragraph Style shows. Help and parse errors are
+  [coloured in a terminal](#styling-help-and-errors) and plain everywhere
+  else.
 - **[Shell completion](#shell-completion)** — dynamic, FSM-driven
   `bash`/`zsh`/`fish` completion generated from the same spec that drives
   parsing, so completions can never drift out of sync with what actually
@@ -1648,8 +1651,11 @@ visible args, in display order), `rows`/`Row` (an arg's variants and
 resolved help text), the `prolog`/`epilog`/`usage` accessors, `usageLines`
 (the wrapped usage lines, without a label), and `joinSections` (joins the
 non-empty parts with a blank line between each). Rows and usage lines are
-`StyledText`, a sequence of spans: lay them out with `wrap` and `len`, then
-turn each line into a string with `render`:
+`StyledText`, a sequence of spans that each carry a role (option,
+positional, header, ...): lay them out with `wrap` and `len`, then turn each
+line into a string with `render`. Pass `render` the spec's
+`settings.style` to colour your output as the built-ins do, and use
+`markup` to style your own prose; a formatter that doesn't renders plain:
 
 ```nim
 import std/strutils
@@ -1671,6 +1677,63 @@ These stay reachable only through that direct import rather than a plain
 `import argumint`, keeping this lower-level surface opt-in for anyone who
 doesn't need it. A parse error's usage block doesn't go through a
 formatter; it always uses the standard `Usage:` layout.
+
+#### Styling Help and Errors
+
+When stdout and stderr are both a terminal, help and parse-error output are
+coloured by role: headers bold, options and commands bold cyan,
+`<positionals>` and `<metavars>` cyan, env var names yellow, literal values
+green, URLs blue and underlined, the `[...]` annotation brackets dim, and
+the `Parsing error:` label bold red. Anywhere else, like a pipe, a file, or
+`TERM=dumb`, the output is plain text, so escape codes never end up in a
+log. `NO_COLOR` (set to anything) turns colour off; `FORCE_COLOR` (set to
+anything) or `CLICOLOR_FORCE` (set to anything but `0`) turns it on even
+without a terminal. On Windows, argumint turns on the console's ANSI
+handling itself.
+
+The styler is `SpecSettings.style`, which defaults to `autoStyler()`, the
+detection above. Pass `nil` for plain text always, or your own look:
+
+```nim
+var theme = defaultTheme
+theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
+theme[srHeader] = TextStyle(attrs: {styleBright})
+
+spec.parseOrQuit(settings = newSpecSettings(style = ansiStyler(theme)))
+```
+
+A `Theme` sets a `TextStyle` (a `std/terminal` foreground colour plus a set
+of attributes like bold and underline) for each `StyleRole`. For anything a
+theme can't express, like true colour, backgrounds, or clickable `srUrl`
+hyperlinks, write your own `Styler`, a proc that decorates one span of text:
+`proc (role: StyleRole, text: string): string`. Since layout is measured
+before styling, a styler can add whatever it likes without breaking
+alignment. Unlike help, a caught `ParseError`'s `msg` is always plain; only
+`parseOrQuit` prints the styled one.
+
+Help text, `prolog`, `epilog`, and a validator's or clamp's `desc` are
+**Help Markup**: wrap a name in backticks and it gets the style of what it
+looks like.
+
+```nim
+let spec = (
+  speed: opt("--speed=<kn>", default = 10,
+    help = "Speed in `<kn>`; overrides `$SHIP_SPEED`"),
+  help: help()
+)
+
+spec.parseOrQuit(epilog = "See `ship move --help` for more.")
+```
+
+`-x`/`--xx` is styled as an option, `--xx=<m>` as an option and its
+metavar, `<name>` (or all-caps `NAME`) as a metavar if the arg itself takes
+a `<name>` value and as a positional otherwise, `$NAME` or `%NAME%` as an
+env var, `https://...` (any `scheme://`) as a URL, and anything else as a
+literal. When the output is styled, the backticks are dropped; when it's
+plain, they're kept, so the text reads the same either way. Write a doubled
+backtick (``` `` ```) for a literal one. Markup never fails: an unclosed
+backtick is just a backtick, and a backticked `--flag` doesn't have to be
+one of your spec's (since help may well mention another program's).
 
 ### Shell Completion
 

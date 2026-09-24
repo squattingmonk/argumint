@@ -39,7 +39,10 @@ registration.
   block in the module under test or as a new `tests/test_*.nim` file -- no
   per-file wiring needed beyond that. `tools/runtests.nim` drives it
   (parallel compile, serial run) -- see its module doc for how failures
-  are reported.
+  are reported. A test that renders help or a parse error through
+  default settings must pass `newSpecSettings(style = nil)`, since the
+  default styler colours output whenever it runs in a terminal; running
+  the suite with `FORCE_COLOR=1` finds any that don't.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code

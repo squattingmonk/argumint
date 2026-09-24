@@ -22,11 +22,17 @@ type
     ## couldn't be converted to its Arg's type. Its `msg` is a bulleted
     ## complaint list followed by a usage block -- see
     ## `docs/adr/0035-parse-failure-reporting.md`.
+    styledMsg*: string
+      ## `msg` with its usage block rendered by the Spec's `Styler`, for
+      ## `parseOrQuit*` to print; empty if the Spec has none. `msg` itself
+      ## stays plain -- see `docs/adr/0051-help-and-error-styling.md`
 
   ValidationError* = object of CatchableError
     ## A value matched the grammar but failed its Arg's own `Validator`
     ## (`validators.nim`). Never raised for a `flag`, which takes a Flag
     ## Clamp instead -- see `docs/adr/0016-flag-clamp.md`.
+    styledMsg*: string
+      ## As `ParseError.styledMsg`
 
   MessageError* = object of CatchableError
     ## A `message()`/`version()` Arg matched: parsing short-circuits so the

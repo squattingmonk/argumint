@@ -14,7 +14,7 @@ proc greeter(): Spec =
     times: opt("--times=<n>", default = 1, help = "How many times"),
     help: help(),
   ), prolog = "Greeter.", epilog = "See the README.",
-     usage = "<name> [--times=<n>]")
+     usage = "<name> [--times=<n>]", settings = newSpecSettings(style = nil))
 
 suite "`genHelp` is callable by importing `argumint/help` directly":
   test "it renders the full message without raising":

@@ -1,11 +1,16 @@
 ## Styled text: the span model help and error output render through. Layout
 ## (wrap, pad, column width) runs on plain span text; a `Styler` is applied
 ## per span only at `render` time, so it can emit anything without skewing
-## widths -- see `docs/architecture.md`.
+## widths -- see `docs/architecture.md`. Also home to the built-in ANSI
+## `Theme`, `autoStyler`'s terminal detection, and Help Markup -- see
+## `docs/adr/0051-help-and-error-styling.md`.
 ##
 ## A leaf module with no local imports.
 
-import std/[strutils, unicode]
+import std/[os, pegs, strutils, terminal, unicode]
+
+when defined(windows):
+  import std/winlean
 
 type
   StyleRole* = enum
@@ -19,6 +24,7 @@ type
     srMetavar
     srEnv
     srLiteral
+    srUrl
     srAnnotation
     srError
 
@@ -37,6 +43,32 @@ type
 
   Styler* = proc (role: StyleRole, text: string): string
     ## Decorates one span's text for display; nil renders plain.
+
+  TextStyle* = object
+    ## How `ansiStyler` shows one role.
+    fg*: ForegroundColor = fgDefault
+      ## The text colour; `fgDefault` leaves it unchanged
+    attrs*: set[Style]
+      ## Bold, dim, underline, etc.
+
+  Theme* = array[StyleRole, TextStyle]
+    ## A `TextStyle` per role. Start from a copy of `defaultTheme`: a bare
+    ## `var` of this type isn't initialized with `fgDefault`.
+
+const defaultTheme*: Theme = [
+  srPlain: TextStyle(),
+  srHeader: TextStyle(attrs: {styleBright}),
+  srProgram: TextStyle(attrs: {styleBright}),
+  srCommand: TextStyle(fg: fgCyan, attrs: {styleBright}),
+  srOption: TextStyle(fg: fgCyan, attrs: {styleBright}),
+  srPositional: TextStyle(fg: fgCyan),
+  srMetavar: TextStyle(fg: fgCyan),
+  srEnv: TextStyle(fg: fgYellow),
+  srLiteral: TextStyle(fg: fgGreen),
+  srUrl: TextStyle(fg: fgBlue, attrs: {styleUnderscore}),
+  srAnnotation: TextStyle(attrs: {styleDim}),
+  srError: TextStyle(fg: fgRed, attrs: {styleBright})]
+  ## The built-in look `autoStyler` uses.
 
 proc add*(t: var StyledText, span: Span) =
   ## Appends `span`, merging it into the last span if they share a role.
@@ -188,6 +220,154 @@ proc render*(lines: openArray[StyledText], styler: Styler = nil): string =
     if i > 0: result.add '\n'
     result.add line.render(styler)
 
+proc ansiStyler*(theme: Theme): Styler =
+  ## A `Styler` wrapping each span in the ANSI codes for its role's `TextStyle`,
+  ## and leaving a role with no style as plain text.
+  result = proc (role: StyleRole, text: string): string =
+    let style = theme[role]
+    if style.fg == fgDefault and style.attrs == {}:
+      return text
+    for attr in style.attrs:
+      result.add ansiStyleCode(attr)
+    if style.fg != fgDefault:
+      result.add ansiForegroundColorCode(style.fg)
+    result.add text
+    result.add ansiResetCode
+
+proc wantsColor(env: proc (key: string): string, ttys: bool): bool =
+  ## `autoStyler`'s rule, given how to read an env var and whether stdout and
+  ## stderr are both terminals.
+  let clicolorForce = env("CLICOLOR_FORCE")
+  if env("FORCE_COLOR").len > 0 or clicolorForce notin ["", "0"]:
+    true
+  elif env("NO_COLOR").len > 0 or env("TERM") == "dumb":
+    false
+  else:
+    ttys
+
+when defined(windows):
+  const EnableVirtualTerminalProcessing = 0x0004
+
+  proc enableVirtualTerminal(): bool =
+    ## Turns on ANSI escape handling for stdout and stderr; false if either
+    ## isn't a console that supports it.
+    for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]:
+      let handle = getStdHandle(id)
+      var mode: DWORD
+      if getConsoleMode(handle, addr mode) == 0 or
+          setConsoleMode(handle, mode or EnableVirtualTerminalProcessing) == 0:
+        return false
+    true
+
+proc autoStyler*(): Styler =
+  ## `ansiStyler(defaultTheme)` if output is going to a terminal, else nil
+  ## (plain). Nil when `NO_COLOR` is non-empty, `TERM` is `dumb`, or stdout and
+  ## stderr aren't both terminals -- unless `FORCE_COLOR` is non-empty or
+  ## `CLICOLOR_FORCE` is set to anything but `0`, which force colour on. On
+  ## Windows it also enables the console's ANSI handling, and is nil if that
+  ## fails and colour wasn't forced.
+  let env = proc (key: string): string = getEnv(key)
+  if not wantsColor(env, ttys = stdout.isatty and stderr.isatty):
+    return nil
+  when defined(windows):
+    let forced = wantsColor(env, ttys = false)
+    if not enableVirtualTerminal() and not forced:
+      return nil
+  ansiStyler(defaultTheme)
+
+let
+  # Placeholders take the lexer's two argument forms, `<name>` and `NAME`,
+  # but a caps one must start with a letter so `42` stays a literal.
+  OptionShape = peg"""
+    option <- ^ {'--' name / '-' \w+} ({[=:] / \s+} {placeholder})? $
+    placeholder <- '<' name '>' / caps
+    name <- \w (\w / ('-' \w))*
+    caps <- [A-Z] ([A-Z0-9] / ([_-] [A-Z0-9]))*
+  """
+  PlaceholderShape = peg"""
+    placeholder <- ^ ('<' name '>' / caps) $
+    name <- \w (\w / ('-' \w))*
+    caps <- [A-Z] ([A-Z0-9] / ([_-] [A-Z0-9]))*
+  """
+  UrlShape = peg"^ [a-zA-Z] [a-zA-Z0-9+.-]* '://' \S+ $"
+  EnvShape = peg"""
+    env <- ^ ('$' name / '%' name '%') $
+    name <- [A-Za-z_] \w*
+  """
+
+proc placeholder(code: string, metavars: openArray[string]): StyledText =
+  ## A `<name>` or `NAME`: `srMetavar` if `name`/`NAME` is in `metavars`, else
+  ## `srPositional`.
+  let name = if code.startsWith('<'): code[1 ..< ^1] else: code
+  styled(if name in metavars: srMetavar else: srPositional, code)
+
+proc classify(code: string, metavars: openArray[string]): StyledText =
+  ## A backticked span's roles, by shape alone -- see `markup`.
+  var m: array[3, string]
+  if code.match(OptionShape, m):
+    result = styled(srOption, m[0]) & styled(m[1])
+    if m[1] in ["=", ":"]:
+      result.add styled(srMetavar, m[2])
+    elif m[2].len > 0:
+      result.add placeholder(m[2], metavars)
+  elif code.match(PlaceholderShape):
+    result = placeholder(code, metavars)
+  elif code.match(EnvShape):
+    result = styled(srEnv, code)
+  elif code.match(UrlShape):
+    result = styled(srUrl, code)
+  else:
+    result = styled(srLiteral, code)
+
+proc markup*(prose: string, metavars: openArray[string] = [], keepTicks = true): StyledText =
+  ## `prose` with Help Markup applied: each backticked span gets a role based on
+  ## its shape -- `-x`/`--xx` is `srOption` (`--xx=<m>` adds `srMetavar`),
+  ## `<name>` (or all-caps `NAME`) is `srMetavar` if `name` is in `metavars` and
+  ## `srPositional` otherwise (as is one after an option and a space instead of
+  ## a separator: `--speed <kn>`), `$NAME` or `%NAME%` is `srEnv`,
+  ## `scheme://...` is `srUrl`, anything else is `srLiteral`. The rest is `srPlain`. Backticks are kept if `keepTicks`
+  ## (for plain output) and dropped otherwise. A doubled backtick is a literal
+  ## one, and so is an unclosed one; markup never fails. See
+  ## `docs/adr/0051-help-and-error-styling.md`.
+  var
+    text = ""
+    i = 0
+  while i < prose.len:
+    if prose[i] != '`':
+      text.add prose[i]
+      inc i
+    elif prose.continuesWith("``", i):
+      text.add '`'
+      inc i, 2
+    else:
+      var
+        code = ""
+        j = i + 1
+      while j < prose.len and (prose[j] != '`' or prose.continuesWith("``", j)):
+        if prose[j] == '`':
+          code.add '`'
+          inc j, 2
+        else:
+          code.add prose[j]
+          inc j
+      if j == prose.len:
+        text.add '`'
+        inc i
+        continue
+      if keepTicks:
+        text.add '`'
+      result.add styled(text)
+      result.add classify(code, metavars)
+      text = if keepTicks: "`" else: ""
+      i = j + 1
+  result.add styled(text)
+
+proc plainMarkup*(prose: string): string =
+  ## `prose` as it reads with no styler: Help Markup's ticks kept, doubled
+  ## backticks collapsed. For prose shown outside help, like completion
+  ## descriptions and validation errors.
+  markup(prose).plain
+
 when isMainModule:
   import std/[sequtils, unittest]
 
@@ -280,3 +460,159 @@ when isMainModule:
       let lines = @[styled(srOption, "-x"), styled(srPlain, "ok")]
       check lines.render(tagged) == "<srOption>-x</srOption>\n<srPlain>ok</srPlain>"
       check lines.render() == "-x\nok"
+
+  suite "ansiStyler":
+    let styler = ansiStyler(defaultTheme)
+
+    test "a role with no style is left plain":
+      check styler(srPlain, "x") == "x"
+
+    test "a styled role is wrapped in its codes and a reset":
+      check styler(srPositional, "<x>") ==
+        ansiForegroundColorCode(fgCyan) & "<x>" & ansiResetCode
+      check styler(srAnnotation, "[") ==
+        ansiStyleCode(styleDim) & "[" & ansiResetCode
+
+    test "a custom theme is used as given":
+      var theme = defaultTheme
+      theme[srPlain] = TextStyle(fg: fgRed)
+      check ansiStyler(theme)(srPlain, "x") ==
+        ansiForegroundColorCode(fgRed) & "x" & ansiResetCode
+
+  suite "wantsColor":
+    proc env(vars: varargs[(string, string)]): proc (key: string): string =
+      let vars = @vars
+      result = proc (key: string): string =
+        for (k, v) in vars:
+          if k == key: return v
+
+    test "colour follows whether both streams are terminals":
+      check wantsColor(env(), ttys = true)
+      check not wantsColor(env(), ttys = false)
+
+    test "a non-empty NO_COLOR turns it off":
+      check not wantsColor(env(("NO_COLOR", "1")), ttys = true)
+      check wantsColor(env(("NO_COLOR", "")), ttys = true)
+
+    test "TERM=dumb turns it off":
+      check not wantsColor(env(("TERM", "dumb")), ttys = true)
+      check wantsColor(env(("TERM", "xterm")), ttys = true)
+
+    test "a non-empty FORCE_COLOR turns it on, even over NO_COLOR":
+      check wantsColor(env(("FORCE_COLOR", "1")), ttys = false)
+      check wantsColor(env(("FORCE_COLOR", "0")), ttys = false)
+      check wantsColor(env(("FORCE_COLOR", "1"), ("NO_COLOR", "1")), ttys = false)
+      check not wantsColor(env(("FORCE_COLOR", "")), ttys = false)
+
+    test "CLICOLOR_FORCE turns it on unless it's 0":
+      check wantsColor(env(("CLICOLOR_FORCE", "1")), ttys = false)
+      check wantsColor(env(("CLICOLOR_FORCE", "1"), ("TERM", "dumb")), ttys = false)
+      check not wantsColor(env(("CLICOLOR_FORCE", "0")), ttys = false)
+
+  suite "autoStyler":
+    test "is nil when output isn't a terminal and colour isn't forced":
+      let forced = getEnv("FORCE_COLOR").len > 0 or
+        getEnv("CLICOLOR_FORCE") notin ["", "0"]
+      if not forced and not (stdout.isatty and stderr.isatty):
+        check autoStyler().isNil
+      else:
+        skip()
+
+    when defined(windows):
+      test "enabling ANSI handling fails without crashing when not a console":
+        if not (stdout.isatty and stderr.isatty):
+          check not enableVirtualTerminal()
+          putEnv("FORCE_COLOR", "1")
+          defer: delEnv("FORCE_COLOR")
+          check not autoStyler().isNil # forced, despite the failure
+        else:
+          skip()
+
+  suite "markup":
+    proc roles(t: StyledText): seq[(StyleRole, string)] =
+      t.spans.mapIt((it.role, it.text))
+
+    test "prose with no backticks is one plain span":
+      check markup("plain text").roles == @[(srPlain, "plain text")]
+
+    test "options are srOption":
+      check markup("`-x` or `--long-name`", keepTicks = false).roles == @[
+        (srOption, "-x"), (srPlain, " or "), (srOption, "--long-name")]
+
+    test "an option's value placeholder is srMetavar":
+      check markup("`--speed=<kn>`", keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "<kn>")]
+      check markup("`-s:<kn>`", keepTicks = false).roles ==
+        @[(srOption, "-s"), (srPlain, ":"), (srMetavar, "<kn>")]
+
+    test "<name> is srPositional unless it's one of the given metavars":
+      check markup("`<kn>`", keepTicks = false).roles == @[(srPositional, "<kn>")]
+      check markup("`<kn>`", @["kn"], keepTicks = false).roles == @[(srMetavar, "<kn>")]
+      check markup("`<name>`", @["kn"], keepTicks = false).roles == @[(srPositional, "<name>")]
+
+    test "a placeholder after an option and a space follows the <name> rule":
+      check markup("`--speed <kn>`", keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, " "), (srPositional, "<kn>")]
+      check markup("`--speed <kn>`", @["kn"], keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, " "), (srMetavar, "<kn>")]
+
+    test "an option with an = placeholder is always a metavar":
+      check markup("`--speed=<kn>`", @["other"], keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "<kn>")]
+
+    test "$NAME and %NAME% are srEnv":
+      check markup("`$HOME`", keepTicks = false).roles == @[(srEnv, "$HOME")]
+      check markup("`%USERPROFILE%`", keepTicks = false).roles ==
+        @[(srEnv, "%USERPROFILE%")]
+      check markup("`%HOME`", keepTicks = false).roles == @[(srLiteral, "%HOME")]
+
+    test "scheme://... is srUrl":
+      check markup("`https://example.com/a?b=c`", keepTicks = false).roles ==
+        @[(srUrl, "https://example.com/a?b=c")]
+      check markup("`git+ssh://host/repo`", keepTicks = false).roles ==
+        @[(srUrl, "git+ssh://host/repo")]
+
+    test "a URL needs a scheme, a host part, and no spaces":
+      for code in ["example.com", "https://", "://x", "https://a b", "1http://x"]:
+        check markup("`" & code & "`", keepTicks = false).roles == @[(srLiteral, code)]
+
+    test "an all-caps NAME is a placeholder, like <name>":
+      check markup("`FILE`", keepTicks = false).roles == @[(srPositional, "FILE")]
+      check markup("`SHIP-NAME_2`", keepTicks = false).roles ==
+        @[(srPositional, "SHIP-NAME_2")]
+      check markup("`KN`", @["KN"], keepTicks = false).roles == @[(srMetavar, "KN")]
+      check markup("`--speed=KN`", keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "KN")]
+      check markup("`--speed KN`", keepTicks = false).roles ==
+        @[(srOption, "--speed"), (srPlain, " "), (srPositional, "KN")]
+
+    test "a caps word must start with a letter and stay caps to be a placeholder":
+      check markup("`42`", keepTicks = false).roles == @[(srLiteral, "42")]
+      check markup("`File`", keepTicks = false).roles == @[(srLiteral, "File")]
+      check markup("`FILE-`", keepTicks = false).roles == @[(srLiteral, "FILE-")]
+
+    test "anything else is srLiteral":
+      check markup("`a.txt`", keepTicks = false).roles == @[(srLiteral, "a.txt")]
+
+    test "ticks are kept as plain text if keepTicks":
+      check markup("use `-x` here").roles ==
+        @[(srPlain, "use `"), (srOption, "-x"), (srPlain, "` here")]
+
+    test "ticks are dropped if not keepTicks":
+      check markup("use `-x` here", keepTicks = false).plain == "use -x here"
+
+    test "a doubled backtick is a literal backtick":
+      check markup("a``b").roles == @[(srPlain, "a`b")]
+      check markup("`a``b`", keepTicks = false).roles == @[(srLiteral, "a`b")]
+
+    test "an unclosed backtick is a literal backtick":
+      check markup("a `b").roles == @[(srPlain, "a `b")]
+      check markup("`").roles == @[(srPlain, "`")]
+
+    test "with ticks kept, the plain text is the prose, escapes collapsed":
+      for prose in ["", "a `-x` b", "`--y=<z>`", "a `b", "``x``", "`$A` and `<b>`"]:
+        check markup(prose).plain == prose.replace("``", "`")
+
+  suite "plainMarkup":
+    test "keeps ticks and collapses escapes":
+      check plainMarkup("use `-x`, not ``y``") == "use `-x`, not `y`"

@@ -346,16 +346,31 @@ proc formatComplaints(messages: seq[Complaint]): string =
         lines.add "  - {subject}".fmt
   lines.join("\n")
 
-proc failureMessage*(r: Report): string =
-  ## The complaint list plus the usage block -- what `raiseParseFailure` raises
-  ## verbatim, and what a reshaped conversion/validation failure (`fsm.parse*`)
-  ## uses for its own exception instead. See ADR 0035.
-  let msg = formatComplaints(r.finalComplaints)
-  "{msg}\n\nUsage:\n{r.spec.usage.usageLines(r.command, r.spec.settings.width).render}".fmt
+proc failureMessage*(r: Report, styler: Styler = nil): string =
+  ## The complaint list plus the usage block, rendered with `styler` (the
+  ## complaints themselves stay plain). See ADR 0035.
+  let usage = r.spec.usage.usageLines(r.command, r.spec.settings.width)
+  formatComplaints(r.finalComplaints) & "\n\n" &
+    styled(srHeader, "Usage:").render(styler) & "\n" & usage.render(styler)
+
+proc failure*[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
+  ## An `E` carrying `r.failureMessage` -- what `raiseParseFailure` raises,
+  ## and what a reshaped conversion/validation failure (`fsm.parse*`) raises
+  ## instead. Also rendered with the Spec's styler, if any, as `styledMsg`.
+  result = newException(E, r.failureMessage)
+  if not r.spec.settings.style.isNil:
+    result.styledMsg = r.failureMessage(r.spec.settings.style)
 
 proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.
-  raise newException(ParseError, r.failureMessage)
+  raise r.failure(ParseError)
+
+proc quitMessage*[E: ParseError | ValidationError](e: ref E, styler: Styler): string =
+  ## What `parseOrQuit*` prints for `e`: a `srError` label, then
+  ## `e.styledMsg`, or `e.msg` if that's empty.
+  let label = when E is ParseError: "Parsing error:" else: "Validation error:"
+  let body = if e.styledMsg.len > 0: e.styledMsg else: e.msg
+  styled(srError, label).render(styler) & "\n" & body
 
 when isMainModule:
   ## Direct tests for failure reporting -- ADR 0035 (parse-failure reporting),
@@ -707,3 +722,33 @@ when isMainModule:
       check r.isEmpty
       r.note("boom")
       check "app" in r.failureMessage
+
+  suite "styled failures":
+    proc tagged(role: StyleRole, text: string): string =
+      if role == srPlain: text else: "{" & $role & ":" & text & "}"
+
+    proc report(style: Styler): Report =
+      let spec = newSpec((x: opt("--xx=<n>")), usage = "--xx=<n>",
+        settings = newSpecSettings(style = style))
+      result = initReport(spec, "app")
+      result.note("bad --xx")
+
+    test "msg stays plain; styledMsg renders the usage block with the styler":
+      let e = report(tagged).failure(ParseError)
+      check e.msg == "  - bad --xx\n\nUsage:\n  app --xx=<n>"
+      check e.styledMsg == "  - bad --xx\n\n{srHeader:Usage:}\n" &
+        "  {srProgram:app} {srOption:--xx}={srMetavar:<n>}"
+
+    test "with no styler, styledMsg is empty":
+      check report(nil).failure(ValidationError).styledMsg == ""
+
+    test "quitMessage labels a failure as srError, above the styled message":
+      let r = report(tagged)
+      check r.failure(ParseError).quitMessage(tagged) ==
+        "{srError:Parsing error:}\n" & r.failureMessage(tagged)
+      check r.failure(ValidationError).quitMessage(tagged) ==
+        "{srError:Validation error:}\n" & r.failureMessage(tagged)
+
+    test "quitMessage falls back to msg when there's no styledMsg":
+      let e = newException(ParseError, "plain")
+      check e.quitMessage(nil) == "Parsing error:\nplain"

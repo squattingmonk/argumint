@@ -213,6 +213,13 @@ suite "Completion candidates carry help text":
     check candidates.find("--boost").help == "Increase by 5"
     check candidates.find("--dampen").help == "Decrease by 2"
 
+  test "help text reads as it would with no styler: Help Markup's ticks kept, escapes collapsed":
+    let spec = (
+      verbose: flag("--verbose", help = "Like `-v`, not ``-q``"),
+    )
+    let built = newSpec(spec, usage = "[options]")
+    check built.completeArgs(@[""], "prog").find("--verbose").help == "Like `-v`, not `-q`"
+
   test "an option's own help never leaks onto its Choice-validator value candidates":
     let spec = (
       logLevel: opt("--log-level=<level>", help = "Logging verbosity",

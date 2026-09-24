@@ -10,12 +10,12 @@
 
 import std/[pegs, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, errors, style]
+import ./[backend, errors, lexer, style]
 
 export backend.prolog, backend.epilog, backend.usage
 export style.StyleRole, style.Span, style.StyledText, style.Styler,
   style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
-  style.render, style.plain
+  style.render, style.plain, style.markup
 
 type
   HelpArg* = ref object of MessageArg
@@ -40,22 +40,42 @@ const Margin = "  "
 const ContinuationIndent = "    "
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
 
-proc annotations*(arg: Arg, action = ""): seq[StyledText] =
+proc annotations*(arg: Arg, action = "", keepTicks = true): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
-  ## `variantDesc`).
-  let validatorHelp = arg.validatorHelp()
+  ## `variantDesc`). Key labels are `srAnnotation`; values are `srLiteral`,
+  ## except env's `srEnv` and action's Help Markup. `keepTicks` is passed on
+  ## to `markup` for the action and a validator's `desc`.
+  proc entry(key: string, value: StyledText): StyledText =
+    styled(srAnnotation, key & ": ") & value
+
+  let validatorHelp = arg.validatorHelp(keepTicks)
   if validatorHelp.len > 0:
-    result.add styled(validatorHelp)
+    result.add validatorHelp
   if arg.defaultStr.len > 0:
-    result.add styled(fmt"default: {arg.defaultStr}")
+    result.add entry("default", styled(srLiteral, arg.defaultStr))
   if arg.envName.len > 0:
-    result.add styled(fmt"env: {arg.envName}")
+    result.add entry("env", styled(srEnv, arg.envName))
   let configKey = arg.configKey()
   if configKey.len > 0:
-    result.add styled(fmt"configKey: {configKey.join}")
+    result.add entry("configKey", styled(srLiteral, configKey.join))
   if action.len > 0:
-    result.add styled(fmt"action: {action}")
+    result.add entry("action", markup(action, keepTicks = keepTicks))
+
+proc styledVariant(arg: Arg, variant: string): StyledText =
+  ## `variant` with its role: `srCommand`, `srPositional`, or `srOption`
+  ## plus `srMetavar` for a value placeholder (`--speed=<kn>`).
+  case arg.kind
+  of ArgKind.Command: styled(srCommand, variant)
+  of ArgKind.Positional: styled(srPositional, variant)
+  of ArgKind.Optional, ArgKind.Flag:
+    let placeholder = variant.find('<')
+    if placeholder > 1:
+      styled(srOption, variant[0 ..< placeholder - 1]) &
+        styled(variant[placeholder - 1 .. placeholder - 1]) &
+        styled(srMetavar, variant[placeholder .. ^1])
+    else:
+      styled(srOption, variant)
 
 proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
@@ -94,30 +114,39 @@ proc longOrShort*(help: HelpText): string =
   ## fallback rule (ADR 0049).
   if help.long.len > 0: help.long else: help.short
 
-proc rows*(arg: Arg, help = arg.help.short): seq[Row] =
+proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
   ## One Row per `arg.variantsByDesc()` bucket. Text is `help` (e.g.
   ## `arg.help.longOrShort` for Paragraph Style), falling back to the
   ## bucket's own `variantDesc` when the arg's variants diverge and that
   ## bucket's `variantDesc` is non-empty, plus the `[...]` bracket from
   ## `annotations` (`action` included only when divergent AND `help` is
   ## non-empty). Callers filter `arg.hidden` themselves.
+  ##
+  ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
+  ## `srMetavar`), and the text gets Help Markup against `arg.metavars`.
+  ## Pass `keepTicks = false` when rendering with a styler, so Help
+  ## Markup's backticks are dropped.
   let buckets = arg.variantsByDesc()
   for bucket in buckets:
     let
       divergent = buckets.len > 1 and bucket.desc.len > 0
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
-      annotations = arg.annotations(action = action)
-    var text = styled(primary)
+      annotations = arg.annotations(action, keepTicks)
+    var text = markup(primary, arg.metavars, keepTicks)
     if annotations.len > 0:
       if primary.len > 0:
         text.add styled(" ")
-      text.add styled("[")
+      text.add styled(srAnnotation, "[")
       for i, annotation in annotations:
-        if i > 0: text.add styled("; ")
+        if i > 0: text.add styled(srAnnotation, "; ")
         text.add annotation
-      text.add styled("]")
-    result.add Row(variants: styled(bucket.names.join(", ")), text: text)
+      text.add styled(srAnnotation, "]")
+    var variants: StyledText
+    for i, name in bucket.names:
+      if i > 0: variants.add styled(", ")
+      variants.add arg.styledVariant(name)
+    result.add Row(variants: variants, text: text)
 
 proc variantsColWidth(spec: Spec): int =
   ## Widest single `Row.variants` across every arg in `spec`
@@ -130,7 +159,7 @@ proc variantsColWidth(spec: Spec): int =
   if spec.settings.maxVariantsWidth > 0 and result > spec.settings.maxVariantsWidth:
     result = spec.settings.maxVariantsWidth
 
-proc renderColumn(rows: seq[Row], width: int, colWidth: int): string =
+proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = nil): string =
   ## Wraps + zips `rows` into the table's text block: variants wrap at
   ## `colWidth`, text wraps at `max(width - (2 + colWidth + 2), 20)`, zipped
   ## line-by-line. First line of a row gets `Margin`; wrap continuations get
@@ -153,7 +182,7 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int): string =
       else:
         line.add v
       lines.add line
-  lines.render
+  lines.render(styler)
 
 proc splitUsage(usage: string): seq[string] =
   ## Splits a usage message into usage lines. Lines prefixed with whitespace are
@@ -165,24 +194,64 @@ proc splitUsage(usage: string): seq[string] =
     else:
       result.add line.strip
 
+proc styledUsage(line: string): StyledText =
+  ## One usage line's tokens with their roles: options (and `[options]`)
+  ## `srOption`, commands `srCommand`, arguments `srPositional`, a value
+  ## placeholder's `<x>` `srMetavar`, and punctuation `srPlain`.
+  for (kind, text) in line.displayTokens:
+    case kind
+    of tkShortOption, tkShortOptions, tkLongOption, tkAnyOption:
+      result.add styled(srOption, text)
+    of tkOptsEnd:
+      if text.startsWith('['):
+        result.add styled("[") & styled(srOption, text[1 .. ^2]) & styled("]")
+      else:
+        result.add styled(srOption, text)
+    of tkCommand:
+      result.add styled(srCommand, text)
+    of tkArgument:
+      result.add styled(srPositional, text)
+    of tkOptionValue:
+      result.add styled(text[0 .. 0]) & styled(srMetavar, text[1 .. ^1])
+    else:
+      result.add styled(text)
+
 proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[StyledText] =
   ## Lays out `usage` (a spec's raw usage string, one alternative per line) as
-  ## indented usage lines, prefixing each alternative with `command`. Lines
-  ## longer than `width` are wrapped, with continuations hanging-indented to
-  ## align under the first token after `command` rather than restarting at
-  ## the left margin. Adds no "Usage:" label -- the caller writes its own.
+  ## indented usage lines, prefixing each alternative with `command`
+  ## (`srProgram`). Lines longer than `width` are wrapped, with continuations
+  ## hanging-indented to align under the first token after `command` rather
+  ## than restarting at the left margin. Adds no "Usage:" label -- the caller
+  ## writes its own.
   let
-    prefix = "{Margin}{command} ".fmt
-    indent = styled(' '.repeat(styled(prefix).len))
+    prefix = styled(Margin) & styled(srProgram, command) & styled(" ")
+    indent = styled(' '.repeat(prefix.len))
     lineWidth = max(width, 20)
 
   for line in usage.splitUsage:
-    for i, wrapped in styled(prefix & line).wrap(lineWidth):
+    for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
       result.add(if i == 0: wrapped else: indent & wrapped)
+
+proc header(name: string, styler: Styler): string =
+  ## A section header (`Usage:`, a group name), rendered.
+  styled(srHeader, name).render(styler)
 
 proc usageSection(spec: Spec, command: string): string =
   ## The built-ins' labeled usage block.
-  "Usage:\n" & spec.usage.usageLines(command, spec.settings.width).render
+  let styler = spec.settings.style
+  header("Usage:", styler) & "\n" &
+    spec.usage.usageLines(command, spec.settings.width).render(styler)
+
+proc prose(text: string, styler: Styler): string =
+  ## A prolog or epilog with Help Markup, rendered, split at its newlines so
+  ## no span the styler sees contains one.
+  var lines = @[StyledText()]
+  for span in markup(text, keepTicks = styler.isNil).spans:
+    let parts = span.text.split('\n')
+    for i, part in parts:
+      if i > 0: lines.add StyledText()
+      lines[^1].add Span(role: span.role, text: part)
+  lines.render(styler)
 
 proc joinSections*(sections: varargs[string]): string =
   ## Joins the non-empty `sections` of a help message with a blank line
@@ -196,17 +265,20 @@ proc formatColumn*(spec: Spec, command: string): string =
   ## Column Style: prolog, usage, then each group's rows with variants and
   ## help text aligned into two columns shared across every group, then
   ## epilog.
-  let colWidth = spec.variantsColWidth()
+  let
+    colWidth = spec.variantsColWidth()
+    styler = spec.settings.style
   var groups: seq[string]
   for name, args in spec.helpGroups:
     var rows: seq[Row]
     for arg in args:
-      rows.add arg.rows()
-    groups.add "{name}\n{rows.renderColumn(spec.settings.width, colWidth)}".fmt
-  joinSections(spec.prolog, spec.usageSection(command), joinSections(groups),
-    spec.epilog)
+      rows.add arg.rows(keepTicks = styler.isNil)
+    groups.add header(name, styler) & "\n" &
+      rows.renderColumn(spec.settings.width, colWidth, styler)
+  joinSections(spec.prolog.prose(styler), spec.usageSection(command),
+    joinSections(groups), spec.epilog.prose(styler))
 
-proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
+proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil): string =
   let
     variantsWidth = max(width - Margin.len, 20 - Margin.len)
     helpWidth = max(width - ContinuationIndent.len, 20 - ContinuationIndent.len)
@@ -219,20 +291,22 @@ proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
         lines.add styled(ContinuationIndent) & line
     if lines.len > 0:
       result.addSep "\n\n"
-      result.add lines.render
+      result.add lines.render(styler)
 
 proc formatParagraph*(spec: Spec, command: string): string =
   ## Paragraph Style: prolog, usage, then each group's rows with variants on
   ## their own line and (long-form, if given) help text wrapped as an indented
   ## paragraph below, then epilog.
+  let styler = spec.settings.style
   var groups: seq[string]
   for name, args in spec.helpGroups:
     var rows: seq[Row]
     for arg in args:
-      rows.add arg.rows(arg.help.longOrShort)
-    groups.add "{name}\n{rows.renderParagraph(spec.settings.width)}".fmt
-  joinSections(spec.prolog, spec.usageSection(command), joinSections(groups),
-    spec.epilog)
+      rows.add arg.rows(arg.help.longOrShort, keepTicks = styler.isNil)
+    groups.add header(name, styler) & "\n" &
+      rows.renderParagraph(spec.settings.width, styler)
+  joinSections(spec.prolog.prose(styler), spec.usageSection(command),
+    joinSections(groups), spec.epilog.prose(styler))
 
 proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
   ## Renders `spec`'s full help message with `formatter`, which owns the
@@ -263,15 +337,30 @@ when isMainModule:
       cfg: ConfigKey
       descs: Table[string, string]
 
-  method validatorHelp(self: TestArg): string = self.validatorHelpVal
+  method validatorHelp(self: TestArg, keepTicks = true): StyledText =
+    styled(self.validatorHelpVal)
   method defaultStr(self: TestArg): string = self.defaultStrVal
   method envSource(self: TestArg): Option[EnvSource] = self.env
   method configKey(self: TestArg): ConfigKey = self.cfg
   method variantDesc(self: TestArg, variant: string): string =
     self.descs.getOrDefault(variant, "")
 
+  proc plainSpec(spec: tuple, usage = "", prolog = "", epilog = "",
+      settings = newSpecSettings(style = nil)): Spec =
+    ## `newSpec`, rendering plain unless told otherwise.
+    newSpec(spec, usage, prolog, epilog, settings)
+
   proc row(variants, text: string): Row =
     Row(variants: styled(variants), text: styled(text))
+
+  proc tagged(role: StyleRole, text: string): string =
+    ## Marks each styled span as `{role:text}`, leaving plain ones bare.
+    if role == srPlain: text
+    else: "{" & ($role)[2 .. ^1].toLowerAscii & ":" & text & "}"
+
+  proc plain(rows: seq[Row]): seq[Row] =
+    ## `rows` with their roles dropped, to compare layout alone.
+    rows.mapIt(row(it.variants.plain, it.text.plain))
 
   suite "annotations":
     test "an arg with nothing set has no annotations":
@@ -335,7 +424,7 @@ when isMainModule:
     # Variants sharing a description share a row. A bucket is considered
     # divergent if it is not the only bucket and its variantDesc is non-empty.
     test "a non-divergent bucket gets one row with the arg's help text":
-      check TestArg(variants: @["<name>"], help: "Who to greet").rows() ==
+      check TestArg(variants: @["<name>"], help: "Who to greet").rows().plain ==
         @[row("<name>", "Who to greet")]
 
     test "a single bucket is non-divergent and ignores variantDesc":
@@ -345,7 +434,7 @@ when isMainModule:
           help: "Verbosity",
           descs: {"-v": "Increase verbosity"}.toTable)
         expected = @[row("-v", "Verbosity")]
-      check arg.rows() == expected
+      check arg.rows().plain == expected
 
     test "a non-divergent bucket's help text is blank if arg.help is empty":
       let
@@ -353,7 +442,7 @@ when isMainModule:
           variants: @["-v"],
           descs: {"-v": "Increase verbosity"}.toTable)
         expected = @[row("-v", "")]
-      check arg.rows() == expected
+      check arg.rows().plain == expected
 
     test "a divergent bucket's help text matches variantDesc if arg.help is empty":
       let
@@ -364,7 +453,7 @@ when isMainModule:
           row("--direction", ""),
           row("--up", "Move up"),
           row("--down", "Move down")]
-      check arg.rows() == expected
+      check arg.rows().plain == expected
 
     test "a divergent bucket's help text uses arg.help + action annotation if arg.help is not empty":
       let
@@ -376,7 +465,7 @@ when isMainModule:
           row("--direction", "Direction"),
           row("--up", "Direction [action: move up]"),
           row("--down", "Direction [action: move down]")]
-      check arg.rows() == expected
+      check arg.rows().plain == expected
 
     test "variants with the same descriptions are joined with commas on one row":
       let
@@ -389,19 +478,19 @@ when isMainModule:
         expected = @[
           row("-d, --direction", "Direction"),
           row("-u, --up", "Direction [action: move up]")]
-      check arg.rows() == expected
+      check arg.rows().plain == expected
 
     test "a non-divergent bucket's bracket appears alone, with no leading space, when arg.help is empty":
       let arg = TestArg(variants: @["--speed=<speed>"], defaultStrVal: "5")
-      check arg.rows() == @[row("--speed=<speed>", "[default: 5]")]
+      check arg.rows().plain == @[row("--speed=<speed>", "[default: 5]")]
 
     test "help defaults to the arg's short help text":
       let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
-      check arg.rows() == @[row("-x", "short help text")]
+      check arg.rows().plain == @[row("-x", "short help text")]
 
     test "the given help text replaces the arg's own":
       let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
-      check arg.rows("other text") == @[row("-x", "other text")]
+      check arg.rows("other text").plain == @[row("-x", "other text")]
 
   suite "longOrShort":
     test "long help text is preferred when declared":
@@ -555,8 +644,8 @@ when isMainModule:
 
     test "groups are displayed in canonical order":
       let
-        spec = newSpec((
-          c: CommandArg(kind: Command, variants: @["c"], group: "Commands", spec: newSpec(())),
+        spec = plainSpec((
+          c: CommandArg(kind: Command, variants: @["c"], group: "Commands", spec: plainSpec(())),
           v: Arg(kind: Flag, variants: @["-v"], group: "Flags"),
           x: Arg(kind: Optional, variants: @["-x"], group: "Options"),
           y: Arg(kind: Positional, variants: @["<y>"], group: "Arguments")))
@@ -564,13 +653,13 @@ when isMainModule:
       check groups == @["Commands", "Arguments", "Options", "Flags"]
 
     test "hidden args are not shown":
-      let spec = newSpec((
+      let spec = plainSpec((
         foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
         bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
       check spec.helpGroups.toSeq[0].args.mapIt(it.name) == @["--foo"]
 
     test "a group is not shown when all of its args are hidden":
-      let spec = newSpec((
+      let spec = plainSpec((
         foo: Arg(kind: Optional, variants: @["--foo"], group: "Options"),
         baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
       check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
@@ -667,25 +756,25 @@ when isMainModule:
 
     test "a spec with no prolog, epilog, or args is a usage block with a bare command usage line":
       for formatter in formatters:
-        check formatter(Spec(settings: newSpecSettings()), "prog") == "Usage:\n  prog"
+        check formatter(Spec(settings: newSpecSettings(style = nil)), "prog") == "Usage:\n  prog"
 
     test "the usage block shows the spec's usage string after the command":
-      let spec = Spec(settings: newSpecSettings(), usage: "<foo> [--bar]")
+      let spec = Spec(settings: newSpecSettings(style = nil), usage: "<foo> [--bar]")
       for formatter in formatters:
         check formatter(spec, "prog") == "Usage:\n  prog <foo> [--bar]"
 
     test "prolog comes first, separated from the usage block by a blank line":
-      let spec = Spec(settings: newSpecSettings(), prolog: "foo")
+      let spec = Spec(settings: newSpecSettings(style = nil), prolog: "foo")
       for formatter in formatters:
         check formatter(spec, "prog") == "foo\n\nUsage:\n  prog"
 
     test "epilog comes last, separated from the usage block by a blank line":
-      let spec = Spec(settings: newSpecSettings(), epilog: "bar")
+      let spec = Spec(settings: newSpecSettings(style = nil), epilog: "bar")
       for formatter in formatters:
         check formatter(spec, "prog") == "Usage:\n  prog\n\nbar"
 
     test "groups come between the usage block and the epilog, each separated by a blank line":
-      let spec = newSpec(
+      let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")),
         usage = "<foo>", prolog = "foo", epilog = "bar")
       for formatter in formatters:
@@ -694,7 +783,7 @@ when isMainModule:
   suite "formatColumn":
     test "a group's header is followed by its args in column format":
       let
-        spec = newSpec(
+        spec = plainSpec(
           (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
           usage = "<foo>")
         expected = """
@@ -707,7 +796,7 @@ when isMainModule:
 
     test "a hidden arg is not shown":
       let
-        spec = newSpec((
+        spec = plainSpec((
           foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
           bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)),
           usage = "[--foo] [--bar]")
@@ -721,7 +810,7 @@ when isMainModule:
 
     test "a group is not shown if its only member is hidden":
       let
-        spec = newSpec((
+        spec = plainSpec((
           foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
           bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Hidden Options", hidden: true)),
           usage = "[--foo] [--bar]")
@@ -735,7 +824,7 @@ when isMainModule:
 
     test "multiple groups appear in canonical order, each separated by a blank line":
       let
-        spec = newSpec(
+        spec = plainSpec(
           (
             bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options"),
             foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
@@ -753,7 +842,7 @@ when isMainModule:
 
     test "each groups aligns its variants column based on the global max colWidth, not its own max colWidth":
       let
-        spec = newSpec(
+        spec = plainSpec(
           (
             bar: Arg(kind: Optional, variants: @["--foobar"], help: "A sample option that is longer than <foo>", group: "Options"),
             foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
@@ -808,7 +897,7 @@ when isMainModule:
   suite "formatParagraph":
     test "a group's header is followed by its args, each on its own line":
       let
-        spec = newSpec(
+        spec = plainSpec(
           (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")),
           usage = "<foo>")
         expected = """
@@ -821,7 +910,7 @@ when isMainModule:
 
     test "long help text is preferred if available, falling back to short help text if not":
       let
-        spec = newSpec((
+        spec = plainSpec((
           foo: Arg(kind: Positional, variants: @["<foo>"], help: ("Short help text", "Long help text"), group: "Arguments"),
           bar: Arg(kind: Positional, variants: @["<bar>"], help: "Fallback short text", group: "Arguments")),
           usage = "<foo> <bar>")
@@ -839,7 +928,7 @@ when isMainModule:
 
     test "args are grouped in canonical order, with each group separated by a blank line":
       let
-        spec = newSpec((
+        spec = plainSpec((
           bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options"),
           foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
           baz: Arg(kind: Positional, variants: @["<baz>"], help: "Another sample arg", group: "Arguments")),
@@ -862,7 +951,7 @@ when isMainModule:
 
     test "a hidden arg is not shown":
       let
-        spec = newSpec((
+        spec = plainSpec((
           foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
           bar: Arg(kind: Positional, variants: @["<bar>"], help: "Another sample arg", group: "Arguments", hidden: true)),
           usage = "<foo> [<bar>]")
@@ -877,7 +966,7 @@ when isMainModule:
 
     test "a group with only hidden members is not shown":
       let
-        spec = newSpec((
+        spec = plainSpec((
           foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments"),
           bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample option", group: "Options", hidden: true)),
           usage = "<foo> [--bar]")
@@ -892,9 +981,9 @@ when isMainModule:
 
     test "spec width is successfully passed to renderParagraph":
       let
-        spec = newSpec(
+        spec = plainSpec(
           (foo: Arg(kind: Positional, variants: @["<foo>"], help: "This help text needs to be wrapped", group: "Arguments")),
-          usage = "<foo>", settings = newSpecSettings(width = 20))
+          usage = "<foo>", settings = newSpecSettings(width = 20, style = nil))
         expected = """
         Usage:
           prog <foo>
@@ -912,7 +1001,7 @@ when isMainModule:
       check Spec(settings: newSpecSettings()).genHelp("prog", custom) == "custom help for prog"
 
     test "defaults to formatColumn":
-      let spec = newSpec(
+      let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
         prolog = "foo", epilog = "bar")
       check spec.genHelp("prog") == spec.formatColumn("prog")
@@ -922,7 +1011,7 @@ when isMainModule:
     test "a HelpArg with no defined formatter uses formatColumn":
       let
         help = HelpArg(kind: Flag, variants: @["--help"], help: "Display this help message", group: "Options")
-        spec = newSpec((help: help))
+        spec = plainSpec((help: help))
         expected = """
           Usage:
             prog --help
@@ -942,7 +1031,7 @@ when isMainModule:
         help = HelpArg(kind: Flag, variants: @["--help"],
           help: "Display this help message", group: "Options",
           formatter: formatParagraph)
-        spec = newSpec((help: help))
+        spec = plainSpec((help: help))
         expected = """
           Usage:
             prog --help
@@ -957,3 +1046,147 @@ when isMainModule:
       except HelpError as e:
         raised = e.msg
       check raised == expected
+
+  suite "roles":
+    test "row variants are tagged by kind, with an option's placeholder a metavar":
+      let
+        cmd = Arg(kind: ArgKind.Command, variants: @["ship"])
+        pos = Arg(kind: ArgKind.Positional, variants: @["<name>"])
+        opt = Arg(kind: ArgKind.Optional, variants: @["-s", "--speed=<kn>"])
+        flg = Arg(kind: ArgKind.Flag, variants: @["--moored"])
+      check cmd.rows[0].variants.render(tagged) == "{command:ship}"
+      check pos.rows[0].variants.render(tagged) == "{positional:<name>}"
+      check opt.rows[0].variants.render(tagged) ==
+        "{option:-s}, {option:--speed}={metavar:<kn>}"
+      check flg.rows[0].variants.render(tagged) == "{option:--moored}"
+
+    test "annotation brackets and keys are srAnnotation, values by kind":
+      let
+        arg = TestArg(kind: ArgKind.Optional, variants: @["--x=<x>"],
+          defaultStrVal: "5", env: "X_ENV", cfg: configKey("sec", "key"))
+      check arg.rows[0].text.render(tagged) ==
+        "{annotation:[default: }{literal:5}{annotation:; env: }{env:X_ENV}" &
+        "{annotation:; configKey: }{literal:sec.key}{annotation:]}"
+
+    test "an action annotation's value is prose, with Help Markup":
+      let
+        arg = TestArg(kind: ArgKind.Flag, variants: @["--up", "--down"], help: "Move",
+          descs: {"--up": "move `up`", "--down": "move ``down``"}.toTable)
+      check arg.rows(keepTicks = false)[0].text.render(tagged) ==
+        "Move {annotation:[action: }move {literal:up}{annotation:]}"
+      check arg.rows[0].text.plain == "Move [action: move `up`]"
+      check arg.rows[1].text.plain == "Move [action: move `down`]"
+
+    test "a validator's help keeps its own roles":
+      let arg = TestArg(kind: ArgKind.Optional, variants: @["--x=<x>"],
+        validatorHelpVal: "v")
+      check arg.rows[0].text.render(tagged) == "{annotation:[}v{annotation:]}"
+
+    test "help text gets Help Markup, with the arg's own metavars":
+      let arg = Arg(kind: ArgKind.Optional, variants: @["--speed=<kn>"],
+        help: "`<kn>` knots, see `<name>` and `--moored`")
+      check arg.rows(keepTicks = false)[0].text.render(tagged) ==
+        "{metavar:<kn>} knots, see {positional:<name>} and {option:--moored}"
+
+    test "help text keeps its backticks unless told otherwise":
+      let arg = Arg(kind: ArgKind.Flag, variants: @["-x"], help: "like `-y`")
+      check arg.rows[0].text.plain == "like `-y`"
+      check arg.rows(keepTicks = false)[0].text.plain == "like -y"
+
+    test "usage lines tag the program, commands, options, arguments and metavars":
+      check usageLines("ship <name> move [--speed=<kn>] (-a | -bc) [options] [--] <x>...", "nf")
+        .render(tagged) ==
+        "  {program:nf} {command:ship} {positional:<name>} {command:move} " &
+        "[{option:--speed}={metavar:<kn>}] ({option:-a} | {option:-bc}) " &
+        "{option:[options]} [{option:--}] {positional:<x>}..."
+
+    test "all-caps arguments and option values get the same roles":
+      check usageLines("ship NAME [--speed=KN]", "p").render(tagged) ==
+        "  {program:p} {command:ship} {positional:NAME} " &
+        "[{option:--speed}={metavar:KN}]"
+
+    test "an argument after an option in usage is still positional":
+      check usageLines("-o <file>", "p").render(tagged) ==
+        "  {program:p} {option:-o} {positional:<file>}"
+
+    test "usage lines split across wraps keep their roles":
+      check usageLines("--alpha --beta --gamma", "p", width = 20).render(tagged) ==
+        "  {program:p} {option:--alpha} {option:--beta}\n    {option:--gamma}"
+
+    test "unrecognized usage text is plain":
+      check usageLines("a ~ b", "p").render(tagged) ==
+        "  {program:p} {command:a} ~ {command:b}"
+
+  suite "metavars":
+    test "are the value placeholder names in an arg's variants, without brackets":
+      check Arg(variants: @["-s", "--speed=<kn>", "--pace:<kn>", "--at=<x>"]).metavars ==
+        @["kn", "x"]
+
+    test "positionals, commands, and bare options have none":
+      check Arg(variants: @["<name>"]).metavars.len == 0
+      check Arg(variants: @["ship"]).metavars.len == 0
+      check Arg(variants: @["-v", "--verbose"]).metavars.len == 0
+
+  suite "styled formatters":
+    let formatters = @[HelpFormatter(formatColumn), HelpFormatter(formatParagraph)]
+
+    test "every row role reaches the rendered message":
+      # Row-level roles are pinned in "roles"; this checks both built-ins
+      # render them rather than dropping to plain.
+      let spec = plainSpec(
+        (ship: CommandArg(kind: ArgKind.Command, variants: @["ship"],
+            group: "Commands", spec: newSpec(())),
+         name: TestArg(kind: ArgKind.Positional, variants: @["<name>"],
+            group: "Arguments"),
+         speed: TestArg(kind: ArgKind.Optional, variants: @["--speed=<kn>"],
+            group: "Options", defaultStrVal: "10", env: "SPEED",
+            cfg: configKey("ship", "speed"), validatorHelpVal: "v")),
+        usage = "ship\n<name> [--speed=<kn>]",
+        settings = newSpecSettings(style = tagged))
+      for formatter in formatters:
+        let help = formatter(spec, "p")
+        check "{header:Commands}" in help
+        check "  {command:ship}" in help
+        check "  {positional:<name>}" in help
+        check "{option:--speed}={metavar:<kn>}" in help
+        check "{annotation:[}v{annotation:; default: }{literal:10}" &
+          "{annotation:; env: }{env:SPEED}{annotation:; configKey: }" &
+          "{literal:ship.speed}{annotation:]}" in help
+
+    proc styledSpec(prolog = "", epilog = ""): Spec =
+      plainSpec(
+        (speed: Arg(kind: ArgKind.Optional, variants: @["--speed=<kn>"],
+          help: "In `<kn>`", group: "Options")),
+        usage = "[--speed=<kn>]", prolog = prolog, epilog = epilog,
+        settings = newSpecSettings(style = tagged))
+
+    test "headers are srHeader":
+      for formatter in formatters:
+        let help = formatter(styledSpec(), "p")
+        check help.startsWith("{header:Usage:}\n  {program:p}")
+        check "{header:Options}\n" in help
+
+    test "Column Style tags variants and markup":
+      check formatColumn(styledSpec(), "p").splitLines[^1] ==
+        "  {option:--speed}={metavar:<kn>}  In {metavar:<kn>}"
+
+    test "Paragraph Style tags variants and markup":
+      check formatParagraph(styledSpec(), "p").splitLines[^2 .. ^1] ==
+        @["  {option:--speed}={metavar:<kn>}", "    In {metavar:<kn>}"]
+
+    test "prolog and epilog get Help Markup, context-only":
+      for formatter in formatters:
+        let help = formatter(styledSpec("See `--speed <kn>` and `$HOME`.",
+          "Try `ship`\nor `--speed=<kn>`."), "p")
+        check help.startsWith(
+          "See {option:--speed} {positional:<kn>} and {env:$HOME}.\n\n")
+        check help.endsWith("\n\nTry {literal:ship}\nor {option:--speed}={metavar:<kn>}.")
+
+    test "with no styler, prose keeps its backticks and collapses escapes":
+      let spec = plainSpec(
+        (x: Arg(kind: ArgKind.Flag, variants: @["-x"], help: "`-y` or ``z``", group: "Options")),
+        usage = "[-x]", prolog = "`a` ``b``", settings = newSpecSettings(style = nil))
+      for formatter in formatters:
+        let help = formatter(spec, "p")
+        check help.startsWith("`a` `b`\n\n")
+        check "`-y` or `z`" in help

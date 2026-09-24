@@ -218,6 +218,24 @@ suite "`Spec` is an opaque handle":
     check not declared(StyledText)
     check not declared(usageLines)
 
+  test "styling is configurable from `import argumint` alone":
+    # `markup` and the span model stay formatter-author names; see
+    # `docs/adr/0051-help-and-error-styling.md`.
+    var theme = defaultTheme
+    theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
+    let settings = newSpecSettings(style = ansiStyler(theme))
+    check not settings.style.isNil
+    check compiles(newSpecSettings(style = autoStyler()))
+    check compiles(block:
+      let s: Styler = proc (role: StyleRole, text: string): string = text)
+    check not declared(markup)
+    check not declared(plainMarkup)
+    check not declared(styledHelp)
+    check not declared(metavars)
+    check not declared(displayTokens)
+    check not declared(quitMessage)
+    check not declared(failure)
+
   test "`settings` and the hooks stay public":
     # `block:` rather than a bare `spec.before = ...`, which `compiles`
     # would otherwise read as a named argument.

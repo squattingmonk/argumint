@@ -10,7 +10,7 @@
 
 import std/[sequtils, strformat, strutils, sugar]
 
-import ./[errors, lexer]
+import ./[errors, lexer, style]
 export ValidationError ## Defined in `errors.nim` with the rest of the
   ## taxonomy; re-exported so importing this module alone still names what
   ## its validators raise.
@@ -139,26 +139,35 @@ proc any*[T](validators: varargs[Validator[T]]): Validator[T] =
   ## for why this can't just be a default parameter value.
   any[T](validators, "")
 
+proc styledHelp*[T](self: Validator[T], keepTicks = true): StyledText =
+  ## `help` as Styled Text: key labels are `srAnnotation`, values
+  ## `srLiteral`, and a `desc` gets Help Markup (`keepTicks` is passed on to
+  ## `markup`).
+  if self.desc.len > 0:
+    return markup(self.desc, keepTicks = keepTicks)
+  case self.kind
+  of vkChoice:
+    result = styled(srAnnotation, "choices: ")
+    for i, choice in self.choices:
+      if i > 0: result.add styled(", ")
+      result.add styled(srLiteral, $choice)
+  of vkRange:
+    result = styled(srAnnotation, "range: ") &
+      styled(srLiteral, fmt"{self.range.a}..{self.range.b}")
+  of vkCheck, vkCheckSeen:
+    discard # desc is required to say anything meaningful; already checked above
+  of vkAll, vkAny:
+    for i, v in self.validators:
+      if i > 0: result.add styled(if self.kind == vkAll: " and " else: " or ")
+      let h = v.styledHelp(keepTicks)
+      result.add(if v.kind in {vkAll, vkAny}: styled("(") & h & styled(")") else: h)
+
 proc help*[T](self: Validator[T]): string =
   ## Returns a short description of what values `self` accepts, suitable for
   ## display in help text (e.g. "choices: foo, bar, baz"), or "" if there's
   ## nothing meaningful to show. Every kind shows `self.desc` directly
   ## instead, when it's non-empty.
-  if self.desc.len > 0:
-    return self.desc
-  case self.kind
-  of vkChoice:
-    "choices: " & self.choices.mapIt($it).join(", ")
-  of vkRange:
-    fmt"range: {self.range.a}..{self.range.b}"
-  of vkCheck, vkCheckSeen:
-    "" # desc is required to say anything meaningful; already checked above
-  of vkAll, vkAny:
-    var parts: seq[string]
-    for v in self.validators:
-      let h = v.help()
-      parts.add(if v.kind in {vkAll, vkAny}: fmt"({h})" else: h)
-    parts.join(if self.kind == vkAll: " and " else: " or ")
+  self.styledHelp.plain
 
 proc candidateValues[T](self: Validator[T]): seq[T] =
   ## Every value `self` would accept, or `@[]` if `self` isn't enumerable.
@@ -216,37 +225,39 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
   ## same Arg so far (not including `value`), consulted only by
   ## `vkCheckSeen`-kind validators (see `checkSeen`) -- every other kind
   ## ignores it.
-  let tmpVal =
-    when value is string: value.escape
-    else: $value
+  let
+    tmpVal =
+      when value is string: value.escape
+      else: $value
+    desc = plainMarkup(self.desc)
   case self.kind
   of vkChoice:
     if value notin self.choices:
       if self.desc.len > 0:
-        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {self.desc}")
+        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
         raise newException(ValidationError, fmt"got {tmpVal} but expected one of {$self.choices}")
   of vkRange:
     if value notin self.range:
       if self.desc.len > 0:
-        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {self.desc}")
+        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
         raise newException(ValidationError, fmt"got {tmpVal} but expected one of {$self.range}")
   of vkCheck:
     if not self.checker(value):
-      let desc = if self.desc.len > 0: fmt": {self.desc}" else: ""
-      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{desc}")
+      let suffix = if desc.len > 0: fmt": {desc}" else: ""
+      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
   of vkCheckSeen:
     if not self.seenChecker(value, seen):
-      let desc = if self.desc.len > 0: fmt": {self.desc}" else: ""
-      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{desc}")
+      let suffix = if desc.len > 0: fmt": {desc}" else: ""
+      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
   of vkAll:
     for v in self.validators:
       try:
         v.validate(value, seen)
       except ValidationError:
         if self.desc.len > 0:
-          raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {self.desc}")
+          raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
         else:
           raise
   of vkAny:
@@ -491,4 +502,37 @@ when isMainModule:
       # union of the nested any's completions (4, 7, 101, 200), filtered by
       # the outer range (0..100) via re-validation
       check validator.completions() == @["4", "7"]
+
+  suite "styledHelp":
+    proc roles(t: StyledText): seq[(StyleRole, string)] =
+      for span in t.spans: result.add (span.role, span.text)
+
+    test "labels are srAnnotation and values srLiteral":
+      check choice(["a", "b"]).styledHelp.roles == @[
+        (srAnnotation, "choices: "), (srLiteral, "a"), (srPlain, ", "), (srLiteral, "b")]
+      check range(0..4).styledHelp.roles ==
+        @[(srAnnotation, "range: "), (srLiteral, "0..4")]
+
+    test "composites keep each part's roles":
+      check all(range(0..4), any(choice([1]), checkIt[int](it > 0, "`positive`"))).styledHelp(
+        keepTicks = false).roles == @[
+        (srAnnotation, "range: "), (srLiteral, "0..4"), (srPlain, " and ("),
+        (srAnnotation, "choices: "), (srLiteral, "1"), (srPlain, " or "),
+        (srLiteral, "positive"), (srPlain, ")")]
+
+    test "a desc gets Help Markup":
+      check checkIt[int](it > 0, "not `-x`").styledHelp(keepTicks = false).roles ==
+        @[(srPlain, "not "), (srOption, "-x")]
+
+    test "help is the plain text, ticks kept":
+      check checkIt[int](it > 0, "not `-x`").help() == "not `-x`"
+
+  suite "desc in failure messages":
+    test "reads as it would with no styler: ticks kept, escapes collapsed":
+      for v in [choice([1], desc = "one of ``1``"), checkIt[int](it > 1, "one of ``1``")]:
+        try:
+          v.validate(0)
+          fail()
+        except ValidationError as e:
+          check e.msg == "0 did not meet condition: one of `1`"
 

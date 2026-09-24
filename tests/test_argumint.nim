@@ -1052,7 +1052,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
@@ -1068,7 +1068,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
@@ -1110,7 +1110,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  Adjust verbosity" in helpText
@@ -1150,7 +1150,7 @@ suite "Messages":
     # Exercises the ordering fix in docs/adr/0013-message-args-fire-after-before.md:
     # --help now parses after `before`, so a mutation made there is visible
     # in this level's own help output too, not only a nested command's.
-    let settings = newSpecSettings(maxVariantsWidth = 0)
+    let settings = newSpecSettings(maxVariantsWidth = 0, style = nil)
     proc widenColumn(spec: tuple, info: HookInfo) = settings.maxVariantsWidth = 100
 
     let spec = (
@@ -1175,7 +1175,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(usage = "<x> <name> <file>...\n[--speed=<speed>] [--verbose]\n--help", args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "<x> <name> <file>...\n[--speed=<speed>] [--verbose]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Speed in knots [default: 10]" in helpText
@@ -1208,7 +1208,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(usage = "<action>\n--help", args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "<action>\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Action to perform [choices: foo, bar, baz; default: foo]" in helpText
@@ -1220,7 +1220,7 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(usage = "[--speed=<speed>]\n--help", args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[--speed=<speed>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Speed [range: 1..100]" in helpText
@@ -1234,15 +1234,15 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(usage = "[--amount=<amount>]\n--help", args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[--amount=<amount>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "  --amount=<amount>  [must be even]" in helpText
 
   test "an explicit width overrides terminal detection":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
-    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 80))
-    let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 40))
+    let wide = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 80, style = nil))
+    let narrow = newSpec((speed: opt("--speed=<speed>", default = 1, help = longHelp), help: help()), settings = newSpecSettings(width = 40, style = nil))
     check wide.settings.width == 80
     check narrow.settings.width == 40
 
@@ -1897,7 +1897,7 @@ suite "Environment variables":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Port [default: 8080; env: ARGUMINT_TEST_PORT]" in helpText
@@ -2173,7 +2173,7 @@ suite "Config Source":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Port [default: 8080; configKey: server.port]" in helpText

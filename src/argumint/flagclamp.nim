@@ -6,6 +6,8 @@
 import std/math
 import std/options
 
+import ./style
+
 type
   FlagClampKind = enum
     fckRange, fckAdjust
@@ -60,6 +62,18 @@ proc apply*[T](self: FlagClamp[T], value: T): T =
   of fckRange: math.clamp(value, self.bounds)
   of fckAdjust: self.adjustProc(value)
 
+proc styledHelp*[T](self: FlagClamp[T], keepTicks = true): StyledText =
+  ## `help` as Styled Text: the `clamp:` label is `srAnnotation`, its bounds
+  ## `srLiteral`, and a `desc` gets Help Markup (`keepTicks` is passed on to
+  ## `markup`).
+  if self.desc.isSome:
+    return markup(self.desc.get, keepTicks = keepTicks)
+  case self.kind
+  of fckRange:
+    styled(srAnnotation, "clamp: ") &
+      styled(srLiteral, $self.bounds.a & ".." & $self.bounds.b)
+  of fckAdjust: StyledText()
+
 proc help*[T](self: FlagClamp[T]): string =
   ## Returns a short description of `self`'s constraint, suitable for
   ## display in help text (e.g. "clamp: 0..10"), or "" if there's nothing
@@ -72,16 +86,25 @@ proc help*[T](self: FlagClamp[T]): string =
   ## `Validator[T]`), which Nim's overload resolution filters on before
   ## return type would ever matter. See `docs/adr/0016-flag-clamp.md` for a
   ## case that looked like the same problem but wasn't.
-  if self.desc.isSome:
-    return self.desc.get
-  case self.kind
-  of fckRange: "clamp: " & $self.bounds.a & ".." & $self.bounds.b
-  of fckAdjust: ""
+  self.styledHelp.plain
 
 when isMainModule:
   import std/unittest
 
   type Rank = enum rBronze, rSilver, rGold
+
+  suite "styledHelp":
+    test "the clamp: label is srAnnotation and its bounds srLiteral":
+      check clamp(0..10).styledHelp.spans ==
+        @[Span(role: srAnnotation, text: "clamp: "), Span(role: srLiteral, text: "0..10")]
+
+    test "a desc gets Help Markup, and help reads it with ticks kept":
+      check adjust(proc (v: int): int = v, desc = some("to `5`s")).styledHelp(
+        keepTicks = false).spans ==
+        @[Span(role: srPlain, text: "to "), Span(role: srLiteral, text: "5"),
+          Span(role: srPlain, text: "s")]
+      check adjust(proc (v: int): int = v, desc = some("to `5`s, ``x``")).help() ==
+        "to `5`s, `x`"
 
   suite "FlagClamp":
     test "clamp pins a value above, below, and within bounds":

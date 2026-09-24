@@ -257,6 +257,44 @@ Options, then user-defined groups in declaration order -- and a group whose
 Args are all hidden isn't shown.
 _Avoid_: group (alone) for a set of one Arg's Variants -- see FlagOp Alias
 
+**Styled Text**:
+Text split into spans, each tagged with the Style Role it plays. Help and
+parse-error output are laid out as Styled Text (wrapped, padded, and
+measured on its plain text) and only turned into strings at the end, by a
+Styler.
+_Avoid_: rich text, formatted text
+
+**Style Role**:
+What a span of Styled Text is, from a fixed set: a header, the program
+name, a Command, an Option, a Positional Argument, a metavar (an Option's
+value placeholder, the `<kn>` in `--speed=<kn>`), an env var name, a
+literal value, a URL, the annotation brackets and labels, the error label,
+or plain text.
+_Avoid_: style, class, token type
+
+**Styler**:
+The function that turns each span of Styled Text into printed text by its
+Style Role, e.g. by wrapping it in ANSI colour codes. Set per Spec tree in
+its settings; none means plain text. By default it's chosen by detecting
+whether output goes to a terminal.
+_Avoid_: formatter (that's a Help Formatter), colorizer
+
+**Theme**:
+A colour and set of attributes (bold, dim, underline, ...) for each Style
+Role, from which the built-in Styler is made. The default Theme is what
+argumint looks like in a terminal.
+_Avoid_: palette, color scheme
+
+**Help Markup**:
+Backticks in Help Text, prolog, epilog, or a Validator's or Flag Clamp's
+description, marking a span to be styled by its shape: something shaped
+like an Option, a `<name>` or `NAME` placeholder, a `$NAME` or `%NAME%`
+env var, a `scheme://` URL, or else a literal. Shape
+only: nothing is looked up or checked against the Spec. The backticks are
+dropped in styled output and kept in plain output, so the text reads the
+same either way.
+_Avoid_: markdown (it isn't), inline code
+
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own
 dispatch — its Before Hook, and Action or whatever Command it routed

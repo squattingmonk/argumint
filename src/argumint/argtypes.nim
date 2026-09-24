@@ -20,7 +20,7 @@
 
 import std/[macros, macrocache, options, pegs, sequtils, strformat, strutils, tables]
 
-import ./[backend, configsource, errors, flagclamp, validators]
+import ./[backend, configsource, errors, flagclamp, style, validators]
 
 type
   ValueArg*[T: not seq, multi: static bool] = ref object of Arg
@@ -252,11 +252,11 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
     else:
       ""
 
-  method validatorHelp(self: ValueArg[T, false]): string =
-    if self.validator.isNil: "" else: self.validator.help()
+  method validatorHelp(self: ValueArg[T, false], keepTicks = true): StyledText =
+    if not self.validator.isNil: result = self.validator.styledHelp(keepTicks)
 
-  method validatorHelp(self: ValueArg[T, true]): string =
-    if self.validator.isNil: "" else: self.validator.help()
+  method validatorHelp(self: ValueArg[T, true], keepTicks = true): StyledText =
+    if not self.validator.isNil: result = self.validator.styledHelp(keepTicks)
 
   method completions(self: ValueArg[T, false]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
@@ -327,8 +327,8 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
 
-  method validatorHelp(self: FlagArg[T]): string =
-    if self.clamp.isNil: "" else: self.clamp.help()
+  method validatorHelp(self: FlagArg[T], keepTicks = true): StyledText =
+    if not self.clamp.isNil: result = self.clamp.styledHelp(keepTicks)
 
   method variantDesc(self: FlagArg[T], variant: string): string =
     if not self.ops.hasKey(variant): return ""

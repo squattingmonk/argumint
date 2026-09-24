@@ -59,7 +59,7 @@ suite "Flag Clamp integration":
     )
     var helpText = ""
     try:
-      spec.parse(args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "[clamp: 0..10]" in helpText
@@ -72,7 +72,7 @@ suite "Flag Clamp integration":
     )
     var helpText = ""
     try:
-      described.parse(args = @["--help"], command = "prog")
+      described.parse(settings = newSpecSettings(style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "[rounded silently]" in helpText
@@ -84,7 +84,7 @@ suite "Flag Clamp integration":
     )
     helpText = ""
     try:
-      undescribed.parse(args = @["--help"], command = "prog")
+      undescribed.parse(settings = newSpecSettings(style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     # no bracket annotation at all -- matches how a plain, clamp-less flag
@@ -100,7 +100,7 @@ suite "Flag Clamp integration":
     )
     var helpText = ""
     try:
-      spec.parse(usage = "[-v | --verbose | --quiet | --boost | --dampen]...",
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[-v | --verbose | --quiet | --boost | --dampen]...",
         args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg

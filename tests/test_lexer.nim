@@ -68,3 +68,20 @@ suite "SpecLexer":
     defer: lex.close()
     expect SpecDefect:
       discard lex.next()
+
+suite "displayTokens":
+  test "tokens and the whitespace between them rejoin to the line":
+    let line = "ship <name> [--speed=<kn>]  -abc"
+    var joined = ""
+    for (_, text) in line.displayTokens: joined.add text
+    check joined == line
+
+  test "each token keeps its kind; whitespace is tkInvalid":
+    check "-x <y>".displayTokens == @[
+      (tkShortOption, "-x"), (tkInvalid, " "), (tkArgument, "<y>")]
+    check "--speed=<kn>".displayTokens == @[
+      (tkLongOption, "--speed"), (tkOptionValue, "=<kn>")]
+
+  test "an unrecognized character is tkInvalid, not an error":
+    check "a ~".displayTokens == @[(tkCommand, "a"), (tkInvalid, " "), (tkInvalid, "~")]
+

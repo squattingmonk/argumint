@@ -56,6 +56,30 @@ let
     (tkRepeat, peg"{'...'}")
   ]
 
+proc displayTokens*(line: string): seq[tuple[kind: SpecTokenKind, text: string]] =
+  ## Splits one usage line into its tokens for display, never raising:
+  ## whitespace runs and unrecognized characters come back as `tkInvalid`,
+  ## so the texts rejoin to `line` exactly.
+  var
+    i = 0
+    matches: array[1, string]
+  while i < line.len:
+    var text = ""
+    if line[i] in Whitespace:
+      while i + text.len < line.len and line[i + text.len] in Whitespace:
+        text.add line[i + text.len]
+      result.add (tkInvalid, text)
+    else:
+      for (kind, pattern) in patterns:
+        if line.match(pattern, matches, i):
+          text = matches[0]
+          result.add (kind, text)
+          break
+      if text.len == 0:
+        text = $line[i]
+        result.add (tkInvalid, text)
+    inc i, text.len
+
 proc open*(lex: var SpecLexer, spec: string) =
   ## Opens the string `spec` in the lexer.
   lexbase.open(lex, newStringStream(spec.strip))
