@@ -5,7 +5,9 @@
 ## `Theme`, `autoStyler`'s terminal detection, and Help Markup -- see
 ## `docs/adr/0051-help-and-error-styling.md` -- plus the plain-text helpers
 ## help's re-flow and completion's descriptions share (`dedentLines`,
-## `firstParagraph`), kept here because `completion` doesn't import `help`.
+## `firstParagraph`), kept here because `completion` doesn't import `help`,
+## and the Styled Text helpers help rows and parse-error complaints share
+## (`styledOption`, `join`), since `complaints` builds its own text.
 ##
 ## A leaf module with no local imports.
 
@@ -30,6 +32,7 @@ type
     srUrl
     srAnnotation
     srError
+    srInvalid
 
   Span* = object
     ## A run of text sharing one role. Never contains `\n` once wrapped.
@@ -70,7 +73,8 @@ const defaultTheme*: Theme = [
   srLiteral: TextStyle(fg: fgGreen),
   srUrl: TextStyle(fg: fgBlue, attrs: {styleUnderscore}),
   srAnnotation: TextStyle(attrs: {styleDim}),
-  srError: TextStyle(fg: fgRed, attrs: {styleBright})]
+  srError: TextStyle(fg: fgRed, attrs: {styleBright}),
+  srInvalid: TextStyle(fg: fgYellow, attrs: {styleBright})]
   ## The built-in look `autoStyler` uses.
 
 proc add*(t: var StyledText, span: Span) =
@@ -104,6 +108,25 @@ proc `&`*(a, b: StyledText): StyledText =
   ## `a` followed by `b`.
   result = a
   result.add b
+
+proc join*(parts: openArray[StyledText], sep: StyledText): StyledText =
+  ## `parts` in order, with `sep` between each pair.
+  for i, part in parts:
+    if i > 0:
+      result.add sep
+    result.add part
+
+proc styledOption*(variant: string): StyledText =
+  ## An option's `variant` as `srOption`, with a value placeholder split off
+  ## (`--speed=<kn>` is `srOption`, `srPlain`, `srMetavar`). Shared by help
+  ## rows and parse-error complaints so the two can't drift.
+  let placeholder = variant.find('<')
+  if placeholder > 1:
+    styled(srOption, variant[0 ..< placeholder - 1]) &
+      styled(variant[placeholder - 1 .. placeholder - 1]) &
+      styled(srMetavar, variant[placeholder .. ^1])
+  else:
+    styled(srOption, variant)
 
 proc plain*(t: StyledText): string =
   ## The text with all styling dropped.
@@ -446,6 +469,23 @@ when isMainModule:
   suite "heading":
     test "is the name plus a colon, all srHeader":
       check heading("Options") == styled(srHeader, "Options:")
+
+  suite "join":
+    test "puts the separator between parts, keeping their roles":
+      check [styled(srOption, "-a"), styled(srOption, "-b")].join(styled(" | ")) ==
+        styled(srOption, "-a") & styled(" | ") & styled(srOption, "-b")
+
+    test "no parts is empty, and one part has no separator":
+      check join(newSeq[StyledText](), styled(", ")) == StyledText()
+      check [styled("a")].join(styled(", ")) == styled("a")
+
+  suite "styledOption":
+    test "splits a value placeholder off, after its separator":
+      check styledOption("--speed=<kn>") ==
+        styled(srOption, "--speed") & styled("=") & styled(srMetavar, "<kn>")
+
+    test "an option with no placeholder is all srOption":
+      check styledOption("-v") == styled(srOption, "-v")
 
   suite "alignLeft":
     test "pads with plain spaces to the width":

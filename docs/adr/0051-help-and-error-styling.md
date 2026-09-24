@@ -4,7 +4,7 @@ Help and parse-error output are now drawn in colour and bold by what each
 piece of text *is*: a closed set of **Style Roles** (`srHeader`,
 `srProgram`, `srCommand`, `srOption`, `srPositional`, `srMetavar`, `srEnv`,
 `srLiteral`, `srUrl`, `srAnnotation`, `srError`, and `srPlain` for
-everything else).
+everything else). ADR 0056 adds `srInvalid`.
 A **Styler** (`proc (role: StyleRole, text: string): string`, nil for
 plain) turns each span into what's printed. It lives in
 `SpecSettings.style` and cascades into subcommands like `width`. The
@@ -50,7 +50,7 @@ so a styler can emit anything without skewing a width.
 - **Errors**: only the `Parsing error:`/`Validation error:` label
   (`srError`) and the usage block are styled. The complaint text stays
   plain; styling tokens inside it would mean converting `complaints.nim` to
-  spans, left for later.
+  spans, left for later. **Update:** ADR 0056 styles the complaint text.
 
 ## Help Markup
 

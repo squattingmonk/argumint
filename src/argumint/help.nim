@@ -222,14 +222,7 @@ proc styledVariant(arg: Arg, variant: string): StyledText =
   case arg.kind
   of ArgKind.Command: styled(srCommand, variant)
   of ArgKind.Positional: styled(srPositional, variant)
-  of ArgKind.Optional, ArgKind.Flag:
-    let placeholder = variant.find('<')
-    if placeholder > 1:
-      styled(srOption, variant[0 ..< placeholder - 1]) &
-        styled(variant[placeholder - 1 .. placeholder - 1]) &
-        styled(srMetavar, variant[placeholder .. ^1])
-    else:
-      styled(srOption, variant)
+  of ArgKind.Optional, ArgKind.Flag: styledOption(variant)
 
 proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
