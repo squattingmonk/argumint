@@ -258,8 +258,9 @@ proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVari
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
     configSources: configSources, strictOptions: strictOptions)
 
-# Read-only views of private `Spec` fields (ADR 0030) for Help Formatters;
-# re-exported by `argumint/help`, not the facade -- see ADR 0048.
+# Read-only views of private `Spec` fields (ADR 0030). Only `specbuild` writes
+# them. `prolog`/`epilog`/`usage` are re-exported by `argumint/help` for Help
+# Formatters (ADR 0048); none are re-exported by the facade.
 proc prolog*(spec: Spec): string =
   ## Front matter for `spec`'s help message.
   spec.prolog
@@ -271,6 +272,30 @@ proc epilog*(spec: Spec): string =
 proc usage*(spec: Spec): string =
   ## `spec`'s raw usage string, one alternative per line.
   spec.usage
+
+proc args*(spec: Spec): lent seq[Arg] {.inline.} =
+  ## Every Arg declared on `spec`, in declaration order.
+  spec.args
+
+proc commands*(spec: Spec): lent OrderedTable[string, CommandArg] {.inline.} =
+  ## Maps each command variant to its Arg.
+  spec.commands
+
+proc arguments*(spec: Spec): lent OrderedTable[string, Arg] {.inline.} =
+  ## Maps each positional arg variant to its Arg.
+  spec.arguments
+
+proc options*(spec: Spec): lent OrderedTable[string, Arg] {.inline.} =
+  ## Maps each option and flag variant to its Arg.
+  spec.options
+
+proc groups*(spec: Spec): lent OrderedTable[string, seq[Arg]] {.inline.} =
+  ## Maps each help group to its Args, in declaration order.
+  spec.groups
+
+proc fsm*(spec: Spec): State {.inline.} =
+  ## The initial state of `spec`'s FSM.
+  spec.fsm
 
 converter toHelpText*(s: string): HelpText =
   ## Lets `argumint.nim`'s arg constructors pass help text as a single string.

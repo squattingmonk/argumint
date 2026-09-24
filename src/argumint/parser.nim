@@ -2,13 +2,10 @@
 ## support matching of command-line arguments and high-level validation of usage
 ## patterns.
 
-import std/[importutils, pegs, sequtils, sets, strformat, strutils, tables]
+import std/[pegs, sequtils, sets, strformat, strutils, tables]
 
 import ./[backend, errors, fsmgraph, lexer]
 export errors.SpecDefect
-
-privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
-  ## non-generic code only -- see docs/gotchas.md.
 
 type
   SpecParser = ref object

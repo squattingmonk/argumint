@@ -8,13 +8,10 @@
 ## `applyFallbacks` is the post-walk sweep that actually writes whatever
 ## the walk consumed. `fsm.nim` owns the walk itself and failure reporting
 ## -- see `docs/architecture.md` §3.
-import std/[importutils, options, sets, tables]
+import std/[options, sets, tables]
 from std/os import existsEnv, getEnv
 
 import ./[backend, complaints, configsource]
-
-privateAccess(Spec) ## Reaches `Spec`'s private `args` (ADR 0030) --
-  ## non-generic code only, see docs/gotchas.md.
 
 type
   FallbackTier* = enum

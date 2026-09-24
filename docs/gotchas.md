@@ -459,6 +459,8 @@ or anything else that generates methods inside a template.
   instantiation in another module.** Making `Spec`'s bookkeeping fields
   private (`docs/adr/0030-core-types-exported-spec-opaque.md`) meant the
   library's own modules needed `privateAccess(Spec)` to keep reaching them.
+  (Reads now go through accessors in `backend.nim` instead -- issue #84 --
+  leaving `specbuild.nim` the only library module that needs it.)
   That works for ordinary procs, and for object construction -- but a
   generic proc or a template *declared* in a module holding
   `privateAccess` still fails with `undeclared field` when it's
@@ -468,7 +470,8 @@ or anything else that generates methods inside a template.
   instantiated in the caller's file, cannot touch `spec.fsm` directly --
   hence `beginSpec`/`finishSpec` (`argumint/specbuild.nim`), two non-generic
   bookends the generic body delegates to. Any *new* generic or template
-  that needs a private `Spec` field has to be split the same way.
+  that needs to *write* a private `Spec` field has to be split the same
+  way; reads can use the `backend.nim` accessors, which work anywhere.
 
   A template or generic declared in the same module as the type has no
   such problem: it reaches the private field wherever it's expanded. That

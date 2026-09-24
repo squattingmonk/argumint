@@ -121,6 +121,14 @@ which reads every index field plus `usage`/`fsm`/`settings` and carries one
 too; the constraint below moved with it, since `newSpec` and its `beginSpec`/
 `finishSpec` bookends now live there rather than in `argumint.nim`.
 
+**Update (issue #84):** one library module. Every private `Spec` field now
+has a read accessor in `backend.nim`, exported from there but not from the
+facade, so modules that only read -- all of them except `specbuild.nim` --
+dropped their `privateAccess(Spec)`. `specbuild.nim` keeps it for the
+construction-time writes (`args`, the index tables, `usage`, `fsm`); no
+mutators were added. Test code that builds a bare `Spec(...)` directly
+(`help.nim`'s embedded suite, `tests/test_precedence.nim`) keeps its own.
+
 `privateAccess` **does not survive template or generic instantiation in
 another module** — verified by scratch compile, and recorded in
 `docs/gotchas.md`. `newSpec*(spec: tuple, ...)` is generic over the spec
@@ -172,6 +180,9 @@ private field from a caller-instantiated body.
 - **White-box tests pay a line.** `tests/test_argumint.nim` asserts on
   `spec.usage`/`spec.commands` and now carries its own `privateAccess(Spec)`
   alongside the `import argumint/backend` it already had.
+
+  **Update (issue #84):** no longer -- those assertions go through the read
+  accessors that `import argumint/backend` already brings in.
 - `tests/test_public_api.nim` locks the boundary in both directions — every
   exported type nameable, every plumbing type not, every private `Spec` field
   unreachable — and must never import an `argumint/*` submodule, or its

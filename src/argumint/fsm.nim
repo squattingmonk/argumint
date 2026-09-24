@@ -1,16 +1,11 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, importutils, options, os, sequtils, strformat, strutils,
+import std/[algorithm, options, os, sequtils, strformat, strutils,
   sugar, tables]
 
 import ./[backend, complaints, completion, configsource, errors, matching,
   parser, precedence, tokens]
 export ParseError, SpecDefect, CompletionError
-
-# Reaches `Spec`'s private fields (ADR 0030) from non-generic code only -- see
-# docs/gotchas.md.
-privateAccess(Spec)
-
 
 proc reach(pc: ParseContext): Reach =
   ## This path's Reach (`CONTEXT.md`): where the first token it could not
