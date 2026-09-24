@@ -100,3 +100,12 @@ newline would corrupt the wire format. Not validated against.
 gained `helpGroups` (ADR 0048), so "group" there means only an Arg's help
 group (`Options`, `Arguments`, ...), never a set of its variants. The
 bucketing rule this ADR mirrors is unchanged.
+
+**Update:** a candidate's description is now the help's first paragraph on
+one line (#112). The `value\thelp` protocol is one candidate per line, so a
+multi-line `help` used to end its candidate's line early and have its later
+lines read as extra candidates. The description is dedented the way help
+text is (ADR 0054), cut at the first blank line, joined with spaces, and
+any tab turned into a space, before `plainMarkup`. A `"""` long description
+therefore completes as its opening summary, like a Python docstring's
+first paragraph.

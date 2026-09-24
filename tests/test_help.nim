@@ -41,6 +41,10 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
       raised = e.msg
     check raised == direct
 
+  test "completion's firstParagraph and shared dedent stay withheld":
+    check not declared(firstParagraph)
+    check not declared(dedentLines)
+
 suite "a custom `HelpFormatter` can be written with only `argumint/help`":
   # Regression for the formatter seam being unusable outside the library:
   # before `helpGroups` and the `prolog`/`epilog`/`usage` accessors, a
