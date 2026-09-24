@@ -73,6 +73,9 @@ suite "Types nameable after a bare `import argumint`":
     # until something needs it -- see ADR 0030.
     check not compiles(DefaultWidth)
 
+  test "`appName`, the default `command` in `parse*`'s signatures, is spellable":
+    check compiles(appName())
+
   test "spec construction's public half survives moving out of `argumint.nim`":
     # Issue #49 split `newSpec` into `argumint/specbuild` and the three
     # constructors that never read a usage string into `argumint/backend`.

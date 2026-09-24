@@ -1262,6 +1262,10 @@ suite "Messages":
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
     check spec.settings.width == 100
 
+  test "the default command name is the binary's file name, minus any .exe":
+    check appName() == getAppFilename().splitFile.name
+    check not appName().endsWith(".exe")
+
   test "width defaults to terminalWidth() when COLUMNS isn't set":
     delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))

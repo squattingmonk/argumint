@@ -83,7 +83,7 @@ export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
 # is reachable by bare name from a generated `parse` method (ADR 0017). The
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
 # PEGs) stays out; `tests/test_public_api.nim` holds that line.
-export backend.newSpecSettings, backend.env, backend.toEnvSource
+export backend.newSpecSettings, backend.env, backend.toEnvSource, backend.appName
 export backend.subject
 export specbuild.newSpec
 
@@ -676,7 +676,7 @@ proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ## ```
   args.len > 0 and args[0] == "__complete"
 
-proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename())) =
+proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = appName()) =
   ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
@@ -713,7 +713,7 @@ proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: Sp
 
 proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
-    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    args: seq[string] = commandLineParams(), command = appName(),
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil) =
@@ -755,7 +755,7 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
 
 proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
-    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    args: seq[string] = commandLineParams(), command = appName(),
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil) =
@@ -802,7 +802,7 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
 
 proc parsed*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
-    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    args: seq[string] = commandLineParams(), command = appName(),
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil): S =
@@ -834,7 +834,7 @@ proc parsed*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog = "",
 
 proc parsedOrQuit*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
-    args: seq[string] = commandLineParams(), command = extractFilename(getAppFilename()),
+    args: seq[string] = commandLineParams(), command = appName(),
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil): S =
@@ -861,7 +861,7 @@ proc dot*(spec: tuple, usage = "", prolog = "", epilog = ""): string =
   except SpecDefect as e:
     quit(fmt"Error constructing spec: {e.msg}")
 
-proc completionScript*(spec: Spec, shell: Shell, binaryName = extractFilename(getAppFilename())): string =
+proc completionScript*(spec: Spec, shell: Shell, binaryName = appName()): string =
   ## Returns a shell-completion script for `shell` that completes
   ## `binaryName` by shelling out to it (`<binaryName> __complete
   ## <words...>`) -- see `docs/adr/0012-fsm-driven-shell-completion.md`.
