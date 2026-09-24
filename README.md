@@ -1700,6 +1700,35 @@ Options:
   -h, --help       Display this help message
 ```
 
+Help text is re-flowed by the same rule as the prolog and epilog, so a
+long form can be a `"""` string with paragraphs and lists:
+
+```nim
+mode: opt("-m, --mode=<m>", default = "fast", help = ("Pick a mode.", """
+  Picks how blocks are checked.
+
+  Modes:
+  - fast: skips verification
+  - safe: checks every block"""))
+```
+
+```console
+  -m, --mode=<m>
+    Picks how blocks are checked.
+
+    Modes:
+    - fast: skips verification
+    - safe: checks every block
+
+    [default: fast]
+```
+
+When help text runs to more than one block, the `[...]` bracket follows it
+as its own paragraph, so it never reads as part of a list item. Column
+Style lays out a multi-block short form the same way, inside its column.
+See `docs/adr/0054-reflow-prolog-and-epilog.md` for the rule and
+`docs/adr/0055-reflow-arg-help-text.md` for how rows carry it.
+
 A `HelpFormatter` renders the whole message, so a custom one controls
 section order and labels as well as how each arg is laid out. To write one,
 `import argumint/help` directly for the same pieces
@@ -1711,9 +1740,12 @@ epilog re-flowed and wrapped, as described above), and `joinSections`
 (joins the non-empty parts with a blank line between each). Rows and usage
 lines are `StyledText`, a sequence of spans that each carry a role
 (option, positional, header, ...): lay them out with `wrap` and `len`, then
-turn each line into a string with `render`. Pass `render` the spec's
-`settings.style` to colour your output as the built-ins do, and use
-`markup` to style your own prose; a formatter that doesn't renders plain:
+turn each line into a string with `render`. Each line of a `Row.text` is
+one block (a paragraph, list item, indented line, or blank line), so wrap
+it with `wrapProse`, which hangs each block's continuation lines under its
+text. Pass `render` the spec's `settings.style` to colour your output as
+the built-ins do, and use `markup` to style your own prose; a formatter
+that doesn't renders plain:
 
 ```nim
 import std/strutils
