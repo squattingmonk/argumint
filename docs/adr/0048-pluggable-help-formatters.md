@@ -22,15 +22,16 @@ differently.
 `help.nim` exports the pieces both built-ins are assembled from, so a
 third-party formatter is built the same way:
 
-- `helpGroups(spec, showHidden = false, showEmpty = false)` yields each
-  group's `(name, args)` in canonical order (`Commands`, `Arguments`,
-  `Options`, then user-defined groups), dropping hidden Args and groups
-  left with none. It yields `Arg`s rather than rendered rows so the
-  formatter keeps the short/long help choice (ADR 0049) and anything else
-  it needs from the Arg.
-- `rows(arg, preferLong)`, `Row`, `variantsByDesc`, and `annotations` resolve
-  an Arg into renderable line-items. `Row` is an object rather than a tuple
-  so fields can be added later without breaking custom formatters.
+- `helpGroups(spec)` yields each Help Group's `(name, args)` in canonical
+  order (`Commands`, `Arguments`, `Options`, then user-defined groups),
+  dropping hidden Args and groups left with none. It yields `Arg`s rather
+  than rendered rows so the formatter keeps the short/long help choice
+  (ADR 0049) and anything else it needs from the Arg.
+- `rows(arg, help)`, `Row`, `variantsByDesc`, and `annotations` resolve
+  an Arg into renderable line-items, and `longOrShort` picks an Arg's
+  Long-Form Help Text when declared (ADR 0049). `Row` is an object rather
+  than a tuple so fields can be added later without breaking custom
+  formatters.
 - `prolog`, `epilog`, and `usage` are read-only accessors for `Spec`'s
   private fields (ADR 0030 keeps the fields themselves private; `usage` in
   particular can't become a public field, since assigning it would desync

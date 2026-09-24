@@ -921,7 +921,7 @@ now split across four named pieces sitting between `genHelp` and
 (applied in `variantsColWidth`) caps the "variants" column (e.g. `-v,
 --verbose, --quiet`) so one arg with many aliases can't inflate the shared
 column width for every other row. Each formatter builds an arg's rows via
-`rows(arg: Arg, preferLong = false): seq[Row]`, which resolves one `Row`
+`rows(arg: Arg, help = arg.help.short): seq[Row]`, which resolves one `Row`
 per `arg.variantsByDesc()` bucket — `variantsByDesc` (`help.nim`,
 alongside `rows`) buckets an arg's variants by their `variantDesc` text and
 returns one bucket per distinct behavior. `colWidth` itself comes from

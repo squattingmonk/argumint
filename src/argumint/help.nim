@@ -43,7 +43,7 @@ proc olen(s: string; start, lastExclusive: int): int =
     inc result
     inc i, graphemeLen(s, i)
 
-proc wrapWords*(s: string, maxLineWidth: int, newLine = "\n"): string =
+proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
   ## Word-wraps `s`, splitting a word longer than `maxLineWidth` at the
   ## character level instead of overflowing it whole. Forked from
   ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
@@ -122,13 +122,13 @@ proc groupOrder(spec: Spec): seq[string] =
     if group notin CanonicalGroups:
       result.add group
 
-iterator helpGroups*(spec: Spec, showHidden = false, showEmpty = false): tuple[name: string, args: seq[Arg]] =
-  ## Iterates through all groups in `spec`, returning the group along with all
-  ## of its args. If `showHidden` is true, will include hidden args. If
-  ## `showEmpty` is true, will yield groups with no visible args.
+iterator helpGroups*(spec: Spec): tuple[name: string, args: seq[Arg]] =
+  ## Yields each of `spec`'s Help Groups with its non-hidden args, in canonical
+  ## order: `Commands`, `Arguments`, `Options`, then user-defined groups in
+  ## declaration order. Groups whose args are all hidden are skipped.
   for group in spec.groupOrder:
-    let args = spec.groups[group].filterIt(showHidden or not it.hidden)
-    if showEmpty or args.len > 0:
+    let args = spec.groups[group].filterIt(not it.hidden)
+    if args.len > 0:
       yield (name: group, args: args)
 
 proc variantsByDesc*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
@@ -144,16 +144,19 @@ proc variantsByDesc*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   for desc, names in byDesc.pairs:
     result.add (names: names, desc: desc)
 
-proc rows*(arg: Arg, preferLong = false): seq[Row] =
-  ## One Row per `arg.variantsByDesc()` bucket. Text is `arg.help.short` (or,
-  ## if `preferLong` is `true`, `arg.help.long` if it's not empty), falling
-  ## back to the bucket's own `variantDesc` when the arg's variants diverge
-  ## and that bucket's `variantDesc` is non-empty, plus the `[...]` bracket from `annotations`
-  ## (`action` included only when divergent AND `arg.help` is non-empty).
-  ## Callers filter `arg.hidden` on themselves.
-  let
-    buckets = arg.variantsByDesc()
-    help = if preferLong and arg.help.long.len > 0: arg.help.long else: arg.help.short
+proc longOrShort*(help: HelpText): string =
+  ## `help.long` if declared, else `help.short` -- the Long-Form Help Text
+  ## fallback rule (ADR 0049).
+  if help.long.len > 0: help.long else: help.short
+
+proc rows*(arg: Arg, help = arg.help.short): seq[Row] =
+  ## One Row per `arg.variantsByDesc()` bucket. Text is `help` (e.g.
+  ## `arg.help.longOrShort` for Paragraph Style), falling back to the
+  ## bucket's own `variantDesc` when the arg's variants diverge and that
+  ## bucket's `variantDesc` is non-empty, plus the `[...]` bracket from
+  ## `annotations` (`action` included only when divergent AND `help` is
+  ## non-empty). Callers filter `arg.hidden` themselves.
+  let buckets = arg.variantsByDesc()
   for bucket in buckets:
     let
       divergent = buckets.len > 1 and bucket.desc.len > 0
@@ -278,7 +281,7 @@ proc formatParagraph*(spec: Spec, command: string): string =
   for name, args in spec.helpGroups:
     var rows: seq[Row]
     for arg in args:
-      rows.add arg.rows(preferLong = true)
+      rows.add arg.rows(arg.help.longOrShort)
     groups.add "{name}\n{rows.renderParagraph(spec.settings.width)}".fmt
   let usage = "Usage:\n" & spec.usage.formatUsage(command, spec.settings.width)
   joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
@@ -438,11 +441,21 @@ when isMainModule:
       let arg = TestArg(variants: @["--speed=<speed>"], defaultStrVal: "5")
       check arg.rows() == @[Row(variants: "--speed=<speed>", text: "[default: 5]")]
 
-    test "a non-divergent bucket uses long help if preferLong is true":
-      let
-        arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
-        expected = @[Row(variants: "-x", text: "long help text")]
-      check arg.rows(preferLong = true) == expected
+    test "help defaults to the arg's short help text":
+      let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
+      check arg.rows() == @[Row(variants: "-x", text: "short help text")]
+
+    test "the given help text replaces the arg's own":
+      let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
+      check arg.rows("other text") == @[Row(variants: "-x", text: "other text")]
+
+  suite "longOrShort":
+    test "long help text is preferred when declared":
+      check longOrShort(("short", "long")) == "long"
+
+    test "short help text is the fallback when no long form is declared":
+      check longOrShort(("short", "")) == "short"
+      check longOrShort("short") == "short"
 
   suite "variantsColWidth":
     test "colWidth matches the length of the longest joined variants row across all args in the spec":
@@ -588,28 +601,17 @@ when isMainModule:
         groups = spec.helpGroups.toSeq.mapIt(it.name)
       check groups == @["Commands", "Arguments", "Options", "Flags"]
 
-    test "hidden args are not shown unless showHidden is true":
-      let
-        spec = newSpec((
-          foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
-          bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
-        expectedWhenFalse = @["--foo"]
-        expectedWhenTrue = @["--foo", "--bar"]
+    test "hidden args are not shown":
+      let spec = newSpec((
+        foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
+        bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
+      check spec.helpGroups.toSeq[0].args.mapIt(it.name) == @["--foo"]
 
-      for (showHidden, expected) in [(false, expectedWhenFalse), (true, expectedWhenTrue)]:
-        let args = spec.helpGroups(showHidden = showHidden).toSeq[0].args.mapIt(it.name)
-        check args == expected
-
-    test "a group is not shown when it has no visible members unless showEmpty is true":
-      let
-        spec = newSpec((
-          foo: Arg(kind: Optional, variants: @["--foo"], group: "Options"),
-          bar: Arg(kind: Optional, variants: @["--bar"], group: "Options", hidden: true),
-          baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
-
+    test "a group is not shown when all of its args are hidden":
+      let spec = newSpec((
+        foo: Arg(kind: Optional, variants: @["--foo"], group: "Options"),
+        baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
       check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
-      check spec.helpGroups(showHidden = true).toSeq.mapIt(it.name) == @["Options", "Global Options"]
-      check spec.helpGroups(showEmpty = true).toSeq.mapIt(it.name) == @["Options", "Global Options"]
 
 
   suite "usageLines":

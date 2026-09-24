@@ -6,19 +6,17 @@ to a new `HelpText = tuple[short, long: string]`, with
 `backend.nim`, alongside the existing `toEnvSource` converter) so every
 existing call site passing a bare string keeps compiling unchanged. `Arg.help`
 itself is retyped from `string` to `HelpText` directly, rather than gaining a
-separate `longHelp*: string` field alongside an unchanged `help` -- `rows()`
-(`help.nim`) turned out to be the only place that ever needs to choose
-between the short and long form, so it inlines that choice
-(`if preferLong and arg.help.long.len > 0: arg.help.long else:
-arg.help.short`) instead of reading a dedicated field or going through a
-shared accessor. `rows(arg, preferLong = false)` (see
-docs/adr/0048-pluggable-help-formatters.md) gains that parameter: when true
-and the arg's long help is non-empty, it becomes the row's Help Text source
-instead of the short form. `formatParagraph` calls `rows(arg, preferLong =
-true)`; `formatColumn` keeps calling `rows(arg)` -- a fixed-width column
-makes a longer description actively worse, so Column Style never looks at
-the long form at all. A caller who wants a longer, prose-form description
-available only to Paragraph Style writes
+separate `longHelp*: string` field alongside an unchanged `help`. The
+fallback rule lives on `HelpText` itself: `longOrShort*(help: HelpText)`
+(`help.nim`) returns the long form if declared, else the short one.
+`rows(arg, help = arg.help.short)` (see
+docs/adr/0048-pluggable-help-formatters.md) takes the Help Text to show as
+a plain string rather than choosing a form itself, so `formatParagraph`
+calls `rows(arg, arg.help.longOrShort)` while `formatColumn` keeps calling
+`rows(arg)` -- a fixed-width column makes a longer description actively
+worse, so Column Style never looks at the long form at all. A caller who
+wants a longer, prose-form description available only to Paragraph Style
+writes
 `help = ("Speed in knots", "Speed in knots. Must be between 1 and 100...")`
 instead of a plain string; nothing else about
 `arg`/`opt`/`flag`/`command`'s signatures changes. See `CONTEXT.md`'s Help
@@ -38,6 +36,13 @@ Text/Long-Form Help Text entries.
   them is far more invasive than reusing the already-proven
   `converter`-on-a-single-parameter pattern `toEnvSource` established for
   `env`.
+
+- **A `preferLong: bool` parameter on `rows`**, which is what first
+  shipped. Rejected in review as a flag argument: `rows` had to know about
+  the short/long pair to pick one, and a formatter wanting some other text
+  (e.g. a future styled description) would need yet another parameter.
+  Passing the text in keeps `rows` ignorant of `HelpText` and puts the
+  fallback rule on the type it's about.
 
 ## Consequences
 
