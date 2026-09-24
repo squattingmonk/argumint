@@ -630,3 +630,10 @@ or anything else that generates methods inside a template.
   silently didn't apply there. `backend.detectWidth()` checks `COLUMNS`
   itself before calling `terminalWidth()`. Found cross-compiling the suite
   with `-d:mingw` and running it under wine.
+
+- **`std/winlean` grows between patch releases.** `getConsoleMode`/
+  `setConsoleMode` exist in 2.2.12's `winlean` but not 2.2.4's, so code
+  that cross-compiled cleanly locally failed only on the 2.2.4 Windows CI
+  leg. `style.nim` declares its own `importc` wrappers under different
+  names (so they can't clash with newer `winlean`s). Cross-compile Windows
+  code with the oldest supported toolchain (`--os:windows --compileOnly`).

@@ -248,14 +248,20 @@ proc wantsColor(env: proc (key: string): string, ttys: bool): bool =
 when defined(windows):
   const EnableVirtualTerminalProcessing = 0x0004
 
+  # Declared here because `winlean` only gained them after 2.2.4.
+  proc readConsoleMode(handle: Handle, mode: ptr DWORD): WINBOOL
+    {.stdcall, dynlib: "kernel32", importc: "GetConsoleMode".}
+  proc writeConsoleMode(handle: Handle, mode: DWORD): WINBOOL
+    {.stdcall, dynlib: "kernel32", importc: "SetConsoleMode".}
+
   proc enableVirtualTerminal(): bool =
     ## Turns on ANSI escape handling for stdout and stderr; false if either
     ## isn't a console that supports it.
     for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]:
       let handle = getStdHandle(id)
       var mode: DWORD
-      if getConsoleMode(handle, addr mode) == 0 or
-          setConsoleMode(handle, mode or EnableVirtualTerminalProcessing) == 0:
+      if readConsoleMode(handle, addr mode) == 0 or
+          writeConsoleMode(handle, mode or EnableVirtualTerminalProcessing) == 0:
         return false
     true
 
