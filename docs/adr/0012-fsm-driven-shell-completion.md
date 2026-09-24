@@ -1,5 +1,11 @@
 # Shell completion is resolved dynamically by re-walking the FSM
 
+> **Partially superseded by [ADR 0050](0050-message-output-to-stdout.md)**:
+> `parseOrQuit*` no longer has a separate `except CompletionError` branch --
+> every `MessageError` now goes to stdout through one shared branch. The
+> "Error/output plumbing" bullet below describes the structure before that
+> change; the rest of this ADR stands.
+
 TODO.md listed "Shell completion generation (bash/zsh/fish) from a Spec" as
 future work with no further detail. This records the design settled before
 implementation.

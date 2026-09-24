@@ -168,19 +168,19 @@ or anything else that generates methods inside a template.
 - **`system.quit(errormsg: string, errorcode)`'s doc comment ("a shorthand
   for `echo(errormsg); quit(errorcode)`") is only true under
   `nimscript`/`js`/standalone.** On a normal compiled target it actually
-  writes via `cstderr.rawWrite` — stderr, not stdout. `parseOrQuit*`'s
-  `HelpError`/`ValidationError`/etc. branches don't care (both streams reach
-  a terminal the same way), but `CompletionError` (`docs/adr/
-  0012-fsm-driven-shell-completion.md`) does: a shell completion adapter
-  reads candidates via `$(...)` command substitution, which only captures
-  stdout, so reusing the shared `quit(e.msg, QuitSuccess)` branch silently
+  writes via `cstderr.rawWrite` — stderr, not stdout. That's right for
+  `parseOrQuit*`'s `ParseError`/`ValidationError` branches, but wrong for
+  every `MessageError`: `--help` belongs on stdout (`docs/adr/
+  0050-message-output-to-stdout.md`), and `CompletionError` (`docs/adr/
+  0012-fsm-driven-shell-completion.md`) breaks outright: a shell completion
+  adapter reads candidates via `$(...)` command substitution, which only
+  captures stdout, so printing them with `quit(e.msg, QuitSuccess)` silently
   swallows every candidate. Caught only by actually sourcing a generated
   completion script and driving it in a live shell — the unit tests, which
   only asserted on the raised exception's `msg` field, couldn't have caught
-  it, since `quit()` never actually runs inside a test process. Needs its
-  own `except CompletionError as e: echo e.msg; quit(QuitSuccess)` branch,
-  ordered before the general `except MessageError` catch the same way
-  `HelpError`'s already is.
+  it, since `quit()` never actually runs inside a test process. So the
+  single `except MessageError` branch uses `echo e.msg; quit(QuitSuccess)`,
+  never `quit(e.msg, QuitSuccess)`.
 
 - **`hash(x: ref T)` requires `-d:nimPreviewHashRef`.** `HashSet[State]`/
   `Table[State, ...]` (used by `collectFrontier`, and pre-existing in

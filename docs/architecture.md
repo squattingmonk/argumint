@@ -1242,8 +1242,7 @@ always present); fish and zsh render `help` in their own completion menu
 (fish natively, since a tab-separated line is its own candidate+description
 convention; zsh via `compadd -d`), while bash — which has no per-candidate
 description slot at all — strips it before building its word list. See ADR
-0022 for why. `parseOrQuit*` gives `CompletionError` (a `MessageError`
-peer of `HelpError`) its own `echo`-based handling rather than reusing the
-shared `except MessageError as e: quit(e.msg, QuitSuccess)` branch: `quit`'s
+0022 for why. `parseOrQuit*` prints every `MessageError` — `CompletionError`
+included — with `echo` rather than `quit(e.msg, QuitSuccess)`: `quit`'s
 non-nimscript/js implementation writes to stderr, not stdout, which a shell
-adapter's `$(...)` capture can't see.
+adapter's `$(...)` capture can't see (ADR 0050).
