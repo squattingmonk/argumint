@@ -9,11 +9,11 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Three modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, and `flagclamp.nim` — and everything else layers on top:
-`lexer` → `backend`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`tokens` → `complaints` → `precedence` → `matching` → `completion` →
-`fsm`/`specbuild` → `argumint`.
+Four modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, `flagclamp.nim`, and `style.nim` — and everything else
+layers on top: `lexer` → `backend`/`validators` →
+`argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
+`precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -31,8 +31,8 @@ methods, the derived `envName` beside them, and `Spec`'s own private fields
 are all `backend`'s. A `HelpFormatter` renders the whole message from
 pieces `help.nim` exports (`helpGroups`, `rows`, `joinSections`, and the
 `prolog`/`epilog`/`usage` accessors `backend` defines) -- see
-`docs/adr/0048-pluggable-help-formatters.md`. `formatUsage` and the
-`usageLines` helper beneath it (splitting a raw usage string into one
+`docs/adr/0048-pluggable-help-formatters.md`. `usageLines` and the
+`splitUsage` helper beneath it (splitting a raw usage string into one
 alternative per line, merging hand-indented continuations, and preserving
 blank lines rather than swallowing them — issue #68) live in `help.nim`
 itself, not `backend`;
@@ -475,7 +475,7 @@ so `RawToken` carries it in `cluster` (read via `userTyped`); `subIdx` cannot
 stand in, being ranking-only and textless. See ADR 0038.
 
 `formatComplaints` renders the bullets with no leading newline;
-`Report.failureMessage` appends the usage block via `formatUsage`
+`Report.failureMessage` appends the usage block via `usageLines`
 (`help.nim`, issue #68 -- `complaints.nim` imports it for exactly this, a new
 dependency below `tokens` in the chain rather than a new layer), and
 `Report.raiseParseFailure` raises it as a `ParseError`.
@@ -915,14 +915,14 @@ naming an environment variable — see the Runtime Matching section above for
 the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
 A Help Formatter (`help.nim`) renders the whole help message: `genHelp`
-just calls it, and both built-ins join prolog, `"Usage:\n" & formatUsage`,
-one block per `helpGroups` entry, and epilog with `joinSections` (ADR
-0048). `Spec.settings.width` (default `terminalWidth()`, itself falling
-back to `DefaultWidth = 80`) wraps usage lines (`formatUsage`) and every
-row's text; `Spec.settings.maxVariantsWidth` (default
-`DefaultMaxVariantsWidth = 30`) caps Column Style's "variants" column (e.g.
-`-v, --verbose, --quiet`) so one arg with many aliases can't inflate the
-shared column width for every other row. `0` disables the cap.
+just calls it, and both built-ins join prolog, `"Usage:\n"` plus the
+rendered `usageLines`, one block per `helpGroups` entry, and epilog with
+`joinSections` (ADR 0048). `Spec.settings.width` (default
+`terminalWidth()`, itself falling back to `DefaultWidth = 80`) wraps usage
+lines (`usageLines`) and every row's text; `Spec.settings.maxVariantsWidth`
+(default `DefaultMaxVariantsWidth = 30`) caps Column Style's "variants"
+column (e.g. `-v, --verbose, --quiet`) so one arg with many aliases can't
+inflate the shared column width for every other row. `0` disables the cap.
 
 Each formatter builds an arg's rows via `rows(arg: Arg, help =
 arg.help.short): seq[Row]`, which resolves one `Row` per
@@ -933,7 +933,7 @@ passes the default short form, Paragraph Style passes
 `arg.help.longOrShort`, preferring the Long-Form Help Text when declared.
 Every bucket's row shows that same text plus the arg-level annotations
 (`validatorHelp`/`defaultStr`/`envName`/`configKey`, assembled in that
-order by `annotations(arg: Arg, action = ""): seq[string]`), not just the
+order by `annotations(arg: Arg, action = ""): seq[StyledText]`), not just the
 first-declared variant's — that repetition, not indentation, is what
 visually ties divergent rows together as variants of the same value. When
 `variantsByDesc().len > 1` and a bucket's own `variantDesc` is non-empty,
@@ -944,6 +944,28 @@ own starting value) — but only when the help text is non-empty, since
 otherwise there'd be nothing for the bracket to disambiguate from; in that
 case `rows` uses the bucket's own `variantDesc` directly as the row's text
 instead.
+
+Everything a formatter lays out is `StyledText` (`style.nim`): a sequence
+of `Span`s, each a run of text with a `StyleRole`. `Row.variants`,
+`Row.text`, each of `annotations`' parts, and each of `usageLines`' lines
+are `StyledText`, all `srPlain` for now. The rule every built-in follows,
+and a custom formatter should too: build `StyledText`, `wrap` it to a width
+(one `StyledText` per line, splitting any span that crosses a break, so no
+span ever holds a `\n`), pad with `len` or `alignLeft` (visible width, in
+graphemes of the plain text), and `render` once per finished line.
+`styled(text)` is shorthand for `styled(srPlain, text)`. `render` takes a
+`Styler` (`proc (role, text): string`) applied per span, or nil for plain
+text; because every measurement happens before it runs, a styler can add
+escape codes without skewing any width. `add`/`&` keep `StyledText`
+normalized (no empty spans, adjacent same-role spans merged), so two equal
+texts compare equal whatever order they were built in. `style.nim` is a
+leaf beneath `help.nim`, which re-exports the formatter-author names
+(`complaints.nim` reaches `render` through that re-export). It also holds
+the corrected `wrapWords` fork `wrap` is built on (see `docs/gotchas.md`).
+`wrap` wraps the plain text with that fork, then walks the result mapping
+each byte back to its source span's role. That mapping relies on the fork
+only ever dropping separators, turning a newline-only separator into a
+space, and inserting line breaks -- never altering a word's bytes.
 
 **Column Style** (`formatColumn`) aligns rows into two columns shared
 across every group. `colWidth` comes from `variantsColWidth(spec: Spec):

@@ -52,9 +52,9 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
       var lines = @[name.toUpperAscii & ":"]
       for arg in args:
         for row in arg.rows:
-          lines.add "  " & row.variants & " -- " & row.text
+          lines.add "  " & row.variants.render & " -- " & row.text.render
       groups.add lines.join("\n")
-    let usage = "USAGE:\n" & spec.usage.formatUsage(command, spec.settings.width)
+    let usage = "USAGE:\n" & spec.usage.usageLines(command, spec.settings.width).render
     joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
 
   test "it controls the whole message, including section labels":
@@ -86,6 +86,20 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     except HelpError as e:
       raised = e.msg
     check raised.startsWith("USAGE:\n  greet <name>")
+
+  test "`Row`'s fields are styled text":
+    let row = arg("<name>", help = "Who to greet").rows[0]
+    check row.variants is StyledText
+    check row.text.plain == "Who to greet"
+
+  test "the span helpers are enough to lay out a row":
+    # The built-ins' layout rule -- see docs/architecture.md.
+    let row = Row(variants: styled("-x"), text: styled("some help text"))
+    var lines: seq[StyledText]
+    for i, text in row.text.wrap(9):
+      let variants = if i == 0: row.variants else: StyledText()
+      lines.add variants.alignLeft(4) & text
+    check lines.render == "-x  some help\n    text"
 
   test "the Spec accessors read with or without parentheses, but can't be assigned":
     let spec = greeter()

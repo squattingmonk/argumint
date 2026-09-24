@@ -1645,9 +1645,11 @@ section order and labels as well as how each arg is laid out. To write one,
 `import argumint/help` directly for the same pieces
 `formatColumn`/`formatParagraph` are built from: `helpGroups` (each group's
 visible args, in display order), `rows`/`Row` (an arg's variants and
-resolved help text), the `prolog`/`epilog`/`usage` accessors, `formatUsage`
+resolved help text), the `prolog`/`epilog`/`usage` accessors, `usageLines`
 (the wrapped usage lines, without a label), and `joinSections` (joins the
-non-empty parts with a blank line between each):
+non-empty parts with a blank line between each). Rows and usage lines are
+`StyledText`, a sequence of spans: lay them out with `wrap` and `len`, then
+turn each line into a string with `render`:
 
 ```nim
 import std/strutils
@@ -1659,9 +1661,9 @@ proc formatShouty(spec: Spec, command: string): string =
     var lines = @[name.toUpperAscii & ":"]
     for arg in args:
       for row in arg.rows:
-        lines.add "  " & row.variants & " -- " & row.text
+        lines.add "  " & row.variants.render & " -- " & row.text.render
     groups.add lines.join("\n")
-  let usage = "USAGE:\n" & spec.usage.formatUsage(command, spec.settings.width)
+  let usage = "USAGE:\n" & spec.usage.usageLines(command, spec.settings.width).render
   joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
 ```
 

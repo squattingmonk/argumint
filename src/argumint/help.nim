@@ -10,9 +10,12 @@
 
 import std/[pegs, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, errors]
+import ./[backend, errors, style]
 
 export backend.prolog, backend.epilog, backend.usage
+export style.StyleRole, style.Span, style.StyledText, style.Styler,
+  style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
+  style.render, style.plain
 
 type
   HelpArg* = ref object of MessageArg
@@ -28,89 +31,31 @@ type
   Row* = object
     ## One line-item in the help table, still unwrapped. An object rather than
     ## a tuple so fields can be added without breaking custom formatters.
-    variants*: string
+    variants*: StyledText
       ## The names of variants sharing a description, joined by ", "
-    text*: string
+    text*: StyledText
       ## Their resolved help plus `[...]` annotations
 
 const Margin = "  "
 const ContinuationIndent = "    "
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
 
-proc olen(s: string; start, lastExclusive: int): int =
-  var i = start
-  while i < lastExclusive:
-    inc result
-    inc i, graphemeLen(s, i)
-
-proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
-  ## Word-wraps `s`, splitting a word longer than `maxLineWidth` at the
-  ## character level instead of overflowing it whole. Forked from
-  ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
-  ## drops the separator immediately before a word that needs splitting (e.g.
-  ## wrapping "-x, --longflag" at width 10 comes back as "-x,--longf", eating
-  ## the space) instead of flushing it first, like the "word fits" path does.
-  ## See docs/gotchas.md.
-  result = newStringOfCap(s.len + s.len shr 6)
-  var spaceLeft = maxLineWidth
-  var lastSep = ""
-
-  var i = 0
-  while true:
-    var j = i
-    let isSep = j < s.len and s[j] in Whitespace
-    while j < s.len and (s[j] in Whitespace) == isSep: inc(j)
-    if j <= i: break
-    if isSep:
-      lastSep.setLen 0
-      for k in i..<j:
-        if s[k] notin {'\L', '\C'}: lastSep.add s[k]
-      if lastSep.len == 0:
-        lastSep.add ' '
-        dec spaceLeft
-      else:
-        spaceLeft -= olen(lastSep, 0, lastSep.len)
-    else:
-      let wlen = olen(s, i, j)
-      if wlen > spaceLeft:
-        if wlen > maxLineWidth:
-          if lastSep.len > 0 and spaceLeft > 0:
-            result.add(lastSep)
-          var k = 0
-          while k < j - i:
-            if spaceLeft <= 0:
-              spaceLeft = maxLineWidth
-              result.add newLine
-            dec spaceLeft
-            let L = graphemeLen(s, k + i)
-            for m in 0 ..< L: result.add s[i + k + m]
-            inc k, L
-        else:
-          spaceLeft = maxLineWidth - wlen
-          result.add(newLine)
-          for k in i..<j: result.add(s[k])
-      else:
-        spaceLeft -= wlen
-        result.add(lastSep)
-        for k in i..<j: result.add(s[k])
-    i = j
-
-proc annotations*(arg: Arg, action = ""): seq[string] =
+proc annotations*(arg: Arg, action = ""): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
   ## `variantDesc`).
   let validatorHelp = arg.validatorHelp()
   if validatorHelp.len > 0:
-    result.add validatorHelp
+    result.add styled(validatorHelp)
   if arg.defaultStr.len > 0:
-    result.add fmt"default: {arg.defaultStr}"
+    result.add styled(fmt"default: {arg.defaultStr}")
   if arg.envName.len > 0:
-    result.add fmt"env: {arg.envName}"
+    result.add styled(fmt"env: {arg.envName}")
   let configKey = arg.configKey()
   if configKey.len > 0:
-    result.add fmt"configKey: {configKey.join}"
+    result.add styled(fmt"configKey: {configKey.join}")
   if action.len > 0:
-    result.add fmt"action: {action}"
+    result.add styled(fmt"action: {action}")
 
 proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
@@ -163,9 +108,16 @@ proc rows*(arg: Arg, help = arg.help.short): seq[Row] =
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
       annotations = arg.annotations(action = action)
-      bracket = if annotations.len > 0: "[{annotations.join(\"; \")}]".fmt else: ""
-      text = if bracket.len == 0: primary elif primary.len == 0: bracket else: fmt"{primary} {bracket}"
-    result.add Row(variants: bucket.names.join(", "), text: text)
+    var text = styled(primary)
+    if annotations.len > 0:
+      if primary.len > 0:
+        text.add styled(" ")
+      text.add styled("[")
+      for i, annotation in annotations:
+        if i > 0: text.add styled("; ")
+        text.add annotation
+      text.add styled("]")
+    result.add Row(variants: styled(bucket.names.join(", ")), text: text)
 
 proc variantsColWidth(spec: Spec): int =
   ## Widest single `Row.variants` across every arg in `spec`
@@ -184,25 +136,26 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int): string =
   ## line-by-line. First line of a row gets `Margin`; wrap continuations get
   ## `ContinuationIndent`. Rows join with "\n".
   let helpWidth = max(width - (colWidth + 4), 20)
-  var lines: seq[string]
+  var lines: seq[StyledText]
   for row in rows:
     let
-      variantLines = row.variants.wrapWords(colWidth).splitLines
+      variantLines = row.variants.wrap(colWidth)
       textLines =
-        if row.text.len > 0: row.text.wrapWords(helpWidth).splitLines
-        else: newSeq[string]()
+        if row.text.len > 0: row.text.wrap(helpWidth)
+        else: newSeq[StyledText]()
     for j in 0 ..< max(variantLines.len, textLines.len):
       let
-        v = if j < variantLines.len: variantLines[j] else: ""
-        t = if j < textLines.len: textLines[j] else: ""
         margin = if j == 0: Margin else: ContinuationIndent
-      if t.len > 0:
-        lines.add fmt"{margin}{v.alignLeft(colWidth)}{Margin}{t}"
+        v = if j < variantLines.len: variantLines[j] else: StyledText()
+      var line = styled(margin)
+      if j < textLines.len and textLines[j].len > 0:
+        line.add v.alignLeft(colWidth) & styled(Margin) & textLines[j]
       else:
-        lines.add fmt"{margin}{v}"
-  lines.join("\n")
+        line.add v
+      lines.add line
+  lines.render
 
-proc usageLines(usage: string): seq[string] =
+proc splitUsage(usage: string): seq[string] =
   ## Splits a usage message into usage lines. Lines prefixed with whitespace are
   ## treated as belonging to the previous usage line. Blank lines (and even a
   ## blank usage message) are treated as a blank usage line.
@@ -212,21 +165,24 @@ proc usageLines(usage: string): seq[string] =
     else:
       result.add line.strip
 
-proc formatUsage*(usage: string, command: string, width = DefaultWidth): string =
-  ## Formats `usage` (a spec's raw usage string, one alternative per line) as
+proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[StyledText] =
+  ## Lays out `usage` (a spec's raw usage string, one alternative per line) as
   ## indented usage lines, prefixing each alternative with `command`. Lines
   ## longer than `width` are wrapped, with continuations hanging-indented to
   ## align under the first token after `command` rather than restarting at
   ## the left margin. Adds no "Usage:" label -- the caller writes its own.
-  var lines: seq[string]
   let
     prefix = "{Margin}{command} ".fmt
-    indent = ' '.repeat(prefix.len)
+    indent = styled(' '.repeat(styled(prefix).len))
     lineWidth = max(width, 20)
 
-  for line in usage.usageLines:
-    lines.add fmt"{prefix}{line}".wrapWords(lineWidth, newLine = "\n{indent}".fmt)
-  result = lines.join("\n")
+  for line in usage.splitUsage:
+    for i, wrapped in styled(prefix & line).wrap(lineWidth):
+      result.add(if i == 0: wrapped else: indent & wrapped)
+
+proc usageSection(spec: Spec, command: string): string =
+  ## The built-ins' labeled usage block.
+  "Usage:\n" & spec.usage.usageLines(command, spec.settings.width).render
 
 proc joinSections*(sections: varargs[string]): string =
   ## Joins the non-empty `sections` of a help message with a blank line
@@ -247,23 +203,23 @@ proc formatColumn*(spec: Spec, command: string): string =
     for arg in args:
       rows.add arg.rows()
     groups.add "{name}\n{rows.renderColumn(spec.settings.width, colWidth)}".fmt
-  let usage = "Usage:\n" & spec.usage.formatUsage(command, spec.settings.width)
-  joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
+  joinSections(spec.prolog, spec.usageSection(command), joinSections(groups),
+    spec.epilog)
 
 proc renderParagraph(rows: seq[Row], width = DefaultWidth): string =
   let
     variantsWidth = max(width - Margin.len, 20 - Margin.len)
     helpWidth = max(width - ContinuationIndent.len, 20 - ContinuationIndent.len)
   for row in rows:
-    var lines: seq[string]
-    for line in row.variants.wrapWords(variantsWidth).splitLines:
-      lines.add fmt"{Margin}{line}"
+    var lines: seq[StyledText]
+    for line in row.variants.wrap(variantsWidth):
+      lines.add styled(Margin) & line
     if row.text.len > 0:
-      for line in row.text.wrapWords(helpWidth).splitLines:
-        lines.add fmt"{ContinuationIndent}{line}"
+      for line in row.text.wrap(helpWidth):
+        lines.add styled(ContinuationIndent) & line
     if lines.len > 0:
       result.addSep "\n\n"
-      result.add lines.join("\n")
+      result.add lines.render
 
 proc formatParagraph*(spec: Spec, command: string): string =
   ## Paragraph Style: prolog, usage, then each group's rows with variants on
@@ -275,8 +231,8 @@ proc formatParagraph*(spec: Spec, command: string): string =
     for arg in args:
       rows.add arg.rows(arg.help.longOrShort)
     groups.add "{name}\n{rows.renderParagraph(spec.settings.width)}".fmt
-  let usage = "Usage:\n" & spec.usage.formatUsage(command, spec.settings.width)
-  joinSections(spec.prolog, usage, joinSections(groups), spec.epilog)
+  joinSections(spec.prolog, spec.usageSection(command), joinSections(groups),
+    spec.epilog)
 
 proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
   ## Renders `spec`'s full help message with `formatter`, which owns the
@@ -290,7 +246,8 @@ method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   ## Raises `HelpError` with `spec`'s generated help text for `command`,
   ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
   ## deliver it directly (see `help*`).
-  let formatter = if self.formatter.isNil: formatColumn else: self.formatter
+  # Explicit conversion needed -- see docs/gotchas.md.
+  let formatter = if self.formatter.isNil: HelpFormatter(formatColumn) else: self.formatter
   raise newException(HelpError, spec.genHelp(command, formatter))
 
 when isMainModule:
@@ -313,28 +270,31 @@ when isMainModule:
   method variantDesc(self: TestArg, variant: string): string =
     self.descs.getOrDefault(variant, "")
 
+  proc row(variants, text: string): Row =
+    Row(variants: styled(variants), text: styled(text))
+
   suite "annotations":
     test "an arg with nothing set has no annotations":
       check Arg().annotations().len == 0
 
     test "includes validatorHelp when non-empty":
       let arg = TestArg(validatorHelpVal: "validatorHelp")
-      check arg.annotations() == @["validatorHelp"]
+      check arg.annotations().mapIt(it.plain) == @["validatorHelp"]
 
     test "includes default when non-empty":
       let arg = TestArg(defaultStrVal: "defaultStr")
-      check arg.annotations() == @["default: defaultStr"]
+      check arg.annotations().mapIt(it.plain) == @["default: defaultStr"]
 
     test "includes env if set":
       let arg = TestArg(env: "TEST_ARG_ENV")
-      check arg.annotations() == @["env: TEST_ARG_ENV"]
+      check arg.annotations().mapIt(it.plain) == @["env: TEST_ARG_ENV"]
 
     test "includes configKey if set":
       let arg = TestArg(cfg: configKey("section", "key"))
-      check arg.annotations() == @["configKey: section.key"]
+      check arg.annotations().mapIt(it.plain) == @["configKey: section.key"]
 
     test "includes action if non-empty":
-      check Arg().annotations(action = "foo") == @["action: foo"]
+      check Arg().annotations(action = "foo").mapIt(it.plain) == @["action: foo"]
 
     test "order: validatorHelp, default, env, config, action":
       let
@@ -351,7 +311,7 @@ when isMainModule:
           "configKey: k",
           "action: a"
         ]
-      check arg.annotations(action = "a") == expected
+      check arg.annotations(action = "a").mapIt(it.plain) == expected
 
   suite "variantsByDesc":
     test "an arg with no variants has no buckets":
@@ -376,7 +336,7 @@ when isMainModule:
     # divergent if it is not the only bucket and its variantDesc is non-empty.
     test "a non-divergent bucket gets one row with the arg's help text":
       check TestArg(variants: @["<name>"], help: "Who to greet").rows() ==
-        @[Row(variants: "<name>", text: "Who to greet")]
+        @[row("<name>", "Who to greet")]
 
     test "a single bucket is non-divergent and ignores variantDesc":
       let
@@ -384,7 +344,7 @@ when isMainModule:
           variants: @["-v"],
           help: "Verbosity",
           descs: {"-v": "Increase verbosity"}.toTable)
-        expected = @[Row(variants: "-v", text: "Verbosity")]
+        expected = @[row("-v", "Verbosity")]
       check arg.rows() == expected
 
     test "a non-divergent bucket's help text is blank if arg.help is empty":
@@ -392,7 +352,7 @@ when isMainModule:
         arg = TestArg(
           variants: @["-v"],
           descs: {"-v": "Increase verbosity"}.toTable)
-        expected = @[Row(variants: "-v", text: "")]
+        expected = @[row("-v", "")]
       check arg.rows() == expected
 
     test "a divergent bucket's help text matches variantDesc if arg.help is empty":
@@ -401,9 +361,9 @@ when isMainModule:
           variants: @["--direction", "--up", "--down"],
           descs: { "--up": "Move up", "--down": "Move down"}.toTable)
         expected = @[
-          Row(variants: "--direction", text: ""),
-          Row(variants: "--up", text: "Move up"),
-          Row(variants: "--down", text: "Move down")]
+          row("--direction", ""),
+          row("--up", "Move up"),
+          row("--down", "Move down")]
       check arg.rows() == expected
 
     test "a divergent bucket's help text uses arg.help + action annotation if arg.help is not empty":
@@ -413,9 +373,9 @@ when isMainModule:
           help: "Direction",
           descs: { "--up": "move up", "--down": "move down"}.toTable)
         expected = @[
-          Row(variants: "--direction", text: "Direction"),
-          Row(variants: "--up", text: "Direction [action: move up]"),
-          Row(variants: "--down", text: "Direction [action: move down]")]
+          row("--direction", "Direction"),
+          row("--up", "Direction [action: move up]"),
+          row("--down", "Direction [action: move down]")]
       check arg.rows() == expected
 
     test "variants with the same descriptions are joined with commas on one row":
@@ -427,21 +387,21 @@ when isMainModule:
             "-u": "move up",
             "--up": "move up"}.toTable)
         expected = @[
-          Row(variants: "-d, --direction", text: "Direction"),
-          Row(variants: "-u, --up", text: "Direction [action: move up]")]
+          row("-d, --direction", "Direction"),
+          row("-u, --up", "Direction [action: move up]")]
       check arg.rows() == expected
 
     test "a non-divergent bucket's bracket appears alone, with no leading space, when arg.help is empty":
       let arg = TestArg(variants: @["--speed=<speed>"], defaultStrVal: "5")
-      check arg.rows() == @[Row(variants: "--speed=<speed>", text: "[default: 5]")]
+      check arg.rows() == @[row("--speed=<speed>", "[default: 5]")]
 
     test "help defaults to the arg's short help text":
       let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
-      check arg.rows() == @[Row(variants: "-x", text: "short help text")]
+      check arg.rows() == @[row("-x", "short help text")]
 
     test "the given help text replaces the arg's own":
       let arg = TestArg(variants: @["-x"], help: ("short help text", "long help text"))
-      check arg.rows("other text") == @[Row(variants: "-x", text: "other text")]
+      check arg.rows("other text") == @[row("-x", "other text")]
 
   suite "longOrShort":
     test "long help text is preferred when declared":
@@ -470,6 +430,10 @@ when isMainModule:
       check spec1.variantsColWidth == "-x".len
       check spec2.variantsColWidth == 10
 
+    test "colWidth counts visible width, not bytes":
+      let spec = Spec(args: @[Arg(variants: @["<héllo>"])], settings: SpecSettings(maxVariantsWidth: 0))
+      check spec.variantsColWidth == 7
+
     test "colWidth is affected by hidden args":
       # Note: this matches existing behavior but is not desirable. Change this
       # later.
@@ -482,40 +446,44 @@ when isMainModule:
   suite "renderColumn":
     test "a single row that fits on one line needs no wrapping":
       let
-        row = Row(variants: "-v", text: "Verbose")
+        row = row("-v", "Verbose")
         expected = "  -v          Verbose"
       check renderColumn(@[row], width = 80, colWidth = 10) == expected
 
     test "the variants column aligns to the given colWidth":
       let
-        row = Row(variants: "-v", text: "Verbose")
+        row = row("-v", "Verbose")
         expected = "  -v                    Verbose"
       check renderColumn(@[row], width = 80, colWidth = 20) == expected
+
+    test "the variants column pads to visible width, not bytes":
+      check renderColumn(@[row("<é>", "x"), row("<e>", "y")], width = 80, colWidth = 5) ==
+        "  <é>    x\n  <e>    y"
 
     test "rows are joined with a newline, each keeping its own margin":
       let
         rows = @[
-          Row(variants: "-v", text: "Verbose"),
-          Row(variants: "--quiet", text: "Quiet")]
+          row("-v", "Verbose"),
+          row("--quiet", "Quiet")]
         expected = "  -v        Verbose\n  --quiet   Quiet"
       check renderColumn(rows, width = 80, colWidth = 8) == expected
 
     test "a row with no text shows only the variants, with no alignment padding or trailing whitespace":
       let
-        row = Row(variants: "-v, --verbose", text: "")
+        row = row("-v, --verbose", "")
         expected  = "  -v, --verbose"
       check renderColumn(@[row], width = 80, colWidth = 20) == expected
 
     test "long help text wraps in its own column, indented deeper than the margin":
       let
-        row = Row(variants: "-x", text: "This is a moderately long help description")
+        row = row("-x", "This is a moderately long help description")
         expected = "  -x     This is a moderately\n           long help description"
         rendered = renderColumn(@[row], width = 30, colWidth = 5)
       check rendered == expected
 
     test "a variant name longer than colWidth is split":
       let
-        row = Row(variants: "-x, --extraordinarily-long-option-name", text: "A really long option name")
+        row = row("-x, --extraordinarily-long-option-name", "A really long option name")
         expected = "  -x, --extr  A really long option\n    aordinaril  name\n    y-long-opt\n    ion-name"
         rendered = renderColumn(@[row], width = 30, colWidth = 10)
 
@@ -523,7 +491,7 @@ when isMainModule:
 
     test "a help text word longer than helpWidth is split":
       let
-        row = Row(variants: "-x", text: "aVeryLongSingleWordThatExceedsTwentyCharacters")
+        row = row("-x", "aVeryLongSingleWordThatExceedsTwentyCharacters")
         expected = "  -x  aVeryLongSingleWordThatE\n        xceedsTwentyCharacters"
         rendered = renderColumn(@[row], width = 30, colWidth = 2)
       check rendered == expected
@@ -544,8 +512,8 @@ when isMainModule:
     test "multiple rows are wrapped independently, not interleaved":
       let
         rows = @[
-          Row(variants: "-x", text: "This is a moderately long help description"),
-          Row(variants: "-q", text: "Be quiet")]
+          row("-x", "This is a moderately long help description"),
+          row("-q", "Be quiet")]
         expected = """
           -x     This is a moderately
                    long help description
@@ -608,72 +576,76 @@ when isMainModule:
       check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
 
 
-  suite "usageLines":
+  suite "splitUsage":
     test "a blank usage message is one blank usage line":
-      check usageLines("") == @[""]
+      check splitUsage("") == @[""]
 
     test "a usage message with no newlines is one usage line":
-      check usageLines("<foo> [--bar]") == @["<foo> [--bar]"]
+      check splitUsage("<foo> [--bar]") == @["<foo> [--bar]"]
 
     test "each line in a usage message is another usage line":
-      check usageLines("<foo>\n--bar") == @["<foo>", "--bar"]
+      check splitUsage("<foo>\n--bar") == @["<foo>", "--bar"]
 
     test "blank lines count as their own usage lines":
-      check usageLines("<foo>\n") == @["<foo>", ""]
-      check usageLines("\n<foo>") == @["", "<foo>"]
+      check splitUsage("<foo>\n") == @["<foo>", ""]
+      check splitUsage("\n<foo>") == @["", "<foo>"]
 
     test "lines prefixed with whitespace belong to the previous usage line":
-      check usageLines("<foo>\n  --bar") == @["<foo> --bar"]
+      check splitUsage("<foo>\n  --bar") == @["<foo> --bar"]
 
     test "if the first line is prefixed with whitespace, it is still its own line":
-      check usageLines("  <foo>") == @["<foo>"]
+      check splitUsage("  <foo>") == @["<foo>"]
 
     test "leading and trailing whitespace are removed from usage lines":
-      check usageLines("<foo>  ") == @["<foo>"]
-      check usageLines("  <foo>") == @["<foo>"]
+      check splitUsage("<foo>  ") == @["<foo>"]
+      check splitUsage("  <foo>") == @["<foo>"]
 
     test "a blank line can be continued if the following line is prefixed by whitespace":
-      check usageLines("\n  <foo>") == @["<foo>"]
-      check usageLines("<foo>\n\n  <bar>") == @["<foo>", "<bar>"]
+      check splitUsage("\n  <foo>") == @["<foo>"]
+      check splitUsage("<foo>\n\n  <bar>") == @["<foo>", "<bar>"]
 
     test "usage lines containing only whitespace belong to the previous usage line":
-      check usageLines("<foo>\n  ") == @["<foo>"]
-      check usageLines("<foo>\n  \n  <bar>") == @["<foo> <bar>"]
+      check splitUsage("<foo>\n  ") == @["<foo>"]
+      check splitUsage("<foo>\n  \n  <bar>") == @["<foo> <bar>"]
 
-  suite "formatUsage":
+  suite "usageLines":
     test "no label is added; the caller writes its own":
-      check formatUsage("<foo>", "prog") == "  prog <foo>"
+      check usageLines("<foo>", "prog").render == "  prog <foo>"
 
     test "a blank usage message is still prefixed with the command name":
-      check formatUsage("", "prog") == "  prog"
+      check usageLines("", "prog").render == "  prog"
 
     test "a single usage line is prefixed with the command name":
-      check formatUsage("<foo> [--bar]", "prog") == "  prog <foo> [--bar]"
+      check usageLines("<foo> [--bar]", "prog").render == "  prog <foo> [--bar]"
 
     test "multiple usage lines are each prefixed by the command name":
-      check formatUsage("<foo>\n<bar>", "prog") == "  prog <foo>\n  prog <bar>"
+      check usageLines("<foo>\n<bar>", "prog").render == "  prog <foo>\n  prog <bar>"
 
     test "blank lines get the command name prefix":
-      check formatUsage("\n<foo>", "prog") == "  prog\n  prog <foo>"
-      check formatUsage("<foo>\n", "prog") == "  prog <foo>\n  prog"
-      check formatUsage("<foo>\n\n", "prog") == "  prog <foo>\n  prog\n  prog"
-      check formatUsage("<foo>\n\n<bar>", "prog") == "  prog <foo>\n  prog\n  prog <bar>"
-      check formatUsage("<foo>\n\n  <bar>", "prog") == "  prog <foo>\n  prog <bar>"
+      check usageLines("\n<foo>", "prog").render == "  prog\n  prog <foo>"
+      check usageLines("<foo>\n", "prog").render == "  prog <foo>\n  prog"
+      check usageLines("<foo>\n\n", "prog").render == "  prog <foo>\n  prog\n  prog"
+      check usageLines("<foo>\n\n<bar>", "prog").render == "  prog <foo>\n  prog\n  prog <bar>"
+      check usageLines("<foo>\n\n  <bar>", "prog").render == "  prog <foo>\n  prog <bar>"
 
     test "lines beginning with whitespace are joined to the previous usage line":
-      check formatUsage("<foo>\n  <bar>\n<baz>", "prog") == "  prog <foo> <bar>\n  prog <baz>"
+      check usageLines("<foo>\n  <bar>\n<baz>", "prog").render == "  prog <foo> <bar>\n  prog <baz>"
 
     test "usage lines are wrapped to width with a hanging indent matching command prefix length":
       let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
-      check formatUsage(usage, "prog", width = 40) == "  prog <foo> [--bar] (--baz |\n       --qux=<qux>)\n  prog <foobar>"
+      check usageLines(usage, "prog", width = 40).render == "  prog <foo> [--bar] (--baz |\n       --qux=<qux>)\n  prog <foobar>"
+
+    test "the hanging indent matches the command's visible width, not bytes":
+      let usage = "<foo> [--bar] (--baz | --qux=<qux>)"
+      check usageLines(usage, "prög", width = 40).render == "  prög <foo> [--bar] (--baz |\n       --qux=<qux>)"
 
     test "min width for a usage line is 20":
       let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
-      check formatUsage(usage, "prog", width = 10) == "  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
+      check usageLines(usage, "prog", width = 10).render == "  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
 
     test "words longer than width are split when wrapping":
       let usage = "<foo> [--bar --aVeryLongOptionName]"
-      check formatUsage(usage, "prog", width = 20) == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
+      check usageLines(usage, "prog", width = 20).render == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
   suite "joinSections":
     test "no sections yields an empty string":
@@ -802,25 +774,25 @@ when isMainModule:
       check renderParagraph(@[]) == ""
 
     test "a single row with empty help text gets a margin and no blank line after":
-      let rows = @[Row(variants: "<foo>", text: "")]
+      let rows = @[row("<foo>", "")]
       check renderParagraph(rows) == "  <foo>"
 
     test "a row's variants are wrapped to the spec's width (min 20), keeping the same left margin":
       let
-        rows = @[Row(variants: "-v, --verbose, --boost, --dampen, --quiet", text: "")]
+        rows = @[row("-v, --verbose, --boost, --dampen, --quiet", "")]
         expected = "  -v, --verbose,\n  --boost, --dampen,\n  --quiet"
       check renderParagraph(rows, width = 20) == expected
       check renderParagraph(rows, width = 10) == expected
 
     test "a row's variants line is followed by the indented help line":
       let
-        rows = @[Row(variants: "-x", text: "This is help text")]
+        rows = @[row("-x", "This is help text")]
         expected = "  -x\n    This is help text"
       check renderParagraph(rows) == expected
 
     test "long help text is wrapped to the spec's width (min 20), keeping the left margin":
       let
-        rows = @[Row(variants: "-x", text: "This help text needs to be wrapped")]
+        rows = @[row("-x", "This help text needs to be wrapped")]
         expected = "  -x\n    This help text\n    needs to be\n    wrapped"
       check renderParagraph(rows, width = 20) == expected
       check renderParagraph(rows, width = 10) == expected
@@ -828,8 +800,8 @@ when isMainModule:
     test "multiple rows have blank lines between them":
       let
         rows = @[
-          Row(variants: "<foo>", text: "This is some help text"),
-          Row(variants: "<bar>", text: "This is also some help text") ]
+          row("<foo>", "This is some help text"),
+          row("<bar>", "This is also some help text") ]
         expected = "  <foo>\n    This is some help text\n\n  <bar>\n    This is also some help text"
       check renderParagraph(rows) == expected
 
