@@ -70,20 +70,21 @@ export backend.SeenBy, backend.seen
 # needs the type nameable.
 export options.Option
 
-# `newSpecSettings*`'s signature spells these three as its own defaults, so a
+# `newSpecSettings*`'s signature spells these four as its own defaults, so a
 # reader of its docs needs to be able to resolve them. `DefaultWidth`
 # deliberately isn't here -- it appears in no exported signature, and by
 # `docs/adr/0029`'s rule an export with no demonstrated caller stays out
 # until one shows up (adding it later is non-breaking).
-export backend.DefaultMaxVariantsWidth, backend.DefaultEnvDelim,
-  backend.DefaultStrictOptions
+export backend.DefaultMaxVariantsWidth, backend.DefaultMaxWidth,
+  backend.DefaultEnvDelim, backend.DefaultStrictOptions
 
 # Public API that issue #49 moved out of this file -- `settings =` needs
 # `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
 # is reachable by bare name from a generated `parse` method (ADR 0017). The
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
 # PEGs) stays out; `tests/test_public_api.nim` holds that line.
-export backend.newSpecSettings, backend.env, backend.toEnvSource, backend.appName
+export backend.newSpecSettings, backend.env, backend.toEnvSource, backend.appName,
+  backend.detectWidth
 export backend.subject
 export specbuild.newSpec
 

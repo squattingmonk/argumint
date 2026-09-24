@@ -68,6 +68,7 @@ suite "Types nameable after a bare `import argumint`":
 
   test "the defaults `newSpecSettings`'s own signature names are spellable":
     check compiles(DefaultMaxVariantsWidth)
+    check compiles(DefaultMaxWidth)
     check compiles(DefaultEnvDelim)
     # `DefaultWidth` appears in no exported signature, so it stays internal
     # until something needs it -- see ADR 0030.
@@ -75,6 +76,9 @@ suite "Types nameable after a bare `import argumint`":
 
   test "`appName`, the default `command` in `parse*`'s signatures, is spellable":
     check compiles(appName())
+
+  test "`detectWidth`, in `newSpecSettings`'s default `width`, is spellable":
+    check compiles(newSpecSettings(width = min(detectWidth(), 120)))
 
   test "spec construction's public half survives moving out of `argumint.nim`":
     # Issue #49 split `newSpec` into `argumint/specbuild` and the three

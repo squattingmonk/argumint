@@ -1542,14 +1542,19 @@ constructor. Within the group, `Arg`s are ordered in the order they are declared
 in the spec.
 
 Usage lines and help text wrap at `SpecSettings.width` (default: the
-detected terminal width, falling back to 80 columns); the variants column
-(`-v, --verbose`) wraps once it exceeds `SpecSettings.maxVariantsWidth`
-(default 30; `0` means unlimited). Set either via `newSpecSettings`, passed
-as `parse`/`parseOrQuit`'s `settings` argument:
+detected terminal width, capped at `DefaultMaxWidth` = 100 and falling back
+to 80 columns); the variants column (`-v, --verbose`) wraps once it exceeds
+`SpecSettings.maxVariantsWidth` (default 30; `0` means unlimited). Set
+either via `newSpecSettings`, passed as `parse`/`parseOrQuit`'s `settings`
+argument:
 
 ```nim
 spec.parseOrQuit(settings = newSpecSettings(width = 100, maxVariantsWidth = 40))
 ```
+
+An explicit `width` is never capped. Pass `width = detectWidth()` to follow
+the terminal however wide it is, or `width = min(detectWidth(), 120)` for a
+cap of your own.
 
 A variant name or help-text word too long to fit its column splits at the
 character level rather than overflowing it whole. If that's undesirable for

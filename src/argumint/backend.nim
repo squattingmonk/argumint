@@ -200,6 +200,9 @@ const
   DefaultWidth* = 80
     ## `newSpecSettings`'s default `width` when no terminal width can be
     ## auto-detected (e.g. piped output with `COLUMNS` unset)
+  DefaultMaxWidth* = 100
+    ## The widest `newSpecSettings`'s default `width` gets on a wide
+    ## terminal -- see `docs/adr/0052-default-help-width-cap.md`
   DefaultMaxVariantsWidth* = 30
     ## `newSpecSettings`'s default `maxVariantsWidth`
   DefaultEnvDelim* = ":"
@@ -268,21 +271,25 @@ proc appName*(): string =
     if result.toLowerAscii.endsWith("." & ExeExt):
       result.setLen(result.len - ExeExt.len - 1)
 
-proc detectWidth(): int =
-  ## A positive `COLUMNS`, else `terminalWidth()`. Checks `COLUMNS` itself
+proc detectWidth*(): int =
+  ## The terminal's width, uncapped: a positive `COLUMNS`, else
+  ## `terminalWidth()` (80 if nothing is detected). Checks `COLUMNS` itself
   ## because `terminalWidth()` only does so on POSIX -- see `docs/gotchas.md`.
   if parseSaturatedNatural(getEnv("COLUMNS"), result) == 0 or result == 0:
     result = terminalWidth()
 
-proc newSpecSettings*(width = detectWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
+proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
+    maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
     strictOptions = DefaultStrictOptions, style = autoStyler()): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param.
   ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width or 80 columns when none can be
-  ##   detected (e.g., piped output with `COLUMNS` unset). Pass an explicit
-  ##   width to opt out of auto-detection.
+  ##   caller's detected terminal width, capped at `DefaultMaxWidth` (100)
+  ##   so help doesn't sprawl on a wide terminal, or 80 columns when none
+  ##   can be detected (e.g., piped output with `COLUMNS` unset). An
+  ##   explicit width is used as given: `width = detectWidth()` for no cap,
+  ##   or `width = min(detectWidth(), 120)` for your own.
   ## - `maxVariantsWidth` caps the variants column's width before it wraps
   ##   onto extra indented lines (`0` for unlimited).
   ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
