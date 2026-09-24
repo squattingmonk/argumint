@@ -9,9 +9,9 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Four modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, `flagclamp.nim`, and `style.nim` — and everything else
-layers on top: `lexer` → `backend`/`validators` →
+Three modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, and `style.nim` — and everything else layers on top:
+`flagclamp` → `lexer` → `backend`/`validators` →
 `argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
 `precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
 
@@ -477,8 +477,13 @@ stand in, being ranking-only and textless. See ADR 0038.
 `formatComplaints` renders the bullets with no leading newline;
 `Report.failureMessage` appends the usage block via `usageLines`
 (`help.nim`, issue #68 -- `complaints.nim` imports it for exactly this, a new
-dependency below `tokens` in the chain rather than a new layer), and
-`Report.raiseParseFailure` raises it as a `ParseError`.
+dependency below `tokens` in the chain rather than a new layer), rendered
+with an optional styler, and `Report.raiseParseFailure` raises it as a
+`ParseError` via `failure`. `failure` builds the exception with a plain
+`msg` and, if the Spec has a styler, a `styledMsg` rendered with it, so a
+caught error's `msg` never holds escape codes (ADR 0051). `parseOrQuit*`
+prints `quitMessage`: the `srError` label above `styledMsg`, or `msg` when
+that's empty.
 `fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
 bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
 report through the same object rather than a second shape) so a conversion
@@ -637,9 +642,9 @@ flags never show a default.
 empties the value seq and, via `procCall`, the base's provenance -- empty
 *is* the default-applies state (ADR 0008), so there is nothing to restore.
 `defineValueArg[T]` likewise generates a per-arity `method
-validatorHelp`, which calls `self.validator.help()` when a validator is
-present — `Validator[T].help`
-returns a short description per kind, or every kind's own `desc` verbatim
+validatorHelp`, which calls `self.validator.styledHelp(keepTicks)` when a
+validator is present — `Validator[T].styledHelp` returns a short styled
+description per kind, or every kind's own `desc` with Help Markup applied
 instead when one was given (`Validator[T].desc` is a single field shared by
 every kind, declared *before* the `case kind` discriminator rather than
 inside a specific `of` branch — a field name can't be redeclared across two
@@ -649,7 +654,7 @@ combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
 (e.g. `[choices: foo, bar; default: foo]`). `defineFlagArg` (see "Flags"
 below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
 the same extension point, even though a Flag never carries a `Validator` --
-delegating to its `FlagClamp[T].help()` if one is attached (see "Flag
+delegating to its `FlagClamp[T].styledHelp(keepTicks)` if one is attached (see "Flag
 Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
@@ -948,7 +953,7 @@ instead.
 Everything a formatter lays out is `StyledText` (`style.nim`): a sequence
 of `Span`s, each a run of text with a `StyleRole`. `Row.variants`,
 `Row.text`, each of `annotations`' parts, and each of `usageLines`' lines
-are `StyledText`, all `srPlain` for now. The rule every built-in follows,
+are `StyledText`. The rule every built-in follows,
 and a custom formatter should too: build `StyledText`, `wrap` it to a width
 (one `StyledText` per line, splitting any span that crosses a break, so no
 span ever holds a `\n`), pad with `len` or `alignLeft` (visible width, in
@@ -966,6 +971,36 @@ the corrected `wrapWords` fork `wrap` is built on (see `docs/gotchas.md`).
 each byte back to its source span's role. That mapping relies on the fork
 only ever dropping separators, turning a newline-only separator into a
 space, and inserting line breaks -- never altering a word's bytes.
+
+Roles are assigned where the text is built (ADR 0051). `rows` tags each
+variant by its Arg's kind (`styledVariant`, which splits an option's
+`=<m>` into `srOption`/`srPlain`/`srMetavar`), and runs the help text
+through `markup` with the Arg's own `metavars`, derived from its variants
+by `OptionalVariantFormat`'s `helpVar` capture. `annotations` tags the
+bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
+`srEnv`; the validator part comes from `validatorHelp`, which now returns
+`StyledText` built by `Validator.styledHelp`/`FlagClamp.styledHelp` (whose
+`.plain` is the string `help()`). `usageLines` tags the command path
+`srProgram` and styles each line through `lexer.displayTokens`, which runs
+the lexer's own token PEGs over the line without raising, keeping
+whitespace and unknown characters as `tkInvalid` pieces. Headers are
+`srHeader`, and a prolog/epilog gets `markup` and is split at its newlines
+before rendering, so no span a styler sees contains one.
+
+Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
+only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
+both the lexer's `<name>` and `NAME` forms). `keepTicks` decides
+whether the backticks survive: the built-ins pass `keepTicks =
+styler.isNil` down through `rows`/`annotations`/`validatorHelp`, so plain
+output keeps them and styled output drops them. `plainMarkup` is the plain
+form for prose that never reaches a styler: completion descriptions,
+`ValidationError` messages, and `help()`.
+
+The styler itself is `spec.settings.style`. `autoStyler` (`style.nim`)
+decides it once, at `newSpecSettings` time. Its env-var rule is the pure
+`wantsColor(env, ttys)`, so tests can drive it without a terminal; on
+Windows, `enableVirtualTerminal` sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+through `winlean`'s `getConsoleMode`/`setConsoleMode`.
 
 **Column Style** (`formatColumn`) aligns rows into two columns shared
 across every group. `colWidth` comes from `variantsColWidth(spec: Spec):

@@ -17,7 +17,7 @@
 
 import std/[hashes, options, os, parseutils, pegs, strformat, strutils, tables, terminal]
 
-import ./[configsource, errors]
+import ./[configsource, errors, style]
 export configsource
 
 
@@ -92,6 +92,9 @@ type
       ## as data, in both a positional slot and an Option's value slot. Default
       ## `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See
       ## `docs/adr/0034-strict-option-checking.md`
+    style*: Styler
+      ## Decorates help and error output by Style Role; nil for plain text.
+      ## See `docs/adr/0051-help-and-error-styling.md`
 
   EnvSource* = object
     ## Names the environment variable configured to supply an Arg's value,
@@ -273,7 +276,7 @@ proc detectWidth(): int =
 
 proc newSpecSettings*(width = detectWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions): SpecSettings =
+    strictOptions = DefaultStrictOptions, style = autoStyler()): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param.
   ## - `width` is the column width usage/help text wraps at. Defaults to the
@@ -310,6 +313,11 @@ proc newSpecSettings*(width = detectWidth(), maxVariantsWidth = DefaultMaxVarian
   ##   form (`--name=--nope`) each force one token literally without
   ##   disabling the check everywhere. See
   ##   `docs/adr/0034-strict-option-checking.md`.
+  ## - `style` decorates help and parse-error output (colour, bold, etc.) by
+  ##   Style Role. Defaults to `autoStyler()`: the built-in ANSI theme when
+  ##   output is going to a terminal, else plain. Pass `nil` for plain text
+  ##   always, or `ansiStyler(theme)` or your own `Styler` to opt out of
+  ##   detection. See `docs/adr/0051-help-and-error-styling.md`.
   ##
   ## Hold onto the returned `SpecSettings` and pass the same instance to
   ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
@@ -317,7 +325,7 @@ proc newSpecSettings*(width = detectWidth(), maxVariantsWidth = DefaultMaxVarian
   ## every not-yet-dispatched `Spec` in the tree -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
-    configSources: configSources, strictOptions: strictOptions)
+    configSources: configSources, strictOptions: strictOptions, style: style)
 
 # Read-only views of private `Spec` fields (ADR 0030). Only `specbuild` writes
 # them. `prolog`/`epilog`/`usage` are re-exported by `argumint/help` for Help
@@ -418,6 +426,15 @@ proc seen*(self: Arg): bool =
   ## subcommand this hook's level hasn't descended into yet. See
   ## `docs/adr/0039-per-arg-provenance.md`.
   self.seenBy > byNone
+
+proc metavars*(arg: Arg): seq[string] =
+  ## The value placeholder names in `arg`'s variants, without brackets (`kn`
+  ## for `--speed=<kn>`), for Help Markup to tell a metavar from a
+  ## positional in `arg`'s own help text.
+  for variant in arg.variants:
+    var m: array[2, string]
+    if variant.match(OptionalVariantFormat, m) and m[1].len > 0 and m[1] notin result:
+      result.add m[1]
 
 proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
   ## How to name `arg` in a parse-failure message. The command line names the
@@ -543,13 +560,14 @@ method completions*(self: Arg): seq[string] {.base.} = @[]
   ## which carry a `Validator`) has nothing to show; `ValueArg` overrides
   ## this per-type via `defineArg` (`argumint.nim`).
 
-method validatorHelp*(self: Arg): string {.base.} =
+method validatorHelp*(self: Arg, keepTicks = true): StyledText {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.
-  ## "choices: foo, bar, baz"), or an empty string if `self` has no
-  ## `Validator` or there's nothing meaningful to show. The base case
-  ## (commands, flags, and message args, none of which have validators) has
-  ## nothing to show; `ValueArg` overrides this per-type via `defineArg`.
-  ""
+  ## "choices: foo, bar, baz"), or empty text if `self` has no `Validator`
+  ## or there's nothing meaningful to show. `keepTicks` is passed on to
+  ## `markup` for any `desc`. The base case (commands and message args,
+  ## neither of which has a validator) has nothing to show; `ValueArg` and
+  ## `FlagArg` override this per-type via `defineArg`.
+  discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## Returns a short description of what a specific `variant` of `self`

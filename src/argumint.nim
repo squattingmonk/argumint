@@ -16,9 +16,9 @@
 
 {.experimental: "openSym".}
 
-import std/[os, options, pegs, sugar, strformat, strutils]
+import std/[os, options, pegs, sugar, strformat, strutils, terminal]
 
-import ./argumint/[argtypes, backend, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, validators]
+import ./argumint/[argtypes, backend, complaints, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -26,8 +26,8 @@ export errors
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
-export validators
-export flagclamp
+export validators except styledHelp
+export flagclamp except styledHelp
 export configsource
 export backend.name
 export strutils.escape
@@ -124,6 +124,11 @@ export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
 # writing your own formatter needs `import argumint/help` (ADR 0048/0049).
 export backend.HelpText, backend.toHelpText
 export help.HelpArg, help.HelpFormatter, help.formatColumn, help.formatParagraph
+
+# Styling configuration; Styled Text itself needs `argumint/help` (ADR 0051).
+export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
+  style.defaultTheme, style.ansiStyler, style.autoStyler
+export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------
 # Registering a custom type. Each of these is the public, documented name for
@@ -690,9 +695,9 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   try:
     spec.parse(args, command)
   except ParseError as e:
-    quit("Parsing error:\n{e.msg}".fmt)
+    quit(e.quitMessage(spec.settings.style))
   except ValidationError as e:
-    quit("Validation error:\n{e.msg}".fmt)
+    quit(e.quitMessage(spec.settings.style))
   except MessageError as e:
     # stdout, not stderr like quit() -- see docs/adr/0050-message-output-to-stdout.md.
     echo e.msg
