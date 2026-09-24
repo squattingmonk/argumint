@@ -15,7 +15,7 @@
 ## which names an Arg in a parse-failure message. See `docs/architecture.md`
 ## for where that line falls and why.
 
-import std/[hashes, options, pegs, strformat, strutils, tables, terminal]
+import std/[hashes, options, os, parseutils, pegs, strformat, strutils, tables, terminal]
 
 import ./[configsource, errors]
 export configsource
@@ -257,7 +257,21 @@ let
     value <- {.*}
   """
 
-proc newSpecSettings*(width = terminalWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
+proc appName*(): string =
+  ## The running binary's file name, minus any `.exe` -- the default `command`
+  ## naming the program in usage lines and completion scripts.
+  result = getAppFilename().extractFilename
+  when ExeExt.len > 0:
+    if result.toLowerAscii.endsWith("." & ExeExt):
+      result.setLen(result.len - ExeExt.len - 1)
+
+proc detectWidth(): int =
+  ## A positive `COLUMNS`, else `terminalWidth()`. Checks `COLUMNS` itself
+  ## because `terminalWidth()` only does so on POSIX -- see `docs/gotchas.md`.
+  if parseSaturatedNatural(getEnv("COLUMNS"), result) == 0 or result == 0:
+    result = terminalWidth()
+
+proc newSpecSettings*(width = detectWidth(), maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
     strictOptions = DefaultStrictOptions): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`

@@ -606,3 +606,10 @@ or anything else that generates methods inside a template.
   HelpFormatter(formatParagraph)]`. Hit writing `help.nim`'s "built-in
   formatter layout" suite; any table of formatters (e.g. for a future
   `--help=<style>`) will hit it too.
+
+- **`std/terminal.terminalWidth()` only reads `COLUMNS` on POSIX.** The
+  Windows branch asks the console handles and falls back to 80, ignoring
+  `COLUMNS` entirely -- so `newSpecSettings`'s documented `COLUMNS` override
+  silently didn't apply there. `backend.detectWidth()` checks `COLUMNS`
+  itself before calling `terminalWidth()`. Found cross-compiling the suite
+  with `-d:mingw` and running it under wine.

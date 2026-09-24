@@ -135,7 +135,7 @@ proc dispatch(levels: seq[Level], idx: int, matches: MatchTable, info: HookInfo)
       spec.after(info)
 
 proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
-    command = extractFilename(getAppFilename())) =
+    command = appName()) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
   ## terminal state was reached and all args were consumed, the parse was
   ## successful and each match is parsed into its arg. Raises `ParseError`,
