@@ -95,7 +95,7 @@ proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
   ## character level instead of overflowing it whole. Forked from
   ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
   ## drops the separator immediately before a word that needs splitting (e.g.
-  ## wrapping "-x, --longflag" at width 10 comes back as "-x,--longf", eating
+  ## wrapping "-x, --longflag" at width 9 comes back as "-x,--lon", eating
   ## the space) instead of flushing it first, like the "word fits" path does.
   ## See docs/gotchas.md.
   result = newStringOfCap(s.len + s.len shr 6)

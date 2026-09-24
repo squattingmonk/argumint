@@ -588,8 +588,8 @@ or anything else that generates methods inside a template.
   before a word it has to split.** When a word longer than `maxLineWidth`
   immediately follows a shorter word on the same line, the char-splitting
   branch never flushes the pending separator before it starts emitting
-  characters -- e.g. wrapping `"-x, --longflag"` at width 10 comes back as
-  `"-x,--longf"` (the space after the comma is silently eaten), even though
+  characters -- e.g. wrapping `"-x, --longflag"` at width 9 comes back as
+  `"-x,--lon"` (the space after the comma is silently eaten), even though
   the separator's width was already budgeted for. The "word fits normally"
   branch a few lines up does flush it (`result.add(lastSep)`); the split
   branch just forgets to. `style.nim` forks a corrected local `wrapWords`
