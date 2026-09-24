@@ -9,7 +9,6 @@
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
 import std/[pegs, sequtils, strformat, strutils, tables]
-import std/unicode except strip # Buggy -- see docs/gotchas.md.
 
 import ./[backend, errors, lexer, style]
 
@@ -961,25 +960,25 @@ when isMainModule:
   suite "built-in formatter layout":
     # Section order and spacing shared by formatColumn and formatParagraph;
     # each style's own row layout is covered in its own suite below.
-    let formatters = @[HelpFormatter(formatColumn), HelpFormatter(formatParagraph)]
+    let builtins = @[HelpFormatter(formatColumn), HelpFormatter(formatParagraph)]
 
     test "a spec with no prolog, epilog, or args is a usage block with a bare command usage line":
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(Spec(settings: newSpecSettings(style = nil)), "prog") == "Usage:\n  prog"
 
     test "the usage block shows the spec's usage string after the command":
       let spec = Spec(settings: newSpecSettings(style = nil), usage: "<foo> [--bar]")
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(spec, "prog") == "Usage:\n  prog <foo> [--bar]"
 
     test "prolog comes first, separated from the usage block by a blank line":
       let spec = Spec(settings: newSpecSettings(style = nil), prolog: "foo")
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(spec, "prog") == "foo\n\nUsage:\n  prog"
 
     test "epilog comes last, separated from the usage block by a blank line":
       let spec = Spec(settings: newSpecSettings(style = nil), epilog: "bar")
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(spec, "prog") == "Usage:\n  prog\n\nbar"
 
     test "a long prolog and epilog wrap at the width":
@@ -987,7 +986,7 @@ when isMainModule:
         long = "A prolog long enough that it cannot possibly fit in forty columns."
         spec = Spec(settings: newSpecSettings(width = 40, style = nil),
           prolog: long, epilog: long)
-      for formatter in formatters:
+      for formatter in builtins:
         let help = formatter(spec, "prog")
         check help.startsWith("A prolog long enough that it cannot\npossibly fit in forty columns.\n\n")
         for line in help.splitLines:
@@ -1000,7 +999,7 @@ when isMainModule:
 
           Moves ships and
           mines around.""")
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(spec, "prog").startsWith(
           "Naval Fate.\n\nMoves ships and mines around.\n\nUsage:")
 
@@ -1010,7 +1009,7 @@ when isMainModule:
         parent = plainSpec(
           (ship: CommandArg(kind: ArgKind.Command, variants: @["ship"], spec: child)),
           settings = newSpecSettings(width = 40, style = nil))
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(parent.commands["ship"].spec, "p ship").startsWith(
           "A subcommand prolog long enough to wrap\nat forty.\n\n")
 
@@ -1018,14 +1017,14 @@ when isMainModule:
       let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")),
         usage = "<foo>", prolog = "foo", epilog = "bar")
-      for formatter in formatters:
+      for formatter in builtins:
         check formatter(spec, "prog") == "foo\n\nUsage:\n  prog <foo>\n\nArguments:\n  <foo>\n\nbar"
 
     test "a custom group's header gets a colon too":
       let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Output")),
         usage = "<foo>")
-      for formatter in formatters:
+      for formatter in builtins:
         check "\n\nOutput:\n  <foo>" in formatter(spec, "prog")
 
   suite "formatColumn":
@@ -1376,7 +1375,7 @@ when isMainModule:
       check Arg(variants: @["-v", "--verbose"]).metavars.len == 0
 
   suite "styled formatters":
-    let formatters = @[HelpFormatter(formatColumn), HelpFormatter(formatParagraph)]
+    let builtins = @[HelpFormatter(formatColumn), HelpFormatter(formatParagraph)]
 
     test "every row role reaches the rendered message":
       # Row-level roles are pinned in "roles"; this checks both built-ins
@@ -1391,7 +1390,7 @@ when isMainModule:
             cfg: configKey("ship", "speed"), validatorHelpVal: "v")),
         usage = "ship\n<name> [--speed=<kn>]",
         settings = newSpecSettings(style = tagged))
-      for formatter in formatters:
+      for formatter in builtins:
         let help = formatter(spec, "p")
         check "{header:Commands:}" in help
         check "  {command:ship}" in help
@@ -1409,7 +1408,7 @@ when isMainModule:
         settings = newSpecSettings(style = tagged))
 
     test "headers are srHeader":
-      for formatter in formatters:
+      for formatter in builtins:
         let help = formatter(styledSpec(), "p")
         check help.startsWith("{header:Usage:}\n  {program:p}")
         check "{header:Options:}\n" in help
@@ -1423,7 +1422,7 @@ when isMainModule:
         @["  {option:--speed}={metavar:<kn>}", "    In {metavar:<kn>}"]
 
     test "prolog and epilog get Help Markup, context-only":
-      for formatter in formatters:
+      for formatter in builtins:
         let help = formatter(styledSpec("See `--speed <kn>` and `$HOME`.",
           "Try `ship`\nor `--speed=<kn>`.\n\n  `$HOME`"), "p")
         check help.startsWith(
@@ -1435,7 +1434,7 @@ when isMainModule:
       let spec = plainSpec(
         (x: Arg(kind: ArgKind.Flag, variants: @["-x"], help: "`-y` or ``z``", group: "Options")),
         usage = "[-x]", prolog = "`a` ``b``", settings = newSpecSettings(style = nil))
-      for formatter in formatters:
+      for formatter in builtins:
         let help = formatter(spec, "p")
         check help.startsWith("`a` `b`\n\n")
         check "`-y` or `z`" in help
