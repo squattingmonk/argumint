@@ -1257,10 +1257,25 @@ suite "Messages":
     check narrowText.splitLines.len > wideText.splitLines.len
 
   test "width defaults to the detected terminal width, via the COLUMNS env var":
-    putEnv("COLUMNS", "100")
+    putEnv("COLUMNS", "90")
     defer: delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.settings.width == 100
+    check spec.settings.width == 90
+
+  test "a detected width is capped at DefaultMaxWidth":
+    putEnv("COLUMNS", "200")
+    defer: delEnv("COLUMNS")
+    check DefaultMaxWidth == 100
+    check newSpecSettings().width == DefaultMaxWidth
+
+  test "an explicit width is never capped":
+    check newSpecSettings(width = 150).width == 150
+
+  test "detectWidth is the raw detected width, uncapped":
+    putEnv("COLUMNS", "200")
+    defer: delEnv("COLUMNS")
+    check detectWidth() == 200
+    check newSpecSettings(width = detectWidth()).width == 200
 
   test "the default command name is the binary's file name, minus any .exe":
     check appName() == getAppFilename().splitFile.name
@@ -1269,7 +1284,8 @@ suite "Messages":
   test "width defaults to terminalWidth() when COLUMNS isn't set":
     delEnv("COLUMNS")
     let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.settings.width == terminalWidth()
+    check detectWidth() == terminalWidth()
+    check spec.settings.width == min(terminalWidth(), DefaultMaxWidth)
 
   test "width cascades from the root spec into nested subcommand specs":
     let move = (name: arg("<name>", help = ""), help: help())
