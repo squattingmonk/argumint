@@ -37,7 +37,9 @@ registration.
   tests or ones needing extra fixtures (e.g. `test_precedence.nim`,
   `configsource`'s tests). Add new tests either as a `when isMainModule`
   block in the module under test or as a new `tests/test_*.nim` file -- no
-  per-file wiring needed beyond that.
+  per-file wiring needed beyond that. `tools/runtests.nim` drives it
+  (parallel compile, serial run) -- see its module doc for how failures
+  are reported.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code
