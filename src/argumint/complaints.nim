@@ -351,7 +351,7 @@ proc failureMessage*(r: Report): string =
   ## verbatim, and what a reshaped conversion/validation failure (`fsm.parse*`)
   ## uses for its own exception instead. See ADR 0035.
   let msg = formatComplaints(r.finalComplaints)
-  "{msg}\n\nUsage:\n{r.spec.usage.formatUsage(r.command, r.spec.settings.width)}".fmt
+  "{msg}\n\nUsage:\n{r.spec.usage.usageLines(r.command, r.spec.settings.width).render}".fmt
 
 proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.

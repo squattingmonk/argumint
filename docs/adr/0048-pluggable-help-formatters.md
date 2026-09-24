@@ -104,3 +104,11 @@ there is no single formatter an error could ask. A custom formatter that
 relabels the usage block (e.g. `SYNOPSIS`) will therefore look different
 from error output; a Spec-level usage renderer both could share can be
 added later without breaking anything.
+
+The richer model rejected above has since arrived, for the reason given
+there: styling needed more structure than two plain strings. `Row`'s fields
+are now `StyledText` spans (`src/argumint/style.nim`), and `formatUsage`
+was replaced by `usageLines`, which returns span lines rather than a
+string. `StyledText` is an object holding `spans` rather than a bare
+`seq[Span]`, so its `len` can mean visible width without clashing with
+`seq`'s. See the help-rendering section of `docs/architecture.md`.

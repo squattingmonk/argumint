@@ -592,9 +592,9 @@ or anything else that generates methods inside a template.
   `"-x,--longf"` (the space after the comma is silently eaten), even though
   the separator's width was already budgeted for. The "word fits normally"
   branch a few lines up does flush it (`result.add(lastSep)`); the split
-  branch just forgets to. `help.nim` forks a corrected local `wrapWords`
+  branch just forgets to. `style.nim` forks a corrected local `wrapWords`
   with that one line added rather than depending on the buggy stdlib
-  version -- see `renderColumn()`/`formatUsage()`. Present as of Nim 2.2.10.
+  version -- see `wrap()`. Present as of Nim 2.2.10.
 
 - **A seq literal of procs won't convert to `seq[HelpFormatter]`.**
   `let fs: seq[HelpFormatter] = @[formatColumn, formatParagraph]` fails
@@ -606,6 +606,14 @@ or anything else that generates methods inside a template.
   HelpFormatter(formatParagraph)]`. Hit writing `help.nim`'s "built-in
   formatter layout" suite; any table of formatters (e.g. for a future
   `--help=<style>`) will hit it too.
+
+- **An `if` expression won't convert a proc that calls a closure.** `if
+  f.isNil: formatColumn else: f` (with `f: HelpFormatter`) compiles only
+  while `formatColumn`'s inferred effects are known: the branches unify
+  to the first one's `{.nimcall.}` type. Once `formatColumn` calls
+  through a closure-typed value (`render`'s `Styler`), unification fails
+  with a "calling convention mismatch". Convert the first branch
+  explicitly: `HelpFormatter(formatColumn)`. Hit in `HelpArg.action`.
 
 - **`std/terminal.terminalWidth()` only reads `COLUMNS` on POSIX.** The
   Windows branch asks the console handles and falls back to 80, ignoring

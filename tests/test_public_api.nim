@@ -211,6 +211,13 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.genHelp("prog"))
     check not compiles(genHelp(spec, "prog"))
 
+  test "the span model is reachable only by importing `argumint/help`":
+    # Formatter-author names, like `genHelp`; mirrored by `tests/test_help.nim`.
+    check not declared(Row)
+    check not declared(Span)
+    check not declared(StyledText)
+    check not declared(usageLines)
+
   test "`settings` and the hooks stay public":
     # `block:` rather than a bare `spec.before = ...`, which `compiles`
     # would otherwise read as a named argument.
