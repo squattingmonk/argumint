@@ -38,8 +38,8 @@ Arg's Variants are interchangeable for matching purposes — any one
 satisfies that Arg's position in the grammar — but whether the *specific*
 Variant seen affects behavior beyond identifying the Arg depends on the
 Arg kind (see Option, Flag, Command, Positional Argument).
-_Avoid_: Alias, spelling, flag name (bare "Alias" names the grouping among
-a Flag's own Variants, not a Variant itself -- see FlagOp Alias)
+_Avoid_: Alias, spelling, flag name (bare "Alias" names a set of a Flag's
+own Variants, not a Variant itself -- see FlagOp Alias)
 
 **Option**:
 A named argument that takes a value via one of its Variants (e.g.
@@ -83,13 +83,13 @@ in prose when referring to the `flagOp*` constructor specifically),
 variant behavior
 
 **FlagOp Alias**:
-The group of a Flag's own Variants that share one Flag Operation --
+The set of a Flag's own Variants that share one Flag Operation --
 declared together, not discovered after the fact by comparing op/value.
 Every spelling in `flag*`'s own `variants` string is automatically one
-such group, since they can only ever share the type's single implicit
+such set, since they can only ever share the type's single implicit
 op/value pair; every spelling passed to one `flagOp*` call is another,
 declared explicitly. Two different `flagOp*` calls are always independent
-groups, never merged into one alias set, even if their op/value happen to
+sets, never merged into one alias set, even if their op/value happen to
 coincide -- see `docs/adr/0027-flag-op-declarations.md` for why. Determines
 which Variants are mutually exclusive alternatives of each other versus
 independently reachable: a `choice`-style Usage Line dedupes among FlagOp
@@ -105,7 +105,7 @@ Variants are unconditionally aliases of one another. See
 `docs/adr/0026-flag-op-alias-exclusivity.md` (issue #8) for the usage-string
 alternation exclusivity, order-independent scanning, true-CLI-order
 composition, and alias-scoped completion mechanics that key off this same
-grouping.
+set.
 _Avoid_: Flag Operation Class, Op class, variant class (earlier working
 terms for this same concept)
 
@@ -205,6 +205,57 @@ See `docs/adr/0013-message-args-fire-after-before.md`.
 See Before Hook, After Hook.
 _Avoid_: handler (the removed predecessor); don't use "action" to mean
 Command itself — see Command's own _Avoid_ note
+
+**Help**:
+The generated text describing a Spec's Usage String and declared Args,
+produced by a Help Formatter and displayed by a matched Help Message
+Argument (see Message Argument).
+_Avoid_: help text (ambiguous with a single Arg's own declared description
+— see Help Text)
+
+**Help Text**:
+An Arg's author-supplied description, shown by whichever Help Formatter
+renders it. May be paired with Long-Form Help Text — a more detailed
+alternative a Paragraph Style formatter prefers when present. Declared via
+`arg`/`opt`/`flag`/`command`'s `help` parameter, either as a single string
+(Help Text only) or as a `(short, long)` pair.
+_Avoid_: description, help string
+
+**Long-Form Help Text**:
+The more detailed alternative to an Arg's ordinary Help Text, shown by a
+Paragraph Style Help Formatter in its place when declared — never
+alongside it. A Column Style formatter ignores it entirely and always uses
+Help Text, since a fixed-width column has no room for a longer description
+anyway.
+_Avoid_: long help, extended description
+
+**Help Formatter**:
+The pluggable renderer that produces a Spec's whole Help message — its
+prolog, Usage, groups of Args, and epilog, including their order and
+labels. A plain function: it may carry its own configuration (e.g. a
+template) but keeps no state tied to a particular Spec or parse, so it has
+no per-instance identity worth an object hierarchy. A parse error's usage
+block is not rendered by a Help Formatter. Two ship built-in: **Column
+Style**, which aligns every Arg's Variants and Help Text into a two-column
+table (the original, and still default, layout), and **Paragraph Style**, which instead puts each Arg's
+Variants on their own line with its Help Text (or Long-Form Help Text, if
+declared) wrapped as an indented paragraph below — trading column
+alignment for room to write longer descriptions without cramped wrapping.
+A Spec may register more than one Help Message Argument, each with its own
+Help Formatter, so one program could offer e.g. both a column format and a
+paragraph format.
+_Avoid_: formatter (ambiguous outside this context), HelpFormatter
+(code-level name, fine in prose about the API itself), docopt style,
+man-page style (both considered and rejected for this naming — see the ADR
+for this design)
+
+**Help Group**:
+The heading an Arg is listed under in Help, set by its `group` parameter
+(`Commands`, `Arguments`, or `Options` by default, or any user-chosen
+name). Help Groups appear in a fixed order -- Commands, Arguments,
+Options, then user-defined groups in declaration order -- and a group whose
+Args are all hidden isn't shown.
+_Avoid_: group (alone) for a set of one Arg's Variants -- see FlagOp Alias
 
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own

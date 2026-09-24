@@ -591,4 +591,15 @@ or anything else that generates methods inside a template.
   branch a few lines up does flush it (`result.add(lastSep)`); the split
   branch just forgets to. `help.nim` forks a corrected local `wrapWords`
   with that one line added rather than depending on the buggy stdlib
-  version -- see `render()`/`formatUsage()`. Present as of Nim 2.2.10.
+  version -- see `renderColumn()`/`formatUsage()`. Present as of Nim 2.2.10.
+
+- **A seq literal of procs won't convert to `seq[HelpFormatter]`.**
+  `let fs: seq[HelpFormatter] = @[formatColumn, formatParagraph]` fails
+  with a type mismatch: the literal is inferred element-wise as a seq of
+  the procs' own `{.nimcall, noSideEffect, gcsafe.}` type before the
+  target type is consulted, and Nim won't convert a whole seq to the
+  closure type even though it will convert each proc on its own. Convert
+  each element: `@[HelpFormatter(formatColumn),
+  HelpFormatter(formatParagraph)]`. Hit writing `help.nim`'s "built-in
+  formatter layout" suite; any table of formatters (e.g. for a future
+  `--help=<style>`) will hit it too.

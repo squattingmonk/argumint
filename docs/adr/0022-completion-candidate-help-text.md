@@ -95,3 +95,8 @@ newline would corrupt the wire format. Not validated against.
   correct either way). It now splits each line on the first tab, prepends
   `$prefix` to the value half only, and re-appends `\t<desc>` only if
   non-empty.
+
+**Update:** `variantGroups` was renamed `variantsByDesc` once `help.nim`
+gained `helpGroups` (ADR 0048), so "group" there means only an Arg's help
+group (`Options`, `Arguments`, ...), never a set of its variants. The
+bucketing rule this ADR mirrors is unchanged.
