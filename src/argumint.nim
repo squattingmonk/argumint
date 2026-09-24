@@ -355,11 +355,12 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   overrides the delimiter for this option only (`delim = ""` disables
   ##   splitting entirely) -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `configKey` optionally names a structured path (e.g. `configKey("Package",
-  ##   "name")`, or a bare string for a 1-segment path) supplying this
-  ##   option's value from a registered Config Source when neither a CLI
-  ##   nor an env value is given -- consulted below env in Value Precedence,
-  ##   above the coded default. See `docs/adr/0018-config-source.md`.
+  ## - `configKey` optionally names a structured path (e.g.
+  ##   `configKey("Package", "name")`, or a bare string for a 1-segment path)
+  ##   supplying this option's value from a registered Config Source when
+  ##   neither a CLI nor an env value is given -- consulted below env in Value
+  ##   Precedence, above the coded default. See
+  ##   `docs/adr/0018-config-source.md`.
   initValueArg[T, false](kind = Optional, variants = variants, default = @[default],
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)

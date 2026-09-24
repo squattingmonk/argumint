@@ -59,7 +59,9 @@ type
     ## A minimal in-memory ConfigSource for exercising Value Precedence's
     ## Config Source tier without real file I/O -- see `fakeSource`.
     data: seq[(ConfigKey, seq[string])]
-    lookups: int ## Counts `lookup` calls -- see the "queried at most once" regression test.
+    lookups: int
+      ## Counts `lookup` calls -- see the "queried at most once" regression
+      ## test.
 
 method lookup(self: FakeConfigSource, key: ConfigKey): Option[seq[string]] =
   self.lookups.inc

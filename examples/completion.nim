@@ -48,9 +48,10 @@ import std/strutils
 
 import argumint
 
-var built: Spec ## Assigned right after `spec` is constructed below; the
-                 ## `completion` subcommand's own action closes over it to
-                 ## reach the whole tree, not just its own nested spec.
+var built: Spec
+  ## Assigned right after `spec` is constructed below; the `completion`
+  ## subcommand's own action closes over it to reach the whole tree, not just
+  ## its own nested spec.
 
 proc connectToDatabase() =
   # Deliberately stderr, not `echo` -- stdout is reserved for the

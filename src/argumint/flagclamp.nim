@@ -11,11 +11,11 @@ type
     fckRange, fckAdjust
 
   FlagClamp*[T] = ref object
-    desc: Option[string] ## `none` (the default) shows the auto-generated
-                          ## help text below (`fckRange` only -- `fckAdjust`
-                          ## has no auto-generated text); `some("...")`
-                          ## overrides it; `some("")` suppresses help output
-                          ## entirely, regardless of auto-generation.
+    desc: Option[string]
+      ## `none` (the default) shows the auto-generated help text below
+      ## (`fckRange` only -- `fckAdjust` has no auto-generated text);
+      ## `some("...")` overrides it; `some("")` suppresses help output entirely,
+      ## regardless of auto-generation.
     case kind: FlagClampKind
     of fckRange:
       bounds: Slice[T]
