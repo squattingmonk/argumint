@@ -123,8 +123,8 @@ export backend.envSource, backend.configKey, backend.envName
 # which holds that line.
 export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
 
-# All of the plumbing needed to use the built-in help formatters. To add your
-# own HelpFormatter, you'll need to import argumint/help.
+# Enough to pick a built-in Help Formatter or declare Long-Form Help Text;
+# writing your own formatter needs `import argumint/help` (ADR 0048/0049).
 export backend.HelpText, backend.toHelpText
 export help.HelpArg, help.HelpFormatter, help.formatColumn, help.formatParagraph
 

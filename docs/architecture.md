@@ -743,7 +743,9 @@ with an empty value seq would make ADR 0040's scalar accessor index it.
 One signature serves both: `MessageArg` raises `MessageError` and ignores
 `command`/`spec`, while `HelpArg` uses them to render help before raising
 `HelpError`. That uniformity is what lets `parseMessageArgs` dispatch once,
-with no test for which kind it holds.
+with no test for which kind it holds. Each override lives beside its own
+type: `MessageArg`'s in `backend.nim`, `HelpArg`'s in `help.nim` (where it
+renders through the `HelpArg`'s own Help Formatter, ADR 0048).
 
 The method is a dependency inversion, and a deliberate one. `genHelp` now
 lives in `help.nim`, *below* `fsm.nim` (issue #50), so the FSM could raise
@@ -912,31 +914,24 @@ named value, which a Positional Argument doesn't have) take an `env` param
 naming an environment variable — see the Runtime Matching section above for
 the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
-`Spec.settings.width` (default `terminalWidth()`, itself falling back to
-`DefaultWidth = 80`) and `Spec.settings.maxVariantsWidth` (default
-`DefaultMaxVariantsWidth = 30`) control `genHelp`'s wrapping (`help.nim`),
-now split across four named pieces sitting between `genHelp` and
-`variantsByDesc`: `width` wraps usage lines (`formatUsage`) and, via
-`renderColumn`, each row's help/description text, while `maxVariantsWidth`
-(applied in `variantsColWidth`) caps the "variants" column (e.g. `-v,
---verbose, --quiet`) so one arg with many aliases can't inflate the shared
-column width for every other row. Each formatter builds an arg's rows via
-`rows(arg: Arg, help = arg.help.short): seq[Row]`, which resolves one `Row`
-per `arg.variantsByDesc()` bucket — `variantsByDesc` (`help.nim`,
-alongside `rows`) buckets an arg's variants by their `variantDesc` text and
-returns one bucket per distinct behavior. `colWidth` itself comes from
-`variantsColWidth(spec: Spec): int`, computed from the widest single
-bucket's joined names (via `rows`), not the widest whole-`Arg`'s — and,
-deliberately unfiltered by `hidden`, a hidden arg's long variant name still
-counts toward the column width even though its own row never renders
-(existing behavior, preserved as-is rather than endorsed). Each bucket
-becomes its own row using the same 2-space `Margin` — buckets are peers
-(different variants of the same `Arg`), not a wrap continuation of one
-another, so they render at the same indent; only a bucket's own text
-wrapping onto multiple lines uses the deeper 4-space `ContinuationIndent`.
-Both constants, and the wrap/zip logic that uses them, live in
-`renderColumn(rows: seq[Row], width, colWidth: int): string`. Every bucket's row
-shows the arg's shared `help` text and arg-level annotations
+A Help Formatter (`help.nim`) renders the whole help message: `genHelp`
+just calls it, and both built-ins join prolog, `"Usage:\n" & formatUsage`,
+one block per `helpGroups` entry, and epilog with `joinSections` (ADR
+0048). `Spec.settings.width` (default `terminalWidth()`, itself falling
+back to `DefaultWidth = 80`) wraps usage lines (`formatUsage`) and every
+row's text; `Spec.settings.maxVariantsWidth` (default
+`DefaultMaxVariantsWidth = 30`) caps Column Style's "variants" column (e.g.
+`-v, --verbose, --quiet`) so one arg with many aliases can't inflate the
+shared column width for every other row. `0` disables the cap.
+
+Each formatter builds an arg's rows via `rows(arg: Arg, help =
+arg.help.short): seq[Row]`, which resolves one `Row` per
+`arg.variantsByDesc()` bucket — `variantsByDesc` (alongside `rows`)
+buckets an arg's variants by their `variantDesc` text, one bucket per
+distinct behavior. `Arg.help` is a `HelpText` pair (ADR 0049): Column Style
+passes the default short form, Paragraph Style passes
+`arg.help.longOrShort`, preferring the Long-Form Help Text when declared.
+Every bucket's row shows that same text plus the arg-level annotations
 (`validatorHelp`/`defaultStr`/`envName`/`configKey`, assembled in that
 order by `annotations(arg: Arg, action = ""): seq[string]`), not just the
 first-declared variant's — that repetition, not indentation, is what
@@ -945,14 +940,30 @@ visually ties divergent rows together as variants of the same value. When
 `rows` passes that desc to `annotations` as `action`, appended last as
 `[action: ...]` (deliberately labeled `action:`, not `default:`, so it
 can't collide with a hypothetical future `[default: <value>]` for a flag's
-own starting value) — but only when `help` is non-empty, since otherwise
-there'd be nothing for the bracket to disambiguate from; in that case
-`rows` uses the group's own `variantDesc` directly as the row's text
-instead, with no shared text to repeat. When a row's variants exceed the
-cap, `render` wraps them into their own `wrapWords`-wrapped lines and zips
-them line-by-line against the (independently wrapped) help-text lines, so
-the help text stays inline with the first wrapped variants line. `0`
-disables the cap.
+own starting value) — but only when the help text is non-empty, since
+otherwise there'd be nothing for the bracket to disambiguate from; in that
+case `rows` uses the bucket's own `variantDesc` directly as the row's text
+instead.
+
+**Column Style** (`formatColumn`) aligns rows into two columns shared
+across every group. `colWidth` comes from `variantsColWidth(spec: Spec):
+int`, the widest single bucket's joined names (via `rows`), not the widest
+whole-`Arg`'s — and, deliberately unfiltered by `hidden`, a hidden arg's
+long variant name still counts toward the column width even though its own
+row never renders (existing behavior, preserved as-is rather than
+endorsed). `renderColumn(rows: seq[Row], width, colWidth: int): string`
+wraps variants at `colWidth` and text at the remaining width, zipping them
+line-by-line so the help text stays inline with the first variants line.
+Each bucket's row starts at the 2-space `Margin` — buckets are peers
+(different variants of the same `Arg`), not a wrap continuation of one
+another; only wrap continuations use the deeper 4-space
+`ContinuationIndent`.
+
+**Paragraph Style** (`formatParagraph`) instead puts each row's variants on
+their own `Margin`-indented lines, wrapped to the full width, with its text
+wrapped below at `ContinuationIndent`; rows are separated by a blank line
+(`renderParagraph`). There's no shared column, so `maxVariantsWidth`
+doesn't apply.
 
 `width`/`maxVariantsWidth`/`envDelim`/`configSources` live together on
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`

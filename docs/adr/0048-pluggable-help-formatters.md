@@ -45,10 +45,10 @@ third-party formatter is built the same way:
   sections like the built-ins.
 
 `argumint.nim` re-exports `HelpArg`, `HelpFormatter`, `formatColumn`, and
-`formatParagraph` (so choosing a built-in formatter needs no second import)
-but none of the pieces above, which stay reachable only via
-`import argumint/help` (ADR 0042's existing opt-in shape) for anyone
-building a custom formatter.
+`formatParagraph` (so choosing a built-in formatter needs no second
+import), plus ADR 0049's `HelpText`/`toHelpText`, but none of the pieces
+above, which stay reachable only via `import argumint/help` (ADR 0042's
+existing opt-in shape) for anyone building a custom formatter.
 
 The two layouts are named **Column Style** and **Paragraph Style**, not
 "docopt style"/"man-page style" -- the existing layout isn't uniquely
@@ -64,12 +64,12 @@ See `CONTEXT.md`'s Help/Help Formatter entries.
   hard-coding the prolog, `Usage:` block, and epilog around it -- this
   design's original shape. Rejected: it can't express anything beyond row
   and group layout (a `USAGE:` or `SYNOPSIS` label, reordered sections, a
-  template for the whole message), its `command`
-  parameter went unused by both built-ins, and the formatter still had to
-  emit the blank lines separating it from the usage block. Worse, widening
-  it later would keep the same signature while changing its meaning, so
-  existing custom formatters would silently drop their usage/prolog/epilog
-  with no compile error.
+  template for the whole message), its `command` parameter went unused by
+  both built-ins, and the formatter still had to emit the blank lines
+  separating it from the usage block. Worse, widening it later would keep
+  the same signature while changing its meaning, so existing custom
+  formatters would silently drop their usage/prolog/epilog with no compile
+  error.
 - **A closed `HelpFormatterKind` enum + `case kind` dispatch inside
   `genHelp`**, mirroring `Matcher`/`MatcherKind` in `backend.nim`. Rejected:
   a closed set can't be extended by a third party without a PR to argumint

@@ -235,9 +235,9 @@ prolog, Usage, groups of Args, and epilog, including their order and
 labels. A plain function: it may carry its own configuration (e.g. a
 template) but keeps no state tied to a particular Spec or parse, so it has
 no per-instance identity worth an object hierarchy. A parse error's usage
-block is not rendered by a Help Formatter. Two ship built-in: **Column Style**, which aligns every Arg's
-Variants and Help Text into a two-column table (the original, and still
-default, layout), and **Paragraph Style**, which instead puts each Arg's
+block is not rendered by a Help Formatter. Two ship built-in: **Column
+Style**, which aligns every Arg's Variants and Help Text into a two-column
+table (the original, and still default, layout), and **Paragraph Style**, which instead puts each Arg's
 Variants on their own line with its Help Text (or Long-Form Help Text, if
 declared) wrapped as an indented paragraph below — trading column
 alignment for room to write longer descriptions without cramped wrapping.

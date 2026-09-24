@@ -41,15 +41,17 @@ type
     byCli ## The command line supplied it
 
   HelpText* = tuple[short, long: string]
+    ## An Arg's Help Text and optional Long-Form Help Text (`""` if none) --
+    ## see `docs/adr/0049-help-text-short-long-pair.md`.
 
   Arg* = ref object of RootObj
     kind*: ArgKind
     variants*: seq[string]
       ## The forms in which the argument may appear
     help*: HelpText
-      ## The help strings shown for this argument in a help message.
-      ## `help.short` is used for the default columns help message format, while
-      ## `help.long` is used for the paragraphs help message format.
+      ## The argument's Help Text (`short`) and optional Long-Form Help Text
+      ## (`long`); Paragraph Style prefers `long` when declared -- see
+      ## `docs/adr/0049-help-text-short-long-pair.md`.
     group*: string
       ## The group where the argument should appear in help messages
     hidden*: bool

@@ -19,7 +19,10 @@ privateAccess(Spec)
 
 type
   HelpArg* = ref object of MessageArg
+    ## A Message Argument that raises `HelpError` with its Spec's help
+    ## message, rendered by its own Help Formatter.
     formatter*: HelpFormatter
+      ## Renders the message; `formatColumn` if nil
 
   HelpFormatter* = proc (spec: Spec, command: string): string
     ## Renders a Spec's whole help message for `command` -- see
