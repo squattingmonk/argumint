@@ -62,12 +62,11 @@ proc apply*[T](self: FlagClamp[T], value: T): T =
   of fckRange: math.clamp(value, self.bounds)
   of fckAdjust: self.adjustProc(value)
 
-proc styledHelp*[T](self: FlagClamp[T], keepTicks = true): StyledText =
+proc styledHelp*[T](self: FlagClamp[T]): StyledText =
   ## `help` as Styled Text: the `clamp:` label is `srAnnotation`, its bounds
-  ## `srLiteral`, and a `desc` gets Help Markup (`keepTicks` is passed on to
-  ## `markup`).
+  ## `srLiteral`, and a `desc` gets Help Markup.
   if self.desc.isSome:
-    return markup(self.desc.get, keepTicks = keepTicks)
+    return markup(self.desc.get)
   case self.kind
   of fckRange:
     styled(srAnnotation, "clamp: ") &
@@ -99,8 +98,7 @@ when isMainModule:
         @[Span(role: srAnnotation, text: "clamp: "), Span(role: srLiteral, text: "0..10")]
 
     test "a desc gets Help Markup, and help reads it with ticks kept":
-      check adjust(proc (v: int): int = v, desc = some("to `5`s")).styledHelp(
-        keepTicks = false).spans ==
+      check adjust(proc (v: int): int = v, desc = some("to `5`s")).styledHelp.withoutTicks.spans ==
         @[Span(role: srPlain, text: "to "), Span(role: srLiteral, text: "5"),
           Span(role: srPlain, text: "s")]
       check adjust(proc (v: int): int = v, desc = some("to `5`s, ``x``")).help() ==

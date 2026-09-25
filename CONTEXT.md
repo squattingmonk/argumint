@@ -269,7 +269,8 @@ What a span of Styled Text is, from a fixed set: a header, the program
 name, a Command, an Option, a Positional Argument, a metavar (an Option's
 value placeholder, the `<kn>` in `--speed=<kn>`), an env var name, a
 literal value, a URL, the annotation brackets and labels, the error label,
-the token a user got wrong in a parse error, or plain text.
+the token a user got wrong in a parse error, a Help Markup backtick, or
+plain text.
 _Avoid_: style, class, token type
 
 **Styler**:
@@ -291,8 +292,8 @@ description, marking a span to be styled by its shape: something shaped
 like an Option, a `<name>` or `NAME` placeholder, a `$NAME` or `%NAME%`
 env var, a `scheme://` URL, or else a literal. Shape
 only: nothing is looked up or checked against the Spec. The backticks are
-dropped in styled output and kept in plain output, so the text reads the
-same either way.
+spans of their own, dropped in styled output and kept in plain output,
+so the text reads the same either way.
 _Avoid_: markdown (it isn't), inline code
 
 **After Hook**:

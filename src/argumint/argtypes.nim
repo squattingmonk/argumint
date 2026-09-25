@@ -252,11 +252,11 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
     else:
       ""
 
-  method validatorHelp(self: ValueArg[T, false], keepTicks = true): StyledText =
-    if not self.validator.isNil: result = self.validator.styledHelp(keepTicks)
+  method validatorHelp(self: ValueArg[T, false]): StyledText =
+    if not self.validator.isNil: result = self.validator.styledHelp
 
-  method validatorHelp(self: ValueArg[T, true], keepTicks = true): StyledText =
-    if not self.validator.isNil: result = self.validator.styledHelp(keepTicks)
+  method validatorHelp(self: ValueArg[T, true]): StyledText =
+    if not self.validator.isNil: result = self.validator.styledHelp
 
   method completions(self: ValueArg[T, false]): seq[string] =
     if self.validator.isNil: @[] else: self.validator.completions()
@@ -327,8 +327,8 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
 
-  method validatorHelp(self: FlagArg[T], keepTicks = true): StyledText =
-    if not self.clamp.isNil: result = self.clamp.styledHelp(keepTicks)
+  method validatorHelp(self: FlagArg[T]): StyledText =
+    if not self.clamp.isNil: result = self.clamp.styledHelp
 
   method variantDesc(self: FlagArg[T], variant: string): string =
     if not self.ops.hasKey(variant): return ""
