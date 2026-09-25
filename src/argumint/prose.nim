@@ -30,7 +30,8 @@ type
   Prose* = object
     ## Help text re-flowed into blocks (paragraphs, list items, indented
     ## lines, blank lines), with Help Markup applied. Lay it out with `wrap`.
-    ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
+    ## See `docs/adr/0060-prose-type.md`, and
+    ## `docs/adr/0054-reflow-prolog-and-epilog.md` for the rule.
     blocks: seq[ProseBlock]
 
 proc expandIndent(line: string): string =
@@ -234,23 +235,25 @@ when isMainModule:
     test "the bracket ends one-block text after a space":
       var p = "- one".toProse
       p.annotate(parts)
-      check p.lines(40) == @["- one [default: 3]"]
+      check p.blocks.mapIt((it.kind, it.marker, it.text.plain)) ==
+        @[(pkItem, "- ", "one [default: 3]")]
 
     test "the bracket follows several blocks after a blank line":
       var p = "one\n\ntwo".toProse
       p.annotate(parts)
-      check p.lines(40) == @["one", "", "two", "", "[default: 3]"]
+      check p.blocks.mapIt((it.kind, it.text.plain)) == @[(pkParagraph, "one"),
+        (pkBlank, ""), (pkParagraph, "two"), (pkBlank, ""), (pkParagraph, "[default: 3]")]
 
     test "empty prose gets the bracket alone":
       var p = "".toProse
       p.annotate(parts)
-      check p.lines(40) == @["[default: 3]"]
+      check p.blocks.mapIt((it.kind, it.text.plain)) == @[(pkParagraph, "[default: 3]")]
 
     test "parts are joined with `; ` and each flattened to one line":
       var p = "".toProse
       p.annotate([styled("a\n  b"), styled("\nc\n")])
-      check p.wrap(40).mapIt(it.render(tagged)) ==
-        @["{annotation:[}a b{annotation:; }c{annotation:]}"]
+      check p.blocks[0].text.render(tagged) ==
+        "{annotation:[}a b{annotation:; }c{annotation:]}"
 
   suite "wrap":
     test "empty prose has no lines":
@@ -281,7 +284,8 @@ when isMainModule:
       check lines("one\n  - ") == @["one", "  -"]
 
     test "a backticked marker is a literal, not an item":
-      check lines("`- x` reads stdin, which wraps").len == 2
+      check lines("`- x` reads stdin, which wraps") ==
+        @["`- x` reads stdin,", "which wraps"]
       check "`- x` reads stdin".toProse.blocks[0].kind == pkParagraph
 
     test "roles survive the wrap, and no span holds a newline":

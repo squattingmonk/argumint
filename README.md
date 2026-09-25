@@ -1756,18 +1756,19 @@ import std/strutils
 import argumint, argumint/help
 
 proc formatShouty(ctx: HelpContext): string =
+  let width = max(ctx.width, 24)
   var groups: seq[string]
   for name, args in ctx.groups:
     var lines = @[name.toUpperAscii & ":"]
     for arg in args:
       for row in ctx.rows(arg):
         lines.add "  " & ctx.render(row.variants)
-        for line in row.text.wrap(ctx.width - 4):
+        for line in row.text.wrap(width - 4):
           lines.add "    " & ctx.render(line)
     groups.add lines.join("\n")
-  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
+  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
     "USAGE:\n" & ctx.render(ctx.usage),
-    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
+    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
 ```
 
 These stay reachable only through that direct import rather than a plain

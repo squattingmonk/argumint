@@ -89,18 +89,19 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
   # see `docs/adr/0048-pluggable-help-formatters.md`, and
   # `docs/adr/0057-help-context.md` for what a formatter is handed.
   proc formatShouty(ctx: HelpContext): string =
+    let width = max(ctx.width, 24)
     var groups: seq[string]
     for name, args in ctx.groups:
       var lines = @[name.toUpperAscii & ":"]
       for arg in args:
         for row in ctx.rows(arg):
           lines.add "  " & ctx.render(row.variants)
-          for line in row.text.wrap(ctx.width - 4):
+          for line in row.text.wrap(width - 4):
             lines.add "    " & ctx.render(line)
       groups.add lines.join("\n")
-    joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
+    joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
       "USAGE:\n" & ctx.render(ctx.usage),
-      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
+      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
 
   proc tagged(role: StyleRole, text: string): string =
     ## Marks each styled span as `{role:text}`, leaving plain ones bare.
