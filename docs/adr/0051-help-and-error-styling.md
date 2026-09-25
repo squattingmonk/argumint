@@ -92,7 +92,8 @@ reads the same everywhere.
   would put escape codes into every caught error whenever the program runs
   in a terminal, including errors a caller logs. Instead `ParseError` and
   `ValidationError` carry a separate `styledMsg`, empty when the Spec has no
-  styler, and only `parseOrQuit*` prints it.
+  styler, and only `parseOrQuit*` prints it. **Update:** ADR 0059 extends
+  this to `HelpError`, which this missed, and always fills `styledMsg`.
 
 ## Considered options
 

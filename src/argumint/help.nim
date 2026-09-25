@@ -27,7 +27,8 @@ type
   HelpFormatter* = proc (ctx: HelpContext): string
     ## Renders a Spec's whole help message from `ctx` -- see
     ## `docs/adr/0048-pluggable-help-formatters.md` and
-    ## `docs/adr/0057-help-context.md`.
+    ## `docs/adr/0057-help-context.md`. `--help` may call it twice, with and
+    ## without a Styler (ADR 0059), so it should have no side effects.
 
   HelpContext* = object
     ## What a Help Formatter is handed for one render: the Spec, the command
@@ -378,11 +379,15 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
     for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
       result.add(if i == 0: wrapped else: indent & wrapped)
 
+proc helpContext(spec: Spec, command: string, styler: Styler): HelpContext =
+  ## As the public one, but with `styler` in place of the settings' style.
+  HelpContext(spec: spec, command: command, width: spec.settings.width,
+    styler: styler)
+
 proc helpContext*(spec: Spec, command: string): HelpContext =
   ## The context `genHelp` hands its formatter: `spec.settings`' width and
   ## style, for `command`. Build one to call a formatter directly.
-  HelpContext(spec: spec, command: command, width: spec.settings.width,
-    styler: spec.settings.style)
+  helpContext(spec, command, spec.settings.style)
 
 proc spec*(ctx: HelpContext): Spec =
   ## The Spec being rendered, for anything the context doesn't hand out
@@ -522,10 +527,13 @@ proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColu
 method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   ## Raises `HelpError` with `spec`'s generated help text for `command`,
   ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
-  ## deliver it directly (see `help*`).
+  ## deliver it directly (see `help*`). `msg` is rendered without a Styler,
+  ## and `styledMsg` with the Spec's.
   # Explicit conversion needed -- see docs/gotchas.md.
   let formatter = if self.formatter.isNil: HelpFormatter(formatColumn) else: self.formatter
-  raise newException(HelpError, spec.genHelp(command, formatter))
+  let plain = formatter(helpContext(spec, command, nil))
+  let styled = if spec.settings.style.isNil: plain else: spec.genHelp(command, formatter)
+  raise (ref HelpError)(msg: plain, styledMsg: styled)
 
 when isMainModule:
   import std/[importutils, options, unittest]

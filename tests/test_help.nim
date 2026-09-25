@@ -41,6 +41,24 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
       raised = e.msg
     check raised == direct
 
+  test "with a styler, msg stays plain and styledMsg is what genHelp renders":
+    proc tagged(role: StyleRole, text: string): string = "{" & $role & ":" & text & "}"
+    proc build(style: Styler): Spec =
+      newSpec((name: arg("<name>", help = "Who to `greet`"), help: help()),
+        settings = newSpecSettings(style = style))
+    var e: ref HelpError
+    try: build(tagged).parse(args = @["--help"], command = "greet")
+    except HelpError as err: e = err
+    check e.msg == build(nil).genHelp("greet")
+    check e.styledMsg == build(tagged).genHelp("greet")
+    check e.styledMsg != e.msg
+
+  test "without a styler, styledMsg is msg":
+    var e: ref HelpError
+    try: greeter().parse(args = @["--help"], command = "greet")
+    except HelpError as err: e = err
+    check e.styledMsg == e.msg
+
   test "a formatter reaches rows and prose only through the Help Context":
     # Raw builders skip the tick decision; see docs/adr/0057-help-context.md.
     let a = arg("<name>", help = "Who")

@@ -700,7 +700,7 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
     quit(e.quitMessage(spec.settings.style))
   except MessageError as e:
     # stdout, not stderr like quit() -- see docs/adr/0050-message-output-to-stdout.md.
-    echo e.msg
+    echo(if e.styledMsg.len > 0: e.styledMsg else: e.msg)
     quit(QuitSuccess)
 
 proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: SpecSettings,
