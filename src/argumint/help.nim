@@ -79,8 +79,8 @@ proc listMarker(line: string): string =
     result = line[0 .. i + 1]
 
 proc proseBlocks(text: string, metavars: openArray[string] = []): seq[ProseBlock] =
-  ## Stage one of `HelpContext.prose` and `rows`: `text` dedented and joined into
-  ## paragraphs, list items, and indented lines, each with Help Markup
+  ## Stage one of `HelpContext.prose` and `rows`: `text` dedented and joined
+  ## into paragraphs, list items, and indented lines, each with Help Markup
   ## against `metavars`. See `HelpContext.prose` for the rule.
   var pending: seq[tuple[shape: ProseBlock, raw: string]]
   for line in text.dedentLines:
@@ -262,9 +262,9 @@ proc rows(arg: Arg, help = arg.help.short): seq[Row] =
   ## non-empty). Callers filter `arg.hidden` themselves.
   ##
   ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
-  ## `srMetavar`). The text is re-flowed into blocks like `HelpContext.prose`, with
-  ## Help Markup against `arg.metavars`; the bracket ends a one-block text,
-  ## and follows a longer one as its own block after a blank line. Help
+  ## `srMetavar`). The text is re-flowed into blocks like `HelpContext.prose`,
+  ## with Help Markup against `arg.metavars`; the bracket ends a one-block
+  ## text, and follows a longer one as its own block after a blank line. Help
   ## Markup's ticks are kept; `HelpContext.rows` drops them for a Styler.
   let buckets = arg.variantsByDesc()
   for bucket in buckets:

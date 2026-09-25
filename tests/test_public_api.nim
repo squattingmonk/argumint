@@ -230,7 +230,15 @@ suite "`Spec` is an opaque handle":
     # declared from here, and written with the submodule (ADR 0057).
     check declared(HelpContext)
     check not declared(helpContext)
+    check not declared(prose)
+    check not declared(heading)
+    check not declared(groups)
     check not compiles(proc (ctx: HelpContext): string = ctx.command)
+    check not compiles(proc (ctx: HelpContext): int = ctx.width)
+    check not compiles(proc (ctx: HelpContext): Spec = ctx.spec)
+    check not compiles(proc (ctx: HelpContext) = discard ctx.rows(Arg()))
+    check not compiles(proc (ctx: HelpContext) = discard ctx.markup("x"))
+    check not compiles(proc (ctx: HelpContext): string = ctx.render([]))
     check compiles(block:
       let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
 

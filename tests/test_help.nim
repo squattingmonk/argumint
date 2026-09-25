@@ -42,8 +42,7 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check raised == direct
 
   test "a formatter reaches rows and prose only through the Help Context":
-    # The context settles whether Help Markup's backticks survive; the raw
-    # builders it wraps stay private so a formatter can't skip that.
+    # Raw builders skip the tick decision; see docs/adr/0057-help-context.md.
     let a = arg("<name>", help = "Who")
     check not compiles(a.rows)
     check not compiles("Some `-x`.".markup)
@@ -115,8 +114,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     check raised.startsWith("USAGE:\n  greet <name>")
 
   test "styled, it drops Help Markup's backticks like the built-ins":
-    # Before the Help Context, a formatter had to pass `keepTicks =
-    # styler.isNil` itself, and this one didn't.
+    # See docs/adr/0057-help-context.md.
     let spec = newSpec((
       name: arg("<name>", help = "Who to greet, or `--all`"),
     ), prolog = "Greets `<name>`.", usage = "<name>",
@@ -127,8 +125,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     check '`' notin help
 
   test "it reads the command path from the context":
-    # `ctx.command` resolves to the context's accessor, not `argumint`'s
-    # `command` constructor.
+    # Also in scope: `argumint`'s `command` constructors, which need a spec.
     let echoing = proc (ctx: HelpContext): string = ctx.command
     check greeter().genHelp("greet sub", echoing) == "greet sub"
 

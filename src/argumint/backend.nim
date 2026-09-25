@@ -604,9 +604,9 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.
   ## "choices: foo, bar, baz"), or empty text if `self` has no `Validator`
   ## or there's nothing meaningful to show. A `desc` gets Help Markup, ticks
-  ## and all: help drops them for styled output. The base case (commands and message args,
-  ## neither of which has a validator) has nothing to show; `ValueArg` and
-  ## `FlagArg` override this per-type via `defineArg`.
+  ## and all: help drops them for styled output. The base case (commands and
+  ## message args, neither of which has a validator) has nothing to show;
+  ## `ValueArg` and `FlagArg` override this per-type via `defineArg`.
   discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
