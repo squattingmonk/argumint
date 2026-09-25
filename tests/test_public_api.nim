@@ -225,6 +225,15 @@ suite "`Spec` is an opaque handle":
     check not declared(proseLines)
     check not declared(wrapProse)
 
+  test "`HelpContext` is nameable, but only `argumint/help` can use one":
+    # Like `HelpFormatter`, whose signature names it: a formatter can be
+    # declared from here, and written with the submodule (ADR 0057).
+    check declared(HelpContext)
+    check not declared(helpContext)
+    check not compiles(proc (ctx: HelpContext): string = ctx.command)
+    check compiles(block:
+      let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
+
   test "styling is configurable from `import argumint` alone":
     # `markup` and the span model stay formatter-author names; see
     # `docs/adr/0051-help-and-error-styling.md`.

@@ -41,6 +41,22 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
       raised = e.msg
     check raised == direct
 
+  test "a formatter reaches rows and prose only through the Help Context":
+    # The context settles whether Help Markup's backticks survive; the raw
+    # builders it wraps stay private so a formatter can't skip that.
+    let a = arg("<name>", help = "Who")
+    check not compiles(a.rows)
+    check not compiles("Some `-x`.".markup)
+    check not declared(proseLines)
+    check not declared(annotations)
+    check not declared(variantsByDesc)
+    check not declared(helpGroups)
+    check declared(helpContext)
+    check declared(usageLines)
+    check declared(wrapProse)
+    check declared(joinSections)
+    check declared(longOrShort)
+
   test "style.nim's shared plain-text and option helpers stay withheld":
     check not declared(firstParagraph)
     check not declared(dedentLines)
@@ -48,23 +64,25 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check not compiles([styled("a")].join(styled(", ")))
 
 suite "a custom `HelpFormatter` can be written with only `argumint/help`":
-  # Regression for the formatter seam being unusable outside the library:
-  # before `helpGroups` and the `prolog`/`epilog`/`usage` accessors, a
-  # formatter had no way to reach a Spec's groups -- see
-  # `docs/adr/0048-pluggable-help-formatters.md`.
-  proc formatShouty(spec: Spec, command: string): string =
+  # Regression for the formatter seam being unusable outside the library --
+  # see `docs/adr/0048-pluggable-help-formatters.md`, and
+  # `docs/adr/0057-help-context.md` for what a formatter is handed.
+  proc formatShouty(ctx: HelpContext): string =
     var groups: seq[string]
-    for name, args in spec.helpGroups:
+    for name, args in ctx.groups:
       var lines = @[name.toUpperAscii & ":"]
       for arg in args:
-        for row in arg.rows:
-          lines.add "  " & row.variants.render & " -- " & row.text.render
+        for row in ctx.rows(arg):
+          lines.add "  " & ctx.render(row.variants) & " -- " & ctx.render(row.text)
       groups.add lines.join("\n")
-    let
-      width = spec.settings.width
-      usage = "USAGE:\n" & spec.usage.usageLines(command, width).render
-    joinSections(spec.prolog.proseLines(width).render, usage,
-      joinSections(groups), spec.epilog.proseLines(width).render)
+    joinSections(ctx.render(ctx.prose(ctx.spec.prolog)),
+      "USAGE:\n" & ctx.render(ctx.usage),
+      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog)))
+
+  proc tagged(role: StyleRole, text: string): string =
+    ## Marks each styled span as `{role:text}`, leaving plain ones bare.
+    if role == srPlain: text
+    else: "{" & ($role)[2 .. ^1].toLowerAscii & ":" & text & "}"
 
   test "it controls the whole message, including section labels":
     let expected = """
@@ -88,7 +106,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     let spec = newSpec((
       name: arg("<name>", help = "Who to greet"),
       help: help(formatter = formatShouty),
-    ), usage = "<name>")
+    ), usage = "<name>", settings = newSpecSettings(style = nil))
     var raised = ""
     try:
       spec.parse(args = @["--help"], command = "greet")
@@ -96,8 +114,26 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
       raised = e.msg
     check raised.startsWith("USAGE:\n  greet <name>")
 
+  test "styled, it drops Help Markup's backticks like the built-ins":
+    # Before the Help Context, a formatter had to pass `keepTicks =
+    # styler.isNil` itself, and this one didn't.
+    let spec = newSpec((
+      name: arg("<name>", help = "Who to greet, or `--all`"),
+    ), prolog = "Greets `<name>`.", usage = "<name>",
+       settings = newSpecSettings(style = tagged))
+    let help = spec.genHelp("greet", formatShouty)
+    check "{option:--all}" in help
+    check "{positional:<name>}." in help
+    check '`' notin help
+
+  test "it reads the command path from the context":
+    # `ctx.command` resolves to the context's accessor, not `argumint`'s
+    # `command` constructor.
+    let echoing = proc (ctx: HelpContext): string = ctx.command
+    check greeter().genHelp("greet sub", echoing) == "greet sub"
+
   test "`Row`'s fields are styled text":
-    let row = arg("<name>", help = "Who to greet").rows[0]
+    let row = greeter().helpContext("greet").rows(arg("<name>", help = "Who to greet"))[0]
     check row.variants is StyledText
     check row.text.plain == "Who to greet"
 

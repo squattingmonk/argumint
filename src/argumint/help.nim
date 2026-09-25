@@ -15,7 +15,7 @@ import ./[backend, errors, lexer, style]
 export backend.prolog, backend.epilog, backend.usage
 export style.StyleRole, style.Span, style.StyledText, style.Styler,
   style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
-  style.render, style.plain, style.markup, style.withoutTicks
+  style.render, style.plain, style.withoutTicks
 
 type
   HelpArg* = ref object of MessageArg
@@ -24,9 +24,20 @@ type
     formatter*: HelpFormatter
       ## Renders the message; `formatColumn` if nil
 
-  HelpFormatter* = proc (spec: Spec, command: string): string
-    ## Renders a Spec's whole help message for `command` -- see
-    ## `docs/adr/0048-pluggable-help-formatters.md`.
+  HelpFormatter* = proc (ctx: HelpContext): string
+    ## Renders a Spec's whole help message from `ctx` -- see
+    ## `docs/adr/0048-pluggable-help-formatters.md` and
+    ## `docs/adr/0057-help-context.md`.
+
+  HelpContext* = object
+    ## What a Help Formatter is handed for one render: the Spec, the command
+    ## path, the width, and the Styler, with whether Help Markup's backticks
+    ## survive already decided (only with no Styler). Everything it hands out
+    ## is ready to lay out; render it with `ctx.render`.
+    spec: Spec
+    command: string
+    width: int
+    styler: Styler
 
   Row* = object
     ## One line-item in the help table, still unwrapped. An object rather than
@@ -68,9 +79,9 @@ proc listMarker(line: string): string =
     result = line[0 .. i + 1]
 
 proc proseBlocks(text: string, metavars: openArray[string] = []): seq[ProseBlock] =
-  ## Stage one of `proseLines` and `rows`: `text` dedented and joined into
+  ## Stage one of `HelpContext.prose` and `rows`: `text` dedented and joined into
   ## paragraphs, list items, and indented lines, each with Help Markup
-  ## against `metavars`. See `proseLines` for the rule.
+  ## against `metavars`. See `HelpContext.prose` for the rule.
   var pending: seq[tuple[shape: ProseBlock, raw: string]]
   for line in text.dedentLines:
     let
@@ -152,24 +163,6 @@ proc wrapProse*(t: StyledText, width: int): seq[StyledText] =
   ## looping. See `docs/adr/0055-reflow-arg-help-text.md`.
   t.layoutProse(width).mapIt(it.line)
 
-proc proseLines*(text: string, width = DefaultWidth, keepTicks = true): seq[StyledText] =
-  ## Lays out `text` (a prolog or epilog) as wrapped lines with Help Markup,
-  ## one `StyledText` per line, none containing `\n`; empty for blank text.
-  ## `text` is re-flowed, since a `"""` string's line breaks are incidental:
-  ##
-  ## - The indentation every line shares is removed (`dedent`).
-  ## - Consecutive unindented lines join into a paragraph; a blank line
-  ##   separates paragraphs and is kept.
-  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
-  ##   indented to exactly the item's text column continues it; the item wraps
-  ##   hanging at that column.
-  ## - Any other indented line is kept as its own line, wrapping at its indent.
-  ##
-  ## Pass `keepTicks = false` when rendering with a styler, as for `rows`.
-  ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
-  let prose = text.proseBlocks.proseText
-  (if keepTicks: prose else: prose.withoutTicks).wrapProse(max(width, 20))
-
 proc oneLine(t: StyledText): StyledText =
   ## `t` with each whitespace run containing a newline collapsed to a space,
   ## or dropped at either end of `t`.
@@ -191,7 +184,7 @@ proc oneLine(t: StyledText): StyledText =
       i = j
     result.add Span(role: span.role, text: text)
 
-proc annotations*(arg: Arg, action = ""): seq[StyledText] =
+proc annotations(arg: Arg, action = ""): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
   ## `variantDesc`). Key labels are `srAnnotation`; values are `srLiteral`,
@@ -233,7 +226,7 @@ proc groupOrder(spec: Spec): seq[string] =
     if group notin CanonicalGroups:
       result.add group
 
-iterator helpGroups*(spec: Spec): tuple[name: string, args: seq[Arg]] =
+iterator helpGroups(spec: Spec): tuple[name: string, args: seq[Arg]] =
   ## Yields each of `spec`'s Help Groups with its non-hidden args, in canonical
   ## order: `Commands`, `Arguments`, `Options`, then user-defined groups in
   ## declaration order. Groups whose args are all hidden are skipped.
@@ -242,7 +235,7 @@ iterator helpGroups*(spec: Spec): tuple[name: string, args: seq[Arg]] =
     if args.len > 0:
       yield (name: group, args: args)
 
-proc variantsByDesc*(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
+proc variantsByDesc(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   ## Buckets `arg.variants` by their `variantDesc` text, preserving declaration
   ## order (both across buckets and within one). Collapses to exactly one
   ## bucket (`desc` possibly `""`) whenever every variant shares the same
@@ -260,7 +253,7 @@ proc longOrShort*(help: HelpText): string =
   ## fallback rule (ADR 0049).
   if help.long.len > 0: help.long else: help.short
 
-proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
+proc rows(arg: Arg, help = arg.help.short): seq[Row] =
   ## One Row per `arg.variantsByDesc()` bucket. Text is `help` (e.g.
   ## `arg.help.longOrShort` for Paragraph Style), falling back to the
   ## bucket's own `variantDesc` when the arg's variants diverge and that
@@ -269,11 +262,10 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
   ## non-empty). Callers filter `arg.hidden` themselves.
   ##
   ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
-  ## `srMetavar`). The text is re-flowed into blocks like `proseLines`, with
+  ## `srMetavar`). The text is re-flowed into blocks like `HelpContext.prose`, with
   ## Help Markup against `arg.metavars`; the bracket ends a one-block text,
-  ## and follows a longer one as its own block after a blank line. Pass
-  ## `keepTicks = false` when rendering with a styler, so Help Markup's
-  ## backticks are dropped.
+  ## and follows a longer one as its own block after a blank line. Help
+  ## Markup's ticks are kept; `HelpContext.rows` drops them for a Styler.
   let buckets = arg.variantsByDesc()
   for bucket in buckets:
     let
@@ -297,8 +289,7 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
     for i, name in bucket.names:
       if i > 0: variants.add styled(", ")
       variants.add arg.styledVariant(name)
-    result.add Row(variants: variants,
-      text: if keepTicks: text else: text.withoutTicks)
+    result.add Row(variants: variants, text: text)
 
 proc variantsColWidth(spec: Spec): int =
   ## Widest single `Row.variants` across every arg in `spec`
@@ -387,20 +378,82 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
     for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
       result.add(if i == 0: wrapped else: indent & wrapped)
 
-proc header(name: string, styler: Styler): string =
-  ## A section header (`Usage`, a group name), rendered with its colon.
-  heading(name).render(styler)
+proc helpContext*(spec: Spec, command: string): HelpContext =
+  ## The context `genHelp` hands its formatter: `spec.settings`' width and
+  ## style, for `command`. Build one to call a formatter directly.
+  HelpContext(spec: spec, command: command, width: spec.settings.width,
+    styler: spec.settings.style)
 
-proc usageSection(spec: Spec, command: string): string =
-  ## The built-ins' labeled usage block.
-  let styler = spec.settings.style
-  header("Usage", styler) & "\n" &
-    spec.usage.usageLines(command, spec.settings.width).render(styler)
+proc spec*(ctx: HelpContext): Spec =
+  ## The Spec being rendered, for anything the context doesn't hand out
+  ## (`prolog`, `epilog`, `settings`).
+  ctx.spec
 
-proc proseSection(text: string, settings: SpecSettings): string =
-  ## The built-ins' prolog or epilog, wrapped at `settings.width`.
-  let styler = settings.style
-  text.proseLines(settings.width, keepTicks = styler.isNil).render(styler)
+proc command*(ctx: HelpContext): string =
+  ## The command path that names the program in the usage lines.
+  ctx.command
+
+proc width*(ctx: HelpContext): int =
+  ## The width everything the context hands out is wrapped at.
+  ctx.width
+
+proc resolved(ctx: HelpContext, t: StyledText): StyledText =
+  ## `t` with Help Markup's ticks dropped if there's a Styler.
+  if ctx.styler.isNil: t else: t.withoutTicks
+
+iterator groups*(ctx: HelpContext): tuple[name: string, args: seq[Arg]] =
+  ## Each Help Group's name and its non-hidden Args, in display order:
+  ## `Commands`, `Arguments`, `Options`, then user-defined groups in
+  ## declaration order. A group whose Args are all hidden is skipped.
+  for group in ctx.spec.helpGroups:
+    yield group
+
+proc rows*(ctx: HelpContext, arg: Arg, help = arg.help.short): seq[Row] =
+  ## `arg`'s Rows: one per set of variants sharing a description, with
+  ## `help` (e.g. `arg.help.longOrShort` for long-form text) re-flowed like
+  ## `prose` and the `[...]` annotations appended. Callers skip hidden Args
+  ## (`groups` already does).
+  for row in arg.rows(help):
+    result.add Row(variants: row.variants, text: ctx.resolved(row.text))
+
+proc prose*(ctx: HelpContext, text: string): seq[StyledText] =
+  ## Lays out `text` (a prolog or epilog) as wrapped lines with Help Markup,
+  ## one `StyledText` per line, none containing `\n`; empty for blank text.
+  ## `text` is re-flowed, since a `"""` string's line breaks are incidental:
+  ##
+  ## - The indentation every line shares is removed (`dedent`).
+  ## - Consecutive unindented lines join into a paragraph; a blank line
+  ##   separates paragraphs and is kept.
+  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
+  ##   indented to exactly the item's text column continues it; the item wraps
+  ##   hanging at that column.
+  ## - Any other indented line is kept as its own line, wrapping at its indent.
+  ##
+  ## Lines wrap at `ctx.width`. See
+  ## `docs/adr/0054-reflow-prolog-and-epilog.md`.
+  # Ticks go before wrapping, so a styled line isn't measured with them.
+  ctx.resolved(text.proseBlocks.proseText).wrapProse(max(ctx.width, 20))
+
+proc usage*(ctx: HelpContext): seq[StyledText] =
+  ## The Spec's usage lines for `ctx.command`, wrapped at `ctx.width`, with
+  ## no label.
+  ctx.spec.usage.usageLines(ctx.command, ctx.width)
+
+proc heading*(ctx: HelpContext, name: string): StyledText =
+  ## `name` as a section heading (`srHeader`), with its colon.
+  heading(name)
+
+proc markup*(ctx: HelpContext, prose: string): StyledText =
+  ## `prose` with Help Markup, for a formatter's own text.
+  ctx.resolved(markup(prose))
+
+proc render*(ctx: HelpContext, t: StyledText): string =
+  ## `t` rendered with the Spec's Styler.
+  t.render(ctx.styler)
+
+proc render*(ctx: HelpContext, lines: openArray[StyledText]): string =
+  ## Each of `lines` rendered with the Spec's Styler, joined with `\n`.
+  lines.render(ctx.styler)
 
 proc joinSections*(sections: varargs[string]): string =
   ## Joins the non-empty `sections` of a help message with a blank line
@@ -410,22 +463,26 @@ proc joinSections*(sections: varargs[string]): string =
       result.addSep "\n\n"
       result.add section
 
-proc formatColumn*(spec: Spec, command: string): string =
+proc frame(ctx: HelpContext, groups: seq[string]): string =
+  ## The built-ins' message around their `groups`: prolog, labeled usage
+  ## block, the groups, then epilog.
+  joinSections(ctx.render(ctx.prose(ctx.spec.prolog)),
+    ctx.render(ctx.heading("Usage")) & "\n" & ctx.render(ctx.usage),
+    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog)))
+
+proc formatColumn*(ctx: HelpContext): string =
   ## Column Style: prolog, usage, then each group's rows with variants and
   ## help text aligned into two columns shared across every group, then
   ## epilog.
-  let
-    colWidth = spec.variantsColWidth()
-    styler = spec.settings.style
+  let colWidth = ctx.spec.variantsColWidth()
   var groups: seq[string]
-  for name, args in spec.helpGroups:
+  for name, args in ctx.groups:
     var rows: seq[Row]
     for arg in args:
-      rows.add arg.rows(keepTicks = styler.isNil)
-    groups.add header(name, styler) & "\n" &
-      rows.renderColumn(spec.settings.width, colWidth, styler)
-  joinSections(spec.prolog.proseSection(spec.settings), spec.usageSection(command),
-    joinSections(groups), spec.epilog.proseSection(spec.settings))
+      rows.add ctx.rows(arg)
+    groups.add ctx.render(ctx.heading(name)) & "\n" &
+      rows.renderColumn(ctx.width, colWidth, ctx.styler)
+  ctx.frame(groups)
 
 proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil): string =
   let
@@ -441,20 +498,18 @@ proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil)
       result.addSep "\n\n"
       result.add lines.render(styler)
 
-proc formatParagraph*(spec: Spec, command: string): string =
+proc formatParagraph*(ctx: HelpContext): string =
   ## Paragraph Style: prolog, usage, then each group's rows with variants on
   ## their own line and (long-form, if given) help text wrapped as an indented
   ## paragraph below, then epilog.
-  let styler = spec.settings.style
   var groups: seq[string]
-  for name, args in spec.helpGroups:
+  for name, args in ctx.groups:
     var rows: seq[Row]
     for arg in args:
-      rows.add arg.rows(arg.help.longOrShort, keepTicks = styler.isNil)
-    groups.add header(name, styler) & "\n" &
-      rows.renderParagraph(spec.settings.width, styler)
-  joinSections(spec.prolog.proseSection(spec.settings), spec.usageSection(command),
-    joinSections(groups), spec.epilog.proseSection(spec.settings))
+      rows.add ctx.rows(arg, arg.help.longOrShort)
+    groups.add ctx.render(ctx.heading(name)) & "\n" &
+      rows.renderParagraph(ctx.width, ctx.styler)
+  ctx.frame(groups)
 
 proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
   ## Renders `spec`'s full help message with `formatter`, which owns the
@@ -462,7 +517,7 @@ proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColu
   ## `command` names the program in the usage lines (`HelpArg.action` passes
   ## the command path that reached this Spec, so a subcommand's help reads
   ## `prog ship move`).
-  formatter(spec, command)
+  formatter(helpContext(spec, command))
 
 method action(self: HelpArg, command: string, spec: Spec, variant = "") =
   ## Raises `HelpError` with `spec`'s generated help text for `command`,
@@ -954,9 +1009,13 @@ when isMainModule:
       let usage = "<foo> [--bar --aVeryLongOptionName]"
       check usageLines(usage, "prog", width = 20).render == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
-  suite "proseLines":
+  suite "HelpContext.prose":
+    proc ctxAt(width: int, style: Styler = nil): HelpContext =
+      plainSpec((), settings = newSpecSettings(style = style, width = width)
+        ).helpContext("p")
+
     proc lines(text: string, width = 40): seq[string] =
-      text.proseLines(width).mapIt(it.plain)
+      ctxAt(width).prose(text).mapIt(it.plain)
 
     test "empty or all-blank text has no lines":
       check lines("").len == 0
@@ -1048,16 +1107,15 @@ when isMainModule:
       check lines("-x\n1.5 times") == @["-x 1.5 times"]
 
     test "Help Markup spans a joined line break":
-      check "Use `--speed\n<kn>` now".proseLines(keepTicks = false).mapIt(
-        it.render(tagged)) == @["Use {option:--speed} {positional:<kn>} now"]
+      let ctx = ctxAt(40, tagged)
+      check ctx.prose("Use `--speed\n<kn>` now").mapIt(ctx.render(it)) ==
+        @["Use {option:--speed} {positional:<kn>} now"]
 
-    test "keepTicks keeps or drops the backticks":
+    test "the backticks are kept":
       check lines("See `-x` and ``y``") == @["See `-x` and `y`"]
-      check "See `-x`".proseLines(keepTicks = false).mapIt(it.plain) == @["See -x"]
 
     test "a wrapped span keeps its role and no span holds a newline":
-      let wrapped = "Now pass `--long-option` to\nturn it on".proseLines(
-        20, keepTicks = false)
+      let wrapped = ctxAt(20, tagged).prose("Now pass `--long-option` to\nturn it on")
       check wrapped.mapIt(it.render(tagged)) ==
         @["Now pass", "{option:--long-option} to", "turn it on"]
       for line in wrapped:
@@ -1129,22 +1187,22 @@ when isMainModule:
 
     test "a spec with no prolog, epilog, or args is a usage block with a bare command usage line":
       for formatter in builtins:
-        check formatter(Spec(settings: newSpecSettings(style = nil)), "prog") == "Usage:\n  prog"
+        check Spec(settings: newSpecSettings(style = nil)).genHelp("prog", formatter) == "Usage:\n  prog"
 
     test "the usage block shows the spec's usage string after the command":
       let spec = Spec(settings: newSpecSettings(style = nil), usage: "<foo> [--bar]")
       for formatter in builtins:
-        check formatter(spec, "prog") == "Usage:\n  prog <foo> [--bar]"
+        check spec.genHelp("prog", formatter) == "Usage:\n  prog <foo> [--bar]"
 
     test "prolog comes first, separated from the usage block by a blank line":
       let spec = Spec(settings: newSpecSettings(style = nil), prolog: "foo")
       for formatter in builtins:
-        check formatter(spec, "prog") == "foo\n\nUsage:\n  prog"
+        check spec.genHelp("prog", formatter) == "foo\n\nUsage:\n  prog"
 
     test "epilog comes last, separated from the usage block by a blank line":
       let spec = Spec(settings: newSpecSettings(style = nil), epilog: "bar")
       for formatter in builtins:
-        check formatter(spec, "prog") == "Usage:\n  prog\n\nbar"
+        check spec.genHelp("prog", formatter) == "Usage:\n  prog\n\nbar"
 
     test "a long prolog and epilog wrap at the width":
       let
@@ -1152,7 +1210,7 @@ when isMainModule:
         spec = Spec(settings: newSpecSettings(width = 40, style = nil),
           prolog: long, epilog: long)
       for formatter in builtins:
-        let help = formatter(spec, "prog")
+        let help = spec.genHelp("prog", formatter)
         check help.startsWith("A prolog long enough that it cannot\npossibly fit in forty columns.\n\n")
         for line in help.splitLines:
           check line.len <= 40
@@ -1165,7 +1223,7 @@ when isMainModule:
           Moves ships and
           mines around.""")
       for formatter in builtins:
-        check formatter(spec, "prog").startsWith(
+        check spec.genHelp("prog", formatter).startsWith(
           "Naval Fate.\n\nMoves ships and mines around.\n\nUsage:")
 
     test "a subcommand's prolog wraps at its own width":
@@ -1175,7 +1233,7 @@ when isMainModule:
           (ship: CommandArg(kind: ArgKind.Command, variants: @["ship"], spec: child)),
           settings = newSpecSettings(width = 40, style = nil))
       for formatter in builtins:
-        check formatter(parent.commands["ship"].spec, "p ship").startsWith(
+        check parent.commands["ship"].spec.genHelp("p ship", formatter).startsWith(
           "A subcommand prolog long enough to wrap\nat forty.\n\n")
 
     test "groups come between the usage block and the epilog, each separated by a blank line":
@@ -1183,14 +1241,14 @@ when isMainModule:
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Arguments")),
         usage = "<foo>", prolog = "foo", epilog = "bar")
       for formatter in builtins:
-        check formatter(spec, "prog") == "foo\n\nUsage:\n  prog <foo>\n\nArguments:\n  <foo>\n\nbar"
+        check spec.genHelp("prog", formatter) == "foo\n\nUsage:\n  prog <foo>\n\nArguments:\n  <foo>\n\nbar"
 
     test "a custom group's header gets a colon too":
       let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], group: "Output")),
         usage = "<foo>")
       for formatter in builtins:
-        check "\n\nOutput:\n  <foo>" in formatter(spec, "prog")
+        check "\n\nOutput:\n  <foo>" in spec.genHelp("prog", formatter)
 
   suite "formatColumn":
     test "a group's header is followed by its args in column format":
@@ -1204,7 +1262,7 @@ when isMainModule:
 
         Arguments:
           <foo>  A sample arg""".dedent
-      check spec.formatColumn("prog") == expected
+      check spec.genHelp("prog", formatColumn) == expected
 
     test "a hidden arg is not shown":
       let
@@ -1218,7 +1276,7 @@ when isMainModule:
 
         Options:
           --foo  A sample option""".dedent
-      check spec.formatColumn("prog") == expected
+      check spec.genHelp("prog", formatColumn) == expected
 
     test "a group is not shown if its only member is hidden":
       let
@@ -1232,7 +1290,7 @@ when isMainModule:
 
         Options:
           --foo  A sample option""".dedent
-      check spec.formatColumn("prog") == expected
+      check spec.genHelp("prog", formatColumn) == expected
 
     test "multiple groups appear in canonical order, each separated by a blank line":
       let
@@ -1250,7 +1308,7 @@ when isMainModule:
 
         Options:
           --bar  A sample option""".dedent
-      check spec.formatColumn("prog") == expected
+      check spec.genHelp("prog", formatColumn) == expected
 
     test "each groups aligns its variants column based on the global max colWidth, not its own max colWidth":
       let
@@ -1268,7 +1326,7 @@ when isMainModule:
 
         Options:
           --foobar  A sample option that is longer than <foo>""".dedent
-      check spec.formatColumn("prog") == expected
+      check spec.genHelp("prog", formatColumn) == expected
 
   suite "renderParagraph":
     test "no rows yields an empty string":
@@ -1322,7 +1380,7 @@ when isMainModule:
 
         Arguments:
           <foo>""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "long help text is preferred if available, falling back to short help text if not":
       let
@@ -1340,7 +1398,7 @@ when isMainModule:
 
           <bar>
             Fallback short text""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "args are grouped in canonical order, with each group separated by a blank line":
       let
@@ -1363,7 +1421,7 @@ when isMainModule:
         Options:
           --bar
             A sample option""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "a hidden arg is not shown":
       let
@@ -1378,7 +1436,7 @@ when isMainModule:
         Arguments:
           <foo>
             A sample arg""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "a group with only hidden members is not shown":
       let
@@ -1393,7 +1451,7 @@ when isMainModule:
         Arguments:
           <foo>
             A sample arg""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "spec width is successfully passed to renderParagraph":
       let
@@ -1409,7 +1467,7 @@ when isMainModule:
             This help text
             needs to be
             wrapped""".dedent
-      check spec.formatParagraph("prog") == expected
+      check spec.genHelp("prog", formatParagraph) == expected
 
     test "multi-block help renders as paragraphs and a list under the variants":
       let spec = plainSpec(
@@ -1422,7 +1480,7 @@ when isMainModule:
             - fast: skips verification
             - safe: checks every block"""))),
         usage = "[options]", settings = newSpecSettings(width = 50, style = nil))
-      check spec.formatParagraph("p").split("Options:\n")[1] == @[
+      check spec.genHelp("p", formatParagraph).split("Options:\n")[1] == @[
         "  -m, --mode=<m>",
         "    Picks how blocks are checked.",
         "",
@@ -1432,17 +1490,66 @@ when isMainModule:
         "",
         "    [default: fast]"].join("\n")
 
+  suite "HelpContext":
+    proc ctxFor(style: Styler): HelpContext =
+      plainSpec(
+        (speed: Arg(kind: ArgKind.Optional, variants: @["--speed=<kn>"],
+          help: "In `<kn>`", group: "Options")),
+        usage = "[--speed=<kn>]", prolog = "See `-x`.",
+        settings = newSpecSettings(style = style, width = 50)).helpContext("p")
+
+    test "takes the command, width and Styler from the Spec":
+      let ctx = ctxFor(tagged)
+      check ctx.command == "p"
+      check ctx.width == 50
+      check ctx.render(styled(srOption, "-x")) == "{option:-x}"
+      check ctx.render([styled("a"), styled(srOption, "-x")]) == "a\n{option:-x}"
+
+    test "keeps Help Markup's ticks with no Styler":
+      let ctx = ctxFor(nil)
+      check ctx.rows(ctx.spec.args[0])[0].text.plain == "In `<kn>`"
+      check ctx.prose(ctx.spec.prolog).mapIt(it.plain) == @["See `-x`."]
+      check ctx.markup("`-y`").plain == "`-y`"
+
+    test "drops them with a Styler":
+      let ctx = ctxFor(tagged)
+      check ctx.render(ctx.rows(ctx.spec.args[0])[0].text) == "In {metavar:<kn>}"
+      check ctx.render(ctx.prose(ctx.spec.prolog)) == "See {option:-x}."
+      check ctx.render(ctx.markup("`-y`")) == "{option:-y}"
+
+    test "prose drops the ticks before wrapping, not after":
+      # 20 columns fit "aaaaaaaaaa bbbbbb -x" only once the ticks are gone.
+      let ctx = plainSpec((), settings = newSpecSettings(style = tagged,
+        width = 20)).helpContext("p")
+      check ctx.prose("aaaaaaaaaa bbbbbb `-x`").mapIt(it.plain) ==
+        @["aaaaaaaaaa bbbbbb -x"]
+
+    test "hands out the usage lines and headings":
+      let ctx = ctxFor(tagged)
+      check ctx.render(ctx.usage) ==
+        "  {program:p} [{option:--speed}={metavar:<kn>}]"
+      check ctx.render(ctx.heading("Options")) == "{header:Options:}"
+
+    test "groups skips hidden Args":
+      let ctx = plainSpec((
+        a: Arg(kind: Positional, variants: @["<a>"], group: "Arguments"),
+        b: Arg(kind: ArgKind.Flag, variants: @["--bee"], group: "Secret",
+          hidden: true))).helpContext("p")
+      var names: seq[string]
+      for name, args in ctx.groups: names.add name
+      check names == @["Arguments"]
+
   suite "genHelp":
     test "returns the formatter's output verbatim":
-      let custom = proc (spec: Spec, command: string): string = "custom help for " & command
+      let custom = proc (ctx: HelpContext): string = "custom help for " & ctx.command
       check Spec(settings: newSpecSettings()).genHelp("prog", custom) == "custom help for prog"
 
     test "defaults to formatColumn":
       let spec = plainSpec(
         (foo: Arg(kind: Positional, variants: @["<foo>"], help: "A sample arg", group: "Arguments")),
         prolog = "foo", epilog = "bar")
-      check spec.genHelp("prog") == spec.formatColumn("prog")
-      check spec.genHelp("prog") != spec.formatParagraph("prog")
+      check spec.genHelp("prog") == spec.genHelp("prog", formatColumn)
+      check spec.genHelp("prog") != spec.genHelp("prog", formatParagraph)
 
   suite "action":
     test "a HelpArg with no defined formatter uses formatColumn":
@@ -1509,7 +1616,7 @@ when isMainModule:
       let
         arg = TestArg(kind: ArgKind.Flag, variants: @["--up", "--down"], help: "Move",
           descs: {"--up": "move `up`", "--down": "move ``down``"}.toTable)
-      check arg.rows(keepTicks = false)[0].text.render(tagged) ==
+      check arg.rows[0].text.withoutTicks.render(tagged) ==
         "Move {annotation:[action: }move {literal:up}{annotation:]}"
       check arg.rows[0].text.plain == "Move [action: move `up`]"
       check arg.rows[1].text.plain == "Move [action: move `down`]"
@@ -1522,13 +1629,13 @@ when isMainModule:
     test "help text gets Help Markup, with the arg's own metavars":
       let arg = Arg(kind: ArgKind.Optional, variants: @["--speed=<kn>"],
         help: "`<kn>` knots, see `<name>` and `--moored`")
-      check arg.rows(keepTicks = false)[0].text.render(tagged) ==
+      check arg.rows[0].text.withoutTicks.render(tagged) ==
         "{metavar:<kn>} knots, see {positional:<name>} and {option:--moored}"
 
-    test "help text keeps its backticks unless told otherwise":
+    test "help text keeps its backticks, as srTick spans":
       let arg = Arg(kind: ArgKind.Flag, variants: @["-x"], help: "like `-y`")
       check arg.rows[0].text.plain == "like `-y`"
-      check arg.rows(keepTicks = false)[0].text.plain == "like -y"
+      check arg.rows[0].text.withoutTicks.plain == "like -y"
 
     test "usage lines tag the program, commands, options, arguments and metavars":
       check usageLines("ship <name> move [--speed=<kn>] (-a | -bc) [options] [--] <x>...", "nf")
@@ -1581,7 +1688,7 @@ when isMainModule:
         usage = "ship\n<name> [--speed=<kn>]",
         settings = newSpecSettings(style = tagged))
       for formatter in builtins:
-        let help = formatter(spec, "p")
+        let help = spec.genHelp("p", formatter)
         check "{header:Commands:}" in help
         check "  {command:ship}" in help
         check "  {positional:<name>}" in help
@@ -1599,22 +1706,22 @@ when isMainModule:
 
     test "headers are srHeader":
       for formatter in builtins:
-        let help = formatter(styledSpec(), "p")
+        let help = styledSpec().genHelp("p", formatter)
         check help.startsWith("{header:Usage:}\n  {program:p}")
         check "{header:Options:}\n" in help
 
     test "Column Style tags variants and markup":
-      check formatColumn(styledSpec(), "p").splitLines[^1] ==
+      check styledSpec().genHelp("p", formatColumn).splitLines[^1] ==
         "  {option:--speed}={metavar:<kn>}  In {metavar:<kn>}"
 
     test "Paragraph Style tags variants and markup":
-      check formatParagraph(styledSpec(), "p").splitLines[^2 .. ^1] ==
+      check styledSpec().genHelp("p", formatParagraph).splitLines[^2 .. ^1] ==
         @["  {option:--speed}={metavar:<kn>}", "    In {metavar:<kn>}"]
 
     test "prolog and epilog get Help Markup, context-only":
       for formatter in builtins:
-        let help = formatter(styledSpec("See `--speed <kn>` and `$HOME`.",
-          "Try `ship`\nor `--speed=<kn>`.\n\n  `$HOME`"), "p")
+        let help = styledSpec("See `--speed <kn>` and `$HOME`.",
+          "Try `ship`\nor `--speed=<kn>`.\n\n  `$HOME`").genHelp("p", formatter)
         check help.startsWith(
           "See {option:--speed} {positional:<kn>} and {env:$HOME}.\n\n")
         check help.endsWith("\n\nTry {literal:ship} or " &
@@ -1625,6 +1732,6 @@ when isMainModule:
         (x: Arg(kind: ArgKind.Flag, variants: @["-x"], help: "`-y` or ``z``", group: "Options")),
         usage = "[-x]", prolog = "`a` ``b``", settings = newSpecSettings(style = nil))
       for formatter in builtins:
-        let help = formatter(spec, "p")
+        let help = spec.genHelp("p", formatter)
         check help.startsWith("`a` `b`\n\n")
         check "`-y` or `z`" in help

@@ -20,7 +20,9 @@ so a Spec can register more than one Help Message Argument, each rendering
 differently.
 
 `help.nim` exports the pieces both built-ins are assembled from, so a
-third-party formatter is built the same way:
+third-party formatter is built the same way. (**Update:** ADR 0057 hands a
+formatter a `HelpContext` in place of `(spec, command)`, and most of the
+procs below become private, reached through it instead.)
 
 - `helpGroups(spec)` yields each Help Group's `(name, args)` in canonical
   order (`Commands`, `Arguments`, `Options`, then user-defined groups),

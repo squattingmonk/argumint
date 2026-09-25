@@ -85,6 +85,8 @@ reads the same everywhere.
   the unchanged string `help()`. A custom Arg subtype overriding
   `validatorHelp` has to change its signature: a breaking change, accepted
   pre-1.0 over adding a parallel method that would have to stay in sync.
+  **Update:** ADR 0057 drops `keepTicks` again: the ticks are `srTick`
+  spans, dropped later.
 - **`ParseError.msg` stays plain.** Rendering the usage block into `msg`
   would put escape codes into every caught error whenever the program runs
   in a terminal, including errors a caller logs. Instead `ParseError` and
@@ -118,10 +120,13 @@ reads the same everywhere.
   `std/terminal`'s `ForegroundColor`/`Style`). `import argumint/help` adds
   the formatter-author names, now including `markup`. `metavars` and the
   `styledHelp` procs stay withheld; `validators`/`flagclamp` are
-  re-exported `except styledHelp`.
+  re-exported `except styledHelp`. **Update:** ADR 0057
+  withdraws `markup` from `help` in favour of `HelpContext.markup`.
 - `rows` and `annotations` take `keepTicks`. A custom formatter that renders
   with `spec.settings.style` should pass `keepTicks = style.isNil`; one that
-  ignores the setting renders plain, as before.
+  ignores the setting renders plain, as before. **Update:** ADR 0057
+  replaces this with a Help Context that makes the choice, and makes
+  `rows` and `annotations` private.
 - A test that renders help through default settings sees colour when run
   from a terminal, so such tests pass `style = nil`. Running the suite with
   `FORCE_COLOR=1` finds any that don't.
