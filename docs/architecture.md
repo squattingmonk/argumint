@@ -498,10 +498,10 @@ grouping never depend on a role.
 dependency below `tokens` in the chain rather than a new layer), rendered
 with an optional styler, and `Report.raiseParseFailure` raises it as a
 `ParseError` via `failure`. `failure` builds the exception with a plain
-`msg` and, if the Spec has a styler, a `styledMsg` rendered with it, so a
-caught error's `msg` never holds escape codes (ADR 0051). `parseOrQuit*`
-prints `quitMessage`: the `srError` label above `styledMsg`, or `msg` when
-that's empty.
+`msg` and a `styledMsg` rendered with the Spec's styler (the same text if it
+has none), so a caught error's `msg` never holds escape codes (ADR 0051,
+ADR 0059). `parseOrQuit*` prints `quitMessage`: the `srError` label above
+`styledMsg`, or `msg` if something outside argumint raised it without one.
 `fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
 bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
 report through the same object rather than a second shape) so a conversion
@@ -768,7 +768,9 @@ One signature serves both: `MessageArg` raises `MessageError` and ignores
 `HelpError`. That uniformity is what lets `parseMessageArgs` dispatch once,
 with no test for which kind it holds. Each override lives beside its own
 type: `MessageArg`'s in `backend.nim`, `HelpArg`'s in `help.nim` (where it
-renders through the `HelpArg`'s own Help Formatter, ADR 0048).
+renders through the `HelpArg`'s own Help Formatter, ADR 0048). `HelpArg`
+renders a plain `msg` through a Help Context with no styler and, only if the
+Spec has one, a second time for `styledMsg` (ADR 0059).
 
 The method is a dependency inversion, and a deliberate one. `genHelp` now
 lives in `help.nim`, *below* `fsm.nim` (issue #50), so the FSM could raise

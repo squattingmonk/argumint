@@ -578,7 +578,7 @@ method action(self: MessageArg, command: string, spec: Spec, variant = "") =
   ## Raises `MessageError` with `self.message`, short-circuiting the rest
   ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
   ## `message*`/`version*`).
-  raise newException(MessageError, self.message)
+  raise (ref MessageError)(msg: self.message, styledMsg: self.message)
 
 method defaultStr*(self: Arg): string {.base.} =
   ## Returns `self`'s default value formatted for display in help text (e.g.

@@ -1805,8 +1805,9 @@ theme can't express, like true colour, backgrounds, or clickable `srUrl`
 hyperlinks, write your own `Styler`, a proc that decorates one span of text:
 `proc (role: StyleRole, text: string): string`. Since layout is measured
 before styling, a styler can add whatever it likes without breaking
-alignment. Unlike help, a caught `ParseError`'s `msg` is always plain; only
-`parseOrQuit` prints the styled one.
+alignment. A caught exception's `msg` is always plain, help included. Its
+`styledMsg` holds the styled form, the same text when there's no styler, and
+is what `parseOrQuit` prints.
 
 Help text, `prolog`, `epilog`, and a validator's or clamp's `desc` are
 **Help Markup**: wrap a name in backticks and it gets the style of what it

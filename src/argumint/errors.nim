@@ -23,9 +23,10 @@ type
     ## complaint list followed by a usage block -- see
     ## `docs/adr/0035-parse-failure-reporting.md`.
     styledMsg*: string
-      ## `msg` with its usage block rendered by the Spec's `Styler`, for
-      ## `parseOrQuit*` to print; empty if the Spec has none. `msg` itself
-      ## stays plain -- see `docs/adr/0051-help-and-error-styling.md`
+      ## `msg` rendered by the Spec's `Styler`, for `parseOrQuit*` to print;
+      ## the same as `msg` if the Spec has none, and empty only if raised
+      ## outside argumint. `msg` itself stays plain -- see
+      ## `docs/adr/0059-plain-help-msg.md`
 
   ValidationError* = object of CatchableError
     ## A value matched the grammar but failed its Arg's own `Validator`
@@ -37,6 +38,8 @@ type
   MessageError* = object of CatchableError
     ## A `message()`/`version()` Arg matched: parsing short-circuits so the
     ## message can be delivered. Not a failure -- `parseOrQuit*` exits `0`.
+    styledMsg*: string
+      ## As `ParseError.styledMsg`
 
   HelpError* = object of MessageError
     ## A `help()` Arg matched, carrying the rendered help text as its `msg`.

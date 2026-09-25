@@ -375,10 +375,10 @@ proc failureMessage*(r: Report, styler: Styler = nil): string =
 proc failure*[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
   ## An `E` carrying `r.failureMessage` -- what `raiseParseFailure` raises,
   ## and what a reshaped conversion/validation failure (`fsm.parse*`) raises
-  ## instead. Also rendered with the Spec's styler, if any, as `styledMsg`.
+  ## instead. Also rendered with the Spec's styler as `styledMsg`, which is
+  ## `msg` again if there's none.
   result = newException(E, r.failureMessage)
-  if not r.spec.settings.style.isNil:
-    result.styledMsg = r.failureMessage(r.spec.settings.style)
+  result.styledMsg = r.failureMessage(r.spec.settings.style)
 
 proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.
@@ -386,7 +386,7 @@ proc raiseParseFailure*(r: Report) =
 
 proc quitMessage*[E: ParseError | ValidationError](e: ref E, styler: Styler): string =
   ## What `parseOrQuit*` prints for `e`: a `srError` label, then
-  ## `e.styledMsg`, or `e.msg` if that's empty.
+  ## `e.styledMsg`, or `e.msg` if that's empty (raised outside argumint).
   let label = when E is ParseError: "Parsing error:" else: "Validation error:"
   let body = if e.styledMsg.len > 0: e.styledMsg else: e.msg
   styled(srError, label).render(styler) & "\n" & body
@@ -767,8 +767,9 @@ when isMainModule:
       check e.styledMsg == "  - bad --xx\n\n{srHeader:Usage:}\n" &
         "  {srProgram:app} {srOption:--xx}={srMetavar:<n>}"
 
-    test "with no styler, styledMsg is empty":
-      check report(nil).failure(ValidationError).styledMsg == ""
+    test "with no styler, styledMsg is msg":
+      let e = report(nil).failure(ValidationError)
+      check e.styledMsg == e.msg
 
     test "quitMessage labels a failure as srError, above the styled message":
       let r = report(tagged)
