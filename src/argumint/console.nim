@@ -1,7 +1,9 @@
-## Terminal capability detection: how wide output can be (`detectWidth`) and
-## whether it can take colour (`autoStyler`). Each rule is a pure decider
-## taking its environment as parameters (`chooseWidth`, `wantsColor`), which
-## is what the tests drive, beside a thin probe that reads the real process.
+## Terminal capability detection: how wide output can be (`resolvedWidth`)
+## and whether it can take colour (`resolvedStyler`), which `SpecSettings`'
+## `width`/`style` getters call on first read (ADR 0058). Each rule is a
+## pure decider taking its environment as parameters (`chooseWidth`,
+## `wantsColor`), which is what the tests drive, beside a thin probe that
+## reads the real process.
 ##
 ## Imports only `argumint/style`, for the ANSI styler colour resolves to.
 
@@ -82,13 +84,19 @@ when defined(windows):
         return false
     true
 
-proc autoStyler*(): Styler =
-  ## `ansiStyler(defaultTheme)` if output is going to a terminal, else nil
-  ## (plain). Nil when `NO_COLOR` is non-empty, `TERM` is `dumb`, or stdout and
-  ## stderr aren't both terminals -- unless `FORCE_COLOR` is non-empty or
-  ## `CLICOLOR_FORCE` is set to anything but `0`, which force colour on. On
-  ## Windows it also enables the console's ANSI handling, and is nil if that
-  ## fails and colour wasn't forced.
+proc resolvedWidth*(): int =
+  ## What a `width` of `0` resolves to: `detectWidth()`, capped at
+  ## `DefaultMaxWidth` -- see `docs/adr/0052-default-help-width-cap.md`.
+  min(detectWidth(), DefaultMaxWidth)
+
+proc resolvedStyler*(): Styler =
+  ## What an `autoStyler` style resolves to: `ansiStyler(defaultTheme)` if
+  ## output is going to a terminal, else nil (plain). Nil when `NO_COLOR` is
+  ## non-empty, `TERM` is `dumb`, or stdout and stderr aren't both terminals
+  ## -- unless `FORCE_COLOR` is non-empty or `CLICOLOR_FORCE` is set to
+  ## anything but `0`, which force colour on. On Windows it also enables the
+  ## console's ANSI handling, and is nil if that fails and colour wasn't
+  ## forced.
   let env = proc (key: string): string = getEnv(key)
   if not wantsColor(env, ttys = stdout.isatty and stderr.isatty):
     return nil
@@ -131,12 +139,12 @@ when isMainModule:
       check wantsColor(env(("CLICOLOR_FORCE", "1"), ("TERM", "dumb")), ttys = false)
       check not wantsColor(env(("CLICOLOR_FORCE", "0")), ttys = false)
 
-  suite "autoStyler":
+  suite "resolvedStyler":
     test "is nil when output isn't a terminal and colour isn't forced":
       let forced = getEnv("FORCE_COLOR").len > 0 or
         getEnv("CLICOLOR_FORCE") notin ["", "0"]
       if not forced and not (stdout.isatty and stderr.isatty):
-        check autoStyler().isNil
+        check resolvedStyler().isNil
       else:
         skip()
 
@@ -146,6 +154,6 @@ when isMainModule:
           check not enableVirtualTerminal()
           putEnv("FORCE_COLOR", "1")
           defer: delEnv("FORCE_COLOR")
-          check not autoStyler().isNil # forced, despite the failure
+          check not resolvedStyler().isNil # forced, despite the failure
         else:
           skip()

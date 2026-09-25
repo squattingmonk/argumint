@@ -641,6 +641,15 @@ or anything else that generates methods inside a template.
   names (so they can't clash with newer `winlean`s). Cross-compile Windows
   code with the oldest supported toolchain (`--os:windows --compileOnly`).
 
+- **A getter proc doesn't shadow its private field inside the defining
+  module.** `SpecSettings.width`/`.style` are private fields behind
+  exported getters that detect on first read (ADR 0058). Everywhere else
+  `s.width` calls the getter, but inside `backend.nim` it reads the raw
+  field -- `0` or `autoStyler` if nothing has read it yet. Call the getter
+  explicitly there (`backend.width(s)`) if the resolved value is wanted.
+  Relatedly, `settings.style(role, text)` parses as the getter with two
+  extra arguments; call the styler as `(settings.style)(role, text)`.
+
 - **`unicode.strip` with `leading = false` leaves all-whitespace text
   alone.** `unicode.strip("  ", leading = false)` returns `"  "`, while
   `strutils.strip` returns `""` (2.2.4 and 2.2.12). A module importing both

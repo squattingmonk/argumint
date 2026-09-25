@@ -264,6 +264,13 @@ proc ansiStyler*(theme: Theme): Styler =
     result.add text
     result.add ansiResetCode
 
+proc autoStyler*(role: StyleRole, text: string): string =
+  ## `newSpecSettings`'s default `style`: a marker, not a styler. The first
+  ## read of `SpecSettings.style` replaces it with `ansiStyler(defaultTheme)`
+  ## if output is going to a terminal, else nil. Called directly, it leaves
+  ## `text` plain.
+  text
+
 let
   # Placeholders take the lexer's two argument forms, `<name>` and `NAME`,
   # but a caps one must start with a letter so `42` stays a literal.

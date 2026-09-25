@@ -1276,6 +1276,37 @@ suite "Messages":
     check detectWidth() == 200
     check newSpecSettings(width = detectWidth()).width == 200
 
+  test "width is detected on first read, not when the settings are built":
+    let settings = newSpecSettings()
+    putEnv("COLUMNS", "63")
+    defer: delEnv("COLUMNS")
+    check settings.width == 63
+    putEnv("COLUMNS", "70")
+    check settings.width == 63 # kept
+    settings.width = 0
+    check settings.width == 70 # re-armed
+
+  test "style is resolved on first read, not when the settings are built":
+    let saved = ["FORCE_COLOR", "CLICOLOR_FORCE", "NO_COLOR"].mapIt((it, getEnv(it)))
+    defer:
+      for (key, value) in saved:
+        if value.len > 0: putEnv(key, value) else: delEnv(key)
+    delEnv("FORCE_COLOR")
+    delEnv("CLICOLOR_FORCE")
+    putEnv("NO_COLOR", "1")
+    let settings = newSpecSettings()
+    putEnv("FORCE_COLOR", "1")
+    check not settings.style.isNil
+    delEnv("FORCE_COLOR")
+    check not settings.style.isNil # kept
+    settings.style = autoStyler
+    check settings.style.isNil # re-armed
+
+  test "an explicit style is used as given":
+    let styler: Styler = proc (role: StyleRole, text: string): string = "!" & text
+    check newSpecSettings(style = nil).style.isNil
+    check (newSpecSettings(style = styler).style)(srPlain, "x") == "!x"
+
   test "the default command name is the binary's file name, minus any .exe":
     check appName() == getAppFilename().splitFile.name
     check not appName().endsWith(".exe")

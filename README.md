@@ -1569,7 +1569,8 @@ in the spec.
 
 Usage lines and help text wrap at `SpecSettings.width` (default: the
 detected terminal width, capped at `DefaultMaxWidth` = 100 and falling back
-to `DefaultWidth` = 80 columns); the variants column (`-v, --verbose`)
+to `DefaultWidth` = 80 columns, detected only when help or an error is
+first rendered); the variants column (`-v, --verbose`)
 wraps once it exceeds `SpecSettings.maxVariantsWidth` (default 30; `0`
 means unlimited). Set either via `newSpecSettings`, passed as
 `parse`/`parseOrQuit`'s `settings` argument:
@@ -1786,8 +1787,8 @@ anything) or `CLICOLOR_FORCE` (set to anything but `0`) turns it on even
 without a terminal. On Windows, argumint turns on the console's ANSI
 handling itself.
 
-The styler is `SpecSettings.style`, which defaults to `autoStyler()`, the
-detection above. Pass `nil` for plain text always, or your own look:
+The styler is `SpecSettings.style`, which defaults to `autoStyler`, the
+detection above, run only when help or an error is first rendered. Pass `nil` for plain text always, or your own look:
 
 ```nim
 var theme = defaultTheme

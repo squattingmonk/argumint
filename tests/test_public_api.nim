@@ -250,7 +250,16 @@ suite "`Spec` is an opaque handle":
     theme[srInvalid] = TextStyle(fg: fgRed)
     let settings = newSpecSettings(style = ansiStyler(theme))
     check not settings.style.isNil
-    check compiles(newSpecSettings(style = autoStyler()))
+    check compiles(newSpecSettings(style = autoStyler))
+    # Detection happens behind the getters; the resolvers aren't API.
+    check not declared(resolvedWidth)
+    check not declared(resolvedStyler)
+    check compiles(block:
+      let s = newSpecSettings()
+      s.width = 0
+      s.style = autoStyler
+      discard s.width + 1
+      discard s.style.isNil)
     check compiles(block:
       let s: Styler = proc (role: StyleRole, text: string): string = text)
     check not declared(markup)

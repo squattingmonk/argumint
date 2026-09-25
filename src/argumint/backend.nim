@@ -76,8 +76,8 @@ type
     message*: string
 
   SpecSettings* = ref object
-    width*: int
-      ## Column width to wrap usage/help text at
+    width: int
+      ## `0` until the `width` getter first detects it
     maxVariantsWidth*: int
       ## Max width of the help text's variants column before wrapping; 0 means
       ## unlimited
@@ -94,9 +94,8 @@ type
       ## as data, in both a positional slot and an Option's value slot. Default
       ## `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See
       ## `docs/adr/0034-strict-option-checking.md`
-    style*: Styler
-      ## Decorates help and error output by Style Role; nil for plain text.
-      ## See `docs/adr/0051-help-and-error-styling.md`
+    style: Styler
+      ## `autoStyler` until the `style` getter first resolves it
 
   EnvSource* = object
     ## Names the environment variable configured to supply an Arg's value,
@@ -277,19 +276,20 @@ proc appName*(): string =
     if result.toLowerAscii.endsWith("." & ExeExt):
       result.setLen(result.len - ExeExt.len - 1)
 
-proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
+proc newSpecSettings*(width = 0,
     maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions, style = autoStyler()): SpecSettings =
+    strictOptions = DefaultStrictOptions, style: Styler = autoStyler): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param. Every default below can be changed at compile time with a
   ## `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
-  ## - `width` is the column width usage/help text wraps at. Defaults to the
-  ##   caller's detected terminal width, capped at `DefaultMaxWidth` (100)
-  ##   so help doesn't sprawl on a wide terminal, or `DefaultWidth` (80)
-  ##   when none can be detected (e.g., piped output with `COLUMNS` unset). An
-  ##   explicit width is used as given: `width = detectWidth()` for no cap,
-  ##   or `width = min(detectWidth(), 120)` for your own.
+  ## - `width` is the column width usage/help text wraps at. `0` (the
+  ##   default) detects it on first read: the terminal's width, capped at
+  ##   `DefaultMaxWidth` (100) so help doesn't sprawl on a wide terminal, or
+  ##   `DefaultWidth` (80) when none can be detected (e.g., piped output with
+  ##   `COLUMNS` unset). An explicit width is used as given: `width =
+  ##   detectWidth()` for no cap, or `width = min(detectWidth(), 120)` for
+  ##   your own.
   ## - `maxVariantsWidth` caps the variants column's width before it wraps
   ##   onto extra indented lines (`0` for unlimited).
   ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
@@ -321,10 +321,16 @@ proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
   ##   disabling the check everywhere. See
   ##   `docs/adr/0034-strict-option-checking.md`.
   ## - `style` decorates help and parse-error output (colour, bold, etc.) by
-  ##   Style Role. Defaults to `autoStyler()`: the built-in ANSI theme when
-  ##   output is going to a terminal, else plain. Pass `nil` for plain text
-  ##   always, or `ansiStyler(theme)` or your own `Styler` to opt out of
-  ##   detection. See `docs/adr/0051-help-and-error-styling.md`.
+  ##   Style Role. `autoStyler` (the default) resolves it on first read: the
+  ##   built-in ANSI theme when output is going to a terminal, else plain.
+  ##   Pass `nil` for plain text always, or `ansiStyler(theme)` or your own
+  ##   `Styler` to opt out of detection. See
+  ##   `docs/adr/0051-help-and-error-styling.md`.
+  ##
+  ## Neither default touches the terminal here, so building settings (or a
+  ## Spec) never probes it; only reading `width` or `style` does, which help
+  ## and error rendering do just before printing. See
+  ## `docs/adr/0058-lazy-terminal-detection.md`.
   ##
   ## Hold onto the returned `SpecSettings` and pass the same instance to
   ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
@@ -333,6 +339,28 @@ proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
   ## `docs/adr/0013-message-args-fire-after-before.md`.
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
     configSources: configSources, strictOptions: strictOptions, style: style)
+
+proc width*(s: SpecSettings): int =
+  ## The column width usage/help text wraps at. A `0` is detected here, on
+  ## first read, and kept: `detectWidth()` capped at `DefaultMaxWidth`.
+  if s.width == 0: s.width = resolvedWidth()
+  s.width
+
+proc `width=`*(s: SpecSettings, width: int) =
+  ## Sets the wrap width; `0` has the next read detect it again.
+  s.width = width
+
+proc style*(s: SpecSettings): Styler =
+  ## Decorates help and error output by Style Role; nil for plain text. An
+  ## `autoStyler` is resolved here, on first read, and kept -- so nothing
+  ## probes the terminal until output is rendered. See
+  ## `docs/adr/0058-lazy-terminal-detection.md`.
+  if s.style == autoStyler: s.style = resolvedStyler()
+  s.style
+
+proc `style=`*(s: SpecSettings, style: Styler) =
+  ## Sets the styler; `autoStyler` has the next read resolve it again.
+  s.style = style
 
 # Read-only views of private `Spec` fields (ADR 0030). Only `specbuild` writes
 # them. `prolog`/`epilog`/`usage` are re-exported by `argumint/help` for Help
