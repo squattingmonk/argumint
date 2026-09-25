@@ -161,8 +161,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if args.len > 0 and args[0] == "__complete":
     let lines = collect:
       for c in spec.completeArgs(args[1 ..< args.len], command): "{c.value}\t{c.help}".fmt
-    let text = lines.join("\n")
-    raise (ref CompletionError)(msg: text, styledMsg: text)
+    raise newPlainError(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(cursor: initCursor(spec, args), command: command,
     report: initReport(spec, command), levels: @[(spec: spec, command: command)])

@@ -50,6 +50,12 @@ type
     ## formatted `"value\thelp"` (`help` may be empty, but the tab is always
     ## present -- see `docs/adr/0022-completion-candidate-help-text.md`). A
     ## peer of `HelpError`, not a subtype of it -- `parseOrQuit*` prints it
-    ## to stdout through the same `except MessageError` branch as every other
-    ## message. See `docs/adr/0012-fsm-driven-shell-completion.md` and
+    ## to stdout like every other message (`outcome.nim`). See
+    ## `docs/adr/0012-fsm-driven-shell-completion.md` and
     ## `docs/adr/0050-message-output-to-stdout.md`.
+
+proc newPlainError*[E: ParseError | ValidationError | MessageError](
+    kind: typedesc[E], msg: string): ref E =
+  ## An `E` whose `styledMsg` is `msg`, for text raised where there's no
+  ## Styler to render it. Withheld from the facade.
+  (ref E)(msg: msg, styledMsg: msg)
