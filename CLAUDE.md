@@ -56,6 +56,10 @@ registration.
 - **Design decisions** live in `docs/adr/` — check for an existing ADR before
   revisiting a decision (e.g. why catch-all options repeat by default, why
   validators skip coded defaults).
+- **Architecture reviews** live in `docs/reviews/`, one file per review,
+  each a lettered list of deepening candidates (A–G, then H–O) with their
+  status. Link an issue to a candidate's heading there, and mark the
+  candidate shipped (issue, PR, squash hash) when it lands.
 - **Implementation-level architecture** (how spec construction, FSM
   compilation, runtime matching, value conversion, and subcommands actually
   work, file by file) is in `docs/architecture.md`. Read that when you need
