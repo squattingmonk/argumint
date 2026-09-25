@@ -54,6 +54,12 @@ that is still wrapping, and only a paragraph's wrap continuations get
 Column Style's usual extra indent: a list item or indented line is already
 hung by `wrapProse`.
 
+**Update:** that extra indent is gone (#132). It was never a decision: #71's
+`render` indented every line after a row's first for a wrapped variants
+line, and moved the text on it too. It pushed a paragraph's continuations
+up to 2 columns past the width, and the variants column already shows where
+a row starts, so every text line now starts at the text column.
+
 ## Width
 
 Text with no indent or marker wraps at exactly the renderer's width. Hung
