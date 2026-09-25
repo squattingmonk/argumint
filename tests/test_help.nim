@@ -70,7 +70,11 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check not declared(helpGroups)
     check declared(helpContext)
     check declared(usageLines)
-    check declared(wrapProse)
+    check not declared(wrapProse)
+    check not declared(toProse)
+    check not declared(annotate)
+    check not declared(summary)
+    check declared(Prose)
     check declared(joinSections)
     check declared(longOrShort)
 
@@ -90,11 +94,13 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
       var lines = @[name.toUpperAscii & ":"]
       for arg in args:
         for row in ctx.rows(arg):
-          lines.add "  " & ctx.render(row.variants) & " -- " & ctx.render(row.text)
+          lines.add "  " & ctx.render(row.variants)
+          for line in row.text.wrap(ctx.width - 4):
+            lines.add "    " & ctx.render(line)
       groups.add lines.join("\n")
-    joinSections(ctx.render(ctx.prose(ctx.spec.prolog)),
+    joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
       "USAGE:\n" & ctx.render(ctx.usage),
-      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog)))
+      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
 
   proc tagged(role: StyleRole, text: string): string =
     ## Marks each styled span as `{role:text}`, leaving plain ones bare.
@@ -110,11 +116,14 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
         greet (-h | --help)
 
       ARGUMENTS:
-        <name> -- Who to greet
+        <name>
+          Who to greet
 
       OPTIONS:
-        --times=<n> -- How many times [default: 1]
-        -h, --help -- Display this help message
+        --times=<n>
+          How many times [default: 1]
+        -h, --help
+          Display this help message
 
       See the README.""".dedent
     check greeter().genHelp("greet", formatShouty) == expected
@@ -147,14 +156,19 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     let echoing = proc (ctx: HelpContext): string = ctx.command
     check greeter().genHelp("greet sub", echoing) == "greet sub"
 
-  test "`Row`'s fields are styled text":
-    let row = greeter().helpContext("greet").rows(arg("<name>", help = "Who to greet"))[0]
+  test "`Row`'s variants are styled text, and its text is Prose":
+    let
+      ctx = greeter().helpContext("greet")
+      row = ctx.rows(arg("<name>", help = "Who to greet"))[0]
     check row.variants is StyledText
-    check row.text.plain == "Who to greet"
+    check row.text is Prose
+    check ctx.render(row.text.wrap(80)) == "Who to greet"
+    check not compiles(ctx.render(row.text))
+    check not compiles(row.text.plain)
 
   test "the span helpers are enough to lay out a row":
     # The built-ins' layout rule -- see docs/architecture.md.
-    let row = Row(variants: styled("-x"), text: styled("some help text"))
+    let row = greeter().helpContext("greet").rows(flag("-x", help = "some help text"))[0]
     var lines: seq[StyledText]
     for i, text in row.text.wrap(9):
       let variants = if i == 0: row.variants else: StyledText()

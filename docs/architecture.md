@@ -11,7 +11,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `style.nim` — and everything else layers on top:
-`console`/`flagclamp`/`outcome` → `lexer` → `backend`/`validators` →
+`console`/`flagclamp`/`outcome`/`prose` → `lexer` → `backend`/`validators` →
 `argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
 `precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
 
@@ -993,11 +993,12 @@ case `rows` uses the bucket's own `variantDesc` directly as the row's text
 instead.
 
 Everything a formatter lays out is `StyledText` (`style.nim`): a sequence
-of `Span`s, each a run of text with a `StyleRole`. `Row.variants`,
-`Row.text`, each of `annotations`' parts, and each of `usageLines`' lines
-are `StyledText`. The rule every built-in follows, and a custom formatter
-should too: build `StyledText`, `wrap` it (or `wrapProse` it, for
-`Row.text`) to a width (one `StyledText` per line, splitting any span that
+of `Span`s, each a run of text with a `StyleRole`. `Row.variants`, each
+of `annotations`' parts, and each of `usageLines`' lines are `StyledText`;
+`Row.text` and `HelpContext.prose`'s result are Prose, which `wrap` turns
+into `StyledText` lines (below). The rule every built-in follows, and a
+custom formatter should too: build `StyledText` (or take Prose), `wrap` it
+to a width (one `StyledText` per line, splitting any span that
 crosses a break, so no span ever holds a `\n`), pad with `len` or
 `alignLeft` (visible width, in graphemes of the plain text), and `render`
 once per finished line.
@@ -1031,23 +1032,22 @@ whitespace and unknown characters as `tkInvalid` pieces. Headers are
 `srHeader`.
 
 A prolog/epilog and an Arg's help text share one re-flow rule (ADR 0054),
-in two stages. `proseBlocks` dedents the text (`dedent`) and joins its
-lines into paragraphs, list items, and indented lines, each with `markup`
-applied after joining (against the Arg's `metavars`, for help text), and
-the private `proseText` writes them out as one `StyledText`, a line per
-block with its indent and marker as leading `srPlain` text. That is the
-form `Row.text` takes (ADR 0055): `rows` builds it, appending the
+owned by `prose.nim`, a module above `style.nim` and below `help.nim` and
+`completion.nim`. `toProse` dedents the text (`dedentLines`) and joins its
+lines into `ProseBlock`s (paragraphs, list items, indented lines, and
+blanks), each with `markup` applied after joining (against the Arg's
+`metavars`, for help text). The result is an opaque `Prose` (ADR 0060):
+`rows` builds one per bucket and hands it to `annotate`, which appends the
 `annotations` bracket to one-block text or after a blank line otherwise,
-and each part of the bracket is flattened to one line (`oneLine`) so it
-can't span blocks. `wrapProse` is the second stage: it reads each line's
-indent and a marker from its leading `srPlain` span (a backticked `- x` is
-`srLiteral`, so it can't pass for one), and wraps it hanging under its
-text. `HelpContext.prose` is the two stages back to back, with the ticks
-resolved between them. `renderParagraph` and `renderColumn` both call
-`wrapProse`; in Column Style each line starts at the text column, even
-while the variants are still wrapping. A blank line in a row stays empty
-in both, with no margin. No line `wrapProse` yields
-contains a newline, so no span a styler sees does either.
+flattening each part to one line (`oneLine`) so it can't span blocks.
+`HelpContext.prose` is `toProse` with the ticks resolved (`withoutTicks`
+has a `Prose` overload). `wrap` is the only way out: each block starts at
+its indent and marker and wraps hanging under its text. `renderParagraph`
+and `renderColumn` both call it; in Column Style each line starts at the
+text column, even while the variants are still wrapping. A blank line in a
+row stays empty in both, with no margin. No line `wrap` yields contains a
+newline, so no span a styler sees does either. `help.nim` re-exports only
+`Prose` and its `wrap`; the rest is withheld.
 
 Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
 only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
@@ -1081,7 +1081,7 @@ Each bucket's row starts at the 2-space `Margin` — buckets are peers
 another. A variants wrap continuation starts at the deeper 4-space
 `ContinuationIndent`, but every text line starts at the text column
 itself: a paragraph's wrap continuation, each later block, and a list
-item's or indented line's continuation (which `wrapProse` has already
+item's or indented line's continuation (which `wrap` has already
 hung) alike.
 
 **Paragraph Style** (`formatParagraph`) instead puts each row's variants on
@@ -1356,11 +1356,11 @@ sources each variant's description from `Arg.variantDesc(variant)`
 back to the Arg's shared `.help` otherwise — mirroring
 `help.variantsByDesc`'s own bucketing rule (used by `genHelp`) so completion's
 descriptions agree with what help text would actually show. Either way the
-text goes through `style.firstParagraph` before `plainMarkup`: its first
-paragraph, dedented by the same `dedentLines` help's re-flow uses and
-joined onto one line, so a candidate is always exactly one line. Both are withheld exports
-of `style.nim` (not re-exported by `help.nim`), where `completion.nim`, which
-doesn't import `help`, can reach them.
+text goes through `prose.summary`: its first paragraph, dedented by the
+same `dedentLines` help's re-flow uses, joined onto one line, and passed
+through `plainMarkup`, so a candidate is always exactly one line. It's a
+withheld export of `prose.nim` (not re-exported by `help.nim`), which
+`completion.nim` imports without importing `help`.
 
 `completion.genCompletionScript*` generates a thin, mostly-static per-shell
 adapter (`Shell = bash | zsh | fish`) that just shells out to

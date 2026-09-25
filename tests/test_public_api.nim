@@ -224,6 +224,7 @@ suite "`Spec` is an opaque handle":
     check not declared(usageLines)
     check not declared(proseLines)
     check not declared(wrapProse)
+    check not declared(Prose)
 
   test "`HelpContext` is nameable, but only `argumint/help` can use one":
     # Like `HelpFormatter`, whose signature names it: a formatter can be
@@ -269,6 +270,9 @@ suite "`Spec` is an opaque handle":
     check not declared(styledOption)
     check not declared(firstParagraph)
     check not declared(dedentLines)
+    check not declared(toProse)
+    check not declared(annotate)
+    check not declared(summary)
     check not declared(metavars)
     check not declared(displayTokens)
     check not declared(quitMessage)
