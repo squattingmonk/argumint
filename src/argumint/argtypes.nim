@@ -140,7 +140,7 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: O
       for idx, value in values:
         self.validator.validate(value, values[0..<idx])
   except ValidationError as e:
-    raise newException(ValidationError, fmt"for {self.name()}, {e.msg}")
+    raise newPlainError(ValidationError, fmt"for {self.name()}, {e.msg}")
   self.value = values
   self.seenBy = seenBy.get(otherwise = self.seenBy)
 
@@ -169,7 +169,7 @@ proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T
     else:
       self.value = @[value]
   except ValidationError as e:
-    raise newException(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
+    raise newPlainError(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
 
 proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: Option[SeenBy]) =
   ## Converts a string `value` into a `T`, then delegates to `putImpl` for
@@ -181,7 +181,7 @@ proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: 
     let tmp: T = value
     self.putImpl(value = tmp, variant = variant, seenBy = seenBy, validate = true)
   except ValueError:
-    raise newException(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
+    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1
@@ -320,7 +320,7 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     ## variant. We thus re-name the parameters here to make clear what they
     ## actually do.
     if not self.ops.hasKey(variantValue):
-      raise newException(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
+      raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
     self.arbitrate(seenBy)
     let (op {.inject.}, arg {.inject.}, _) = self.ops[variantValue]
     self.value.handleFlag(op, arg)

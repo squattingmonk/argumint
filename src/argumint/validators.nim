@@ -233,30 +233,30 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
   of vkChoice:
     if value notin self.choices:
       if self.desc.len > 0:
-        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
+        raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
-        raise newException(ValidationError, fmt"got {tmpVal} but expected one of {$self.choices}")
+        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {$self.choices}")
   of vkRange:
     if value notin self.range:
       if self.desc.len > 0:
-        raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
+        raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
-        raise newException(ValidationError, fmt"got {tmpVal} but expected one of {$self.range}")
+        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {$self.range}")
   of vkCheck:
     if not self.checker(value):
       let suffix = if desc.len > 0: fmt": {desc}" else: ""
-      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
+      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
   of vkCheckSeen:
     if not self.seenChecker(value, seen):
       let suffix = if desc.len > 0: fmt": {desc}" else: ""
-      raise newException(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
+      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
   of vkAll:
     for v in self.validators:
       try:
         v.validate(value, seen)
       except ValidationError:
         if self.desc.len > 0:
-          raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
+          raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
         else:
           raise
   of vkAny:
@@ -269,7 +269,7 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
       except ValidationError:
         discard
     if not passed:
-      raise newException(ValidationError, fmt"{tmpVal} did not meet condition: {self.help()}")
+      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {self.help()}")
 
 when isMainModule:
   import std/[unittest]

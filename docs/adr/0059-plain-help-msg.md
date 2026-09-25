@@ -20,8 +20,10 @@ Now every outcome has the same shape (#127):
   resolved text with a different Styler (ADR 0057).
 - `styledMsg` is filled on everything argumint raises, and is `msg` again
   when there's no Styler. So "print `styledMsg`, log `msg`" holds with no
-  fallback. It is empty only on an exception raised outside argumint, by a
-  custom Arg's `action` or a hook.
+  fallback. That includes the write side (`put`, `replace`, an Arg's string
+  `parse`) and a `Validator` called directly, which raise through a withheld
+  `newPlainError` since they have no Styler. It is empty only on an
+  exception raised outside argumint, by a custom Arg's `action` or a hook.
 
 A plain help `msg` is exactly what `style = nil` renders, so Help Markup's
 backticks stay in it and `styledMsg` drops them, as for errors.
@@ -50,3 +52,6 @@ backticks stay in it and `styledMsg` drops them, as for errors.
   longer empty without a Styler.
 - A Help Formatter may be called twice per `--help`, so it should have no
   side effects.
+- `parseOrQuit*` now picks what to print for each exception in one place,
+  `outcome.nim` (#128), and its `Error constructing spec:` label is styled
+  `srError` like the other failure labels.

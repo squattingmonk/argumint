@@ -22,7 +22,7 @@ import ./argumint/[argtypes, backend, completion, configsource, dot, errors, fla
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
-export errors
+export errors except newPlainError
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.

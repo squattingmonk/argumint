@@ -1,8 +1,8 @@
-## What `parseOrQuit*` does with each exception it catches: the text it
-## prints, the stream, and the exit code, as an `Outcome`. Covers the
-## failures (`ParseError`, `ValidationError`, `SpecDefect`) and the messages
-## (`MessageError` and its subtypes), not a successful parse. Withheld from
-## the facade.
+## What `parseOrQuit*`, `parsedOrQuit*` and `dot*(tuple)` do with each
+## exception they catch: the text printed, the stream, and the exit code,
+## as an `Outcome`. Covers the failures (`ParseError`, `ValidationError`,
+## `SpecDefect`) and the messages (`MessageError` and its subtypes), not a
+## successful parse. Withheld from the facade.
 
 import ./[errors, style]
 
@@ -15,25 +15,22 @@ type
     code*: int
       ## The exit code
 
-proc body(e: ref Exception): string =
+proc outcome*(e: ref Exception, styler: Styler): Outcome =
+  ## `e`'s outcome, its labels rendered with `styler`. The text is
   ## `e.styledMsg`, or `e.msg` if something outside argumint raised `e`
   ## without one.
-  let styled =
-    if e of ParseError: (ref ParseError)(e).styledMsg
-    elif e of ValidationError: (ref ValidationError)(e).styledMsg
-    elif e of MessageError: (ref MessageError)(e).styledMsg
-    else: ""
-  if styled.len > 0: styled else: e.msg
-
-proc outcome*(e: ref Exception, styler: Styler): Outcome =
-  ## `e`'s outcome, its labels rendered with `styler`.
-  template failure(label, sep: string): Outcome =
-    Outcome(text: styled(srError, label).render(styler) & sep & e.body,
+  template body(styledMsg: string): string =
+    if styledMsg.len > 0: styledMsg else: e.msg
+  template failure(label, sep, shown: string): Outcome =
+    Outcome(text: styled(srError, label).render(styler) & sep & shown,
       toStderr: true, code: QuitFailure)
-  if e of MessageError: Outcome(text: e.body, code: QuitSuccess)
-  elif e of ParseError: failure("Parsing error:", "\n")
-  elif e of ValidationError: failure("Validation error:", "\n")
-  elif e of SpecDefect: failure("Error constructing spec:", " ")
+  if e of MessageError:
+    Outcome(text: body((ref MessageError)(e).styledMsg), code: QuitSuccess)
+  elif e of ParseError:
+    failure("Parsing error:", "\n", body((ref ParseError)(e).styledMsg))
+  elif e of ValidationError:
+    failure("Validation error:", "\n", body((ref ValidationError)(e).styledMsg))
+  elif e of SpecDefect: failure("Error constructing spec:", " ", e.msg)
   else: raise newException(Defect, "no outcome for " & $e.name)
 
 when isMainModule:

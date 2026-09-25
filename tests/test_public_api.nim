@@ -275,6 +275,7 @@ suite "`Spec` is an opaque handle":
     check not declared(outcome)
     check not declared(Outcome)
     check not declared(quitWith)
+    check not declared(newPlainError)
     check not declared(failure)
 
   test "`settings` and the hooks stay public":

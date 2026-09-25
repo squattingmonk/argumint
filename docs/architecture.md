@@ -24,6 +24,8 @@ and `lexer.nim` raises `SpecDefect` while staying free of everything above
 it. The two modules whose own API would be incomplete without one
 (`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
 re-export it, so importing either alone still names what it raises.
+`errors.nim`'s withheld `newPlainError` builds one whose `styledMsg` is its
+`msg`, for the raise sites with no Styler to hand (ADR 0059).
 
 `console.nim` answers what the terminal can do: how wide output can be
 (`resolvedWidth`, over `detectWidth` and `DefaultWidth`/`DefaultMaxWidth`)
