@@ -729,7 +729,7 @@ when isMainModule:
         "  -m  One.\n\n      A second paragraph that\n      wraps"
 
     test "a paragraph's wrap continuations stay within the width":
-      # Regression: they used to hang 2 columns past it.
+      # Regression: they hung 2 columns past it (docs/adr/0055-reflow-arg-help-text.md).
       let rendered = renderColumn(@[row("-a, --alpha", "one two three four five " &
         "six seven eight nine ten eleven twelve")], width = 40, colWidth = 11)
       check rendered.splitLines.allIt(it.len <= 40)
