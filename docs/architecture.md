@@ -1043,12 +1043,10 @@ can't span blocks. `wrapProse` is the second stage: it reads each line's
 indent and a marker from its leading `srPlain` span (a backticked `- x` is
 `srLiteral`, so it can't pass for one), and wraps it hanging under its
 text. `HelpContext.prose` is the two stages back to back, with the ticks
-resolved between them. `renderParagraph` calls
-`wrapProse` directly. `renderColumn` calls the private `layoutProse`
-behind it, which also marks each line `aligned` unless it's a paragraph's
-wrap continuation, so each block starts at the text column even while the
-variants are still wrapping. A blank line in a row stays empty in both,
-with no margin. No line `wrapProse` yields
+resolved between them. `renderParagraph` and `renderColumn` both call
+`wrapProse`; in Column Style each line starts at the text column, even
+while the variants are still wrapping. A blank line in a row stays empty
+in both, with no margin. No line `wrapProse` yields
 contains a newline, so no span a styler sees does either.
 
 Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
@@ -1081,9 +1079,10 @@ line-by-line so the help text stays inline with the first variants line.
 Each bucket's row starts at the 2-space `Margin` — buckets are peers
 (different variants of the same `Arg`), not a wrap continuation of one
 another. A variants wrap continuation starts at the deeper 4-space
-`ContinuationIndent`, and so does a paragraph's text wrap continuation,
-2 columns right of the text column; each later text block, and a list
-item's or indented line's continuation, starts at the text column itself.
+`ContinuationIndent`, but every text line starts at the text column
+itself: a paragraph's wrap continuation, each later block, and a list
+item's or indented line's continuation (which `wrapProse` has already
+hung) alike.
 
 **Paragraph Style** (`formatParagraph`) instead puts each row's variants on
 their own `Margin`-indented lines, wrapped to the full width, with its text

@@ -125,16 +125,20 @@ proc blockLines(t: StyledText): seq[StyledText] =
       if i > 0: result.add StyledText()
       result[^1].add Span(role: span.role, text: part)
 
-proc layoutProse(t: StyledText, width: int):
-    seq[tuple[line: StyledText, aligned: bool]] =
-  ## `wrapProse`'s lines, each marked `aligned` unless it is a wrap
-  ## continuation that doesn't hang: the first line of a block, a blank line,
-  ## and a list item's or indented line's continuation all are.
+proc wrapProse*(t: StyledText, width: int): seq[StyledText] =
+  ## Lays out `t` (a `Row.text`, say) as wrapped lines, one `StyledText` per
+  ## line, none containing `\n`; empty if `t` is. Each of `t`'s lines is a
+  ## block: its leading spaces are its indent, followed in the same `srPlain`
+  ## span by an optional list marker (`- `, `* `, `1. `), and its continuation
+  ## lines hang under its text. A blank line comes out empty. A block with no
+  ## indent or marker wraps at exactly `width`; hung text gets at least 20
+  ## columns (or `width`, if narrower), so a deep indent overflows instead of
+  ## looping. See `docs/adr/0055-reflow-arg-help-text.md`.
   if t.len == 0:
     return
   for line in t.blockLines:
     if line.len == 0:
-      result.add (StyledText(), true)
+      result.add StyledText()
       continue
     # Only an `srPlain` marker counts: "`-`" is a literal, not an item.
     let
@@ -147,22 +151,11 @@ proc layoutProse(t: StyledText, width: int):
       if body.spans[0].text.len == 0:
         body.spans.delete 0
     if body.len == 0:
-      result.add (styled(lead.strip(leading = false)), true)
+      result.add styled(lead.strip(leading = false))
       continue
     for i, wrapped in body.wrap(max(width - hang, min(width, 20))):
       let prefix = if i == 0: lead[0 ..< hang] else: ' '.repeat(hang)
-      result.add (styled(prefix) & wrapped, i == 0 or hang > 0)
-
-proc wrapProse*(t: StyledText, width: int): seq[StyledText] =
-  ## Lays out `t` (a `Row.text`, say) as wrapped lines, one `StyledText` per
-  ## line, none containing `\n`; empty if `t` is. Each of `t`'s lines is a
-  ## block: its leading spaces are its indent, followed in the same `srPlain`
-  ## span by an optional list marker (`- `, `* `, `1. `), and its continuation
-  ## lines hang under its text. A blank line comes out empty. A block with no
-  ## indent or marker wraps at exactly `width`; hung text gets at least 20
-  ## columns (or `width`, if narrower), so a deep indent overflows instead of
-  ## looping. See `docs/adr/0055-reflow-arg-help-text.md`.
-  t.layoutProse(width).mapIt(it.line)
+      result.add styled(prefix) & wrapped
 
 proc oneLine(t: StyledText): StyledText =
   ## `t` with each whitespace run containing a newline collapsed to a space,
@@ -307,27 +300,24 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = ni
   ## Wraps + zips `rows` into the table's text block: variants wrap at
   ## `colWidth`, text wraps at `max(width - (2 + colWidth + 2), 20)`, zipped
   ## line-by-line. A row's first line gets `Margin`, and later variant lines
-  ## `ContinuationIndent`. Text starts at the text column, or 2 columns in for
-  ## a paragraph's wrap continuation (`layoutProse`'s `aligned`). Rows join
+  ## `ContinuationIndent`. Every text line starts at the text column. Rows join
   ## with "\n".
   let
     helpWidth = max(width - (colWidth + 4), 20)
     textColumn = Margin.len + colWidth + Margin.len
-    hang = ContinuationIndent.len - Margin.len
   var lines: seq[StyledText]
   for row in rows:
     let
       variantLines = row.variants.wrap(colWidth)
-      textLines = row.text.layoutProse(helpWidth)
+      textLines = row.text.wrapProse(helpWidth)
     for j in 0 ..< max(variantLines.len, textLines.len):
       var line =
         if j == 0: styled(Margin) & variantLines[0]
         elif j < variantLines.len: styled(ContinuationIndent) & variantLines[j]
         else: StyledText()
-      if j < textLines.len and textLines[j].line.len > 0:
-        let column = textColumn + (if textLines[j].aligned: 0 else: hang)
-        line = line.alignLeft(max(column, line.len + Margin.len)) &
-          textLines[j].line
+      if j < textLines.len and textLines[j].len > 0:
+        line = line.alignLeft(max(textColumn, line.len + Margin.len)) &
+          textLines[j]
       lines.add line
   lines.render(styler)
 
@@ -813,10 +803,10 @@ when isMainModule:
         expected  = "  -v, --verbose"
       check renderColumn(@[row], width = 80, colWidth = 20) == expected
 
-    test "long help text wraps in its own column, indented deeper than the margin":
+    test "long help text wraps in its own column, continuing at the text column":
       let
         row = row("-x", "This is a moderately long help description")
-        expected = "  -x     This is a moderately\n           long help description"
+        expected = "  -x     This is a moderately\n         long help description"
         rendered = renderColumn(@[row], width = 30, colWidth = 5)
       check rendered == expected
 
@@ -831,7 +821,7 @@ when isMainModule:
     test "a help text word longer than helpWidth is split":
       let
         row = row("-x", "aVeryLongSingleWordThatExceedsTwentyCharacters")
-        expected = "  -x  aVeryLongSingleWordThatE\n        xceedsTwentyCharacters"
+        expected = "  -x  aVeryLongSingleWordThatE\n      xceedsTwentyCharacters"
         rendered = renderColumn(@[row], width = 30, colWidth = 2)
       check rendered == expected
 
@@ -842,7 +832,7 @@ when isMainModule:
           help: "This is some help text that will need to be wrapped")
         expected = """
           -v, --verbose,        This is some help text that will
-            --quiet, --boost,     need to be wrapped
+            --quiet, --boost,   need to be wrapped
             --dampen""".dedent.indent(2)
         rendered = renderColumn(arg.rows(), width = 60, colWidth = 20)
 
@@ -855,7 +845,7 @@ when isMainModule:
           row("-q", "Be quiet")]
         expected = """
           -x     This is a moderately
-                   long help description
+                 long help description
           -q     Be quiet""".dedent.indent(2)
         rendered = renderColumn(rows, width = 30, colWidth = 5)
 
@@ -873,10 +863,16 @@ when isMainModule:
         "          an indented line that wraps at\n" &
         "          its indent"
 
-    test "a paragraph's wrap continuations still hang":
+    test "a paragraph's wrap continuations start at the text column":
       check renderColumn(@[row("-m", "One.\n\nA second paragraph that wraps")],
           width = 30, colWidth = 2) ==
-        "  -m  One.\n\n      A second paragraph that\n        wraps"
+        "  -m  One.\n\n      A second paragraph that\n      wraps"
+
+    test "a paragraph's wrap continuations stay within the width":
+      # Regression: they used to hang 2 columns past it.
+      let rendered = renderColumn(@[row("-a, --alpha", "one two three four five " &
+        "six seven eight nine ten eleven twelve")], width = 40, colWidth = 11)
+      check rendered.splitLines.allIt(it.len <= 40)
 
     test "a block starts at the text column while the variants still wrap":
       check renderColumn(@[row("-m, --mode, --method", "One.\n\nModes:\n" &
