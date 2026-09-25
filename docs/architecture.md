@@ -11,7 +11,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `style.nim` — and everything else layers on top:
-`flagclamp` → `lexer` → `backend`/`validators` →
+`console`/`flagclamp` → `lexer` → `backend`/`validators` →
 `argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
 `precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
 
@@ -24,6 +24,15 @@ and `lexer.nim` raises `SpecDefect` while staying free of everything above
 it. The two modules whose own API would be incomplete without one
 (`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
 re-export it, so importing either alone still names what it raises.
+
+`console.nim` answers what the terminal can do: how wide output can be
+(`detectWidth`, and `DefaultWidth`/`DefaultMaxWidth`) and whether it can
+take colour (`autoStyler`). Each rule is a pure decider taking its
+environment as parameters (`chooseWidth`, `wantsColor`) beside a thin probe
+of the real process, and the one `winlean` import lives here. It imports
+only `style`, for `ansiStyler(defaultTheme)`; `backend` re-exports its
+width names, so `newSpecSettings`'s defaults read them where they always
+have.
 
 `help.nim` sits directly above `backend` because that is as high as it needs
 to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display
@@ -1038,7 +1047,7 @@ them and styled output doesn't (ADR 0057). `plainMarkup` is the plain
 form for prose that never reaches a styler: completion descriptions,
 `ValidationError` messages, and `help()`.
 
-The styler itself is `spec.settings.style`. `autoStyler` (`style.nim`)
+The styler itself is `spec.settings.style`. `autoStyler` (`console.nim`)
 decides it once, at `newSpecSettings` time. Its env-var rule is the pure
 `wantsColor(env, ttys)`, so tests can drive it without a terminal; on
 Windows, `enableVirtualTerminal` sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
