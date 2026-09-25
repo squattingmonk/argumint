@@ -384,13 +384,6 @@ proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.
   raise r.failure(ParseError)
 
-proc quitMessage*[E: ParseError | ValidationError](e: ref E, styler: Styler): string =
-  ## What `parseOrQuit*` prints for `e`: a `srError` label, then
-  ## `e.styledMsg`, or `e.msg` if that's empty (raised outside argumint).
-  let label = when E is ParseError: "Parsing error:" else: "Validation error:"
-  let body = if e.styledMsg.len > 0: e.styledMsg else: e.msg
-  styled(srError, label).render(styler) & "\n" & body
-
 when isMainModule:
   ## Direct tests for failure reporting -- ADR 0035 (parse-failure reporting),
   ## 0036 (rank by Reach), 0037 (missing-argument suppression), 0038 (name the
@@ -771,13 +764,6 @@ when isMainModule:
       let e = report(nil).failure(ValidationError)
       check e.styledMsg == e.msg
 
-    test "quitMessage labels a failure as srError, above the styled message":
-      let r = report(tagged)
-      check r.failure(ParseError).quitMessage(tagged) ==
-        "{srError:Parsing error:}\n" & r.failureMessage(tagged)
-      check r.failure(ValidationError).quitMessage(tagged) ==
-        "{srError:Validation error:}\n" & r.failureMessage(tagged)
-
     test "styledMsg styles the complaints; msg is their plain text":
       let spec = newSpec((ship: flag("--ship"),), usage = "[options]",
         settings = newSpecSettings(style = tagged))
@@ -789,10 +775,6 @@ when isMainModule:
           "  - unrecognized option: --shp; did you mean --ship?\n")
         check e.styledMsg.startsWith(
           "  - unrecognized option: {srInvalid:--shp}; did you mean {srOption:--ship}?\n")
-
-    test "quitMessage falls back to msg when there's no styledMsg":
-      let e = newException(ParseError, "plain")
-      check e.quitMessage(nil) == "Parsing error:\nplain"
 
   suite "complaint roles":
     # Roles are set where each complaint is built, and a typed token is

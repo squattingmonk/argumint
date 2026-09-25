@@ -16,9 +16,9 @@
 
 {.experimental: "openSym".}
 
-import std/[os, options, pegs, sugar, strformat, strutils, terminal]
+import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[argtypes, backend, complaints, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
+import ./argumint/[argtypes, backend, completion, configsource, dot, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -681,6 +681,12 @@ proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ## ```
   args.len > 0 and args[0] == "__complete"
 
+proc quitWith(e: ref Exception, styler: Styler) {.noreturn.} =
+  ## Prints `e`'s `outcome` and quits with its code.
+  let o = outcome(e, styler)
+  (if o.toStderr: stderr else: stdout).writeLine(o.text)
+  quit(o.code)
+
 proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command = appName()) =
   ## Like `parse*(Spec)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
@@ -694,14 +700,8 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   try:
     spec.parse(args, command)
-  except ParseError as e:
-    quit(e.quitMessage(spec.settings.style))
-  except ValidationError as e:
-    quit(e.quitMessage(spec.settings.style))
-  except MessageError as e:
-    # stdout, not stderr like quit() -- see docs/adr/0050-message-output-to-stdout.md.
-    echo(if e.styledMsg.len > 0: e.styledMsg else: e.msg)
-    quit(QuitSuccess)
+  except ParseError, ValidationError, MessageError:
+    quitWith(getCurrentException(), spec.settings.style)
 
 proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: SpecSettings,
     before, action, after: proc(spec: S, info: HookInfo)): Spec =
@@ -754,7 +754,7 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     spec.buildAndBind(usage, prolog, epilog, settings, before, action, after)
       .parseOrQuit(args, command)
   except SpecDefect as e:
-    quit(fmt"Error constructing spec: {e.msg}")
+    quitWith(e, settings.style)
 
 proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings(),
@@ -848,7 +848,7 @@ proc parsedOrQuit*[S: tuple](build: proc (): S, usage = "", prolog = "", epilog 
     result.buildAndBind(usage, prolog, epilog, settings, before, action, after)
       .parseOrQuit(args, command)
   except SpecDefect as e:
-    quit(fmt"Error constructing spec: {e.msg}")
+    quitWith(e, settings.style)
 
 proc dot*(spec: Spec): string =
   ## Renders `spec`'s FSM as a Graphviz dot graph, useful for debugging or
@@ -862,7 +862,7 @@ proc dot*(spec: tuple, usage = "", prolog = "", epilog = ""): string =
   try:
     newSpec(spec, usage, prolog, epilog).dot
   except SpecDefect as e:
-    quit(fmt"Error constructing spec: {e.msg}")
+    quitWith(e, nil)
 
 proc completionScript*(spec: Spec, shell: Shell, binaryName = appName()): string =
   ## Returns a shell-completion script for `shell` that completes

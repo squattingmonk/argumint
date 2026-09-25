@@ -272,6 +272,9 @@ suite "`Spec` is an opaque handle":
     check not declared(metavars)
     check not declared(displayTokens)
     check not declared(quitMessage)
+    check not declared(outcome)
+    check not declared(Outcome)
+    check not declared(quitWith)
     check not declared(failure)
 
   test "`settings` and the hooks stay public":
