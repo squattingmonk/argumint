@@ -1737,18 +1737,19 @@ width and styler already applied. To write one, `import argumint/help`
 directly for the context's pieces, the same ones
 `formatColumn`/`formatParagraph` are built from: `groups` (each group's
 visible args, in display order), `rows`/`Row` (an arg's variants and
-resolved help text), `prose` (a prolog or epilog re-flowed and wrapped, as
-described above), `usage` (the wrapped usage lines, without a label),
-`heading`, and `markup` for styling your own prose; plus `spec` for the
+resolved help text), `prose` (a prolog or epilog re-flowed, as described
+above), `usage` (the wrapped usage lines, without a label), `heading`, and
+`markup` for styling your own prose; plus `spec` for the
 `prolog`/`epilog`/`usage` accessors and `joinSections` (joins the non-empty
-parts with a blank line between each). Rows, prose and usage lines are
-`StyledText`, a sequence of spans that each carry a role (option,
+parts with a blank line between each). Variants, usage lines and headings
+are `StyledText`, a sequence of spans that each carry a role (option,
 positional, header, ...): lay them out with `wrap` and `len`, then turn
 each line into a string with `ctx.render`, which colours it as the
-built-ins do, or plain when the spec is unstyled. Each line of a `Row.text`
-is one block (a paragraph, list item, indented line, or blank line), so
-wrap it with `wrapProse`, which hangs each block's continuation lines under
-its text:
+built-ins do, or plain when the spec is unstyled. A `Row.text` and what
+`prose` returns are `Prose`: help text re-flowed into paragraphs, list
+items and indented lines. `wrap` is the only way to lay it out, giving
+`StyledText` lines with each block's continuation lines hung under its
+text:
 
 ```nim
 import std/strutils
@@ -1760,11 +1761,13 @@ proc formatShouty(ctx: HelpContext): string =
     var lines = @[name.toUpperAscii & ":"]
     for arg in args:
       for row in ctx.rows(arg):
-        lines.add "  " & ctx.render(row.variants) & " -- " & ctx.render(row.text)
+        lines.add "  " & ctx.render(row.variants)
+        for line in row.text.wrap(ctx.width - 4):
+          lines.add "    " & ctx.render(line)
     groups.add lines.join("\n")
-  joinSections(ctx.render(ctx.prose(ctx.spec.prolog)),
+  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
     "USAGE:\n" & ctx.render(ctx.usage),
-    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog)))
+    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
 ```
 
 These stay reachable only through that direct import rather than a plain

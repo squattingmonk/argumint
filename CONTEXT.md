@@ -307,6 +307,16 @@ spans of their own, dropped in styled output and kept in plain output,
 so the text reads the same either way.
 _Avoid_: markdown (it isn't), inline code
 
+**Prose**:
+Help Text, a prolog, or an epilog after re-flow: its source indentation
+removed and its lines joined into blocks -- paragraphs, list items,
+indented lines, and blank lines -- with Help Markup applied inside them.
+A Help Formatter lays Prose out only by wrapping it to a width, which
+keeps each block's shape (a list item's continuation hangs under its
+text); the blocks themselves aren't handed out. Each of an Arg's rows
+carries its text as Prose.
+_Avoid_: reflowed text, prose block (that's one block, internal)
+
 **After Hook**:
 An optional callback carried by a Spec, fired once that Spec's own
 dispatch — its Before Hook, and Action or whatever Command it routed

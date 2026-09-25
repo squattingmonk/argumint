@@ -10,6 +10,10 @@ mattered.
 
 ## `Row.text` keeps its type
 
+> **Superseded by [ADR 0060](0060-prose-type.md)**: `Row.text` is now a
+> `Prose`, laid out with `wrap`, and `wrapProse` is gone. The block rule
+> below is unchanged.
+
 `Row.text` is still one `StyledText`, but its newlines now mean something.
 Each line is one block (a paragraph, a list item, an indented line, or a
 blank line), with its indent and marker written out as leading `srPlain`

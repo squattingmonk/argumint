@@ -3,11 +3,9 @@
 ## per span only at `render` time, so it can emit anything without skewing
 ## widths -- see `docs/architecture.md`. Also home to the built-in ANSI
 ## `Theme`, the `autoStyler` marker, and Help Markup -- see
-## `docs/adr/0051-help-and-error-styling.md` -- plus the plain-text helpers
-## help's re-flow and completion's descriptions share (`dedentLines`,
-## `firstParagraph`), kept here because `completion` doesn't import `help`,
-## and the Styled Text helpers help rows and parse-error complaints share
-## (`styledOption`, `join`), since `complaints` builds its own text.
+## `docs/adr/0051-help-and-error-styling.md` -- plus the Styled Text helpers
+## help rows and parse-error complaints share (`styledOption`, `join`), since
+## `complaints` builds its own text.
 ##
 ## A leaf module with no local imports.
 
@@ -370,41 +368,6 @@ proc plainMarkup*(prose: string): string =
   ## descriptions and validation errors.
   markup(prose).plain
 
-proc expandIndent(line: string): string =
-  ## `line` with the tabs in its indentation expanded to 8-column tab stops.
-  var i = 0
-  while i < line.len and line[i] in {' ', '\t'}:
-    result.add ' '.repeat(if line[i] == '\t': 8 - result.len mod 8 else: 1)
-    inc i
-  result.add line[i .. ^1]
-
-proc dedentLines*(text: string): seq[string] =
-  ## `text`'s lines with the indentation they share removed (`dedent`, after
-  ## expanding tabs), trailing whitespace stripped, and leading and trailing
-  ## blank lines dropped. A `"""` string starting on the line after its
-  ## quotes loses its source indentation this way -- see
-  ## `docs/adr/0054-reflow-prolog-and-epilog.md`. Shared by help's re-flow
-  ## and `firstParagraph`.
-  var expanded: seq[string]
-  for line in text.splitLines:
-    expanded.add line.expandIndent
-  for line in expanded.join("\n").dedent.splitLines:
-    result.add line.strip(leading = false)
-  while result.len > 0 and result[0].len == 0: result.delete 0
-  while result.len > 0 and result[^1].len == 0: result.setLen result.len - 1
-
-proc firstParagraph*(text: string): string =
-  ## `text`'s first paragraph on one line, for a completion description:
-  ## dedented as `dedentLines` does, cut at the first blank line, its lines
-  ## stripped and joined with a space, and any tab turned into a space. Help
-  ## Markup is left for the caller. See
-  ## `docs/adr/0022-completion-candidate-help-text.md`.
-  for line in text.dedentLines:
-    if line.len == 0:
-      break
-    result.addSep " "
-    result.add line.strip.replace('\t', ' ')
-
 when isMainModule:
   import std/[sequtils, unittest]
 
@@ -625,31 +588,3 @@ when isMainModule:
   suite "plainMarkup":
     test "keeps ticks and collapses escapes":
       check plainMarkup("use `-x`, not ``y``") == "use `-x`, not `y`"
-
-  suite "firstParagraph":
-    test "a single line is unchanged":
-      check firstParagraph("Logging verbosity") == "Logging verbosity"
-
-    test "empty or all-blank text is empty":
-      check firstParagraph("") == ""
-      check firstParagraph("\n  \n\n") == ""
-
-    test "the first paragraph's lines join with a space":
-      check firstParagraph("First line\nsecond line\n\nMore.") == "First line second line"
-
-    test "a paragraph running into a list keeps the list on the line":
-      check firstParagraph("Modes:\n- fast\n- safe") == "Modes: - fast - safe"
-
-    test "source indentation and leading blank lines are dropped":
-      check firstParagraph("""
-
-        Picks a mode.
-
-        Modes:
-        - fast""") == "Picks a mode."
-
-    test "surrounding whitespace is trimmed, inner runs kept":
-      check firstParagraph("  Just  one  line  ") == "Just  one  line"
-
-    test "a tab becomes a space":
-      check firstParagraph("has\ta tab") == "has a tab"
