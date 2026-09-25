@@ -18,7 +18,7 @@
 
 import std/[os, options, pegs, sugar, strformat, strutils, terminal]
 
-import ./argumint/[argtypes, backend, complaints, completion, configsource, console, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
+import ./argumint/[argtypes, backend, complaints, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -81,7 +81,8 @@ export backend.DefaultWidth, backend.DefaultMaxVariantsWidth,
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
 # PEGs) stays out; `tests/test_public_api.nim` holds that line.
 export backend.newSpecSettings, backend.env, backend.toEnvSource, backend.appName,
-  backend.detectWidth
+  backend.detectWidth, backend.width, backend.`width=`, backend.style,
+  backend.`style=`
 export backend.subject
 export specbuild.newSpec
 
@@ -126,7 +127,7 @@ export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
 
 # Styling configuration; Styled Text itself needs `argumint/help` (ADR 0051).
 export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
-  style.defaultTheme, style.ansiStyler, console.autoStyler
+  style.defaultTheme, style.ansiStyler, style.autoStyler
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------

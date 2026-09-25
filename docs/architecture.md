@@ -946,10 +946,12 @@ built-ins share a private `frame` that joins prolog (`ctx.prose`),
 Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
 Help Markup's ticks already resolved for it, so a formatter never decides
 that itself; `ctx.render` renders with the same Styler. `Spec.settings.width` wraps usage lines
-(`usageLines`) and every row's text. Its default is `detectWidth()`
-(`COLUMNS`, else the terminal's width, else `DefaultWidth = 80`), capped at
-`DefaultMaxWidth = 100` (ADR 0052). All the `newSpecSettings` defaults can
-be set with `-d:argumint.*` defines (ADR 0053).
+(`usageLines`) and every row's text. Its default, `0`, is detected on the
+getter's first read by `resolvedWidth` (`console.nim`) and kept (ADR
+0058): `detectWidth()` (`COLUMNS`, else the terminal's width, else
+`DefaultWidth = 80`), capped at `DefaultMaxWidth = 100` (ADR 0052). All
+the `newSpecSettings` defaults can be set with `-d:argumint.*` defines (ADR
+0053).
 `Spec.settings.maxVariantsWidth` (default `DefaultMaxVariantsWidth = 30`)
 caps Column Style's "variants" column (e.g. `-v, --verbose, --quiet`) so
 one arg with many aliases can't inflate the shared column width for every
@@ -1047,8 +1049,9 @@ them and styled output doesn't (ADR 0057). `plainMarkup` is the plain
 form for prose that never reaches a styler: completion descriptions,
 `ValidationError` messages, and `help()`.
 
-The styler itself is `spec.settings.style`. `autoStyler` (`console.nim`)
-decides it once, at `newSpecSettings` time. Its env-var rule is the pure
+The styler itself is `spec.settings.style`. Its default, the `autoStyler`
+marker, is resolved on the getter's first read by `resolvedStyler`
+(`console.nim`) and kept (ADR 0058). Its env-var rule is the pure
 `wantsColor(env, ttys)`, so tests can drive it without a terminal; on
 Windows, `enableVirtualTerminal` sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
 through `winlean`'s `getConsoleMode`/`setConsoleMode`.
@@ -1075,7 +1078,7 @@ wrapped below at `ContinuationIndent`; rows are separated by a blank line
 (`renderParagraph`). There's no shared column, so `maxVariantsWidth`
 doesn't apply.
 
-`width`/`maxVariantsWidth`/`envDelim`/`configSources` live together on
+`width`/`maxVariantsWidth`/`envDelim`/`configSources`/`style` live together on
 `Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via

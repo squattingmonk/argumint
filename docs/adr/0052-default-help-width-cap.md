@@ -4,6 +4,8 @@
 DefaultMaxWidth)`, with `DefaultMaxWidth = 100`. On an 80-column terminal,
 or with nothing detected, help wraps exactly as before. On a wider one it
 stops at 100 columns instead of spreading prose across the whole screen.
+(**Update:** ADR 0058 makes the default `0`, which the `width` getter
+detects on first read as the same `min(detectWidth(), DefaultMaxWidth)`.)
 
 (`detectWidth` now falls back to `DefaultWidth` rather than
 `terminalWidth()`'s own 80, and both constants can be set with `-d:` -- see

@@ -288,7 +288,7 @@ _Avoid_: style, class, token type
 The function that turns each span of Styled Text into printed text by its
 Style Role, e.g. by wrapping it in ANSI colour codes. Set per Spec tree in
 its settings; none means plain text. By default it's chosen by detecting
-whether output goes to a terminal.
+whether output goes to a terminal, the first time output is rendered.
 _Avoid_: formatter (that's a Help Formatter), colorizer
 
 **Theme**:

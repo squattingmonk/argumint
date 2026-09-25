@@ -9,7 +9,8 @@ A **Styler** (`proc (role: StyleRole, text: string): string`, nil for
 plain) turns each span into what's printed. It lives in
 `SpecSettings.style` and cascades into subcommands like `width`. The
 default is `autoStyler()`, resolved once when the settings are built (the
-same precedent as `width = terminalWidth()`).
+same precedent as `width = terminalWidth()`). (**Update:** ADR 0058 makes
+`autoStyler` a marker that the `style` getter resolves on first read.)
 
 `autoStyler` returns `ansiStyler(defaultTheme)` when stdout and stderr are
 both terminals, and nil otherwise. `NO_COLOR` (non-empty) and `TERM=dumb`
