@@ -11,7 +11,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 Three modules are leaves with no local imports — `errors.nim`,
 `configsource.nim`, and `style.nim` — and everything else layers on top:
-`console`/`flagclamp` → `lexer` → `backend`/`validators` →
+`console`/`flagclamp`/`outcome` → `lexer` → `backend`/`validators` →
 `argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
 `precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
 
@@ -33,6 +33,15 @@ decider taking its environment as parameters (`chooseWidth`, `wantsColor`)
 beside a thin probe of the real process, and the one `winlean` import
 lives here. It imports only `style`, for `ansiStyler(defaultTheme)`;
 `backend` re-exports the public width names.
+
+`outcome.nim` is what `parseOrQuit*` does with each exception it catches:
+`outcome(e, styler)` returns the text to print, whether it goes to stderr,
+and the exit code, as an `Outcome`. Failures (`ParseError`,
+`ValidationError`, `SpecDefect`) get an `srError` label and go to stderr
+with `QuitFailure`; messages (`MessageError` and its subtypes) go to stdout
+unlabelled with `QuitSuccess` (ADR 0050). Returning data rather than
+quitting is what makes the rule testable; the facade's private `quitWith`
+prints it and quits. It imports only `errors` and `style`.
 
 `help.nim` sits directly above `backend` because that is as high as it needs
 to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display
@@ -500,7 +509,7 @@ with an optional styler, and `Report.raiseParseFailure` raises it as a
 `ParseError` via `failure`. `failure` builds the exception with a plain
 `msg` and a `styledMsg` rendered with the Spec's styler (the same text if it
 has none), so a caught error's `msg` never holds escape codes (ADR 0051,
-ADR 0059). `parseOrQuit*` prints `quitMessage`: the `srError` label above
+ADR 0059). `parseOrQuit*` prints its `outcome`: the `srError` label above
 `styledMsg`, or `msg` if something outside argumint raised it without one.
 `fsm.parse*` wraps `applyFallbacks`/`parseAllValues` (both converted from a
 bare `seq[Complaint]` accumulator to `var Report`, so the fallback tiers
