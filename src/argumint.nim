@@ -119,9 +119,10 @@ export backend.envSource, backend.configKey, backend.envName
 export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
 
 # Enough to pick a built-in Help Formatter or declare Long-Form Help Text;
-# writing your own formatter needs `import argumint/help` (ADR 0048/0049).
+# writing your own formatter needs `import argumint/help` (ADR 0048/0049/0057).
 export backend.HelpText, backend.toHelpText
-export help.HelpArg, help.HelpFormatter, help.formatColumn, help.formatParagraph
+export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
+  help.formatParagraph
 
 # Styling configuration; Styled Text itself needs `argumint/help` (ADR 0051).
 export style.StyleRole, style.Styler, style.TextStyle, style.Theme,

@@ -1730,45 +1730,46 @@ See `docs/adr/0054-reflow-prolog-and-epilog.md` for the rule and
 `docs/adr/0055-reflow-arg-help-text.md` for how rows carry it.
 
 A `HelpFormatter` renders the whole message, so a custom one controls
-section order and labels as well as how each arg is laid out. To write one,
-`import argumint/help` directly for the same pieces
-`formatColumn`/`formatParagraph` are built from: `helpGroups` (each group's
+section order and labels as well as how each arg is laid out. It's a proc
+taking a `HelpContext`: everything one render of one Spec needs, with its
+width and styler already applied. To write one, `import argumint/help`
+directly for the context's pieces, the same ones
+`formatColumn`/`formatParagraph` are built from: `groups` (each group's
 visible args, in display order), `rows`/`Row` (an arg's variants and
-resolved help text), the `prolog`/`epilog`/`usage` accessors, `usageLines`
-(the wrapped usage lines, without a label), `proseLines` (a prolog or
-epilog re-flowed and wrapped, as described above), and `joinSections`
-(joins the non-empty parts with a blank line between each). Rows and usage
-lines are `StyledText`, a sequence of spans that each carry a role
-(option, positional, header, ...): lay them out with `wrap` and `len`, then
-turn each line into a string with `render`. Each line of a `Row.text` is
-one block (a paragraph, list item, indented line, or blank line), so wrap
-it with `wrapProse`, which hangs each block's continuation lines under its
-text. Pass `render` the spec's `settings.style` to colour your output as
-the built-ins do, and use `markup` to style your own prose; a formatter
-that doesn't renders plain:
+resolved help text), `prose` (a prolog or epilog re-flowed and wrapped, as
+described above), `usage` (the wrapped usage lines, without a label),
+`heading`, and `markup` for styling your own prose; plus `spec` for the
+`prolog`/`epilog`/`usage` accessors and `joinSections` (joins the non-empty
+parts with a blank line between each). Rows, prose and usage lines are
+`StyledText`, a sequence of spans that each carry a role (option,
+positional, header, ...): lay them out with `wrap` and `len`, then turn
+each line into a string with `ctx.render`, which colours it as the
+built-ins do, or plain when the spec is unstyled. Each line of a `Row.text`
+is one block (a paragraph, list item, indented line, or blank line), so
+wrap it with `wrapProse`, which hangs each block's continuation lines under
+its text:
 
 ```nim
 import std/strutils
 import argumint, argumint/help
 
-proc formatShouty(spec: Spec, command: string): string =
+proc formatShouty(ctx: HelpContext): string =
   var groups: seq[string]
-  for name, args in spec.helpGroups:
+  for name, args in ctx.groups:
     var lines = @[name.toUpperAscii & ":"]
     for arg in args:
-      for row in arg.rows:
-        lines.add "  " & row.variants.render & " -- " & row.text.render
+      for row in ctx.rows(arg):
+        lines.add "  " & ctx.render(row.variants) & " -- " & ctx.render(row.text)
     groups.add lines.join("\n")
-  let
-    width = spec.settings.width
-    usage = "USAGE:\n" & spec.usage.usageLines(command, width).render
-  joinSections(spec.prolog.proseLines(width).render, usage,
-    joinSections(groups), spec.epilog.proseLines(width).render)
+  joinSections(ctx.render(ctx.prose(ctx.spec.prolog)),
+    "USAGE:\n" & ctx.render(ctx.usage),
+    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog)))
 ```
 
 These stay reachable only through that direct import rather than a plain
 `import argumint`, keeping this lower-level surface opt-in for anyone who
-doesn't need it. A parse error's usage block doesn't go through a
+doesn't need it (the `HelpContext` type itself is nameable from either, as
+`HelpFormatter` is). A parse error's usage block doesn't go through a
 formatter; it always uses the standard `Usage:` layout.
 
 #### Styling Help and Errors

@@ -927,10 +927,15 @@ named value, which a Positional Argument doesn't have) take an `env` param
 naming an environment variable — see the Runtime Matching section above for
 the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 
-A Help Formatter (`help.nim`) renders the whole help message: `genHelp`
-just calls it, and both built-ins join prolog, `"Usage:\n"` plus the
-rendered `usageLines`, one block per `helpGroups` entry, and epilog with
-`joinSections` (ADR 0048). `Spec.settings.width` wraps usage lines
+A Help Formatter (`help.nim`) renders the whole help message from a
+`HelpContext` (ADR 0048, ADR 0057). `genHelp` builds the context from the
+Spec's settings (`helpContext`) and calls the formatter with it. Both
+built-ins share a private `frame` that joins prolog (`ctx.prose`),
+`"Usage:\n"` plus `ctx.usage` (the rendered `usageLines`), one block per
+`ctx.groups` entry, and epilog with `joinSections`. The context holds the
+Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
+Help Markup's ticks already resolved for it, so a formatter never decides
+that itself; `ctx.render` renders with the same Styler. `Spec.settings.width` wraps usage lines
 (`usageLines`) and every row's text. Its default is `detectWidth()`
 (`COLUMNS`, else the terminal's width, else `DefaultWidth = 80`), capped at
 `DefaultMaxWidth = 100` (ADR 0052). All the `newSpecSettings` defaults can
@@ -940,8 +945,9 @@ caps Column Style's "variants" column (e.g. `-v, --verbose, --quiet`) so
 one arg with many aliases can't inflate the shared column width for every
 other row. `0` disables the cap.
 
-Each formatter builds an arg's rows via `rows(arg: Arg, help =
-arg.help.short): seq[Row]`, which resolves one `Row` per
+Each formatter builds an arg's rows via `ctx.rows(arg, help =
+arg.help.short): seq[Row]`, which wraps the private `rows` and resolves one
+`Row` per
 `arg.variantsByDesc()` bucket — `variantsByDesc` (alongside `rows`)
 buckets an arg's variants by their `variantDesc` text, one bucket per
 distinct behavior. `Arg.help` is a `HelpText` pair (ADR 0049): Column Style
@@ -1011,7 +1017,8 @@ and each part of the bracket is flattened to one line (`oneLine`) so it
 can't span blocks. `wrapProse` is the second stage: it reads each line's
 indent and a marker from its leading `srPlain` span (a backticked `- x` is
 `srLiteral`, so it can't pass for one), and wraps it hanging under its
-text. `proseLines` is the two stages back to back. `renderParagraph` calls
+text. `HelpContext.prose` is the two stages back to back, with the ticks
+resolved between them. `renderParagraph` calls
 `wrapProse` directly. `renderColumn` calls the private `layoutProse`
 behind it, which also marks each line `aligned` unless it's a paragraph's
 wrap continuation, so each block starts at the text column even while the
@@ -1024,10 +1031,9 @@ only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
 both the lexer's `<name>` and `NAME` forms). It always keeps a code
 span's backticks, as `srTick` spans of their own, so text built far from
 help (`validatorHelp`, `annotations`) needn't know whether there's a
-styler. The built-ins pass `keepTicks = styler.isNil` to `rows` and
-`proseLines`, which drop the ticks with `withoutTicks` before anything
-measures or wraps the text, so plain output keeps them and styled output
-doesn't (#117). `plainMarkup` is the plain
+styler. The Help Context drops them with `withoutTicks` when it has a
+styler, before anything measures or wraps the text, so plain output keeps
+them and styled output doesn't (ADR 0057). `plainMarkup` is the plain
 form for prose that never reaches a styler: completion descriptions,
 `ValidationError` messages, and `help()`.
 
