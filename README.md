@@ -1788,7 +1788,8 @@ without a terminal. On Windows, argumint turns on the console's ANSI
 handling itself.
 
 The styler is `SpecSettings.style`, which defaults to `autoStyler`, the
-detection above, run only when help or an error is first rendered. Pass `nil` for plain text always, or your own look:
+detection above, run only when help or an error is first rendered. Pass
+`nil` for plain text always, or your own look:
 
 ```nim
 var theme = defaultTheme

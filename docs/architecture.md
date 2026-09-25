@@ -26,13 +26,13 @@ it. The two modules whose own API would be incomplete without one
 re-export it, so importing either alone still names what it raises.
 
 `console.nim` answers what the terminal can do: how wide output can be
-(`detectWidth`, and `DefaultWidth`/`DefaultMaxWidth`) and whether it can
-take colour (`autoStyler`). Each rule is a pure decider taking its
-environment as parameters (`chooseWidth`, `wantsColor`) beside a thin probe
-of the real process, and the one `winlean` import lives here. It imports
-only `style`, for `ansiStyler(defaultTheme)`; `backend` re-exports its
-width names, so `newSpecSettings`'s defaults read them where they always
-have.
+(`resolvedWidth`, over `detectWidth` and `DefaultWidth`/`DefaultMaxWidth`)
+and whether it can take colour (`resolvedStyler`), which `SpecSettings`'
+`width`/`style` getters call on first read (ADR 0058). Each rule is a pure
+decider taking its environment as parameters (`chooseWidth`, `wantsColor`)
+beside a thin probe of the real process, and the one `winlean` import
+lives here. It imports only `style`, for `ansiStyler(defaultTheme)`;
+`backend` re-exports the public width names.
 
 `help.nim` sits directly above `backend` because that is as high as it needs
 to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display

@@ -11,6 +11,14 @@ privateAccess(ValueArg[string, false]) ## White-box assertions on the arg
 privateAccess(ValueArg[string, true])  ## types exported by issue #27 -- type
 privateAccess(FlagArg[bool])           ## public, state private.
 
+template restoringEnv(keys: openArray[string], body: untyped) =
+  ## Runs `body`, then puts each of `keys` back as it was, set or not.
+  let saved = @keys.mapIt((it, existsEnv(it), getEnv(it)))
+  try: body
+  finally:
+    for (key, existed, value) in saved:
+      if existed: putEnv(key, value) else: delEnv(key)
+
 type Priority = enum
   low, medium, high
 
@@ -1257,50 +1265,47 @@ suite "Messages":
     check narrowText.splitLines.len > wideText.splitLines.len
 
   test "width defaults to the detected terminal width, via the COLUMNS env var":
-    putEnv("COLUMNS", "90")
-    defer: delEnv("COLUMNS")
-    let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.settings.width == 90
+    restoringEnv(["COLUMNS"]):
+      putEnv("COLUMNS", "90")
+      let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
+      check spec.settings.width == 90
 
   test "a detected width is capped at DefaultMaxWidth":
-    putEnv("COLUMNS", "200")
-    defer: delEnv("COLUMNS")
-    check newSpecSettings().width == DefaultMaxWidth
+    restoringEnv(["COLUMNS"]):
+      putEnv("COLUMNS", "200")
+      check newSpecSettings().width == DefaultMaxWidth
 
   test "an explicit width is never capped":
     check newSpecSettings(width = 150).width == 150
 
   test "detectWidth is the raw detected width, uncapped":
-    putEnv("COLUMNS", "200")
-    defer: delEnv("COLUMNS")
-    check detectWidth() == 200
-    check newSpecSettings(width = detectWidth()).width == 200
+    restoringEnv(["COLUMNS"]):
+      putEnv("COLUMNS", "200")
+      check detectWidth() == 200
+      check newSpecSettings(width = detectWidth()).width == 200
 
   test "width is detected on first read, not when the settings are built":
-    let settings = newSpecSettings()
-    putEnv("COLUMNS", "63")
-    defer: delEnv("COLUMNS")
-    check settings.width == 63
-    putEnv("COLUMNS", "70")
-    check settings.width == 63 # kept
-    settings.width = 0
-    check settings.width == 70 # re-armed
+    restoringEnv(["COLUMNS"]):
+      let settings = newSpecSettings()
+      putEnv("COLUMNS", "63")
+      check settings.width == 63
+      putEnv("COLUMNS", "70")
+      check settings.width == 63 # kept
+      settings.width = 0
+      check settings.width == 70 # re-armed
 
   test "style is resolved on first read, not when the settings are built":
-    let saved = ["FORCE_COLOR", "CLICOLOR_FORCE", "NO_COLOR"].mapIt((it, getEnv(it)))
-    defer:
-      for (key, value) in saved:
-        if value.len > 0: putEnv(key, value) else: delEnv(key)
-    delEnv("FORCE_COLOR")
-    delEnv("CLICOLOR_FORCE")
-    putEnv("NO_COLOR", "1")
-    let settings = newSpecSettings()
-    putEnv("FORCE_COLOR", "1")
-    check not settings.style.isNil
-    delEnv("FORCE_COLOR")
-    check not settings.style.isNil # kept
-    settings.style = autoStyler
-    check settings.style.isNil # re-armed
+    restoringEnv(["FORCE_COLOR", "CLICOLOR_FORCE", "NO_COLOR"]):
+      delEnv("FORCE_COLOR")
+      delEnv("CLICOLOR_FORCE")
+      putEnv("NO_COLOR", "1")
+      let settings = newSpecSettings()
+      putEnv("FORCE_COLOR", "1")
+      check not settings.style.isNil
+      delEnv("FORCE_COLOR")
+      check not settings.style.isNil # kept
+      settings.style = autoStyler
+      check settings.style.isNil # re-armed
 
   test "an explicit style is used as given":
     let styler: Styler = proc (role: StyleRole, text: string): string = "!" & text
@@ -1312,9 +1317,10 @@ suite "Messages":
     check not appName().endsWith(".exe")
 
   test "width defaults to the capped detected width when COLUMNS isn't set":
-    delEnv("COLUMNS")
-    let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
-    check spec.settings.width == min(detectWidth(), DefaultMaxWidth)
+    restoringEnv(["COLUMNS"]):
+      delEnv("COLUMNS")
+      let spec = newSpec((speed: opt("--speed=<speed>", default = 1, help = ""), help: help()))
+      check spec.settings.width == min(detectWidth(), DefaultMaxWidth)
 
   test "chooseWidth: a positive COLUMNS, else the terminal's width, else DefaultWidth":
     check chooseWidth("200", 120) == 200

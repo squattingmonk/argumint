@@ -2,7 +2,7 @@
 ## (wrap, pad, column width) runs on plain span text; a `Styler` is applied
 ## per span only at `render` time, so it can emit anything without skewing
 ## widths -- see `docs/architecture.md`. Also home to the built-in ANSI
-## `Theme` and Help Markup -- see
+## `Theme`, the `autoStyler` marker, and Help Markup -- see
 ## `docs/adr/0051-help-and-error-styling.md` -- plus the plain-text helpers
 ## help's re-flow and completion's descriptions share (`dedentLines`,
 ## `firstParagraph`), kept here because `completion` doesn't import `help`,
