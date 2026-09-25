@@ -2,7 +2,7 @@
 ## (wrap, pad, column width) runs on plain span text; a `Styler` is applied
 ## per span only at `render` time, so it can emit anything without skewing
 ## widths -- see `docs/architecture.md`. Also home to the built-in ANSI
-## `Theme`, `autoStyler`'s terminal detection, and Help Markup -- see
+## `Theme` and Help Markup -- see
 ## `docs/adr/0051-help-and-error-styling.md` -- plus the plain-text helpers
 ## help's re-flow and completion's descriptions share (`dedentLines`,
 ## `firstParagraph`), kept here because `completion` doesn't import `help`,
@@ -11,11 +11,8 @@
 ##
 ## A leaf module with no local imports.
 
-import std/[os, pegs, strutils, terminal]
+import std/[pegs, strutils, terminal]
 import std/unicode except strip # Buggy -- see docs/gotchas.md.
-
-when defined(windows):
-  import std/winlean
 
 type
   StyleRole* = enum
@@ -266,53 +263,6 @@ proc ansiStyler*(theme: Theme): Styler =
       result.add ansiForegroundColorCode(style.fg)
     result.add text
     result.add ansiResetCode
-
-proc wantsColor(env: proc (key: string): string, ttys: bool): bool =
-  ## `autoStyler`'s rule, given how to read an env var and whether stdout and
-  ## stderr are both terminals.
-  let clicolorForce = env("CLICOLOR_FORCE")
-  if env("FORCE_COLOR").len > 0 or clicolorForce notin ["", "0"]:
-    true
-  elif env("NO_COLOR").len > 0 or env("TERM") == "dumb":
-    false
-  else:
-    ttys
-
-when defined(windows):
-  const EnableVirtualTerminalProcessing = 0x0004
-
-  # Declared here because `winlean` only gained them after 2.2.4.
-  proc readConsoleMode(handle: Handle, mode: ptr DWORD): WINBOOL
-    {.stdcall, dynlib: "kernel32", importc: "GetConsoleMode".}
-  proc writeConsoleMode(handle: Handle, mode: DWORD): WINBOOL
-    {.stdcall, dynlib: "kernel32", importc: "SetConsoleMode".}
-
-  proc enableVirtualTerminal(): bool =
-    ## Turns on ANSI escape handling for stdout and stderr; false if either
-    ## isn't a console that supports it.
-    for id in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE]:
-      let handle = getStdHandle(id)
-      var mode: DWORD
-      if readConsoleMode(handle, addr mode) == 0 or
-          writeConsoleMode(handle, mode or EnableVirtualTerminalProcessing) == 0:
-        return false
-    true
-
-proc autoStyler*(): Styler =
-  ## `ansiStyler(defaultTheme)` if output is going to a terminal, else nil
-  ## (plain). Nil when `NO_COLOR` is non-empty, `TERM` is `dumb`, or stdout and
-  ## stderr aren't both terminals -- unless `FORCE_COLOR` is non-empty or
-  ## `CLICOLOR_FORCE` is set to anything but `0`, which force colour on. On
-  ## Windows it also enables the console's ANSI handling, and is nil if that
-  ## fails and colour wasn't forced.
-  let env = proc (key: string): string = getEnv(key)
-  if not wantsColor(env, ttys = stdout.isatty and stderr.isatty):
-    return nil
-  when defined(windows):
-    let forced = wantsColor(env, ttys = false)
-    if not enableVirtualTerminal() and not forced:
-      return nil
-  ansiStyler(defaultTheme)
 
 let
   # Placeholders take the lexer's two argument forms, `<name>` and `NAME`,
@@ -579,55 +529,6 @@ when isMainModule:
       theme[srPlain] = TextStyle(fg: fgRed)
       check ansiStyler(theme)(srPlain, "x") ==
         ansiForegroundColorCode(fgRed) & "x" & ansiResetCode
-
-  suite "wantsColor":
-    proc env(vars: varargs[(string, string)]): proc (key: string): string =
-      let vars = @vars
-      result = proc (key: string): string =
-        for (k, v) in vars:
-          if k == key: return v
-
-    test "colour follows whether both streams are terminals":
-      check wantsColor(env(), ttys = true)
-      check not wantsColor(env(), ttys = false)
-
-    test "a non-empty NO_COLOR turns it off":
-      check not wantsColor(env(("NO_COLOR", "1")), ttys = true)
-      check wantsColor(env(("NO_COLOR", "")), ttys = true)
-
-    test "TERM=dumb turns it off":
-      check not wantsColor(env(("TERM", "dumb")), ttys = true)
-      check wantsColor(env(("TERM", "xterm")), ttys = true)
-
-    test "a non-empty FORCE_COLOR turns it on, even over NO_COLOR":
-      check wantsColor(env(("FORCE_COLOR", "1")), ttys = false)
-      check wantsColor(env(("FORCE_COLOR", "0")), ttys = false)
-      check wantsColor(env(("FORCE_COLOR", "1"), ("NO_COLOR", "1")), ttys = false)
-      check not wantsColor(env(("FORCE_COLOR", "")), ttys = false)
-
-    test "CLICOLOR_FORCE turns it on unless it's 0":
-      check wantsColor(env(("CLICOLOR_FORCE", "1")), ttys = false)
-      check wantsColor(env(("CLICOLOR_FORCE", "1"), ("TERM", "dumb")), ttys = false)
-      check not wantsColor(env(("CLICOLOR_FORCE", "0")), ttys = false)
-
-  suite "autoStyler":
-    test "is nil when output isn't a terminal and colour isn't forced":
-      let forced = getEnv("FORCE_COLOR").len > 0 or
-        getEnv("CLICOLOR_FORCE") notin ["", "0"]
-      if not forced and not (stdout.isatty and stderr.isatty):
-        check autoStyler().isNil
-      else:
-        skip()
-
-    when defined(windows):
-      test "enabling ANSI handling fails without crashing when not a console":
-        if not (stdout.isatty and stderr.isatty):
-          check not enableVirtualTerminal()
-          putEnv("FORCE_COLOR", "1")
-          defer: delEnv("FORCE_COLOR")
-          check not autoStyler().isNil # forced, despite the failure
-        else:
-          skip()
 
   suite "markup":
     proc roles(t: StyledText): seq[(StyleRole, string)] =

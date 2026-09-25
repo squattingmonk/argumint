@@ -629,7 +629,7 @@ or anything else that generates methods inside a template.
   `COLUMNS` entirely -- so `newSpecSettings`'s documented `COLUMNS` override
   silently didn't apply there. It also can't report that nothing was
   detected: its 80 fallback looks like a real 80-column terminal. So
-  `backend.detectWidth()` doesn't call it at all -- it checks `COLUMNS`,
+  `console.detectWidth()` doesn't call it at all -- it checks `COLUMNS`,
   then `terminalWidthIoctl` on the standard streams, then `DefaultWidth`
   (ADR 0053). Found cross-compiling the suite with `-d:mingw` and running it
   under wine.
@@ -637,7 +637,7 @@ or anything else that generates methods inside a template.
 - **`std/winlean` grows between patch releases.** `getConsoleMode`/
   `setConsoleMode` exist in 2.2.12's `winlean` but not 2.2.4's, so code
   that cross-compiled cleanly locally failed only on the 2.2.4 Windows CI
-  leg. `style.nim` declares its own `importc` wrappers under different
+  leg. `console.nim` declares its own `importc` wrappers under different
   names (so they can't clash with newer `winlean`s). Cross-compile Windows
   code with the oldest supported toolchain (`--os:windows --compileOnly`).
 

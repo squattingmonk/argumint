@@ -18,7 +18,7 @@
 
 import std/[os, options, pegs, sugar, strformat, strutils, terminal]
 
-import ./argumint/[argtypes, backend, complaints, completion, configsource, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
+import ./argumint/[argtypes, backend, complaints, completion, configsource, console, dot, errors, flagclamp, fsm, help, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -126,7 +126,7 @@ export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
 
 # Styling configuration; Styled Text itself needs `argumint/help` (ADR 0051).
 export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
-  style.defaultTheme, style.ansiStyler, style.autoStyler
+  style.defaultTheme, style.ansiStyler, console.autoStyler
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------

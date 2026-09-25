@@ -15,12 +15,12 @@
 ## which names an Arg in a parse-failure message. See `docs/architecture.md`
 ## for where that line falls and why.
 
-import std/[hashes, options, os, parseutils, pegs, strformat, strutils, tables, terminal]
+import std/[hashes, options, os, pegs, strformat, strutils, tables]
 
-import ./[configsource, errors, style]
-when defined(windows):
-  import std/winlean
+import ./[configsource, console, errors, style]
 export configsource
+export console.DefaultWidth, console.DefaultMaxWidth, console.chooseWidth,
+  console.detectWidth
 
 
 type
@@ -201,14 +201,6 @@ type
 # Each `Default*` below can be overridden at compile time with its
 # `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
 const
-  DefaultWidth* {.intdefine: "argumint.width".} = 80
-    ## `newSpecSettings`'s default `width` when no terminal width can be
-    ## auto-detected (e.g. piped output with `COLUMNS` unset). Set with
-    ## `-d:argumint.width`.
-  DefaultMaxWidth* {.intdefine: "argumint.maxWidth".} = 100
-    ## The widest `newSpecSettings`'s default `width` gets on a wide
-    ## terminal -- see `docs/adr/0052-default-help-width-cap.md`. Set with
-    ## `-d:argumint.maxWidth`.
   DefaultMaxVariantsWidth* {.intdefine: "argumint.maxVariantsWidth".} = 30
     ## `newSpecSettings`'s default `maxVariantsWidth`. Set with
     ## `-d:argumint.maxVariantsWidth`.
@@ -223,12 +215,7 @@ const
     ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg
     ## `EnvSource.delim` override -- see `splitEnvValue`
 
-# 20 is the floor the help renderers already clamp a width to.
 static:
-  doAssert DefaultWidth >= 20,
-    "-d:argumint.width must be at least 20, got " & $DefaultWidth
-  doAssert DefaultMaxWidth >= 20,
-    "-d:argumint.maxWidth must be at least 20, got " & $DefaultMaxWidth
   doAssert DefaultMaxVariantsWidth >= 0,
     "-d:argumint.maxVariantsWidth must be 0 (unlimited) or more, got " &
     $DefaultMaxVariantsWidth
@@ -289,26 +276,6 @@ proc appName*(): string =
   when ExeExt.len > 0:
     if result.toLowerAscii.endsWith("." & ExeExt):
       result.setLen(result.len - ExeExt.len - 1)
-
-proc chooseWidth*(columns: string, terminal: int): int =
-  ## `detectWidth`'s rule, given `COLUMNS`'s value and the width the standard
-  ## streams report (`0` if none is a terminal): a positive `columns`, else a
-  ## positive `terminal`, else `DefaultWidth`.
-  if parseSaturatedNatural(columns, result) > 0 and result > 0: return
-  if terminal > 0: terminal else: DefaultWidth
-
-proc detectWidth*(): int =
-  ## The terminal's width, uncapped: a positive `COLUMNS`, else the width of
-  ## whichever standard stream is a terminal, else `DefaultWidth`. Doesn't use
-  ## `terminalWidth()`, which reads `COLUMNS` only on POSIX and falls back to
-  ## its own 80 -- see `docs/gotchas.md`.
-  let terminal =
-    when defined(windows):
-      terminalWidthIoctl([getStdHandle(STD_INPUT_HANDLE),
-        getStdHandle(STD_OUTPUT_HANDLE), getStdHandle(STD_ERROR_HANDLE)])
-    else:
-      terminalWidthIoctl([0, 1, 2])
-  chooseWidth(getEnv("COLUMNS"), terminal)
 
 proc newSpecSettings*(width = min(detectWidth(), DefaultMaxWidth),
     maxVariantsWidth = DefaultMaxVariantsWidth,
