@@ -31,6 +31,7 @@ type
     srLiteral
     srUrl
     srAnnotation
+    srTick
     srError
     srInvalid
 
@@ -73,6 +74,7 @@ const defaultTheme*: Theme = [
   srLiteral: TextStyle(fg: fgGreen),
   srUrl: TextStyle(fg: fgBlue, attrs: {styleUnderscore}),
   srAnnotation: TextStyle(attrs: {styleDim}),
+  srTick: TextStyle(),
   srError: TextStyle(fg: fgRed, attrs: {styleBright}),
   srInvalid: TextStyle(fg: fgYellow, attrs: {styleBright})]
   ## The built-in look `autoStyler` uses.
@@ -356,15 +358,16 @@ proc classify(code: string, metavars: openArray[string]): StyledText =
   else:
     result = styled(srLiteral, code)
 
-proc markup*(prose: string, metavars: openArray[string] = [], keepTicks = true): StyledText =
+proc markup*(prose: string, metavars: openArray[string] = []): StyledText =
   ## `prose` with Help Markup applied: each backticked span gets a role based on
   ## its shape -- `-x`/`--xx` is `srOption` (`--xx=<m>` adds `srMetavar`),
   ## `<name>` (or all-caps `NAME`) is `srMetavar` if `name` is in `metavars` and
   ## `srPositional` otherwise (as is one after an option and a space instead of
   ## a separator: `--speed <kn>`), `$NAME` or `%NAME%` is `srEnv`,
-  ## `scheme://...` is `srUrl`, anything else is `srLiteral`. The rest is `srPlain`. Backticks are kept if `keepTicks`
-  ## (for plain output) and dropped otherwise. A doubled backtick is a literal
-  ## one, and so is an unclosed one; markup never fails. See
+  ## `scheme://...` is `srUrl`, anything else is `srLiteral`. The rest is
+  ## `srPlain`, and the backticks themselves are `srTick`, kept for plain
+  ## output and dropped with `withoutTicks` for styled. A doubled backtick is a
+  ## literal one, and so is an unclosed one; markup never fails. See
   ## `docs/adr/0051-help-and-error-styling.md`.
   var
     text = ""
@@ -391,13 +394,18 @@ proc markup*(prose: string, metavars: openArray[string] = [], keepTicks = true):
         text.add '`'
         inc i
         continue
-      if keepTicks:
-        text.add '`'
       result.add styled(text)
+      result.add styled(srTick, "`")
       result.add classify(code, metavars)
-      text = if keepTicks: "`" else: ""
+      result.add styled(srTick, "`")
+      text = ""
       i = j + 1
   result.add styled(text)
+
+proc withoutTicks*(t: StyledText): StyledText =
+  ## `t` without its `srTick` spans: Help Markup as styled output shows it.
+  for span in t.spans:
+    if span.role != srTick: result.add span
 
 proc plainMarkup*(prose: string): string =
   ## `prose` as it reads with no styler: Help Markup's ticks kept, doubled
@@ -629,74 +637,74 @@ when isMainModule:
       check markup("plain text").roles == @[(srPlain, "plain text")]
 
     test "options are srOption":
-      check markup("`-x` or `--long-name`", keepTicks = false).roles == @[
+      check markup("`-x` or `--long-name`").withoutTicks.roles == @[
         (srOption, "-x"), (srPlain, " or "), (srOption, "--long-name")]
 
     test "an option's value placeholder is srMetavar":
-      check markup("`--speed=<kn>`", keepTicks = false).roles ==
+      check markup("`--speed=<kn>`").withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "<kn>")]
-      check markup("`-s:<kn>`", keepTicks = false).roles ==
+      check markup("`-s:<kn>`").withoutTicks.roles ==
         @[(srOption, "-s"), (srPlain, ":"), (srMetavar, "<kn>")]
 
     test "<name> is srPositional unless it's one of the given metavars":
-      check markup("`<kn>`", keepTicks = false).roles == @[(srPositional, "<kn>")]
-      check markup("`<kn>`", @["kn"], keepTicks = false).roles == @[(srMetavar, "<kn>")]
-      check markup("`<name>`", @["kn"], keepTicks = false).roles == @[(srPositional, "<name>")]
+      check markup("`<kn>`").withoutTicks.roles == @[(srPositional, "<kn>")]
+      check markup("`<kn>`", @["kn"]).withoutTicks.roles == @[(srMetavar, "<kn>")]
+      check markup("`<name>`", @["kn"]).withoutTicks.roles == @[(srPositional, "<name>")]
 
     test "a placeholder after an option and a space follows the <name> rule":
-      check markup("`--speed <kn>`", keepTicks = false).roles ==
+      check markup("`--speed <kn>`").withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, " "), (srPositional, "<kn>")]
-      check markup("`--speed <kn>`", @["kn"], keepTicks = false).roles ==
+      check markup("`--speed <kn>`", @["kn"]).withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, " "), (srMetavar, "<kn>")]
 
     test "an option with an = placeholder is always a metavar":
-      check markup("`--speed=<kn>`", @["other"], keepTicks = false).roles ==
+      check markup("`--speed=<kn>`", @["other"]).withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "<kn>")]
 
     test "$NAME and %NAME% are srEnv":
-      check markup("`$HOME`", keepTicks = false).roles == @[(srEnv, "$HOME")]
-      check markup("`%USERPROFILE%`", keepTicks = false).roles ==
+      check markup("`$HOME`").withoutTicks.roles == @[(srEnv, "$HOME")]
+      check markup("`%USERPROFILE%`").withoutTicks.roles ==
         @[(srEnv, "%USERPROFILE%")]
-      check markup("`%HOME`", keepTicks = false).roles == @[(srLiteral, "%HOME")]
+      check markup("`%HOME`").withoutTicks.roles == @[(srLiteral, "%HOME")]
 
     test "scheme://... is srUrl":
-      check markup("`https://example.com/a?b=c`", keepTicks = false).roles ==
+      check markup("`https://example.com/a?b=c`").withoutTicks.roles ==
         @[(srUrl, "https://example.com/a?b=c")]
-      check markup("`git+ssh://host/repo`", keepTicks = false).roles ==
+      check markup("`git+ssh://host/repo`").withoutTicks.roles ==
         @[(srUrl, "git+ssh://host/repo")]
 
     test "a URL needs a scheme, a host part, and no spaces":
       for code in ["example.com", "https://", "://x", "https://a b", "1http://x"]:
-        check markup("`" & code & "`", keepTicks = false).roles == @[(srLiteral, code)]
+        check markup("`" & code & "`").withoutTicks.roles == @[(srLiteral, code)]
 
     test "an all-caps NAME is a placeholder, like <name>":
-      check markup("`FILE`", keepTicks = false).roles == @[(srPositional, "FILE")]
-      check markup("`SHIP-NAME_2`", keepTicks = false).roles ==
+      check markup("`FILE`").withoutTicks.roles == @[(srPositional, "FILE")]
+      check markup("`SHIP-NAME_2`").withoutTicks.roles ==
         @[(srPositional, "SHIP-NAME_2")]
-      check markup("`KN`", @["KN"], keepTicks = false).roles == @[(srMetavar, "KN")]
-      check markup("`--speed=KN`", keepTicks = false).roles ==
+      check markup("`KN`", @["KN"]).withoutTicks.roles == @[(srMetavar, "KN")]
+      check markup("`--speed=KN`").withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, "="), (srMetavar, "KN")]
-      check markup("`--speed KN`", keepTicks = false).roles ==
+      check markup("`--speed KN`").withoutTicks.roles ==
         @[(srOption, "--speed"), (srPlain, " "), (srPositional, "KN")]
 
     test "a caps word must start with a letter and stay caps to be a placeholder":
-      check markup("`42`", keepTicks = false).roles == @[(srLiteral, "42")]
-      check markup("`File`", keepTicks = false).roles == @[(srLiteral, "File")]
-      check markup("`FILE-`", keepTicks = false).roles == @[(srLiteral, "FILE-")]
+      check markup("`42`").withoutTicks.roles == @[(srLiteral, "42")]
+      check markup("`File`").withoutTicks.roles == @[(srLiteral, "File")]
+      check markup("`FILE-`").withoutTicks.roles == @[(srLiteral, "FILE-")]
 
     test "anything else is srLiteral":
-      check markup("`a.txt`", keepTicks = false).roles == @[(srLiteral, "a.txt")]
+      check markup("`a.txt`").withoutTicks.roles == @[(srLiteral, "a.txt")]
 
-    test "ticks are kept as plain text if keepTicks":
-      check markup("use `-x` here").roles ==
-        @[(srPlain, "use `"), (srOption, "-x"), (srPlain, "` here")]
+    test "ticks are srTick spans of their own":
+      check markup("use `-x` here").roles == @[(srPlain, "use "), (srTick, "`"),
+        (srOption, "-x"), (srTick, "`"), (srPlain, " here")]
 
-    test "ticks are dropped if not keepTicks":
-      check markup("use `-x` here", keepTicks = false).plain == "use -x here"
+    test "withoutTicks drops them":
+      check markup("use `-x` here").withoutTicks.plain == "use -x here"
 
     test "a doubled backtick is a literal backtick":
       check markup("a``b").roles == @[(srPlain, "a`b")]
-      check markup("`a``b`", keepTicks = false).roles == @[(srLiteral, "a`b")]
+      check markup("`a``b`").withoutTicks.roles == @[(srLiteral, "a`b")]
 
     test "an unclosed backtick is a literal backtick":
       check markup("a `b").roles == @[(srPlain, "a `b")]

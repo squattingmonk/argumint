@@ -139,12 +139,11 @@ proc any*[T](validators: varargs[Validator[T]]): Validator[T] =
   ## for why this can't just be a default parameter value.
   any[T](validators, "")
 
-proc styledHelp*[T](self: Validator[T], keepTicks = true): StyledText =
+proc styledHelp*[T](self: Validator[T]): StyledText =
   ## `help` as Styled Text: key labels are `srAnnotation`, values
-  ## `srLiteral`, and a `desc` gets Help Markup (`keepTicks` is passed on to
-  ## `markup`).
+  ## `srLiteral`, and a `desc` gets Help Markup.
   if self.desc.len > 0:
-    return markup(self.desc, keepTicks = keepTicks)
+    return markup(self.desc)
   case self.kind
   of vkChoice:
     result = styled(srAnnotation, "choices: ")
@@ -159,7 +158,7 @@ proc styledHelp*[T](self: Validator[T], keepTicks = true): StyledText =
   of vkAll, vkAny:
     for i, v in self.validators:
       if i > 0: result.add styled(if self.kind == vkAll: " and " else: " or ")
-      let h = v.styledHelp(keepTicks)
+      let h = v.styledHelp
       result.add(if v.kind in {vkAll, vkAny}: styled("(") & h & styled(")") else: h)
 
 proc help*[T](self: Validator[T]): string =
@@ -514,14 +513,13 @@ when isMainModule:
         @[(srAnnotation, "range: "), (srLiteral, "0..4")]
 
     test "composites keep each part's roles":
-      check all(range(0..4), any(choice([1]), checkIt[int](it > 0, "`positive`"))).styledHelp(
-        keepTicks = false).roles == @[
+      check all(range(0..4), any(choice([1]), checkIt[int](it > 0, "`positive`"))).styledHelp.withoutTicks.roles == @[
         (srAnnotation, "range: "), (srLiteral, "0..4"), (srPlain, " and ("),
         (srAnnotation, "choices: "), (srLiteral, "1"), (srPlain, " or "),
         (srLiteral, "positive"), (srPlain, ")")]
 
     test "a desc gets Help Markup":
-      check checkIt[int](it > 0, "not `-x`").styledHelp(keepTicks = false).roles ==
+      check checkIt[int](it > 0, "not `-x`").styledHelp.withoutTicks.roles ==
         @[(srPlain, "not "), (srOption, "-x")]
 
     test "help is the plain text, ticks kept":

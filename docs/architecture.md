@@ -650,7 +650,7 @@ flags never show a default.
 empties the value seq and, via `procCall`, the base's provenance -- empty
 *is* the default-applies state (ADR 0008), so there is nothing to restore.
 `defineValueArg[T]` likewise generates a per-arity `method
-validatorHelp`, which calls `self.validator.styledHelp(keepTicks)` when a
+validatorHelp`, which calls `self.validator.styledHelp` when a
 validator is present — `Validator[T].styledHelp` returns a short styled
 description per kind, or every kind's own `desc` with Help Markup applied
 instead when one was given (`Validator[T].desc` is a single field shared by
@@ -662,7 +662,7 @@ combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
 (e.g. `[choices: foo, bar; default: foo]`). `defineFlagArg` (see "Flags"
 below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
 the same extension point, even though a Flag never carries a `Validator` --
-delegating to its `FlagClamp[T].styledHelp(keepTicks)` if one is attached (see "Flag
+delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag
 Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
@@ -1021,10 +1021,13 @@ contains a newline, so no span a styler sees does either.
 
 Help Markup (`markup` in `style.nim`) classifies a backticked span by shape
 only, via `OptionShape`/`PlaceholderShape`/`EnvShape` (placeholders in
-both the lexer's `<name>` and `NAME` forms). `keepTicks` decides
-whether the backticks survive: the built-ins pass `keepTicks =
-styler.isNil` down through `rows`/`annotations`/`validatorHelp`, so plain
-output keeps them and styled output drops them. `plainMarkup` is the plain
+both the lexer's `<name>` and `NAME` forms). It always keeps a code
+span's backticks, as `srTick` spans of their own, so text built far from
+help (`validatorHelp`, `annotations`) needn't know whether there's a
+styler. The built-ins pass `keepTicks = styler.isNil` to `rows` and
+`proseLines`, which drop the ticks with `withoutTicks` before anything
+measures or wraps the text, so plain output keeps them and styled output
+doesn't (#117). `plainMarkup` is the plain
 form for prose that never reaches a styler: completion descriptions,
 `ValidationError` messages, and `help()`.
 

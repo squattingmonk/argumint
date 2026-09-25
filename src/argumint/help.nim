@@ -15,7 +15,7 @@ import ./[backend, errors, lexer, style]
 export backend.prolog, backend.epilog, backend.usage
 export style.StyleRole, style.Span, style.StyledText, style.Styler,
   style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
-  style.render, style.plain, style.markup
+  style.render, style.plain, style.markup, style.withoutTicks
 
 type
   HelpArg* = ref object of MessageArg
@@ -67,8 +67,7 @@ proc listMarker(line: string): string =
   if i > 0 and line.continuesWith(". ", i):
     result = line[0 .. i + 1]
 
-proc proseBlocks(text: string, metavars: openArray[string] = [],
-    keepTicks = true): seq[ProseBlock] =
+proc proseBlocks(text: string, metavars: openArray[string] = []): seq[ProseBlock] =
   ## Stage one of `proseLines` and `rows`: `text` dedented and joined into
   ## paragraphs, list items, and indented lines, each with Help Markup
   ## against `metavars`. See `proseLines` for the rule.
@@ -94,7 +93,7 @@ proc proseBlocks(text: string, metavars: openArray[string] = [],
       pending.add (ProseBlock(kind: pkLine, indent: indent), body)
   for (shape, raw) in pending:
     result.add shape
-    result[^1].text = markup(raw, metavars, keepTicks)
+    result[^1].text = markup(raw, metavars)
 
 proc proseText(blocks: seq[ProseBlock]): StyledText =
   ## `blocks` as one `StyledText`, a line per block, each starting with its
@@ -168,7 +167,8 @@ proc proseLines*(text: string, width = DefaultWidth, keepTicks = true): seq[Styl
   ##
   ## Pass `keepTicks = false` when rendering with a styler, as for `rows`.
   ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.
-  text.proseBlocks(keepTicks = keepTicks).proseText.wrapProse(max(width, 20))
+  let prose = text.proseBlocks.proseText
+  (if keepTicks: prose else: prose.withoutTicks).wrapProse(max(width, 20))
 
 proc oneLine(t: StyledText): StyledText =
   ## `t` with each whitespace run containing a newline collapsed to a space,
@@ -191,17 +191,16 @@ proc oneLine(t: StyledText): StyledText =
       i = j
     result.add Span(role: span.role, text: text)
 
-proc annotations*(arg: Arg, action = "", keepTicks = true): seq[StyledText] =
+proc annotations*(arg: Arg, action = ""): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
   ## configKey, then `action` (non-empty only for a divergent flag's own
   ## `variantDesc`). Key labels are `srAnnotation`; values are `srLiteral`,
-  ## except env's `srEnv` and action's Help Markup. `keepTicks` is passed on
-  ## to `markup` for the action and a validator's `desc`. Each part is one
-  ## line: whitespace around a newline collapses to a space.
+  ## except env's `srEnv` and action's Help Markup, ticks kept. Each part is
+  ## one line: whitespace around a newline collapses to a space.
   proc entry(key: string, value: StyledText): StyledText =
     styled(srAnnotation, key & ": ") & value
 
-  let validatorHelp = arg.validatorHelp(keepTicks)
+  let validatorHelp = arg.validatorHelp
   if validatorHelp.len > 0:
     result.add validatorHelp
   if arg.defaultStr.len > 0:
@@ -212,7 +211,7 @@ proc annotations*(arg: Arg, action = "", keepTicks = true): seq[StyledText] =
   if configKey.len > 0:
     result.add entry("configKey", styled(srLiteral, configKey.join))
   if action.len > 0:
-    result.add entry("action", markup(action, keepTicks = keepTicks))
+    result.add entry("action", markup(action))
   for part in result.mitems:
     part = part.oneLine
 
@@ -281,8 +280,8 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
       divergent = buckets.len > 1 and bucket.desc.len > 0
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
-      annotations = arg.annotations(action, keepTicks)
-    let blocks = proseBlocks(primary, arg.metavars, keepTicks)
+      annotations = arg.annotations(action)
+    let blocks = proseBlocks(primary, arg.metavars)
     var text = blocks.proseText
     if annotations.len > 0:
       if blocks.len > 1:
@@ -298,7 +297,8 @@ proc rows*(arg: Arg, help = arg.help.short, keepTicks = true): seq[Row] =
     for i, name in bucket.names:
       if i > 0: variants.add styled(", ")
       variants.add arg.styledVariant(name)
-    result.add Row(variants: variants, text: text)
+    result.add Row(variants: variants,
+      text: if keepTicks: text else: text.withoutTicks)
 
 proc variantsColWidth(spec: Spec): int =
   ## Widest single `Row.variants` across every arg in `spec`
@@ -485,7 +485,7 @@ when isMainModule:
       cfg: ConfigKey
       descs: Table[string, string]
 
-  method validatorHelp(self: TestArg, keepTicks = true): StyledText =
+  method validatorHelp(self: TestArg): StyledText =
     styled(self.validatorHelpVal)
   method defaultStr(self: TestArg): string = self.defaultStrVal
   method envSource(self: TestArg): Option[EnvSource] = self.env
