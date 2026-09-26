@@ -964,11 +964,10 @@ the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 A Help Formatter (`help.nim`) renders the whole help message from a
 `HelpContext` (ADR 0048, ADR 0057). `genHelp` builds the context from the
 Spec's settings (`helpContext`) and calls the formatter with it. Both
-built-ins share a private `frame` that joins prolog (`ctx.prose`),
-the usage block (`usage.usageBlock`, which `ctx.usage` is without its
-heading), one block per
-`ctx.groups` entry, and epilog with `joinSections`. The context holds the
-Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
+built-ins share a private `frame` that joins prolog (`ctx.prose`), the
+usage block (`usage.usageBlock`, which `ctx.usage` is without its heading),
+one block per `ctx.groups` entry, and epilog with `joinSections`. The
+context holds the Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
 Help Markup's ticks already resolved for it, so a formatter never decides
 that itself; `ctx.render` renders with the same Styler. `Spec.settings.width` wraps usage lines
 (`usageLines`) and every row's text. Its default, `0`, is detected on the

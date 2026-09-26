@@ -909,11 +909,16 @@ suite "Usage Lines":
 
   test "{cmd} lines mix with auto-filled ones, and the usage reads back as written":
     let spec = newSpec((foo: arg("<foo>", help = ""), v: flag("-v", help = ""), help: help()),
-      usage = "{cmd}\n<foo>")
+      usage = "{cmd}\n<foo>", settings = newSpecSettings(style = nil))
     check spec.usage == "{cmd}\n<foo>\n(-h | --help)\n[options]"
     spec.parse(args = @[], command = "prog")
     spec.parse(args = @["-v"], command = "prog")
     spec.parse(args = @["a"], command = "prog")
+    try:
+      spec.parse(args = @["-h"], command = "prog")
+      fail()
+    except HelpError as e:
+      check e.msg.startsWith("Usage:\n  prog\n  prog <foo>\n  prog (-h | --help)")
 
   test "{cmd} anywhere but a Usage Line's start is a SpecDefect":
     for usage in ["<foo> {cmd}", "{cmd}<foo>", "<foo>\n  {cmd}"]:
