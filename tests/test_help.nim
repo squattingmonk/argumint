@@ -74,6 +74,8 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check not declared(toProse)
     check not declared(annotate)
     check not declared(summary)
+    check not declared(splitUsage)
+    check not declared(usageBlock)
     check declared(Prose)
     check declared(joinSections)
     check declared(longOrShort)

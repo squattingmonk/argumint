@@ -9,12 +9,12 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Four modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, `style.nim`, and `usage.nim` — and everything else
-layers on top:
-`console`/`flagclamp`/`outcome`/`prose` → `lexer` → `backend`/`validators` →
-`argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
-`precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
+Three modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, and `style.nim` — and everything else layers on top:
+`console`/`flagclamp`/`outcome`/`prose` → `lexer` →
+`backend`/`usage`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
+`tokens` → `complaints` → `precedence` → `matching` → `completion` →
+`fsm`/`specbuild` → `argumint`.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -53,12 +53,16 @@ are all `backend`'s. A `HelpFormatter` renders the whole message from the
 `HelpContext` `help.nim` hands it (its `groups`, `rows`, `prose`, `usage`,
 and `render`), plus `joinSections` and the `prolog`/`epilog`/`usage`
 accessors `backend` defines -- see `docs/adr/0048-pluggable-help-formatters.md`
-and `docs/adr/0057-help-context.md`. `usageLines` lives in `help.nim`
-itself, not `backend`: it lays out each Usage Line `usage.splitUsage` finds
-(§2), and a usage with none as one bare command line, since an empty usage
-accepts a bare call (#68). `backend` no longer does any wrapping of its own. Its position below `fsm`
-is what makes `Arg.action`'s dependency inversion a choice rather than a
-necessity — see "The write side" below.
+and `docs/adr/0057-help-context.md`. Usage Lines have their own module,
+`usage.nim`, which takes a plain usage string and needs no Spec: it splits
+one into Usage Lines (`splitUsage`, which the parser calls too, §2), lays
+them out (`usageLines`, a usage with none as one bare command line, since
+an empty usage accepts a bare call -- #68), and puts them under their
+`Usage:` heading (`usageBlock`), which help's `frame` and
+`Report.failureMessage` both call. `help.nim` re-exports `usageLines` for
+formatter authors. `backend` does no wrapping of its own. Its position
+below `fsm` is what makes `Arg.action`'s dependency inversion a choice
+rather than a necessity — see "The write side" below.
 
 `specbuild.nim` sits above FSM compilation rather than beside the data model
 in `backend`, because building a `Spec` *means* compiling its usage string
@@ -508,11 +512,10 @@ complaints are the same if their plain text is (`dedupKey`), so dedup and
 grouping never depend on a role.
 
 `formatComplaints` lays out the bullets with no leading newline;
-`Report.failureMessage` appends the usage block via `usageLines`
-(`help.nim`, issue #68 -- `complaints.nim` imports it for exactly this, a new
-dependency below `tokens` in the chain rather than a new layer), rendered
-with an optional styler, and `Report.raiseParseFailure` raises it as a
-`ParseError` via `failure`. `failure` builds the exception with a plain
+`Report.failureMessage` appends the usage block via `usage.usageBlock`,
+the same one help shows (so `complaints.nim` doesn't import `help.nim`),
+rendered with an optional styler, and `Report.raiseParseFailure` raises it
+as a `ParseError` via `failure`. `failure` builds the exception with a plain
 `msg` and a `styledMsg` rendered with the Spec's styler (the same text if it
 has none), so a caught error's `msg` never holds escape codes (ADR 0051,
 ADR 0059). `parseOrQuit*` prints its `outcome`: the `srError` label above
@@ -958,7 +961,8 @@ A Help Formatter (`help.nim`) renders the whole help message from a
 `HelpContext` (ADR 0048, ADR 0057). `genHelp` builds the context from the
 Spec's settings (`helpContext`) and calls the formatter with it. Both
 built-ins share a private `frame` that joins prolog (`ctx.prose`),
-`"Usage:\n"` plus `ctx.usage` (the rendered `usageLines`), one block per
+the usage block (`usage.usageBlock`, which `ctx.usage` is without its
+heading), one block per
 `ctx.groups` entry, and epilog with `joinSections`. The context holds the
 Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
 Help Markup's ticks already resolved for it, so a formatter never decides

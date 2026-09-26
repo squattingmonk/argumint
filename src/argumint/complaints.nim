@@ -8,7 +8,7 @@
 ## `docs/architecture.md` §3b.
 import std/[algorithm, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, errors, help, style, tokens]
+import ./[backend, errors, style, tokens, usage]
 
 type
   Complaint = tuple[kind: string, subject: StyledText, names: bool]
@@ -368,9 +368,8 @@ proc formatComplaints(messages: seq[Complaint]): StyledText =
 proc failureMessage*(r: Report, styler: Styler = nil): string =
   ## The complaint list plus the usage block, rendered with `styler`. See ADR
   ## 0035 and ADR 0056.
-  let usage = r.spec.usage.usageLines(r.command, r.spec.settings.width)
   formatComplaints(r.finalComplaints).render(styler) & "\n\n" &
-    heading("Usage").render(styler) & "\n" & usage.render(styler)
+    r.spec.usage.usageBlock(r.command, r.spec.settings.width).render(styler)
 
 proc failure*[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
   ## An `E` carrying `r.failureMessage` -- what `raiseParseFailure` raises,
