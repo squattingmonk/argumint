@@ -466,8 +466,10 @@ usage string says is legal *is* what gets accepted, and nothing else.
 
 A usage string is one or more **Usage Lines**, separated by newlines, each
 one an independent, complete pattern — the whole string means "the command
-line must match this line, *or* this one, *or* this one." Within a single
-Usage Line, these tokens combine into a grammar:
+line must match this line, *or* this one, *or* this one." An indented line
+continues the Usage Line before it, so a long one can wrap, and blank lines
+are ignored. Within a single Usage Line, these tokens combine into a
+grammar:
 
 | Syntax            | Meaning                                                                                     |
 | ---               | ---                                                                                         |

@@ -8,9 +8,9 @@
 ## `help*` Arg raises -- see
 ## `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
 
-import std/[pegs, sequtils, strformat, strutils, tables]
+import std/[sequtils, strutils, tables]
 
-import ./[backend, errors, lexer, prose, style]
+import ./[backend, errors, lexer, prose, style, usage]
 
 export backend.prolog, backend.epilog, backend.usage
 export style.StyleRole, style.Span, style.StyledText, style.Styler,
@@ -181,16 +181,6 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = ni
       lines.add line
   lines.render(styler)
 
-proc splitUsage(usage: string): seq[string] =
-  ## Splits a usage message into usage lines. Lines prefixed with whitespace are
-  ## treated as belonging to the previous usage line. Blank lines (and even a
-  ## blank usage message) are treated as a blank usage line.
-  for line in usage.splitLines:
-    if result.len > 0 and line.startsWith(peg"\s"):
-      result[^1] = fmt"{result[^1]} {line.strip}".strip
-    else:
-      result.add line.strip
-
 proc styledUsage(line: string): StyledText =
   ## One usage line's tokens with their roles: options (and `[options]`)
   ## `srOption`, commands `srCommand`, arguments `srPositional`, a value
@@ -218,14 +208,15 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
   ## indented usage lines, prefixing each alternative with `command`
   ## (`srProgram`). Lines longer than `width` are wrapped, with continuations
   ## hanging-indented to align under the first token after `command` rather
-  ## than restarting at the left margin. Adds no "Usage:" label -- the caller
-  ## writes its own.
+  ## than restarting at the left margin. A usage with no Usage Lines is one
+  ## bare call. Adds no "Usage:" label -- the caller writes its own.
   let
     prefix = styled(Margin) & styled(srProgram, command) & styled(" ")
     indent = styled(' '.repeat(prefix.len))
     lineWidth = max(width, 20)
+    lines = usage.splitUsage
 
-  for line in usage.splitUsage:
+  for line in (if lines.len == 0: @[""] else: lines):
     for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
       result.add(if i == 0: wrapped else: indent & wrapped)
 
@@ -802,38 +793,6 @@ when isMainModule:
       check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
 
 
-  suite "splitUsage":
-    test "a blank usage message is one blank usage line":
-      check splitUsage("") == @[""]
-
-    test "a usage message with no newlines is one usage line":
-      check splitUsage("<foo> [--bar]") == @["<foo> [--bar]"]
-
-    test "each line in a usage message is another usage line":
-      check splitUsage("<foo>\n--bar") == @["<foo>", "--bar"]
-
-    test "blank lines count as their own usage lines":
-      check splitUsage("<foo>\n") == @["<foo>", ""]
-      check splitUsage("\n<foo>") == @["", "<foo>"]
-
-    test "lines prefixed with whitespace belong to the previous usage line":
-      check splitUsage("<foo>\n  --bar") == @["<foo> --bar"]
-
-    test "if the first line is prefixed with whitespace, it is still its own line":
-      check splitUsage("  <foo>") == @["<foo>"]
-
-    test "leading and trailing whitespace are removed from usage lines":
-      check splitUsage("<foo>  ") == @["<foo>"]
-      check splitUsage("  <foo>") == @["<foo>"]
-
-    test "a blank line can be continued if the following line is prefixed by whitespace":
-      check splitUsage("\n  <foo>") == @["<foo>"]
-      check splitUsage("<foo>\n\n  <bar>") == @["<foo>", "<bar>"]
-
-    test "usage lines containing only whitespace belong to the previous usage line":
-      check splitUsage("<foo>\n  ") == @["<foo>"]
-      check splitUsage("<foo>\n  \n  <bar>") == @["<foo> <bar>"]
-
   suite "usageLines":
     test "no label is added; the caller writes its own":
       check usageLines("<foo>", "prog").render == "  prog <foo>"
@@ -847,12 +806,11 @@ when isMainModule:
     test "multiple usage lines are each prefixed by the command name":
       check usageLines("<foo>\n<bar>", "prog").render == "  prog <foo>\n  prog <bar>"
 
-    test "blank lines get the command name prefix":
-      check usageLines("\n<foo>", "prog").render == "  prog\n  prog <foo>"
-      check usageLines("<foo>\n", "prog").render == "  prog <foo>\n  prog"
-      check usageLines("<foo>\n\n", "prog").render == "  prog <foo>\n  prog\n  prog"
-      check usageLines("<foo>\n\n<bar>", "prog").render == "  prog <foo>\n  prog\n  prog <bar>"
-      check usageLines("<foo>\n\n  <bar>", "prog").render == "  prog <foo>\n  prog <bar>"
+    test "blank lines show nothing, as they parse to nothing":
+      check usageLines("\n<foo>", "prog").render == "  prog <foo>"
+      check usageLines("<foo>\n", "prog").render == "  prog <foo>"
+      check usageLines("<foo>\n\n<bar>", "prog").render == "  prog <foo>\n  prog <bar>"
+      check usageLines("<foo>\n\n  <bar>", "prog").render == "  prog <foo> <bar>"
 
     test "lines beginning with whitespace are joined to the previous usage line":
       check usageLines("<foo>\n  <bar>\n<baz>", "prog").render == "  prog <foo> <bar>\n  prog <baz>"

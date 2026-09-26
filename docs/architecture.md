@@ -9,8 +9,9 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Three modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, and `style.nim` — and everything else layers on top:
+Four modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, `style.nim`, and `usage.nim` — and everything else
+layers on top:
 `console`/`flagclamp`/`outcome`/`prose` → `lexer` → `backend`/`validators` →
 `argtypes`/`fsmgraph`/`help`/`parser` → `tokens` → `complaints` →
 `precedence` → `matching` → `completion` → `fsm`/`specbuild` → `argumint`.
@@ -52,12 +53,10 @@ are all `backend`'s. A `HelpFormatter` renders the whole message from the
 `HelpContext` `help.nim` hands it (its `groups`, `rows`, `prose`, `usage`,
 and `render`), plus `joinSections` and the `prolog`/`epilog`/`usage`
 accessors `backend` defines -- see `docs/adr/0048-pluggable-help-formatters.md`
-and `docs/adr/0057-help-context.md`. `usageLines` and the
-`splitUsage` helper beneath it (splitting a raw usage string into one
-alternative per line, merging hand-indented continuations, and preserving
-blank lines rather than swallowing them — issue #68) live in `help.nim`
-itself, not `backend`;
-`backend` no longer does any wrapping of its own. Its position below `fsm`
+and `docs/adr/0057-help-context.md`. `usageLines` lives in `help.nim`
+itself, not `backend`: it lays out each Usage Line `usage.splitUsage` finds
+(§2), and a usage with none as one bare command line, since an empty usage
+accepts a bare call (#68). `backend` no longer does any wrapping of its own. Its position below `fsm`
 is what makes `Arg.action`'s dependency inversion a choice rather than a
 necessity — see "The write side" below.
 
@@ -219,8 +218,13 @@ delete-and-copy, so it terminates even when shortcut edges form a cycle
 spanning more than the immediate state being simplified — see
 `docs/gotchas.md`. The per-line lex/parse/splice loop
 itself lives in `parser.addUsageLines` (shared with `autoFillUsage`, see
-below); `genFsm` calls it once for every line in `spec.usage`, then calls
-`result.prepare()` directly after.
+below); `genFsm` calls it once for every Usage Line `usage.splitUsage`
+finds in `spec.usage`, then calls `result.prepare()` directly after.
+`splitUsage` is the one rule for what a Usage Line is, shared with help so
+the usage block shows exactly what parses: a blank line is dropped, and an
+indented line continues the line before it, even across a blank line (#137).
+A blank line isn't a bare call; before #137 help showed one as a bare
+command line (#68's reading) while the parser dropped it.
 
 `dot.nim` renders any FSM to Graphviz dot for debugging/visualization but is
 not called anywhere by default — wire up `spec.dot` (or `cmdArg.spec.dot` for

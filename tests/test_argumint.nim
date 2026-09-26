@@ -872,6 +872,19 @@ suite "End-of-Options Marker":
         spec.parse(usage = usage, args = @["--", "x"], command = "prog")
         check spec.name == "x"
 
+suite "Usage Lines":
+  test "a blank line in a usage string isn't a bare call":
+    for usage in ["<foo>\n\n<bar>", "\n<foo>", "<foo>\n", "  \n<foo>"]:
+      let spec = (foo: arg("<foo>", help = ""), bar: arg("<bar>", help = ""))
+      expect ParseError:
+        spec.parse(usage = usage, args = @[], command = "prog",
+          settings = newSpecSettings(style = nil))
+
+  test "an indented line continues its Usage Line across a blank line":
+    let spec = (foo: arg("<foo>", help = ""), bar: arg("<bar>", help = ""))
+    spec.parse(usage = "<foo>\n\n  <bar>", args = @["a", "b"], command = "prog")
+    check spec.foo == "a" and spec.bar == "b"
+
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
     parse((), args = @[], command = "prog")
