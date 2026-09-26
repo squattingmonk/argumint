@@ -273,6 +273,8 @@ suite "`Spec` is an opaque handle":
     check not declared(toProse)
     check not declared(annotate)
     check not declared(summary)
+    check not declared(splitUsage)
+    check not declared(usageBlock)
     check not declared(metavars)
     check not declared(displayTokens)
     check not declared(quitMessage)

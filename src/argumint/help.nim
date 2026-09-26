@@ -10,13 +10,14 @@
 
 import std/[sequtils, strutils, tables]
 
-import ./[backend, errors, lexer, prose, style, usage]
+import ./[backend, errors, prose, style, usage]
 
 export backend.prolog, backend.epilog, backend.usage
 export style.StyleRole, style.Span, style.StyledText, style.Styler,
   style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
   style.render, style.plain, style.withoutTicks
 export prose.Prose, prose.wrap
+export usage.usageLines
 
 type
   HelpArg* = ref object of MessageArg
@@ -49,7 +50,6 @@ type
     text*: Prose
       ## Their resolved help plus `[...]` annotations; lay it out with `wrap`
 
-const Margin = "  "
 const ContinuationIndent = "    "
 const CanonicalGroups = ["Commands", "Arguments", "Options"]
 
@@ -181,45 +181,6 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = ni
       lines.add line
   lines.render(styler)
 
-proc styledUsage(line: string): StyledText =
-  ## One usage line's tokens with their roles: options (and `[options]`)
-  ## `srOption`, commands `srCommand`, arguments `srPositional`, a value
-  ## placeholder's `<x>` `srMetavar`, and punctuation `srPlain`.
-  for (kind, text) in line.displayTokens:
-    case kind
-    of tkShortOption, tkShortOptions, tkLongOption, tkAnyOption:
-      result.add styled(srOption, text)
-    of tkOptsEnd:
-      if text.startsWith('['):
-        result.add styled("[") & styled(srOption, text[1 .. ^2]) & styled("]")
-      else:
-        result.add styled(srOption, text)
-    of tkCommand:
-      result.add styled(srCommand, text)
-    of tkArgument:
-      result.add styled(srPositional, text)
-    of tkOptionValue:
-      result.add styled(text[0 .. 0]) & styled(srMetavar, text[1 .. ^1])
-    else:
-      result.add styled(text)
-
-proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[StyledText] =
-  ## Lays out `usage` (a spec's raw usage string, one alternative per line) as
-  ## indented usage lines, prefixing each alternative with `command`
-  ## (`srProgram`). Lines longer than `width` are wrapped, with continuations
-  ## hanging-indented to align under the first token after `command` rather
-  ## than restarting at the left margin. A usage with no Usage Lines is one
-  ## bare call. Adds no "Usage:" label -- the caller writes its own.
-  let
-    prefix = styled(Margin) & styled(srProgram, command) & styled(" ")
-    indent = styled(' '.repeat(prefix.len))
-    lineWidth = max(width, 20)
-    lines = usage.splitUsage
-
-  for line in (if lines.len == 0: @[""] else: lines):
-    for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
-      result.add(if i == 0: wrapped else: indent & wrapped)
-
 proc helpContext(spec: Spec, command: string, styler: Styler): HelpContext =
   ## As the public one, but with `styler` in place of the settings' style.
   HelpContext(spec: spec, command: command, width: spec.settings.width,
@@ -312,7 +273,7 @@ proc frame(ctx: HelpContext, groups: seq[string]): string =
   ## block, the groups, then epilog.
   let width = max(ctx.width, 20)
   joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
-    ctx.render(ctx.heading("Usage")) & "\n" & ctx.render(ctx.usage),
+    ctx.render(ctx.spec.usage.usageBlock(ctx.command, ctx.width)),
     joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
 
 proc formatColumn*(ctx: HelpContext): string =
@@ -792,44 +753,6 @@ when isMainModule:
         baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
       check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
 
-
-  suite "usageLines":
-    test "no label is added; the caller writes its own":
-      check usageLines("<foo>", "prog").render == "  prog <foo>"
-
-    test "a blank usage message is still prefixed with the command name":
-      check usageLines("", "prog").render == "  prog"
-
-    test "a single usage line is prefixed with the command name":
-      check usageLines("<foo> [--bar]", "prog").render == "  prog <foo> [--bar]"
-
-    test "multiple usage lines are each prefixed by the command name":
-      check usageLines("<foo>\n<bar>", "prog").render == "  prog <foo>\n  prog <bar>"
-
-    test "blank lines show nothing, as they parse to nothing":
-      check usageLines("\n<foo>", "prog").render == "  prog <foo>"
-      check usageLines("<foo>\n", "prog").render == "  prog <foo>"
-      check usageLines("<foo>\n\n<bar>", "prog").render == "  prog <foo>\n  prog <bar>"
-      check usageLines("<foo>\n\n  <bar>", "prog").render == "  prog <foo> <bar>"
-
-    test "lines beginning with whitespace are joined to the previous usage line":
-      check usageLines("<foo>\n  <bar>\n<baz>", "prog").render == "  prog <foo> <bar>\n  prog <baz>"
-
-    test "usage lines are wrapped to width with a hanging indent matching command prefix length":
-      let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
-      check usageLines(usage, "prog", width = 40).render == "  prog <foo> [--bar] (--baz |\n       --qux=<qux>)\n  prog <foobar>"
-
-    test "the hanging indent matches the command's visible width, not bytes":
-      let usage = "<foo> [--bar] (--baz | --qux=<qux>)"
-      check usageLines(usage, "prög", width = 40).render == "  prög <foo> [--bar] (--baz |\n       --qux=<qux>)"
-
-    test "min width for a usage line is 20":
-      let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
-      check usageLines(usage, "prog", width = 10).render == "  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
-
-    test "words longer than width are split when wrapping":
-      let usage = "<foo> [--bar --aVeryLongOptionName]"
-      check usageLines(usage, "prog", width = 20).render == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
 
   suite "HelpContext.prose":
     proc ctxAt(width: int, style: Styler = nil): HelpContext =
@@ -1413,30 +1336,6 @@ when isMainModule:
       let arg = Arg(kind: ArgKind.Flag, variants: @["-x"], help: "like `-y`")
       check arg.rows[0].text.plain == "like `-y`"
       check arg.rows[0].text.withoutTicks.plain == "like -y"
-
-    test "usage lines tag the program, commands, options, arguments and metavars":
-      check usageLines("ship <name> move [--speed=<kn>] (-a | -bc) [options] [--] <x>...", "nf")
-        .render(tagged) ==
-        "  {program:nf} {command:ship} {positional:<name>} {command:move} " &
-        "[{option:--speed}={metavar:<kn>}] ({option:-a} | {option:-bc}) " &
-        "{option:[options]} [{option:--}] {positional:<x>}..."
-
-    test "all-caps arguments and option values get the same roles":
-      check usageLines("ship NAME [--speed=KN]", "p").render(tagged) ==
-        "  {program:p} {command:ship} {positional:NAME} " &
-        "[{option:--speed}={metavar:KN}]"
-
-    test "an argument after an option in usage is still positional":
-      check usageLines("-o <file>", "p").render(tagged) ==
-        "  {program:p} {option:-o} {positional:<file>}"
-
-    test "usage lines split across wraps keep their roles":
-      check usageLines("--alpha --beta --gamma", "p", width = 20).render(tagged) ==
-        "  {program:p} {option:--alpha} {option:--beta}\n    {option:--gamma}"
-
-    test "unrecognized usage text is plain":
-      check usageLines("a ~ b", "p").render(tagged) ==
-        "  {program:p} {command:a} ~ {command:b}"
 
   suite "metavars":
     test "are the value placeholder names in an arg's variants, without brackets":
