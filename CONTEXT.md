@@ -824,6 +824,14 @@ nothing left for a delimiter to do.
 _Avoid_: ConfigKey (code-level name, fine in prose about the API itself)
 
 **Usage Line**:
-One line within a Usage String, expressing one complete alternative
-invocation pattern (e.g. `[-r] <src>... <dest>`).
+One complete alternative invocation pattern within a Usage String (e.g.
+`[-r] <src>... <dest>`). It starts on an unindented line, an indented line
+continues it, and blank lines are ignored. It may start with `{cmd}`, which
+stands for the command path (`prog`, or `prog ship` in a subcommand's
+usage) and is optional on each line.
 _Avoid_: Usage pattern, usage rule
+
+**Bare Call**:
+A Usage Line that is only `{cmd}`, matching the command with nothing after
+it. A blank line is never one.
+_Avoid_: Empty usage line, blank alternative

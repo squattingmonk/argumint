@@ -4,14 +4,28 @@
 
 import std/strutils
 
-import ./[console, lexer, style]
+import ./[console, errors, lexer, style]
 
-const Margin* = "  "
-  ## The left margin of a usage line, and of a help row.
+const
+  Margin* = "  "
+    ## The left margin of a usage line, and of a help row.
+  CmdToken = "{cmd}"
+    ## Stands for the command path at a Usage Line's start (ADR 0061)
+
+proc stripCmd(line: string): string =
+  ## `line` without a leading `{cmd}`; `SpecDefect` for one anywhere else.
+  result = line
+  if result.startsWith(CmdToken) and
+      (result.len == CmdToken.len or result[CmdToken.len] in Whitespace):
+    result = result[CmdToken.len .. ^1].strip
+  if CmdToken in result:
+    raise newException(SpecDefect, "`" & CmdToken &
+      "` may only start a Usage Line: " & line.escape)
 
 proc splitUsage*(usage: string): seq[string] =
-  ## `usage`'s Usage Lines. A blank line is dropped, and an indented line
-  ## continues the line before it.
+  ## `usage`'s Usage Lines. A blank line is dropped, an indented line
+  ## continues the line before it, and a leading `{cmd}` is removed; a line
+  ## left empty is a Bare Call. Raises `SpecDefect` for `{cmd}` anywhere else.
   for line in usage.splitLines:
     if line.isEmptyOrWhitespace:
       continue
@@ -19,6 +33,8 @@ proc splitUsage*(usage: string): seq[string] =
       result[^1] = result[^1] & " " & line.strip
     else:
       result.add line.strip
+  for line in result.mitems:
+    line = line.stripCmd
 
 proc styledUsage(line: string): StyledText =
   ## One usage line's tokens with their roles: options (and `[options]`)
@@ -48,7 +64,7 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
   ## (`srProgram`). Lines longer than `width` are wrapped, with continuations
   ## hanging-indented to align under the first token after `command` rather
   ## than restarting at the left margin. A usage with no Usage Lines is one
-  ## bare call. Adds no "Usage:" label -- the caller writes its own.
+  ## Bare Call. Adds no "Usage:" label -- the caller writes its own.
   let
     prefix = styled(Margin) & styled(srProgram, command) & styled(" ")
     indent = styled(' '.repeat(prefix.len))
@@ -105,6 +121,32 @@ when isMainModule:
     test "a whitespace-only line isn't an empty alternative":
       check splitUsage("  \n<foo>") == @["<foo>"]
 
+    test "a leading {cmd} is removed":
+      check splitUsage("{cmd} <foo> [<bar>]") == @["<foo> [<bar>]"]
+      check splitUsage("{cmd}\t<foo>") == @["<foo>"]
+
+    test "a line that is only {cmd} is a bare call":
+      check splitUsage("{cmd}\n{cmd} <foo> [<bar>]") == @["", "<foo> [<bar>]"]
+
+    test "{cmd} is optional on each line":
+      check splitUsage("{cmd}\n<foo>\n{cmd} <bar>") == @["", "<foo>", "<bar>"]
+
+    test "{cmd} continued by an indented line isn't a bare call":
+      check splitUsage("{cmd}\n  <foo>") == @["<foo>"]
+      check splitUsage("{cmd}\n\n  <foo>") == @["<foo>"]
+
+    test "{cmd} anywhere but a Usage Line's start is a SpecDefect":
+      for usage in ["<foo> {cmd}", "{cmd}<foo>", "{cmd} {cmd}", "<foo>\n  {cmd}"]:
+        expect SpecDefect:
+          discard splitUsage(usage)
+
+    test "the SpecDefect names the Usage Line":
+      try:
+        discard splitUsage("<foo>\n  {cmd} <bar>")
+        fail()
+      except SpecDefect as e:
+        check "<foo> {cmd} <bar>" in e.msg
+
   suite "usageLines":
     test "no label is added; the caller writes its own":
       check usageLines("<foo>", "prog").render == "  prog <foo>"
@@ -142,6 +184,10 @@ when isMainModule:
     test "words longer than width are split when wrapping":
       let usage = "<foo> [--bar --aVeryLongOptionName]"
       check usageLines(usage, "prog", width = 20).render == "  prog <foo> [--bar\n       --aVeryLongOptionNam\n       e]"
+
+    test "a bare call shows the command alone":
+      check usageLines("{cmd}\n{cmd} <foo>", "prog").render ==
+        "  prog\n  prog <foo>"
 
   suite "usageBlock":
     test "the usage lines follow a Usage heading":
