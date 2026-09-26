@@ -885,6 +885,41 @@ suite "Usage Lines":
     spec.parse(usage = "<foo>\n\n  <bar>", args = @["a", "b"], command = "prog")
     check spec.foo == "a" and spec.bar == "b"
 
+  test "a Usage Line that is only {cmd} is a bare call":
+    for args in [newSeq[string](), @["a"], @["a", "b"]]:
+      let spec = (foo: arg("<foo>", help = ""), bar: arg("<bar>", help = ""))
+      spec.parse(usage = "{cmd}\n{cmd} <foo> [<bar>]", args = args, command = "prog")
+    let spec = (foo: arg("<foo>", help = ""), bar: arg("<bar>", help = ""))
+    expect ParseError:
+      spec.parse(usage = "{cmd}\n{cmd} <foo> [<bar>]", args = @["a", "b", "c"],
+        command = "prog", settings = newSpecSettings(style = nil))
+
+  test "a subcommand's {cmd} line is a bare call, shown with the command path":
+    let sub = (n: arg("<n>", default = 0, help = ""))
+    let spec = (sub: command("sub", sub, usage = "{cmd}\n{cmd} <n>", help = ""))
+    spec.parse(usage = "sub", args = @["sub"], command = "prog")
+    spec.parse(usage = "sub", args = @["sub", "1"], command = "prog")
+    check sub.n == 1
+    try:
+      spec.parse(usage = "sub", args = @["sub", "1", "2"], command = "prog",
+        settings = newSpecSettings(style = nil))
+      fail()
+    except ParseError as e:
+      check "Usage:\n  prog sub\n  prog sub <n>" in e.msg
+
+  test "{cmd} lines mix with auto-filled ones, and the usage reads back as written":
+    let spec = newSpec((foo: arg("<foo>", help = ""), v: flag("-v", help = ""), help: help()),
+      usage = "{cmd}\n<foo>")
+    check spec.usage == "{cmd}\n<foo>\n(-h | --help)\n[options]"
+    spec.parse(args = @[], command = "prog")
+    spec.parse(args = @["-v"], command = "prog")
+    spec.parse(args = @["a"], command = "prog")
+
+  test "{cmd} anywhere but a Usage Line's start is a SpecDefect":
+    for usage in ["<foo> {cmd}", "{cmd}<foo>", "<foo>\n  {cmd}"]:
+      expect SpecDefect:
+        discard newSpec((foo: arg("<foo>", help = "")), usage = usage)
+
 suite "Empty specs":
   test "a top-level spec with zero declared args parses successfully given zero input":
     parse((), args = @[], command = "prog")

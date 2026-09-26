@@ -226,9 +226,13 @@ below); `genFsm` calls it once for every Usage Line `usage.splitUsage`
 finds in `spec.usage`, then calls `result.prepare()` directly after.
 `splitUsage` is the one rule for what a Usage Line is, shared with help so
 the usage block shows exactly what parses: a blank line is dropped, and an
-indented line continues the line before it, even across a blank line (#137).
-A blank line isn't a bare call; before #137 help showed one as a bare
-command line (#68's reading) while the parser dropped it.
+indented line continues the line before it, even across a blank line
+(#137), and a leading `{cmd}` is stripped, raising `SpecDefect` for one
+anywhere else. A line left empty is a Bare Call, which `addUsageLines`
+splices as a shortcut to a terminal State, and help shows as the
+command alone (ADR 0061). A blank line isn't a Bare Call; before #137 help
+showed one as a bare command line (#68's reading) while the parser dropped
+it.
 
 `dot.nim` renders any FSM to Graphviz dot for debugging/visualization but is
 not called anywhere by default — wire up `spec.dot` (or `cmdArg.spec.dot` for

@@ -483,6 +483,7 @@ grammar:
 | `...`             | The atom before it (an arg, option, or group) can repeat.                                   |
 | `[options]`       | Catch-all for any option/flag not named elsewhere on this line.                             |
 | `--`              | End-of-options marker: everything after it is a positional value.                           |
+| `{cmd}`           | Only at a line's start: the command's own name. A line of just `{cmd}` is a Bare Call.      |
 
 Note: unlike docopt, atoms inside `[]` are not independently optional (e.g.,
 `[-a -b -c]` is not equivalent to `[-a] [-b] [-c]`).
@@ -525,6 +526,30 @@ Usage:
   myapp <x> <y>
   myapp (-h | --help)
 ```
+
+To write that name anyway, the way docopt does, start a line with `{cmd}`,
+which stands for it. It's optional on each line, and a line that is only
+`{cmd}` is a **Bare Call**: the command with nothing after it.
+
+```nim
+let spec = (x: arg("<x>"), y: arg("<y>"), help: help())
+spec.parseOrQuit(usage = """
+{cmd}
+{cmd} <x> [<y>]
+""")
+```
+
+```console
+$ ./myapp --help
+Usage:
+  myapp
+  myapp <x> [<y>]
+  myapp (-h | --help)
+```
+
+A blank line isn't a Bare Call, since blank lines are ignored, so the
+newline before the closing `"""` adds nothing. A usage string built with
+`fmt` needs `{{cmd}}`.
 
 None of this is enforced by hand-written `if`/`case` code — every one of
 these constructs becomes a specific piece of the compiled FSM (a
