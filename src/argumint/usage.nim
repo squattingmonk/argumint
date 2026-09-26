@@ -10,7 +10,7 @@ const
   Margin* = "  "
     ## The left margin of a usage line, and of a help row.
   CmdToken = "{cmd}"
-    ## Stands for the command path at a Usage Line's start (ADR 0061)
+    ## Stands for the command path at a Usage Line's start (ADR 0061).
 
 proc stripCmd(line: string): string =
   ## `line` without a leading `{cmd}`; `SpecDefect` for one anywhere else.

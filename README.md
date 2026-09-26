@@ -483,7 +483,7 @@ grammar:
 | `...`             | The atom before it (an arg, option, or group) can repeat.                                   |
 | `[options]`       | Catch-all for any option/flag not named elsewhere on this line.                             |
 | `--`              | End-of-options marker: everything after it is a positional value.                           |
-| `{cmd}`           | Only at a line's start: the command's own name. A line of just `{cmd}` is a Bare Call.      |
+| `{cmd}`           | Only at a line's start: the command path. A line of just `{cmd}` is a Bare Call.            |
 
 Note: unlike docopt, atoms inside `[]` are not independently optional (e.g.,
 `[-a -b -c]` is not equivalent to `[-a] [-b] [-c]`).
