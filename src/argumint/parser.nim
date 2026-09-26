@@ -2,9 +2,9 @@
 ## support matching of command-line arguments and high-level validation of usage
 ## patterns.
 
-import std/[pegs, sequtils, sets, strformat, strutils, tables]
+import std/[sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, errors, fsmgraph, lexer]
+import ./[backend, errors, fsmgraph, lexer, usage]
 export errors.SpecDefect
 
 type
@@ -256,6 +256,5 @@ proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
 proc genFsm*(spec: Spec): State =
   ## Generates an FSM for `spec` based on its usage strings.
   result = newState()
-  let lines = if spec.usage.len == 0: newSeq[string]() else: spec.usage.split(peg"\n!\s")
-  spec.addUsageLines(result, lines)
+  spec.addUsageLines(result, spec.usage.splitUsage)
   result.prepare()
