@@ -1482,8 +1482,6 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   test "the tier rule exists in `argumint/backend`":
     let arg = Arg(variants: @["--port"])
     check arg.arbitration(some(byCli)) == some(arReplace)
-    arg.promote(some(byEnv))
-    check arg.seenBy == byEnv
 
   test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
     # Exported from `argtypes` only so the facade's generic constructors,

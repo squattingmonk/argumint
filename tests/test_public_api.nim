@@ -90,7 +90,7 @@ suite "Types nameable after a bare `import argumint`":
     check compiles(env("PORT", ","))
     check compiles(toEnvSource("PORT"))
     check compiles(newSpec((verbose: flag("-v", help = ""),)))
-    check compiles(subject(Arg(nil), "-v"))
+    check compiles(subject(Arg(nil), Contribution(variant: "-v")))
 
   test "an Arg's value sources are readable, not just overridable":
     # #59: `envSource`/`configKey` were overridable from a caller's module
@@ -135,12 +135,11 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(FlagVariantFormat)
 
   test "the tier rule stays out of the facade (#144)":
-    # Every write arbitrates inside the library; nothing outside it needs
-    # to. Mirrored by `test_argumint.nim`'s "Library-internal names ..."
-    # suite. The `arbitrate` template this replaced is gone altogether.
+    # `parse` arbitrates for every write, so nothing outside the library
+    # needs to; `Arbitration` itself is public, as `accept` takes one.
+    # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
+    # The `arbitrate` template this replaced is gone altogether.
     check not compiles(Arg(nil).arbitration(some(byCli)))
-    check not compiles(arReplace)
-    check not compiles(Arg(nil).promote(some(byCli)))
     check not declared(arbitrate)
 
   test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
@@ -170,7 +169,7 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(flagOps)
 
   test "the string-to-scalar converters stay private to `argumint/argtypes`":
-    # They fire for `parseImpl`'s `let tmp: T = value` and for
+    # They fire for `acceptImpl`'s `let tmp: T = c.value` and for
     # `parseFlagOpsString`, and nowhere else. Exporting them would put
     # `let n: int = "5"` in scope for everyone who imports argumint.
     # Mirrored in `argtypes.nim`'s own embedded suite, not in

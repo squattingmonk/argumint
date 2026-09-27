@@ -89,10 +89,9 @@ or anything else that generates methods inside a template.
   used inside a `method`/`proc` that is itself generated inside a template
   (as every method in `defineArg`/`defineFlag`/`defineFlagArg` is); it fails
   with "undeclared identifier" even for names clearly in scope. Use `%`
-  (`strutils`) or `&` concatenation instead — e.g. `FlagArg.parse`'s
+  (`strutils`) or `&` concatenation instead — e.g. `FlagArg.accept`'s
   unknown-Variant `ParseError` is built with `"$# is not a known variant
-  for the flag $#" % [variantValue.escape, self.subject(variantName,
-  seenBy)]`, not `fmt"..."`.
+  for the flag $#" % [c.value.escape, self.subject(c)]`, not `fmt"..."`.
 
 - **`defineSetFlag`'s body must build the `set[E]` type expression from its
   `elemType: typedesc[E]` *parameter*, not from the bare generic symbol
@@ -129,7 +128,7 @@ or anything else that generates methods inside a template.
   some(self.value.get & @[tmp])` silently corrupts earlier elements under
   ORC** — only once the object type carries an extra `static bool` param
   alongside `T`, as `ValueArg[T, multi]` does. Dormant, not fixed:
-  `ValueArg.value` is now a plain `seq[T]` that `parseImpl` just `.add`s to.
+  `ValueArg.value` is now a plain `seq[T]` that `storeImpl` just `.add`s to.
   If it ever goes back to an `Option` (see
   `docs/adr/0011-rejected-option-operations.md`), unwrap into a local `var`
   and `.add` instead of reassigning an inline `get(...) & @[...]`. Guarded
@@ -339,7 +338,7 @@ or anything else that generates methods inside a template.
   single-layer or nested inside another template -- generates methods
   calling `self.validator.help()`/`self.validator.completions()`
   (`validators.nim`), `self.name(...)` (`backend.nim`), and `value.escape`
-  (`strutils.escape`, inside `parseImpl`'s `ValueError` handler), and each
+  (`strutils.escape`, inside `acceptImpl`'s `ValueError` handler), and each
   of those resolves against the *calling file's* imports at instantiation
   time. `argumint.nim` defends against this today by re-exporting exactly
   what's needed (`export validators`, `export flagclamp`, `export
@@ -480,7 +479,7 @@ or anything else that generates methods inside a template.
   `ValueArg`/`FlagArg` types live there together with every template and
   generic that touches their private fields (`defineValueArg`/
   `defineFlagArg`/`defineSetFlagArg`, `rawValue`/`rawDefault`,
-  `parseImpl`), while the public names those back -- `arg`/`opt`/`flag`,
+  `acceptImpl`), while the public names those back -- `arg`/`opt`/`flag`,
   `get`, `defineArg`/`defineFlag`/`defineSetFlag` -- stay in
   `src/argumint.nim` and delegate through non-generic bookends
   (`initValueArg`/`initFlagArg`) or through those same
@@ -576,7 +575,7 @@ or anything else that generates methods inside a template.
   Hit extracting `putImpl` out of `parseImpl`
   (`src/argumint/argtypes.nim`) for issue #29 -- `putImpl` takes an
   already-converted `T` and knows nothing about strings, so `parseImpl`'s
-  own conversion had to move to guard exactly this. See
+  (now `acceptImpl`'s) own conversion had to move to guard exactly this. See
   `docs/adr/0044-put-typed-write-accessor.md`.
 
 - **`std/unittest`'s `check x == @[]` fails with "cannot infer the type of

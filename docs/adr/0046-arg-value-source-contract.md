@@ -1,5 +1,10 @@
 # An Arg's value sources are two methods, and they are readable
 
+> **Extended by [ADR 0062](0062-accept-is-the-override-point.md)**: the
+> write half of the custom-`Arg` contract is now `accept`, not `parse`, and
+> an error names a fallback source by reading this ADR's `envName` and
+> `configKey` rather than a label passed in.
+
 `Arg` carried three exported `{.base.}` methods that all answered one
 question — *where else can this Arg's value come from?* — and were never
 consulted apart: `resolveEnv` read `envName` and `envDelim`, `resolveConfig`

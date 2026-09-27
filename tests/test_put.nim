@@ -29,7 +29,7 @@ suite "put is reachable from the facade and replaces/appends without converting"
   test "put never raises ParseError, even for a value no string could convert to":
     # There's no conversion step to fail -- put takes a T directly. This is
     # trivially true for `int`, so the point is the absence of the
-    # try/except ValueError wrapping parseImpl has; nothing to assert beyond
+    # try/except ValueError wrapping acceptImpl has; nothing to assert beyond
     # "it doesn't raise".
     let port = opt("--port=<n>", default = 80, help = "")
     port.put(-1, seenBy = some(byCli))

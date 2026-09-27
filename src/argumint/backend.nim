@@ -54,6 +54,16 @@ type
     arExtend ## Same tier, or none declared: add to what is there
     arReplace ## A stronger tier: clear what is there, then store
 
+  Contribution* = object
+    ## One value offered to an Arg by one Value Precedence tier (`CONTEXT.md`).
+    value*: string
+      ## The raw string to convert; for a Flag, the Variant whose Flag
+      ## Operation applies, whichever tier supplied it.
+    variant*: string
+      ## The Variant typed on the command line, or `""` if none was.
+    tier*: Option[SeenBy]
+      ## The tier declared for it; `none` extends at the Arg's current tier.
+
   HelpText* = tuple[short, long: string]
     ## An Arg's Help Text and optional Long-Form Help Text (`""` if none) --
     ## see `docs/adr/0049-help-text-short-long-pair.md`.
@@ -71,9 +81,9 @@ type
     hidden*: bool
       ## Whether the arg should be shown in help messages
     seenBy*: SeenBy
-      ## Which Value Precedence tier supplied this Arg -- written by whichever
-      ## `parse` override wrote the value, so provenance can never outrun the
-      ## value it describes. `byNone` is the zero value, so an unsupplied Arg is
+      ## Which Value Precedence tier supplied this Arg -- written by `parse`
+      ## right after `accept` stores the value, so provenance can never outrun
+      ## the value it describes. `byNone` is the zero value, so an unsupplied Arg is
       ## correct with no code on the default path. See `seen*` and ADR 0039.
 
   CommandArg* = ref object of Arg
@@ -478,29 +488,6 @@ proc metavars*(arg: Arg): seq[string] =
     if variant.match(OptionalVariantFormat, m) and m[1].len > 0 and m[1] notin result:
       result.add m[1]
 
-proc subject*(arg: Arg, variant: string, seenBy: Option[SeenBy] = none(SeenBy)): string =
-  ## How to name `arg` in a parse-failure message. The command line names the
-  ## Variant the user actually typed; a fallback tier names `arg` *plus* where
-  ## the value came from, so a typo in an env var or a config file doesn't read
-  ## as something typed at the prompt. The `env:`/`configKey:` prefixes match
-  ## how help text annotates the same two sources.
-  ##
-  ## Only answerable because `parse` carries the tier -- the variant slot alone
-  ## can't say whether it holds a Variant or a source label. Exported for the
-  ## same reason as `name` (`docs/adr/0017`): the generated `parse` methods
-  ## resolve it by bare name in the caller's module.
-  if variant.len == 0 or seenBy.isNone or seenBy.get notin {byConfig, byEnv}:
-    return arg.name(variant)
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
-  let kind = if seenBy.get == byEnv: "env" else: "configKey"
-  "$# ($#: $#)" % [bare, kind, variant]
-
 proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
   hash(self.name)
@@ -533,22 +520,30 @@ proc arbitration*(self: Arg, tier: Option[SeenBy]): Option[Arbitration] =
   elif seen > self.seenBy: some(arReplace)
   else: some(arExtend)
 
-proc promote*(self: Arg, tier: Option[SeenBy]) =
-  ## Clears `self` and records `tier` as its provenance -- the `arReplace`
-  ## step, run only once the new value has passed every check.
-  self.clear
-  self.seenBy = tier.get
+method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
+  ## Converts, validates and stores `c` onto `self` -- the one thing a
+  ## value-carrying Arg overrides. `parse` has already arbitrated: `how` says
+  ## whether `c` extends what is there or replaces it. An override checks `c`
+  ## first (against the stored history on `arExtend`, against none on
+  ## `arReplace`), then on `arReplace` calls `clear` before storing, so a
+  ## value that fails leaves `self` untouched. The base stores nothing.
+  if how == arReplace:
+    self.clear
 
-method parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) {.base.} =
-  ## Called on all seen args after a successful parse. Non-value-carrying args
-  ## like `MessageArg` or `CommandArg` only record `seenBy`. Value-carrying
-  ## args like `ValueArg` and `FlagArg` also implement this to
-  ## convert/validate/store a matched `value` (raw command-line/env/config
-  ## string) onto `self` using the variant that matched.
-  ##
-  ## Overrides must arbitrate through `arbitration*`.
-  if self.arbitration(seenBy) == some(arReplace):
-    self.promote(seenBy)
+proc parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
+  ## Writes `value` onto `self` at Value Precedence tier `seenBy`: refused if
+  ## weaker than `self.seenBy`, appended if equal (or `none`), replacing if
+  ## stronger -- see `arbitration*`. `variant` is the Variant typed on the
+  ## command line, naming `self` in an error. For a Flag, `value` is the
+  ## Variant whose Flag Operation applies. Not overridable: a custom Arg
+  ## overrides `accept`, so it can't skip the tier rule. See
+  ## `docs/adr/0041-parse-is-the-write-surface.md`.
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
+  self.accept(Contribution(value: value, variant: variant, tier: seenBy), how.get)
+  if how.get == arReplace:
+    self.seenBy = seenBy.get
 
 method action*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
   ## Fires this Arg's Action -- what a matched Message Argument does in place
@@ -619,8 +614,8 @@ proc envName*(self: Arg): string =
   ## value, or `""` if it has no Env Source. Derived from `envSource`
   ## rather than dispatched, so it is not part of the custom-`Arg`
   ## contract -- override `envSource` and this follows. Display- and
-  ## label-shaped: it names the source in help text (`env: PORT`) and in
-  ## the variant slot of a failing `parse` (see `subject`).
+  ## label-shaped: it names the source in help text (`env: PORT`) and in a
+  ## failing `parse`'s error (see `subject`).
   let source = self.envSource
   if source.isSome: source.get.name else: ""
 
@@ -632,6 +627,31 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## one; `ValueArg`/`FlagArg` override this per-type via
   ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
   noConfigKey()
+
+proc subject*(arg: Arg, c: Contribution): string =
+  ## How to name `arg` in a parse-failure message about `c`. The command line
+  ## names the Variant the user actually typed; a fallback tier names `arg`
+  ## *plus* where the value came from, so a typo in an env var or a config
+  ## file doesn't read as something typed at the prompt. The `env:`/
+  ## `configKey:` prefixes match how help text annotates the same two
+  ## sources, and the label is read off `arg` itself, so a Contribution never
+  ## carries one. Exported for the same reason as `name` (`docs/adr/0017`):
+  ## the generated `accept` methods resolve it by bare name in the caller's
+  ## module.
+  let (kind, label) =
+    if c.tier == some(byEnv): ("env", arg.envName)
+    elif c.tier == some(byConfig): ("configKey", arg.configKey.join)
+    else: ("", "")
+  if label.len == 0:
+    return arg.name(c.variant)
+  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
+  # complaint names the bare option (`--port`) -- so trim with the same PEG
+  # spec construction already keys `spec.options` by. Leaves a Positional
+  # (`<src>`) or Command untouched, since neither matches it.
+  var bare = arg.name
+  if bare =~ OptionalVariantFormat:
+    bare = matches[0]
+  "$# ($#: $#)" % [bare, kind, label]
 
 method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## Returns whether `a` and `b` are aliases for `self`. Overridden by

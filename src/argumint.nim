@@ -96,11 +96,14 @@ export completion.completeArgs, completion.Shell, completion.CompletionCandidate
 
 # The write side of an Arg (#47): `arg.parse(v, seenBy = some(byCli))`
 # pre-seeds a value, `arg.clear()` returns one to its coded default, and
-# `action` is what a `MessageArg`/`HelpArg` overrides. Exported for the same
+# `action` is what a `MessageArg`/`HelpArg` overrides. `accept`, with the
+# `Contribution` and `Arbitration` it takes, is what a custom `Arg`
+# overrides to store a value (#145). Exported for the same
 # reason as `fsm.parse` above -- reaching them shouldn't need a backend
 # import. See `docs/adr/0041-parse-is-the-write-surface.md` and
 # `docs/adr/0030-core-types-exported-spec-opaque.md`.
-export backend.parse, backend.clear, backend.action
+export backend.parse, backend.accept, backend.clear, backend.action,
+  backend.Contribution, backend.Arbitration
 
 # How a Value Precedence tier *finds* an Arg's value (#59): the two methods
 # a custom `Arg` subtype overrides to opt into the env and Config Source
@@ -185,7 +188,7 @@ proc put*[T: not seq, multi: static bool](arg: ValueArg[T, multi], value: T, see
   ## primary spelling (`putImpl`'s `variant = ""` falls back to
   ## `arg.variants[0]` via `subject`). The arg's value provenance is set to
   ## `seenBy` if `some`; if `none`, keeps the arg's existing provenance.
-  putImpl(arg, value, "", seenBy, validate)
+  putImpl(arg, value, seenBy, validate)
 
 proc put*[T](arg: FlagArg[T], value: T, seenBy: Option[SeenBy] = none(SeenBy)) =
   ## Sets the value of `arg`, always clamping if the arg has a clamp. The

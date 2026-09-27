@@ -81,7 +81,7 @@ split.
 below the `argumint.nim` facade, and holds the `ValueArg`/`FlagArg` data
 model plus **everything that touches their private fields**: the
 `defineValueArg`/`defineFlagArg`/`defineSetFlagArg` method generators, the
-`flagOps` `CacheTable` they write, `parseImpl`, the `initValueArg`/
+`flagOps` `CacheTable` they write, `acceptImpl`, the `initValueArg`/
 `initFlagArg` constructors, the `rawValue`/`rawDefault` read accessors, and
 the flag mini-language parsers. Every public name over that machinery —
 `arg`/`args`/`opt`/`opts`/`flag`/`flagOp`, `get`/`toT`/`toSeqT`,
@@ -540,11 +540,11 @@ the FSM/backtracking machinery, via `precedence.applyFallbacks`: for every
 "Dispatch order") that no *strictly* higher-precedence tier has already
 supplied (`arg.seenBy > byEnv` skips), it tries the environment-variable
 tier, then — only if that had nothing — the Config Source tier, feeding
-each resolved value straight to `arg.parse(v, ctx, some(tier))`, the same
-conversion/validation path a CLI value takes. `ctx` is the source's own
-label (`arg.envName`, or `arg.configKey.join`), which lands in `parse`'s
-variant slot and is what `subject` renders as `--port (env: PORT)` when
-the value turns out to be bad. There is no per-tier method: `parse`
+each resolved value straight to `arg.parse(v, seenBy = some(tier))`, the
+same conversion/validation path a CLI value takes. No source label travels
+with it: when the value turns out to be bad, `subject` reads `arg.envName`
+or `arg.configKey` for the claimed tier and renders `--port (env: PORT)`.
+There is no per-tier method: `parse`
 records the tier as it writes, so provenance can't outrun the value it
 describes. An Arg already *at* this tier is appended to rather than
 skipped, which is what lets a pre-seed declaring `byEnv` still collect the
@@ -664,14 +664,14 @@ is unreachable from a bare `import argumint`, mirrored by a positive in
 `tests/test_argumint.nim`.
 
 `defineValueArg[T]` (`argtypes.nim`, the machinery behind the facade's
-one-argument `defineArg[T]`) is a template that generates a `method parse`
-for a given `T` (both arities) by calling `parseImpl`, which converts the raw
-string via an implicit `converter` (`toInt`, `toFloat`, `toBool`, `toChar`;
-strings pass through) and runs the arg's `Validator[T]` (`validators.nim`) if
-present, after `putImpl` arbitrates the declared Value Precedence tier via
-`arbitration` (see below) — validation always happens against the scalar
-element type, never `seq[T]`, since it runs before the value is
-stored/appended.
+one-argument `defineArg[T]`) is a template that generates a `method accept`
+for a given `T` (both arities) by calling `acceptImpl`, which converts the
+raw string via an implicit `converter` (`toInt`, `toFloat`, `toBool`,
+`toChar`; strings pass through), then hands the `T` to `storeImpl`, which
+runs the arg's `Validator[T]` (`validators.nim`) if present — validation
+always happens against the scalar element type, never `seq[T]`, since it
+runs before the value is stored/appended. `parse` has already arbitrated
+the declared Value Precedence tier by then (see below).
 `defineValueArg[T]` also generates a per-arity `method defaultStr`, used
 by `genHelp` to render `[default: <value>]` in help text (stringified via
 `$`; suppressed when the scalar default equals `T`'s zero value —
@@ -699,7 +699,7 @@ Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
 
-Every one of these generated methods, plus `parseImpl`'s own exception
+Every one of these generated methods, plus `acceptImpl`'s own exception
 handlers, calls into `validators.nim`/`backend.nim`/`std/strutils` by their
 bare (unqualified) names -- `argumint.nim`'s top-of-file `export`
 statements are what make that resolve correctly for a caller registering
@@ -709,12 +709,12 @@ just for code living inside the library itself. The templates now live in
 `{.experimental: "openSym".}` and the re-export list is unchanged. See
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 
-The four string-to-scalar converters `parseImpl` relies on (`toInt`,
+The four string-to-scalar converters `acceptImpl` relies on (`toInt`,
 `toFloat`, `toBool`, `toChar`) stay **private to `argtypes`** — their only
 other consumer, `parseFlagOpsString`, lives there too. Exporting them would
 put `let n: int = "5"` in scope for everyone who imports argumint; a
 converter for a user's own `T` is declared in the user's own module and
-found at `parseImpl`'s instantiation site, which is where it needs to be.
+found at `acceptImpl`'s instantiation site, which is where it needs to be.
 
 ### The write side: `parse`, `arbitration`, `clear`, `action`
 
@@ -727,7 +727,7 @@ so writing a value needs no backend import:
 port.parse("8080", seenBy = some(byCli))  # declares a tier; visible to `get`
 port.parse("8080")                        # extends the current tier, whatever it is
 port.clear()                              # back to the coded-default state
-flag.parse("", "-v")                      # applies that Variant's Flag Operation
+flag.parse("-v")                          # applies that Variant's Flag Operation
 ```
 
 The optional `seenBy` is what makes a tier-less write useful rather than
@@ -742,38 +742,59 @@ where it reproduces the default exactly. See
 `docs/adr/0041-parse-is-the-write-surface.md` and
 `docs/adr/0044-put-typed-write-accessor.md`.
 
-`arbitration` (withheld in `backend.nim`) holds the tier rule, and every
-write routes through it -- the base `parse`, `putImpl` (behind both `put`
-and `parseImpl`), and `FlagArg.parse`. It returns what a contribution at
-the declared tier does, and each caller `case`s on it:
+`parse` is a plain proc, not a method, so no Arg can skip the tier rule. It
+asks `arbitration` (withheld in `backend.nim`) what a contribution at the
+declared tier does, packs the value into a `Contribution`, and hands it to
+`accept`, the one method a value-carrying Arg overrides:
 
 ```nim
-let how = self.arbitration(seenBy)
-if how.isNone:                         # weaker tier: apply nothing
-  return
-if validate and not self.validator.isNil:
-  case how.get
-  of arExtend: self.validator.validate(value, self.value)  # check against what's there
-  of arReplace: self.validator.validate(value)             # those values are going away
-if how.get == arReplace:
-  self.promote(seenBy)                 # clear, then record the tier
+proc parse*(self: Arg, value: string, variant = "", seenBy = none(SeenBy)) =
+  let how = self.arbitration(seenBy)
+  if how.isNone:                       # weaker tier: apply nothing
+    return
+  self.accept(Contribution(value: value, variant: variant, tier: seenBy), how.get)
+  if how.get == arReplace:
+    self.seenBy = seenBy.get           # accept cleared; record the new tier
 ```
 
 A tier weaker than the one recorded is refused (`parse` never demotes --
 `clear` first if that is what you want); an equal one (or none declared)
 extends without clearing, so values from one tier accumulate; a stronger one
 replaces: the Arg is cleared and records the new tier. Because the first CLI
-match promotes and clears, every later match in the same parse extends with
-no extra bookkeeping.
+match replaces, every later match in the same parse extends with no extra
+bookkeeping. `put`'s `putImpl`s arbitrate the same way, since a typed `T`
+can't go through `accept`'s string.
 
-Checking *before* `promote` is load-bearing: conversion and validation both
+`accept` is told which of the two outcomes applies and does the rest.
+`ValueArg`'s `storeImpl` shows the shape every override follows:
+
+```nim
+if validate and not self.validator.isNil:
+  case how
+  of arExtend: self.validator.validate(value, self.value)  # check against what's there
+  of arReplace: self.validator.validate(value)             # those values are going away
+if how == arReplace:
+  self.clear
+self.value.add(value)
+```
+
+Checking *before* clearing is load-bearing: conversion and validation both
 happen first, so a `parse` that raises leaves the Arg exactly as it was
 rather than cleared and stamped with a tier it never received a value from.
+`FlagArg.accept` looks up `c.value` as the Variant whose Flag Operation
+applies -- on every tier, since an env or config value for a Flag names a
+Variant too -- then clears on `arReplace` and applies the operation.
 
-The base `parse` is a *quiet recorder*: it registers and does nothing else,
-and never raises. That is why `CommandArg` and `MessageArg` need no
-override and still get provenance, and it mirrors how `defaultStr` and
-`completions` already treat the value-less kinds. `clear` has the same
+The Contribution carries no source label. `subject(arg, c)` names the Arg
+in an error: `c.variant` if one was typed, or `--port (env: PORT)` /
+`--port (configKey: server.port)` for a `byEnv`/`byConfig` tier, read off
+`arg.envName`/`arg.configKey`. See
+`docs/adr/0062-accept-is-the-override-point.md`.
+
+The base `accept` is a *quiet recorder*: it clears on `arReplace` and does
+nothing else, and never raises. That is why `CommandArg` and `MessageArg`
+need no override and still get provenance, and it mirrors how `defaultStr`
+and `completions` already treat the value-less kinds. `clear` has the same
 shape -- exported `{.base.}` no-op, unexported per-type overrides -- and
 always clears provenance alongside the value, since an Arg reading as Seen
 with an empty value seq would make ADR 0040's scalar accessor index it.
@@ -796,10 +817,9 @@ HelpArg` test ADR 0041 removed, and `action` is the extension point a custom
 side-effecting Arg plugs into. The alternative has been measured; the
 inversion is what's kept.
 
-A custom `Arg` subtype (ADR 0030) therefore owes two things: route `parse`
-through `arbitration`, and override `clear` if it carries a value.
-`arbitration` is withheld from the facade, so the first needs an
-`argumint/backend` import.
+A custom `Arg` subtype (ADR 0030) therefore owes two things: override
+`accept` (clearing on `arReplace` before it stores), and override `clear` if
+it carries a value. Both are reachable from `import argumint` alone.
 
 To opt into either fallback tier it overrides one method per tier —
 `envSource` (returning the whole `Option[EnvSource]`, name and delimiter
@@ -816,11 +836,11 @@ the export: Nim attaches an override to `backend`'s method family because
 `get`/`get(otherwise)` and `put` (issue #29, ADR 0044) are plain generic
 procs over `ValueArg`/`FlagArg`, not methods on `Arg` -- so neither is part
 of the custom-`Arg` contract above, and neither dispatches through a
-subtype's `parse` override. `put` writes `self.value` directly through the
+subtype's `accept` override. `put` writes `self.value` directly through the
 same `arbitration`/`putImpl` path every built-in `ValueArg`/`FlagArg` uses;
 a custom `Arg` subtype has no `value` field for it to reach and so cannot
-be driven through `put` at all -- its own `parse` override remains the
-only write path into it.
+be driven through `put` at all -- `parse`, through its own `accept`
+override, remains the only write path into it.
 
 ### Flags
 
@@ -1174,7 +1194,7 @@ walk recorded as it descended — see below.
 After a successful walk, and before the env/Config Source sweep, `Spec.parse`
 calls `parseAllValues`, which parses every match in `pc.matches` — the whole
 tree, before any hook fires. Commands and Message Args are included rather
-than skipped: they hit the quiet base `Arg.parse`, which records `byCli` and
+than skipped: they hit the quiet base `accept`, and `parse` records `byCli` and
 does nothing else, which is how they get provenance now that no blanket
 post-walk sweep writes it. Because `pc.matches`
 is already flat across every level, this is a plain loop over the table: no
@@ -1202,10 +1222,10 @@ applyFallbacks   # env tier unless seenBy > byEnv, then config unless > byConfig
 dispatch         # hooks only
 ```
 
-Provenance is written per contribution, by whichever `parse` override
-writes the value, so it can never outrun the value it describes.
+Provenance is written per contribution, by `parse` as the value is
+written, so it can never outrun the value it describes.
 `parseAllValues` covers the whole matched tree — commands and Message Args
-included, via the quiet base `parse` that records and nothing else — so
+included, via the quiet base `accept` that stores nothing — so
 provenance is complete before the first hook, at any dispatch depth. Each
 contribution is arbitrated by `arbitration` against the tier already
 recorded: a stronger tier clears first, an equal one appends, a weaker one

@@ -711,9 +711,8 @@ A tier's values are arbitrated against whatever provenance the Arg already
 carries, rather than blindly replacing or accumulating onto it. A stronger
 tier clears the Arg first, so a weaker tier's values are replaced; the same
 tier applies without clearing, which is what makes repeated values from one
-tier accumulate; a weaker tier is refused and applies nothing
-(`arbitration`, in code, is where every write applies that rule). This is what
-makes a value written *before* parsing a pre-seed rather than something the
+tier accumulate; a weaker tier is refused and applies nothing (see
+Arbitration). This is what makes a value written *before* parsing a pre-seed rather than something the
 tiers silently clobber — a pre-seed claiming the command-line tier is
 appended to by what the user typed, one claiming no tier is discarded by
 any tier that supplies the Arg, and one claiming a tier nothing else
@@ -745,6 +744,28 @@ e.g. `--verbose`) and is applied via *that* Variant's own Flag Operation —
 unlike an ordinary Option, a Flag's fallback-tier value was never a value
 in `T` to begin with, so there's nothing else for it to name.
 _Avoid_: Fallback order, resolution order
+
+**Contribution**:
+One value offered to an Arg by one Value Precedence tier: the raw string, the
+Variant typed for it (command line only), and the tier it claims — `none`
+for a write that declares no tier. For a Flag the value is always the
+Variant whose Flag Operation applies, whichever tier supplied it. Carries no
+source label: an error names `(env: PORT)` or `(configKey: a.b.c)` by
+reading the Arg's own Env Source or Config Key for the claimed tier. What an
+Arg does with a Contribution is its `accept`, the one method a custom Arg
+overrides to store a value. See
+`docs/adr/0062-accept-is-the-override-point.md`.
+_Avoid_: write, update, value (the stored result, not what is offered)
+
+**Arbitration**:
+What a Contribution does to an Arg, judged by its claimed tier against the
+Arg's provenance: *extend* (same tier, or none claimed — add to what is
+there), *replace* (a stronger tier — clear, then store), or *refused* (a
+weaker tier — nothing applies). `parse` and `put` decide it before any
+`accept` runs, so no Arg can skip the rule; `accept` is told which of the
+first two applies. `replace` is the one write that does not arbitrate. See
+`docs/adr/0041-parse-is-the-write-surface.md`.
+_Avoid_: merge, override (a tier *outranks*; nothing is overridden)
 
 **Env Delimiter**:
 The character sequence a configured environment variable's raw value is
