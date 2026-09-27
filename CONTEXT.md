@@ -712,8 +712,8 @@ carries, rather than blindly replacing or accumulating onto it. A stronger
 tier clears the Arg first, so a weaker tier's values are replaced; the same
 tier applies without clearing, which is what makes repeated values from one
 tier accumulate; a weaker tier is refused and applies nothing (see
-Arbitration). This is what makes a value written *before* parsing a pre-seed rather than something the
-tiers silently clobber — a pre-seed claiming the command-line tier is
+Arbitration). This is what makes a value written *before* parsing a
+pre-seed rather than something the tiers silently clobber — a pre-seed claiming the command-line tier is
 appended to by what the user typed, one claiming no tier is discarded by
 any tier that supplies the Arg, and one claiming a tier nothing else
 supplies survives untouched. A tier consulted but resolving nothing never
@@ -761,10 +761,12 @@ _Avoid_: write, update, value (the stored result, not what is offered)
 What a Contribution does to an Arg, judged by its claimed tier against the
 Arg's provenance: *extend* (same tier, or none claimed — add to what is
 there), *replace* (a stronger tier — clear, then store), or *refused* (a
-weaker tier — nothing applies). `parse` and `put` decide it before any
-`accept` runs, so no Arg can skip the rule; `accept` is told which of the
-first two applies. `replace` is the one write that does not arbitrate. See
-`docs/adr/0041-parse-is-the-write-surface.md`.
+weaker tier — nothing applies, and nothing is checked, so a bad value
+raises nothing). `parse` and `put` decide it before any `accept` runs, so
+no Arg can skip the rule; `accept` is told which of the first two applies.
+The `replace` proc is the one write that does not arbitrate. See
+`docs/adr/0041-parse-is-the-write-surface.md` and
+`docs/adr/0062-accept-is-the-override-point.md`.
 _Avoid_: merge, override (a tier *outranks*; nothing is overridden)
 
 **Env Delimiter**:

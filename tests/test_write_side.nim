@@ -270,10 +270,9 @@ suite "a bad value names the source it came from (#145)":
       "expected int for --port=<n> but got \"x\""
 
 suite "a write that raises leaves the Arg exactly as it was":
-  # A write clears only once its value has passed every check, and
-  # conversion happens before `arbitration` is consulted at all -- so a
-  # failed write can't leave an Arg cleared, stamped with a tier, and
-  # holding nothing. That state would make the scalar accessor index an
+  # `accept` clears only once its value has passed every check, and `parse`
+  # records the tier only after `accept` returns -- so a failed write can't
+  # leave an Arg cleared, stamped with a tier, and holding nothing. That state would make the scalar accessor index an
   # empty seq.
   test "a value that cannot be converted leaves an unsupplied Arg unsupplied":
     let port = opt("--port=<n>", default = 80, help = "")

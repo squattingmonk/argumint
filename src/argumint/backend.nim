@@ -83,8 +83,8 @@ type
     seenBy*: SeenBy
       ## Which Value Precedence tier supplied this Arg -- written by `parse`
       ## right after `accept` stores the value, so provenance can never outrun
-      ## the value it describes. `byNone` is the zero value, so an unsupplied Arg is
-      ## correct with no code on the default path. See `seen*` and ADR 0039.
+      ## the value it describes. `byNone` is the zero value, so an unsupplied
+      ## Arg is correct with no code on the default path. See `seen*` and ADR 0039.
 
   CommandArg* = ref object of Arg
     spec*: Spec

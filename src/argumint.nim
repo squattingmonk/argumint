@@ -185,8 +185,8 @@ proc put*[T: not seq, multi: static bool](arg: ValueArg[T, multi], value: T, see
   ## optionally running its validator if `validate` is true; on validation
   ## failure, raises a `ValidationError`. Unlike `parse`, there's no matched
   ## token to name a specific variant with, so the error names `arg`'s own
-  ## primary spelling (`putImpl`'s `variant = ""` falls back to
-  ## `arg.variants[0]` via `subject`). The arg's value provenance is set to
+  ## primary spelling, or the source of a declared `byEnv`/`byConfig` tier
+  ## (see `subject`). The arg's value provenance is set to
   ## `seenBy` if `some`; if `none`, keeps the arg's existing provenance.
   putImpl(arg, value, seenBy, validate)
 
