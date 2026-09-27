@@ -4,11 +4,14 @@
 #
 # Imports `argumint` alone on purpose: reaching the write side must not
 # require a backend import -- see
-# `docs/adr/0030-core-types-exported-spec-opaque.md`.
+# `docs/adr/0030-core-types-exported-spec-opaque.md`. The one exception is
+# `CustomArg`'s `parse` override, which still arbitrates by hand until #145
+# makes `accept` the override point.
 
 import std/[options, os, strutils, unittest]
 
 import argumint
+from argumint/backend import Arbitration, arbitration, promote # #145
 
 type
   MemSource = ref object of ConfigSource
@@ -35,7 +38,11 @@ method lookup(self: MemSource, key: ConfigKey): Option[seq[string]] =
 
 method parse(self: CustomArg, value: string, variant = "",
              seenBy: Option[SeenBy] = none(SeenBy)) =
-  self.arbitrate(seenBy)
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
+  if how.get == arReplace:
+    self.promote(seenBy)
   self.vals.add value
 
 method clear(self: CustomArg) =
@@ -214,10 +221,11 @@ suite "a fallback tier's variant name is checked before it is applied":
                  settings = withConfig({"verbose": @[""]}))
 
 suite "a write that raises leaves the Arg exactly as it was":
-  # `arbitrate` runs its replacing body *before* clearing, and conversion
-  # happens before `arbitrate` is reached at all -- so a failed write can't
-  # leave an Arg cleared, stamped with a tier, and holding nothing. That
-  # state would make the scalar accessor index an empty seq.
+  # A write clears only once its value has passed every check, and
+  # conversion happens before `arbitration` is consulted at all -- so a
+  # failed write can't leave an Arg cleared, stamped with a tier, and
+  # holding nothing. That state would make the scalar accessor index an
+  # empty seq.
   test "a value that cannot be converted leaves an unsupplied Arg unsupplied":
     let port = opt("--port=<n>", default = 80, help = "")
     expect ParseError:
@@ -303,10 +311,9 @@ suite "clear returns an Arg to its coded-default state":
       tags.parse(v, seenBy = some(byCli))
     check tags.get == @["x", "y"]
 
-suite "arbitrate is the tier rule a custom Arg subtype routes through":
-  # ADR 0030's custom-Arg contract: an override arbitrates via `arbitrate`
-  # and applies its value only on the branch that applies. Reachable from the
-  # facade alone -- this file imports no backend.
+suite "arbitration is the tier rule a custom Arg subtype routes through":
+  # ADR 0030's custom-Arg contract: an override arbitrates via `arbitration`
+  # and applies its value only on the branch that applies.
   test "an equal tier applies without clearing":
     let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
     c.parse("a", seenBy = some(byEnv))

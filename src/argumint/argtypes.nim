@@ -131,7 +131,7 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: O
   ## Validates every candidate in `values` against the prefix of `values`
   ## already accepted -- `self`'s own prior values never enter that history,
   ## since they're about to be discarded -- then, only if all of them pass,
-  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitrate`
+  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitration`
   ## call: unlike `putImpl`, `replaceImpl` always applies, tier or no tier,
   ## which is what lets it demote. Raising mid-validation leaves both fields
   ## untouched, so there's no `clear()` to undo on failure.
@@ -147,29 +147,31 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: O
 proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: Option[SeenBy], validate: bool) =
   ## Sets (or, for a multi Arg, appends) `self`'s value to `value`, running
   ## `self`'s Validator first unless `validate` is false. Raises a
-  ## `ValidationError` if the value doesn't pass. `arbitrate` decides whether
-  ## this contribution applies at all, and runs the Validator against the right
-  ## history for the branch it takes -- with `self.value` when extending, with
-  ## none when replacing, since those values are about to be discarded. See
-  ## `backend.arbitrate*`. Backs both `put` (`argumint.nim`) and `parseImpl`
-  ## below, which delegates here once it has a `T` in hand. `variant` is
-  ## error-message context only, passed to `subject` on the failure path --
-  ## `parseImpl` hands it the real matched token; `put*` always passes `""`,
-  ## since a programmatic write has no matched token, letting `subject`
-  ## fall back to `self.variants[0]`.
+  ## `ValidationError` if the value doesn't pass. `arbitration` decides whether
+  ## this contribution applies at all, and which history the Validator runs
+  ## against -- `self.value` when extending, none when replacing, since those
+  ## values are about to be discarded. See `backend.arbitration*`. Backs both
+  ## `put` (`argumint.nim`) and `parseImpl` below, which delegates here once
+  ## it has a `T` in hand. `variant` is error-message context only, passed to
+  ## `subject` on the failure path -- `parseImpl` hands it the real matched
+  ## token; `put*` always passes `""`, since a programmatic write has no
+  ## matched token, letting `subject` fall back to `self.variants[0]`.
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
   try:
-    self.arbitrate(seenBy):
-      if validate and not self.validator.isNil:
-        self.validator.validate(value, self.value)
-    do:
-      if validate and not self.validator.isNil:
-        self.validator.validate(value)
-    when multi:
-      self.value.add(value)
-    else:
-      self.value = @[value]
+    if validate and not self.validator.isNil:
+      case how.get
+      of arExtend: self.validator.validate(value, self.value)
+      of arReplace: self.validator.validate(value)
   except ValidationError as e:
     raise newPlainError(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
+  if how.get == arReplace:
+    self.promote(seenBy)
+  when multi:
+    self.value.add(value)
+  else:
+    self.value = @[value]
 
 proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: Option[SeenBy]) =
   ## Converts a string `value` into a `T`, then delegates to `putImpl` for
@@ -293,7 +295,11 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## params: nothing here can raise, so there's no message to give context
   ## to and no check to opt out of. See
   ## `docs/adr/0044-put-typed-write-accessor.md`.
-  self.arbitrate(seenBy)
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
+  if how.get == arReplace:
+    self.promote(seenBy)
   self.value = value
   if not self.clamp.isNil:
     self.value = self.clamp.apply(self.value)
@@ -321,7 +327,11 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     ## actually do.
     if not self.ops.hasKey(variantValue):
       raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
-    self.arbitrate(seenBy)
+    let how = self.arbitration(seenBy)
+    if how.isNone:
+      return
+    if how.get == arReplace:
+      self.promote(seenBy)
     let (op {.inject.}, arg {.inject.}, _) = self.ops[variantValue]
     self.value.handleFlag(op, arg)
     if not self.clamp.isNil:

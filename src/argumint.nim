@@ -100,7 +100,7 @@ export completion.completeArgs, completion.Shell, completion.CompletionCandidate
 # reason as `fsm.parse` above -- reaching them shouldn't need a backend
 # import. See `docs/adr/0041-parse-is-the-write-surface.md` and
 # `docs/adr/0030-core-types-exported-spec-opaque.md`.
-export backend.parse, backend.clear, backend.action, backend.arbitrate
+export backend.parse, backend.clear, backend.action
 
 # How a Value Precedence tier *finds* an Arg's value (#59): the two methods
 # a custom `Arg` subtype overrides to opt into the env and Config Source

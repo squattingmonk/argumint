@@ -39,7 +39,11 @@ method parse(self: TestArg, value: string, variant = "",
              seenBy: options.Option[SeenBy] = none(SeenBy)) =
   ## Records per tier, so the fallback sweep's two paths stay
   ## distinguishable once each tier writes through `parse`.
-  self.arbitrate(seenBy)
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
+  if how.get == arReplace:
+    self.promote(seenBy)
   if seenBy == some(byConfig): self.configRecorded.add value
   else: self.recorded.add value
 

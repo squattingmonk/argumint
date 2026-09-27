@@ -47,6 +47,13 @@ type
     byEnv ## An environment variable supplied it
     byCli ## The command line supplied it
 
+  Arbitration* = enum
+    ## What one contribution at a Value Precedence tier does to an Arg,
+    ## judged against its current provenance -- see `arbitration*`. A
+    ## weaker tier is refused, so it has no member.
+    arExtend ## Same tier, or none declared: add to what is there
+    arReplace ## A stronger tier: clear what is there, then store
+
   HelpText* = tuple[short, long: string]
     ## An Arg's Help Text and optional Long-Form Help Text (`""` if none) --
     ## see `docs/adr/0049-help-text-short-long-pair.md`.
@@ -513,45 +520,24 @@ method clear*(self: Arg) {.base.} =
   ## this method to also remove their value, restoring any default.
   self.seenBy = byNone
 
-template arbitrate*(self: Arg, tier: Option[SeenBy], eqBody: untyped, gtBody: untyped): untyped =
-  ## Arbitrates one contribution at Value Precedence `tier` against `self`'s
-  ## current provenance, running whichever body applies. Every `parse`
-  ## override routes through this -- it *is* the tier rule, and rewriting it
-  ## by hand is how an override silently ends up demoting, or accumulating
-  ## where it should reset.
-  ##
-  ## - **first body** -- `tier` is `none()`, or equal to `self.seenBy`: this
-  ##   contribution *extends* what is there, so nothing is cleared and the
-  ##   body runs against `self`'s existing value.
-  ## - **`do` body** -- `tier` outranks `self.seenBy`: this contribution
-  ##   *replaces* what is there. The body runs **before** `self` is cleared,
-  ##   so a body that raises leaves `self` untouched, and one that inspects
-  ##   `self.value` still sees the values about to be discarded.
-  ## - **neither** -- `tier` is weaker than `self.seenBy`: `return`s out of
-  ##   the calling scope. `parse` never demotes; call `clear` first to hand
-  ##   an Arg back to a weaker tier.
-  ##
-  ## The parameter is `tier`, not `seenBy`: naming it after the field the
-  ## body reads off `self` gensyms over that field wherever this expands
-  ## inside another template. See docs/gotchas.md.
-  ## See `docs/adr/0041-parse-is-the-write-surface.md`.
+proc arbitration*(self: Arg, tier: Option[SeenBy]): Option[Arbitration] =
+  ## The tier rule: what a contribution at `tier` does to `self`, or `none`
+  ## when `tier` is weaker than `self.seenBy` and is refused. A `none` tier
+  ## extends at whatever tier is current. `parse` never demotes; call
+  ## `clear` first to hand an Arg back to a weaker tier. Every write routes
+  ## through this -- restating the rule by hand is how a write silently
+  ## demotes, or accumulates where it should reset. See
+  ## `docs/adr/0041-parse-is-the-write-surface.md`.
   let seen = tier.get(otherwise = self.seenBy)
-  if seen < self.seenBy:
-    return
-  elif seen > self.seenBy:
-    gtBody
-    self.clear
-    self.seenBy = seen
-  else:
-    eqBody
+  if seen < self.seenBy: none(Arbitration)
+  elif seen > self.seenBy: some(arReplace)
+  else: some(arExtend)
 
-template arbitrate*(self: Arg, tier: Option[SeenBy]): untyped =
-  ## `arbitrate` for an Arg with nothing to do on either branch -- it still
-  ## skips a weaker tier, and still clears and records on a stronger one.
-  arbitrate(self, tier):
-    discard
-  do:
-    discard
+proc promote*(self: Arg, tier: Option[SeenBy]) =
+  ## Clears `self` and records `tier` as its provenance -- the `arReplace`
+  ## step, run only once the new value has passed every check.
+  self.clear
+  self.seenBy = tier.get
 
 method parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) {.base.} =
   ## Called on all seen args after a successful parse. Non-value-carrying args
@@ -560,8 +546,9 @@ method parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = n
   ## convert/validate/store a matched `value` (raw command-line/env/config
   ## string) onto `self` using the variant that matched.
   ##
-  ## Overrides must arbitrate through `arbitrate*`.
-  self.arbitrate(seenBy)
+  ## Overrides must arbitrate through `arbitration*`.
+  if self.arbitration(seenBy) == some(arReplace):
+    self.promote(seenBy)
 
 method action*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
   ## Fires this Arg's Action -- what a matched Message Argument does in place
@@ -655,3 +642,22 @@ method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## (non-Flag) Arg has no notion of FlagOp Aliasing, so any two of its own
   ## variants are unconditionally aliases of one another.
   true
+
+when isMainModule:
+  import std/unittest
+
+  suite "arbitration":
+    test "compares the declared tier with the current one":
+      let arg = Arg(variants: @["--port"], seenBy: byEnv)
+      check arg.arbitration(some(byConfig)) == none(Arbitration)
+      check arg.arbitration(some(byEnv)) == some(arExtend)
+      check arg.arbitration(some(byCli)) == some(arReplace)
+
+    test "no declared tier extends at the current one":
+      for seen in SeenBy:
+        check Arg(variants: @["--port"], seenBy: seen).arbitration(none(SeenBy)) == some(arExtend)
+
+    test "an unsupplied Arg takes any tier":
+      let arg = Arg(variants: @["--port"])
+      check arg.arbitration(some(byNone)) == some(arExtend)
+      check arg.arbitration(some(byConfig)) == some(arReplace)

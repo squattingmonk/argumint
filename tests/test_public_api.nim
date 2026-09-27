@@ -134,6 +134,15 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(OptionalVariantFormat)
     check not compiles(FlagVariantFormat)
 
+  test "the tier rule stays out of the facade (#144)":
+    # Every write arbitrates inside the library; nothing outside it needs
+    # to. Mirrored by `test_argumint.nim`'s "Library-internal names ..."
+    # suite. The `arbitrate` template this replaced is gone altogether.
+    check not compiles(Arg(nil).arbitration(some(byCli)))
+    check not compiles(arReplace)
+    check not compiles(Arg(nil).promote(some(byCli)))
+    check not declared(arbitrate)
+
   test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
     # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
     # field into `argumint/argtypes`, keeping every public name here. Those
