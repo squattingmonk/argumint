@@ -180,13 +180,11 @@ proc acceptImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], c: Con
   ## Converts `c.value` into a `T`, then stores it. Raises `ParseError` if it
   ## can't convert. Generic methods are deprecated, so `defineValueArg`
   ## generates an `accept` per type that calls this.
-  let converted =
-    try:
-      let tmp: T = c.value
-      tmp
-    except ValueError:
-      raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {c.value.escape}")
-  self.storeImpl(converted, c, how, validate = true)
+  try:
+    let converted: T = c.value
+    self.storeImpl(converted, c, how, validate = true)
+  except ValueError:
+    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {c.value.escape}")
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1

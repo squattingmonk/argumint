@@ -575,7 +575,8 @@ or anything else that generates methods inside a template.
   Hit extracting `putImpl` out of `parseImpl`
   (`src/argumint/argtypes.nim`) for issue #29 -- `putImpl` takes an
   already-converted `T` and knows nothing about strings, so `parseImpl`'s
-  (now `acceptImpl`'s) own conversion had to move to guard exactly this. See
+  own conversion had to move to guard exactly this (`acceptImpl` since #145,
+  in the same statement shape). See
   `docs/adr/0044-put-typed-write-accessor.md`.
 
 - **`std/unittest`'s `check x == @[]` fails with "cannot infer the type of

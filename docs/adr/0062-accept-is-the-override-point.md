@@ -92,6 +92,18 @@ proc parse*(self: Arg, value: string, variant = "",
   PORT)`, where it used to name `--port=<n>`. The caller claimed the tier,
   so the error says where such a value comes from. A write declaring no
   tier, or `byCli`, names the Arg as before.
+- **A write refused as weaker is never checked.** `parse` arbitrates
+  before `accept` converts, so `port.parse("x", seenBy = some(byEnv))` on an
+  Arg already at `byCli` raises nothing, where it used to raise `expected
+  int`. The same goes for an unknown Flag Variant. Nothing is applied either
+  way (ADR 0041's "refuse; apply nothing"), and a real parse never reaches
+  it: the fallback sweep skips an Arg already above its tier. Checking first
+  would put conversion back ahead of arbitration in every `accept`.
+- **Clearing on `arReplace` stays the override's one duty.** It has to come
+  after the checks and before the store, which only `accept` can order. An
+  override that forgets it accumulates across tiers rather than replacing;
+  the `CustomArg` tests in `tests/test_write_side.nim` show the one line it
+  takes.
 - **The fallback error labels are tested**, which they weren't: env, env
   for a Flag's unknown Variant, and Config Key.
 - ADR 0041 (the override point and the Flag spelling) and ADR 0046 (the
