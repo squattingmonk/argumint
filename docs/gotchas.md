@@ -63,11 +63,12 @@ or anything else that generates methods inside a template.
   across the whole template expansion, not just inside `flagHandler`.
 
 - **Never name a template parameter after a field the template body reads
-  off one of its other parameters.** `backend.arbitrate*` takes the tier as
-  `tier: Option[SeenBy]` and reads `self.seenBy`. Naming that parameter
-  `seenBy` instead compiles fine everywhere the template expands inside an
-  ordinary proc, and fails *only* where it expands inside another template
-  — `defineFlagArg`'s generated `parse*` method — with:
+  off one of its other parameters.** The `backend.arbitrate*` template (a
+  proc, `arbitration`, since #144) took the tier as `tier: Option[SeenBy]`
+  and read `self.seenBy`. Naming that parameter `seenBy` instead compiled
+  fine everywhere the template expanded inside an ordinary proc, and failed
+  *only* where it expanded inside another template — `defineFlagArg`'s
+  generated `parse*` method — with:
 
   ```
   Error: undeclared field: 'seenBy`gensym141' for type argumint.FlagArg

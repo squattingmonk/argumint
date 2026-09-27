@@ -124,7 +124,7 @@ suite "ValueArg's read accessors test the stored value, not seen":
 
   test "get(otherwise) still returns otherwise when the value seq is empty, even with seenBy != byNone":
     # The Config Source `some(@[])` residue: a source can declare a tier
-    # without ever storing a value (see backend's arbitrate -- the apply
+    # without ever storing a value (see backend's arbitration -- the apply
     # branch that resolves nothing must not stamp provenance either, but
     # this pins the *reader*'s side of that invariant regardless of how the
     # empty-but-seen state was reached).

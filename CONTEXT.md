@@ -711,8 +711,8 @@ A tier's values are arbitrated against whatever provenance the Arg already
 carries, rather than blindly replacing or accumulating onto it. A stronger
 tier clears the Arg first, so a weaker tier's values are replaced; the same
 tier applies without clearing, which is what makes repeated values from one
-tier accumulate; a weaker tier is refused and applies nothing (`arbitrate`,
-in code, is where every write applies that rule). This is what
+tier accumulate; a weaker tier is refused and applies nothing
+(`arbitration`, in code, is where every write applies that rule). This is what
 makes a value written *before* parsing a pre-seed rather than something the
 tiers silently clobber — a pre-seed claiming the command-line tier is
 appended to by what the user typed, one claiming no tier is discarded by
