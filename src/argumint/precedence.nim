@@ -54,14 +54,6 @@ proc seenBy(t: FallbackTier): SeenBy =
   of ftEnv: byEnv
   of ftConfig: byConfig
 
-proc sourceLabel(t: FallbackTier, arg: Arg): string =
-  ## The source label `arg.parse` records as this tier's variant -- what
-  ## `subject` (`backend.nim`) renders as e.g. `--port (env: PORT)` when a
-  ## fallback value turns out to be bad.
-  case t
-  of ftEnv: arg.envName
-  of ftConfig: arg.configKey.join
-
 proc resolveEnv(arg: Arg, spec: Spec): Option[seq[string]] =
   ## Resolver for the env tier -- see architecture.md's "Env var mechanics".
   let source = arg.envSource
@@ -142,7 +134,7 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec,
     else:
       cursor.applied.incl arg
       for v in cursor.values[arg]:
-        arg.parse(v, t.sourceLabel(arg), some(t.seenBy))
+        arg.parse(v, seenBy = some(t.seenBy))
   elif arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, spec)
@@ -150,7 +142,7 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec,
       result = true
       cursor.applied.incl arg
       for v in found.get:
-        arg.parse(v, t.sourceLabel(arg), some(t.seenBy))
+        arg.parse(v, seenBy = some(t.seenBy))
 
 proc applyFallbacks*(tiers: var Tiers, specs: seq[Spec], report: var Report) =
   ## Sweeps every spec level actually entered during this parse (the chain

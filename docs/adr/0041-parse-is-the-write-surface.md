@@ -28,6 +28,13 @@
 > plain proc rather than an overridable method. All are reachable from the
 > facade, as that header says the write side already is.
 
+> **Further amended by [ADR 0062](0062-accept-is-the-override-point.md)**:
+> `parse` is no longer a method a custom `Arg` overrides. It is a proc that
+> arbitrates and then calls `accept`, the new override point, so the
+> `arbitrate` template below (an `arbitration` proc since #144) is internal.
+> The table's "apply a Flag Operation" row was wrong: it is
+> `flag.parse(variant)`, not `flag.parse("", variant)`, which raises.
+
 Nothing supported writing a value into an Arg from application code. A
 program that wants to seed a default computed at startup, replay a saved
 session, or layer a source argumint doesn't know about had no way in.

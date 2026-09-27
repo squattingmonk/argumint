@@ -35,17 +35,13 @@ type
 
 method envSource(self: TestArg): options.Option[EnvSource] = self.env
 method configKey(self: TestArg): ConfigKey = self.cfg
-method parse(self: TestArg, value: string, variant = "",
-             seenBy: options.Option[SeenBy] = none(SeenBy)) =
+method accept(self: TestArg, c: Contribution, how: Arbitration) =
   ## Records per tier, so the fallback sweep's two paths stay
   ## distinguishable once each tier writes through `parse`.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  if how.get == arReplace:
-    self.promote(seenBy)
-  if seenBy == some(byConfig): self.configRecorded.add value
-  else: self.recorded.add value
+  if how == arReplace:
+    self.clear
+  if c.tier == some(byConfig): self.configRecorded.add c.value
+  else: self.recorded.add c.value
 
 method lookup(self: FakeSource, key: ConfigKey): options.Option[seq[string]] =
   for (k, v) in self.data:

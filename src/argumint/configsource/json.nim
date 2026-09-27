@@ -20,7 +20,7 @@ proc jsonConfigSource*(path: string): ConfigSource =
   JsonConfigSource(root: parseFile(path))
 
 proc stringify(node: JsonNode): Option[string] =
-  ## Stringifies a scalar JSON value for `parseImpl` -- deliberately via
+  ## Stringifies a scalar JSON value for `acceptImpl` -- deliberately via
   ## `getStr`/`getInt`/`getFloat`/`getBool` per kind, not `$node`, which
   ## would re-serialize a `JString` with stray quotes (`"foo"` instead of
   ## `foo`). `none` for anything that isn't a scalar (`JObject`/`JArray`/

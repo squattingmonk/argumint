@@ -4,14 +4,11 @@
 #
 # Imports `argumint` alone on purpose: reaching the write side must not
 # require a backend import -- see
-# `docs/adr/0030-core-types-exported-spec-opaque.md`. The one exception is
-# `CustomArg`'s `parse` override, which still arbitrates by hand until #145
-# makes `accept` the override point.
+# `docs/adr/0030-core-types-exported-spec-opaque.md`.
 
 import std/[options, os, strutils, unittest]
 
 import argumint
-from argumint/backend import Arbitration, arbitration, promote # #145
 
 type
   MemSource = ref object of ConfigSource
@@ -36,14 +33,11 @@ method lookup(self: MemSource, key: ConfigKey): Option[seq[string]] =
       return some(v)
   none(seq[string])
 
-method parse(self: CustomArg, value: string, variant = "",
-             seenBy: Option[SeenBy] = none(SeenBy)) =
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  if how.get == arReplace:
-    self.promote(seenBy)
-  self.vals.add value
+method accept(self: CustomArg, c: Contribution, how: Arbitration) =
+  ## The whole override: clear on `arReplace`, then store.
+  if how == arReplace:
+    self.clear
+  self.vals.add c.value
 
 method clear(self: CustomArg) =
   procCall clear(Arg(self))
@@ -67,7 +61,7 @@ proc withConfig(pairs: openArray[(string, seq[string])]): SpecSettings =
   var data: seq[(ConfigKey, seq[string])]
   for (k, v) in pairs:
     data.add (configKey(k), v)
-  result = newSpecSettings(configSources = @[ConfigSource MemSource(data: data)])
+  result = newSpecSettings(style = nil, configSources = @[ConfigSource MemSource(data: data)])
 
 suite "the write surface is reachable from the facade":
   test "parse and clear need no backend import":
@@ -220,6 +214,61 @@ suite "a fallback tier's variant name is checked before it is applied":
       spec.parse(usage = "[-v]...", args = @[], command = "app",
                  settings = withConfig({"verbose": @[""]}))
 
+suite "a bad value names the source it came from (#145)":
+  # `subject` reads the source off the Arg and the Contribution's tier; the
+  # Contribution carries no label.
+  proc failure(body: proc ()): string =
+    try:
+      body()
+    except ParseError, ValidationError:
+      return getCurrentExceptionMsg()
+
+  test "an env var names itself":
+    putEnv("ARGUMINT_WRITE_PORT", "x")
+    defer: delEnv("ARGUMINT_WRITE_PORT")
+    let spec = (port: opt("--port=<n>", default = 80, env = "ARGUMINT_WRITE_PORT", help = ""))
+    check "expected int for --port (env: ARGUMINT_WRITE_PORT) but got \"x\"" in failure(proc () =
+      spec.parse(usage = "[--port=<n>]", args = @[], command = "app",
+                 settings = newSpecSettings(style = nil)))
+
+  test "an env var names itself for a Flag's unknown variant":
+    putEnv("ARGUMINT_WRITE_V", "--nope")
+    defer: delEnv("ARGUMINT_WRITE_V")
+    let spec = (v: flag[int](ops = [flagOp("-v", "+=", 1)], default = 0,
+                             env = "ARGUMINT_WRITE_V", help = ""))
+    check "\"--nope\" is not a known variant for the flag -v (env: ARGUMINT_WRITE_V)" in failure(proc () =
+      spec.parse(usage = "[-v]", args = @[], command = "app",
+                 settings = newSpecSettings(style = nil)))
+
+  test "a Config Key names itself":
+    let spec = (port: opt("--port=<n>", default = 80,
+                          configKey = configKey("server", "port"), help = ""))
+    check "expected int for --port (configKey: server.port) but got \"x\"" in failure(proc () =
+      spec.parse(usage = "[--port=<n>]", args = @[], command = "app",
+                 settings = newSpecSettings(style = nil, configSources = @[ConfigSource MemSource(
+                   data: @[(configKey("server", "port"), @["x"])])])))
+
+  test "the command line names the Variant typed":
+    let spec = (port: opt("-p, --port=<n>", default = 80, help = ""))
+    check "expected int for -p but got \"x\"" in failure(proc () =
+      spec.parse(usage = "[-p=<n>]", args = @["-p", "x"], command = "app",
+                 settings = newSpecSettings(style = nil)))
+
+  test "a write declaring a fallback tier names that tier's source":
+    let port = opt("--port=<n>", default = 80, validator = range(1..10),
+                   env = "PORT", configKey = configKey("port"), help = "")
+    check failure(proc () = port.parse("x", seenBy = some(byEnv))) ==
+      "expected int for --port (env: PORT) but got \"x\""
+    check failure(proc () = port.put(99, seenBy = some(byConfig))) ==
+      "for --port (configKey: port), got 99 but expected one of 1 .. 10"
+
+  test "a write declaring no tier, or the command line, names the Arg":
+    let port = opt("--port=<n>", default = 80, env = "PORT", help = "")
+    check failure(proc () = port.parse("x")) ==
+      "expected int for --port=<n> but got \"x\""
+    check failure(proc () = port.parse("x", seenBy = some(byCli))) ==
+      "expected int for --port=<n> but got \"x\""
+
 suite "a write that raises leaves the Arg exactly as it was":
   # A write clears only once its value has passed every check, and
   # conversion happens before `arbitration` is consulted at all -- so a
@@ -311,9 +360,10 @@ suite "clear returns an Arg to its coded-default state":
       tags.parse(v, seenBy = some(byCli))
     check tags.get == @["x", "y"]
 
-suite "arbitration is the tier rule a custom Arg subtype routes through":
-  # ADR 0030's custom-Arg contract: an override arbitrates via `arbitration`
-  # and applies its value only on the branch that applies.
+suite "a custom Arg subtype gets the tier rule without arbitrating (#145)":
+  # ADR 0030's custom-Arg contract: `CustomArg` overrides only `accept` and
+  # never consults `arbitration` -- `parse` refuses, extends or replaces for
+  # it. Reachable from the facade alone -- this file imports no backend.
   test "an equal tier applies without clearing":
     let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
     c.parse("a", seenBy = some(byEnv))

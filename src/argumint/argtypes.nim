@@ -30,7 +30,7 @@ type
     ## boundary; its fields stay private, same shape as `Spec` -- see
     ## `docs/adr/0033-value-arg-flag-arg-exported.md`.
     value: seq[T]
-      ## Empty until `parseImpl` writes to it; see `toT`/`toSeqT`.
+      ## Empty until `storeImpl` writes to it; see `toT`/`toSeqT`.
     default: seq[T]
     validator: Validator[T]
     env: Option[EnvSource]
@@ -69,7 +69,7 @@ const flagOps = CacheTable"flagOps"
 
 # ------------------------------------------------------------------------------
 # These converters allow the methods below to convert implicitly from strings to
-# other data types. They stay private: their only consumers are `parseImpl` and
+# other data types. They stay private: their only consumers are `acceptImpl` and
 # `parseFlagOpsString` below, and exporting them would put `let n: int = "5"`
 # in scope for anyone who imports argumint.
 # ------------------------------------------------------------------------------
@@ -144,46 +144,49 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: O
   self.value = values
   self.seenBy = seenBy.get(otherwise = self.seenBy)
 
-proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, variant: string, seenBy: Option[SeenBy], validate: bool) =
-  ## Sets (or, for a multi Arg, appends) `self`'s value to `value`, running
-  ## `self`'s Validator first unless `validate` is false. Raises a
-  ## `ValidationError` if the value doesn't pass. `arbitration` decides whether
-  ## this contribution applies at all, and which history the Validator runs
-  ## against -- `self.value` when extending, none when replacing, since those
-  ## values are about to be discarded. See `backend.arbitration*`. Backs both
-  ## `put` (`argumint.nim`) and `parseImpl` below, which delegates here once
-  ## it has a `T` in hand. `variant` is error-message context only, passed to
-  ## `subject` on the failure path -- `parseImpl` hands it the real matched
-  ## token; `put*` always passes `""`, since a programmatic write has no
-  ## matched token, letting `subject` fall back to `self.variants[0]`.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
+proc storeImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, c: Contribution, how: Arbitration, validate: bool) =
+  ## Stores an already-arbitrated `value`: runs the Validator against the
+  ## history `how` implies (`self.value` when extending, none when
+  ## replacing, since those values are about to be discarded), then clears on
+  ## `arReplace` and sets (or, for a multi Arg, appends). Raises a
+  ## `ValidationError` naming `self` via `subject(c)`, leaving `self`
+  ## untouched.
   try:
     if validate and not self.validator.isNil:
-      case how.get
+      case how
       of arExtend: self.validator.validate(value, self.value)
       of arReplace: self.validator.validate(value)
   except ValidationError as e:
-    raise newPlainError(ValidationError, fmt"for {self.subject(variant, seenBy)}, {e.msg}")
-  if how.get == arReplace:
-    self.promote(seenBy)
+    raise newPlainError(ValidationError, fmt"for {self.subject(c)}, {e.msg}")
+  if how == arReplace:
+    self.clear
   when multi:
     self.value.add(value)
   else:
     self.value = @[value]
 
-proc parseImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: string, variant: string, seenBy: Option[SeenBy]) =
-  ## Converts a string `value` into a `T`, then delegates to `putImpl` for
-  ## everything else -- arbitration, validation, storage. Raises `ParseError` if
-  ## `value` can't convert to a `T`; a `ValidationError` from `putImpl` passes
-  ## through unchanged. We do this here because generic methods are deprecated,
-  ## so we generate methods for each defined type and have them call this.
-  try:
-    let tmp: T = value
-    self.putImpl(value = tmp, variant = variant, seenBy = seenBy, validate = true)
-  except ValueError:
-    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(variant, seenBy)} but got {value.escape}")
+proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, seenBy: Option[SeenBy], validate: bool) =
+  ## `parse`'s arbitration for a value already typed `T` -- backs `put`
+  ## (`argumint.nim`). No Variant was typed, so an error names `self`'s
+  ## first one.
+  let how = self.arbitration(seenBy)
+  if how.isNone:
+    return
+  self.storeImpl(value, Contribution(tier: seenBy), how.get, validate)
+  if how.get == arReplace:
+    self.seenBy = seenBy.get
+
+proc acceptImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], c: Contribution, how: Arbitration) =
+  ## Converts `c.value` into a `T`, then stores it. Raises `ParseError` if it
+  ## can't convert. Generic methods are deprecated, so `defineValueArg`
+  ## generates an `accept` per type that calls this.
+  let converted =
+    try:
+      let tmp: T = c.value
+      tmp
+    except ValueError:
+      raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {c.value.escape}")
+  self.storeImpl(converted, c, how, validate = true)
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1
@@ -230,11 +233,11 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
   ## Generates the `ValueArg[T, false]`/`ValueArg[T, true]` methods for `T`.
   ## The machinery behind `argumint.nim`'s one-argument `defineArg*`; see
   ## there for the user-facing docs.
-  method parse(self: ValueArg[T, false], value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
-    self.parseImpl(value, variant, seenBy)
+  method accept(self: ValueArg[T, false], c: Contribution, how: Arbitration) =
+    self.acceptImpl(c, how)
 
-  method parse(self: ValueArg[T, true], value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
-    self.parseImpl(value, variant, seenBy)
+  method accept(self: ValueArg[T, true], c: Contribution, how: Arbitration) =
+    self.acceptImpl(c, how)
 
   method defaultStr(self: ValueArg[T, false]): string =
     ## Returns `self`'s default value stringified, or "" if it's still `T`'s
@@ -299,7 +302,8 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   if how.isNone:
     return
   if how.get == arReplace:
-    self.promote(seenBy)
+    self.clear
+    self.seenBy = seenBy.get
   self.value = value
   if not self.clamp.isNil:
     self.value = self.clamp.apply(self.value)
@@ -319,20 +323,13 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
   proc handleFlag(value {.inject.}: var T, op {.inject.}: string, arg {.inject.}: T) =
     flagHandler
 
-  method parse(self: FlagArg[T], variantValue: string, variantName: string, seenBy: Option[SeenBy] = none(SeenBy)) =
-    ## Flag args pass the seen variant as both the value and the variant in the
-    ## general case. In the case of values sourced from env vars or config keys,
-    ## the seen variant is passed as the value while the env/configKey is the
-    ## variant. We thus re-name the parameters here to make clear what they
-    ## actually do.
-    if not self.ops.hasKey(variantValue):
-      raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [variantValue.escape, self.subject(variantName, seenBy)])
-    let how = self.arbitration(seenBy)
-    if how.isNone:
-      return
-    if how.get == arReplace:
-      self.promote(seenBy)
-    let (op {.inject.}, arg {.inject.}, _) = self.ops[variantValue]
+  method accept(self: FlagArg[T], c: Contribution, how: Arbitration) =
+    ## `c.value` is the Variant whose Flag Operation applies, on every tier.
+    if not self.ops.hasKey(c.value):
+      raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [c.value.escape, self.subject(c)])
+    if how == arReplace:
+      self.clear
+    let (op {.inject.}, arg {.inject.}, _) = self.ops[c.value]
     self.value.handleFlag(op, arg)
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
