@@ -117,7 +117,7 @@ is nothing to tell apart otherwise: help and completion both print it
 after the Flag's Help Text, under the `action:` label. `Arg.variantDesc`
 returns it, or empty when there's nothing to tell apart. See
 `docs/adr/0063-flag-operation-description-in-completion.md`.
-_Avoid_: action (the Spec callback -- see Action), variant description
+_Avoid_: action (the Spec callback -- see Action)
 
 **Flag Clamp**:
 A silent, non-raising constraint attached to a Flag, applied to its shared

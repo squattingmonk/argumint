@@ -345,7 +345,7 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
       of "-=": "Decrease by " & $vArg
       else: blankDesc
 
-    # Empty unless the ops diverge: see `backend.variantDesc`.
+    # Empty unless the ops diverge: see ADR 0063.
     if not self.ops.hasKey(variant): return ""
     result = describe(self.ops[variant])
     for entry in self.ops.values:

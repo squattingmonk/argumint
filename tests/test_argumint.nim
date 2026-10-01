@@ -254,6 +254,11 @@ suite "Optional args":
     check spec.tags == newSeq[string]()
 
 suite "Flags":
+  test "a bare flag has no Flag Operation Description to show, on any variant (#154)":
+    let f = flag("-v, --verbose")
+    check f.variantDesc("-v") == ""
+    check f.variantDesc("--verbose") == ""
+
   test "bool flags toggle from their default":
     let spec = (
       moored: flag("--moored", default = false, help = ""),

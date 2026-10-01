@@ -441,9 +441,7 @@ when isMainModule:
       check arg.variantsByDesc() == expected
 
   suite "rows":
-    # Variants sharing a description share a row. A bucket is divergent if its
-    # variantDesc is non-empty, which `variantDesc` only allows when variants
-    # differ.
+    # Variants sharing a description share a row: see ADR 0063.
     test "a non-divergent bucket gets one row with the arg's help text":
       check TestArg(variants: @["<name>"], help: "Who to greet").rows().plain ==
         @[row("<name>", "Who to greet")]
