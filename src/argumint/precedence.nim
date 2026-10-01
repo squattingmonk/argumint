@@ -149,7 +149,7 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   ## not-yet-supplied Arg's env var, then (only if env had nothing) its
   ## Config Source value. Deliberately outside `walk`'s FSM/backtracking,
   ## so an Arg only reachable via `[options]` still picks up its fallback
-  ## values -- see architecture.md's "Env var mechanics",
+  ## values -- see architecture.md's "Env var / Config Source mechanics",
   ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
   ## `docs/adr/0018-config-source.md` for the value-count/`ParseError`
   ## rules, shared identically by both tiers.

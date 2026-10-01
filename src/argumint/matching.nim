@@ -181,8 +181,8 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       pos.inc
 
     # No CLI token matched; let the configured env var, then a Config
-    # Source, stand in instead -- see architecture.md's "Env var
-    # mechanics" and `docs/adr/0018-config-source.md`.
+    # Source, stand in instead -- see architecture.md's "Env var / Config
+    # Source mechanics" and `docs/adr/0018-config-source.md`.
     if pc.tiers.probe(m.opt):
       return true
 

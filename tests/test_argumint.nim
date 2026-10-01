@@ -2036,6 +2036,17 @@ suite "Environment variables":
     spec.parse(usage = "[--token=<token>]", args = @[], command = "prog")
     check spec.token == "a:b\x1ec"
 
+  test "flag: env-named variants split on the default envDelim":
+    # The shared suite joins values on `\x1e`, so this pins the `:` path for
+    # a Flag.
+    putEnv("ARGUMINT_TEST_VERBOSE", "--verbose:--verbose")
+    defer: delEnv("ARGUMINT_TEST_VERBOSE")
+    let spec = (
+      verbosity: flag[int]("--verbose", default = 0, env = "ARGUMINT_TEST_VERBOSE", help = ""),
+    )
+    spec.parse(usage = "[--verbose]...", args = @[], command = "prog")
+    check spec.verbosity == 2
+
   test "flag: a per-arg delim override applies to how env-named variants are split":
     putEnv("ARGUMINT_TEST_VERBOSE", "--verbose;--verbose")
     defer: delEnv("ARGUMINT_TEST_VERBOSE")
@@ -2174,8 +2185,9 @@ suite "Config Source":
     # fsm.parse*). A before hook mutating settings.configSources is
     # therefore always too late to affect the parse already in progress,
     # exactly the same carve-out Spec.settings.envDelim already has
-    # (architecture.md's "Env var mechanics"). The mutation *is* visible to
-    # a later, separate parse() call reusing the same held SpecSettings.
+    # (architecture.md's "Env var / Config Source mechanics"). The mutation
+    # *is* visible to a later, separate parse() call reusing the same held
+    # SpecSettings.
     let settings = newSpecSettings()
     proc addLocalSource(spec: tuple, info: HookInfo) =
       settings.configSources.add fakeSource((configKey("port"), @["9090"]))

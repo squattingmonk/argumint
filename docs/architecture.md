@@ -139,8 +139,7 @@ moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
 both import it, the same shape as `tokens.nim`.
 
 `precedence.nim` sits directly above `complaints`/`configsource`/`envvar`
-and below
-`matching`/`fsm`, and holds everything Value Precedence's fallback tiers
+and below `matching`/`fsm`, and holds everything Value Precedence's fallback tiers
 name: `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so
 iteration order *is* the precedence order), `Tiers` (one `ValueCursor` per
 tier), `probe`, and `applyFallbacks`. `Tiers` replaces what used to be two
@@ -586,8 +585,8 @@ independent implementations. `Tiers.probe` is consulted from `match`'s
 `ValueCursor.probe` in `FallbackTier` order (env, then, only if env had
 nothing, Config Source) — lazily resolving and caching an Arg's available
 values (via `resolve`, a `case` on `FallbackTier`) and handing out the
-next unconsumed value each time that Arg's matcher is visited. `resolve` runs at most once per Arg per cursor
-(cached in `ValueCursor.tried`, including a miss) — cheap either way for
+next unconsumed value each time that Arg's matcher is visited. `resolve`
+runs at most once per Arg per cursor (cached in `ValueCursor.tried`, including a miss) — cheap either way for
 env (`existsEnv`), but load-bearing for Config Source, since a
 user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
 decides in advance how many times a matcher gets visited — it falls out
