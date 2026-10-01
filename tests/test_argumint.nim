@@ -1483,6 +1483,11 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     let arg = Arg(variants: @["--port"])
     check arg.arbitration(some(byCli)) == some(arReplace)
 
+  test "the env tier's reading and splitting exist in `argumint/envvar`":
+    check compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
+    check splitEnvValue("a:b", none(string), ":") == @["a", "b"]
+    check EnvListSep == "\x1e"
+
   test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
     # Exported from `argtypes` only so the facade's generic constructors,
     # accessors, and registration templates can reach it; never

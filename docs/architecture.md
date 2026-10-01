@@ -9,8 +9,9 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Three modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, and `style.nim` — and everything else layers on top:
+Four modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, `envvar.nim`, and `style.nim` — and everything else
+layers on top:
 `console`/`flagclamp`/`outcome`/`prose` → `lexer` →
 `backend`/`usage`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
 `tokens` → `complaints` → `precedence` → `matching` → `completion` →
@@ -36,6 +37,14 @@ decider taking its environment as parameters (`chooseWidth`, `wantsColor`)
 beside a thin probe of the real process, and the one `winlean` import
 lives here. It imports only `style`, for `ansiStyler(defaultTheme)`;
 `backend` re-exports the public width names.
+
+`envvar.nim` is the env tier's counterpart to `configsource.nim`:
+`EnvSource` and its constructors (`env`, `toEnvSource`), `DefaultEnvDelim`,
+the split rule (`splitEnvValue`), and `lookupEnv`, which reads a variable
+and splits it the way `lookupConfigSources` answers for a Config Key.
+`backend` re-exports it, since `Arg.envSource` returns an `EnvSource` and
+`newSpecSettings` defaults to `DefaultEnvDelim`. It can't be called
+`envsource`: see `docs/gotchas.md`.
 
 `outcome.nim` is what `parseOrQuit*` does with each exception it catches:
 `outcome(e, styler)` returns the text to print, whether it goes to stderr,
@@ -70,8 +79,8 @@ into one: `finishSpec` calls `genFsm` (`parser`) and `autoFillUsage` calls
 `referencedArgs` (`fsmgraph`), both of which import `backend`. Putting spec
 construction in `backend` is a recursive module dependency, and Nim rejects
 it outright. The constructors that never touch a usage string
-(`newSpecSettings`, `env`, `toEnvSource`) do live in `backend`, beside the
-`SpecSettings`/`EnvSource` types they build; so do the variant-format PEGs
+(`newSpecSettings`) do live in `backend`, beside the `SpecSettings` type
+they build; so do the variant-format PEGs
 (`PositionalVariantFormat`/`OptionalVariantFormat`/`FlagVariantFormat`/
 `FlagOpVariantFormat`), the `Comma` separator every `variants` string is
 split on, and `subject`, all of which have consumers on both sides of the
@@ -129,7 +138,8 @@ moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
 `complaints` needs no withholding — `matching.nim` and `precedence.nim`
 both import it, the same shape as `tokens.nim`.
 
-`precedence.nim` sits directly above `complaints`/`configsource` and below
+`precedence.nim` sits directly above `complaints`/`configsource`/`envvar`
+and below
 `matching`/`fsm`, and holds everything Value Precedence's fallback tiers
 name: `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so
 iteration order *is* the precedence order), `Tiers` (one `ValueCursor` per
@@ -147,6 +157,10 @@ itself and dispatch — `match`/`push` moved out to `matching.nim` entirely
 in issue #78, so this is no longer just a division of labor within one
 file. Unlike `argtypes`, `precedence` needs no withholding — `matching.nim`
 and `fsm.nim` both import it, the same shape as `tokens.nim`/`complaints.nim`.
+`initTiers(settings)` captures the parse's one `SpecSettings` (every level
+shares the root's), so `probe` and `applyFallbacks` take Args, never a
+`Spec`; `completion.nim` builds its own `Tiers` the same way, since its walk
+probes too.
 
 `matching.nim` sits directly above `precedence` and below `completion`/
 `fsm`, and holds the matching primitives both the parse walk and shell
@@ -571,9 +585,8 @@ independent implementations. `Tiers.probe` is consulted from `match`'s
 `mkOption` branch during the walk — CLI token first, then each tier's own
 `ValueCursor.probe` in `FallbackTier` order (env, then, only if env had
 nothing, Config Source) — lazily resolving and caching an Arg's available
-values (via a `case` dispatch on `FallbackTier` to `resolveEnv`/
-`resolveConfig`) and handing out the next unconsumed value each time that
-Arg's matcher is visited. `resolve` runs at most once per Arg per cursor
+values (via `resolve`, a `case` on `FallbackTier`) and handing out the
+next unconsumed value each time that Arg's matcher is visited. `resolve` runs at most once per Arg per cursor
 (cached in `ValueCursor.tried`, including a miss) — cheap either way for
 env (`existsEnv`), but load-bearing for Config Source, since a
 user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
@@ -585,13 +598,14 @@ Usage Line with no `...` is just two separate matcher instances, and the
 cursor is consulted twice either way.
 
 The two tiers differ only in how they arrive at that per-Arg `seq[string]`
-of candidate values. `resolveEnv`: the raw env string is always split
-(`backend.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
+of candidate values, each asking its own leaf module. Env:
+`envvar.lookupEnv` reads the variable and always splits it
+(`envvar.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
 since that's how fish auto-joins a native list variable's elements when
 exporting it to a subprocess, otherwise on `Spec.settings.envDelim`
 (cascades like `width`, default `:`), keeping empty segments as literal
-values rather than dropping them. `resolveConfig`: `arg.configKey` is
-looked up via `lookupConfigSources(spec.settings.configSources, key)`,
+values rather than dropping them. Config Source: `arg.configKey` is
+looked up via `lookupConfigSources(settings.configSources, key)`,
 which already returns an assembled `seq[string]` (the last layered source
 with a hit for that key, in full — see CONTEXT.md's Config Source entry
 for why there's no delimiter-splitting step here at all).

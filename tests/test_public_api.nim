@@ -142,6 +142,14 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(Arg(nil).arbitration(some(byCli)))
     check not declared(arbitrate)
 
+  test "the env tier's reading and splitting stay out of the facade (#149)":
+    # `EnvSource` and its constructors are public; how the fallback sweep
+    # reads and splits a variable isn't. Mirrored by `test_argumint.nim`'s
+    # "Library-internal names ..." suite.
+    check not compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
+    check not compiles(splitEnvValue("a:b", none(string), ":"))
+    check not compiles(EnvListSep)
+
   test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
     # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
     # field into `argumint/argtypes`, keeping every public name here. Those

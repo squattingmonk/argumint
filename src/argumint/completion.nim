@@ -15,7 +15,7 @@
 
 import std/[sets, strformat, strutils, sugar, tables]
 
-import ./[backend, matching, prose, tokens]
+import ./[backend, matching, precedence, prose, tokens]
 
 type
   Shell* {.pure.} = enum
@@ -182,7 +182,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
     let committed = priorWords[0 ..< priorWords.high]
     var frontier: Frontier
     var seen: HashSet[State]
-    var pc = ParseContext(cursor: initCursor(spec, committed), command: command)
+    var pc = ParseContext(cursor: initCursor(spec, committed), command: command,
+      tiers: initTiers(spec.settings))
     collectFrontier(spec.fsm, pc, frontier, seen)
     let pending = frontier.pendingOptionalArgs(priorWords[^1])
     if pending.len > 0:
@@ -196,7 +197,8 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
   # Case (a): ordinary "what word can come next" completion.
   var frontier: Frontier
   var seen: HashSet[State]
-  var pc = ParseContext(cursor: initCursor(spec, priorWords), command: command)
+  var pc = ParseContext(cursor: initCursor(spec, priorWords), command: command,
+    tiers: initTiers(spec.settings))
   collectFrontier(spec.fsm, pc, frontier, seen)
   result = frontier.candidateWords(wordBeingCompleted)
 

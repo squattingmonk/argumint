@@ -164,7 +164,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     raise newPlainError(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(cursor: initCursor(spec, args), command: command,
-    report: initReport(spec, command), levels: @[(spec: spec, command: command)])
+    report: initReport(spec, command), tiers: initTiers(spec.settings), levels: @[(spec: spec, command: command)])
   if not spec.fsm.walk(pc):
     pc.report.raiseParseFailure()
 
@@ -191,7 +191,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
 
   var fallback = initReport(pc.cursor.spec, pc.command)
   reshaped:
-    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec), fallback)
+    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), fallback)
   if not fallback.isEmpty:
     fallback.raiseParseFailure()
 
