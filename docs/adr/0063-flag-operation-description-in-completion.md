@@ -57,6 +57,22 @@ The `action:` label stays as help has always printed it. In the glossary
 and code, though, the text is a Flag Operation Description, since Action
 already names the Spec callback.
 
+## Considered options
+
+- **Keep substituting, fix only the scope.** Judging divergence across all
+  of an Arg's Variants alone would have fixed the inconsistency, but a
+  candidate would still read "Increase by 5" without saying what
+  increases.
+- **The whole bracket.** Validator, `default:`, `env:` and `configKey:`
+  read the same on every Variant, so they lengthen each menu line without
+  telling candidates apart.
+- **Fall back to the long Help Text.** It is written for help's page, not
+  a menu line; `prose.summary` would cut it to its first paragraph, which
+  may not stand alone.
+- **A shared divergence check called by both help and completion.** It
+  works, but `variantDesc` already promised the rule, and a check outside
+  it leaves the broken promise for the next caller to trip over.
+
 ## Consequences
 
 Completion menus for a Flag with differing Flag Operations change from

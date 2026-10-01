@@ -221,6 +221,8 @@ suite "Completion candidates carry help text":
       let candidates = newSpec(spec, usage = usage).completeArgs(@[""], "prog")
       check candidates.find("-b").help == "Adjust rank [action: Increase by 5]"
       check candidates.find("--boost").help == "Adjust rank [action: Increase by 5]"
+      if usage != "--boost":
+        check candidates.find("--dampen").help == "Adjust rank [action: Decrease by 2]"
 
   test "with no short help, a divergent variant completes as its bare Flag Operation Description, never its long help (#154)":
     let spec = (
