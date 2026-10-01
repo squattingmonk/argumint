@@ -9,9 +9,8 @@
 ## the walk consumed. `fsm.nim` owns the walk itself and failure reporting
 ## -- see `docs/architecture.md` §3.
 import std/[options, sets, tables]
-from std/os import existsEnv, getEnv
 
-import ./[backend, complaints, configsource]
+import ./[backend, complaints, configsource, envvar]
 
 type
   FallbackTier* = enum
@@ -47,36 +46,36 @@ type
     ## Both fallback tiers together, one `ValueCursor` each, indexed by
     ## `FallbackTier` -- so `match`'s `Option` arm and `applyFallbacks`
     ## each consult one thing, not a closure-wrapped pair.
+    settings: SpecSettings
+      ## Where each tier finds its sources. One per parse: every spec level
+      ## shares the root's (see `specbuild.cascadeSpecSettings`)
     cursors: array[FallbackTier, ValueCursor]
+
+proc initTiers*(settings: SpecSettings): Tiers =
+  ## Fresh bookkeeping for one parse, reading each tier's sources from
+  ## `settings`. A default `Tiers` has none, so probing it crashes.
+  Tiers(settings: settings)
 
 proc seenBy(t: FallbackTier): SeenBy =
   case t
   of ftEnv: byEnv
   of ftConfig: byConfig
 
-proc resolveEnv(arg: Arg, spec: Spec): Option[seq[string]] =
-  ## Resolver for the env tier -- see architecture.md's "Env var mechanics".
-  let source = arg.envSource
-  if source.isNone or not existsEnv(source.get.name):
-    none(seq[string])
-  else:
-    some(splitEnvValue(getEnv(source.get.name), source.get.delim, spec.settings.envDelim))
-
-proc resolveConfig(arg: Arg, spec: Spec): Option[seq[string]] =
-  ## Resolver for the Config Source tier -- see
-  ## `docs/adr/0018-config-source.md`.
-  let key = arg.configKey
-  if key.len == 0:
-    none(seq[string])
-  else:
-    lookupConfigSources(spec.settings.configSources, key)
-
-proc resolve(t: FallbackTier, arg: Arg, spec: Spec): Option[seq[string]] =
+proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[string]] =
+  ## What `t` supplies for `arg` -- `argumint/envvar` and
+  ## `argumint/configsource` each answer for their own tier.
   case t
-  of ftEnv: resolveEnv(arg, spec)
-  of ftConfig: resolveConfig(arg, spec)
+  of ftEnv:
+    let source = arg.envSource
+    if source.isSome: lookupEnv(source.get, settings.envDelim)
+    else: none(seq[string])
+  of ftConfig:
+    let key = arg.configKey
+    if key.len > 0: lookupConfigSources(settings.configSources, key)
+    else: none(seq[string])
 
-proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec): bool =
+proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
+    settings: SpecSettings): bool =
   ## Lets `t`'s value stand in for a missing CLI value during the walk --
   ## `resolve` is called at most once per `arg` for the life of `cursor`
   ## (see `ValueCursor.tried`). Returning `false` just lets the walk fail
@@ -84,7 +83,7 @@ proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec): bool
   ## `applyFallbacks`'s post-walk sweep.
   if arg notin cursor.tried:
     cursor.tried.incl arg
-    let found = t.resolve(arg, spec)
+    let found = t.resolve(arg, settings)
     if found.isSome:
       cursor.values[arg] = found.get
   if arg notin cursor.values:
@@ -94,15 +93,15 @@ proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec): bool
     cursor.consumed[arg] = consumed + 1
     return true
 
-proc probe*(tiers: var Tiers, arg: Arg, spec: Spec): bool =
+proc probe*(tiers: var Tiers, arg: Arg): bool =
   ## Tries each fallback tier in precedence order -- env, then Config
   ## Source -- for a CLI token `match`'s `Option` arm couldn't find.
   for t in FallbackTier:
-    if tiers.cursors[t].probe(t, arg, spec):
+    if tiers.cursors[t].probe(t, arg, tiers.settings):
       return true
 
-proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec,
-    report: var Report): bool =
+proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
+    settings: SpecSettings, report: var Report): bool =
   ## Applies `t`'s contribution to `arg` in `applyFallbacks`'s post-walk
   ## sweep, mirroring `probe`'s own consumption-count semantics: if the
   ## walk actually visited `arg`'s matcher and pulled values from this tier
@@ -137,14 +136,14 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg, spec: Spec,
         arg.parse(v, seenBy = some(t.seenBy))
   elif arg notin cursor.tried:
     cursor.tried.incl arg
-    let found = t.resolve(arg, spec)
+    let found = t.resolve(arg, settings)
     if found.isSome:
       result = true
       cursor.applied.incl arg
       for v in found.get:
         arg.parse(v, seenBy = some(t.seenBy))
 
-proc applyFallbacks*(tiers: var Tiers, specs: seq[Spec], report: var Report) =
+proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report) =
   ## Sweeps every spec level actually entered during this parse (the chain
   ## the walk recorded -- see architecture.md §5), falling back to each
   ## not-yet-supplied Arg's env var, then (only if env had nothing) its
@@ -170,12 +169,10 @@ proc applyFallbacks*(tiers: var Tiers, specs: seq[Spec], report: var Report) =
   ## Runs to completion (or raises) entirely before `dispatch` is called --
   ## so a fallback problem at any level blocks every level's hooks from
   ## firing at all, not just that level's, since `dispatch` never starts.
-  for s in specs:
-    let spec = s # local copy -- a `for` loop's `lent` yield can't be captured below
-    for a in spec.args:
-      let arg = a # local copy, for the same reason
+  for args in levels:
+    for arg in args:
       for t in FallbackTier:
         if arg.seenBy > t.seenBy:
           break
-        if tiers.cursors[t].applyTier(t, arg, spec, report):
+        if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
           break

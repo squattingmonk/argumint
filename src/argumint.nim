@@ -18,7 +18,7 @@
 
 import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[argtypes, backend, completion, configsource, dot, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
+import ./argumint/[argtypes, backend, completion, configsource, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -58,7 +58,7 @@ export backend.showsMessage
 # docs/adr/0030-core-types-exported-spec-opaque.md.
 export backend.Spec, backend.SpecSettings
 export backend.Arg, backend.ArgKind, backend.CommandArg, backend.MessageArg
-export backend.EnvSource
+export envvar.EnvSource
 
 # Per-Arg provenance: `spec.port.seenBy == byCli`, `spec.verbose.seen`. See
 # docs/adr/0039-per-arg-provenance.md.
@@ -73,14 +73,14 @@ export options.Option
 # `newSpecSettings*`'s defaults, each settable with a `-d:argumint.*`
 # define, so readable here too -- see `docs/adr/0053-compile-time-defaults.md`.
 export backend.DefaultWidth, backend.DefaultMaxVariantsWidth,
-  backend.DefaultMaxWidth, backend.DefaultEnvDelim, backend.DefaultStrictOptions
+  backend.DefaultMaxWidth, envvar.DefaultEnvDelim, backend.DefaultStrictOptions
 
 # Public API that issue #49 moved out of this file -- `settings =` needs
 # `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
 # is reachable by bare name from a generated `parse` method (ADR 0017). The
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
 # PEGs) stays out; `tests/test_public_api.nim` holds that line.
-export backend.newSpecSettings, backend.env, backend.toEnvSource, backend.appName,
+export backend.newSpecSettings, envvar.env, envvar.toEnvSource, backend.appName,
   backend.detectWidth, backend.width, backend.`width=`, backend.style,
   backend.`style=`
 export backend.subject

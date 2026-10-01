@@ -659,3 +659,10 @@ or anything else that generates methods inside a template.
   import; `style.nim`, which does use it, imports `std/unicode except
   strip`. Found when a whitespace-only prolog line survived as a blank
   block.
+
+- **A module name can shadow a method of the same spelling.** Nim
+  identifiers are style-insensitive, so a module `envsource` and the method
+  `envSource` are the same name: once `backend` exported the module,
+  `arg.envSource` resolved to it and failed with `undeclared field:
+  'envSource'`. The env tier's module is `envvar.nim` for this reason.
+  Check a new module's name against the methods it will sit beside.

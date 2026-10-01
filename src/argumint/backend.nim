@@ -10,15 +10,15 @@
 ##
 ## Alongside the model sit the pieces that belong beside it rather than in
 ## spec construction (`argumint/specbuild`): the constructors for the types
-## declared here that never read a usage string (`newSpecSettings`, `env`,
-## `toEnvSource`), the PEGs a Variant string must match, and `subject`,
-## which names an Arg in a parse-failure message. See `docs/architecture.md`
-## for where that line falls and why.
+## declared here that never read a usage string (`newSpecSettings`), the
+## PEGs a Variant string must match, and `subject`, which names an Arg in a
+## parse-failure message. See `docs/architecture.md` for where that line
+## falls and why. The env tier's types live in `argumint/envvar`.
 
 import std/[hashes, options, os, pegs, strformat, strutils, tables]
 
-import ./[configsource, console, errors, style]
-export configsource
+import ./[configsource, console, envvar, errors, style]
+export configsource, envvar
 export console.DefaultWidth, console.DefaultMaxWidth, console.chooseWidth,
   console.detectWidth
 
@@ -101,7 +101,7 @@ type
     envDelim*: string
       ## Delimiter an env-configured Option/Flag's raw env value is split on
       ## (after `\x1e` and any per-Arg `EnvSource.delim` override, see
-      ## `splitEnvValue`)
+      ## `envvar.splitEnvValue`)
     configSources*: seq[ConfigSource]
       ## Value Precedence's Config Source tier, consulted in order -- a later
       ## source's hit for the same Arg fully replaces an earlier one's, never
@@ -113,19 +113,6 @@ type
       ## `docs/adr/0034-strict-option-checking.md`
     style: Styler
       ## `autoStyler` until the `style` getter first resolves it
-
-  EnvSource* = object
-    ## Names the environment variable configured to supply an Arg's value,
-    ## with an optional per-Arg override of the delimiter its raw value is
-    ## split on -- see `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-    ## `name` is required (not `Option[string]`): an override with no name
-    ## to apply it to is a meaningless state, so "is there an env source at
-    ## all" is instead answered by wrapping this whole object in `Option`
-    ## wherever it's used (e.g. `ValueArg.env`/`FlagArg.env`).
-    name*: string
-    delim*: Option[string]
-      ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split
-      ## this Arg's value at all, even on `\x1e`
 
   HookInfo* = object
     matched*: seq[Arg]
@@ -220,16 +207,10 @@ const
   DefaultMaxVariantsWidth* {.intdefine: "argumint.maxVariantsWidth".} = 30
     ## `newSpecSettings`'s default `maxVariantsWidth`. Set with
     ## `-d:argumint.maxVariantsWidth`.
-  DefaultEnvDelim* {.strdefine: "argumint.envDelim".} = ":"
-    ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention.
-    ## Set with `-d:argumint.envDelim`; empty means env values aren't split.
   DefaultStrictOptions* {.booldefine: "argumint.strictOptions".} = true
     ## `newSpecSettings`'s default `strictOptions` -- see
     ## `docs/adr/0034-strict-option-checking.md`. Set with
     ## `-d:argumint.strictOptions`.
-  EnvListSep* = "\x1e"
-    ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg
-    ## `EnvSource.delim` override -- see `splitEnvValue`
 
 static:
   doAssert DefaultMaxVariantsWidth >= 0,
@@ -421,44 +402,6 @@ proc fsm*(spec: Spec): State {.inline.} =
 converter toHelpText*(s: string): HelpText =
   ## Lets `argumint.nim`'s arg constructors pass help text as a single string.
   (short: s, long: "")
-
-converter toEnvSource*(name: string): Option[EnvSource] =
-  ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
-  ## name (`env = "PORT"`), same as before -- see `env*` for the two-arg
-  ## form that also overrides the delimiter.
-  some(EnvSource(name: name))
-
-proc env*(name: string, delim: string): Option[EnvSource] =
-  ## Names an environment variable to supply an arg's value, overriding
-  ## the delimiter its raw value is split on for this arg only, instead of
-  ## inheriting `Spec.settings.envDelim`. `delim = ""` means never split this
-  ## arg's env value at all, even on `\x1e` -- see
-  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  some(EnvSource(name: name, delim: some(delim)))
-
-proc splitEnvValue*(value: string, delimOverride: Option[string], envDelim: string): seq[string] =
-  ## Splits a raw env var's value into the (possibly several) values it
-  ## supplies to Value Precedence's environment-variable tier. Resolves in
-  ## order, most-specific first -- see
-  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`:
-  ## 1. `delimOverride` (the matched Arg's own `EnvSource.delim`) is
-  ##    `some("")` -- never split; `value` is the only element.
-  ## 2. `EnvListSep` (`\x1e`) is present in `value` -- split on it, since
-  ##    that's how fish auto-joins a native list variable's elements for
-  ##    any variable name when exporting it to a subprocess, regardless of
-  ##    any configured delimiter.
-  ## 3. `delimOverride` is `some(d)`, `d != ""` -- split on `d`.
-  ## 4. Otherwise -- split on `envDelim` (`Spec.settings.envDelim`, the
-  ##    `PATH`-style `:` convention by default).
-  ##
-  ## Empty segments (a stray leading/trailing/doubled delimiter) are kept
-  ## as literal values, not dropped, so an env value is never treated
-  ## differently from one typed on the command line -- see
-  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-  if delimOverride == some(""): @[value]
-  elif EnvListSep in value: value.split(EnvListSep)
-  elif delimOverride.isSome: value.split(delimOverride.get)
-  else: value.split(envDelim)
 
 proc name*(self: Arg, variant = ""): string =
   ## Returns the seen name `variant` or the first name of `self` if blank.
