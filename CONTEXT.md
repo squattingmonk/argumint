@@ -109,6 +109,16 @@ set.
 _Avoid_: Flag Operation Class, Op class, variant class (earlier working
 terms for this same concept)
 
+**Flag Operation Description**:
+A short text saying what one Flag Operation does: a `flagOp*` call's own
+`help`, else one generated from the op and value ("Increase by 5"). Shown
+only when a Flag's Flag Operations are described differently, since there
+is nothing to tell apart otherwise: help and completion both print it
+after the Flag's Help Text, under the `action:` label. `Arg.variantDesc`
+returns it, or empty when there's nothing to tell apart. See
+`docs/adr/0063-flag-operation-description-in-completion.md`.
+_Avoid_: action (the Spec callback -- see Action), variant description
+
 **Flag Clamp**:
 A silent, non-raising constraint attached to a Flag, applied to its shared
 value after every Flag Operation -- CLI- or environment-triggered alike,

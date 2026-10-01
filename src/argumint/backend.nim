@@ -530,11 +530,13 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
-  ## Returns a short description of what a specific `variant` of `self`
-  ## does (e.g. "Increase by 5"), or an empty string if there's nothing to
-  ## disambiguate. The base case (everything but flags with divergent
-  ## per-variant ops) has nothing to show; `FlagArg` overrides this
-  ## per-type via `defineArg`.
+  ## Returns `variant`'s Flag Operation Description (e.g. "Increase by 5"),
+  ## or an empty string if there's nothing to disambiguate: every variant of
+  ## `self` would be described the same way. Help and completion show any
+  ## non-empty result as-is, so an override must keep this rule itself --
+  ## see `docs/adr/0063-flag-operation-description-in-completion.md`. The
+  ## base case (everything but a flag) has nothing to show; `FlagArg`
+  ## overrides this per-type via `defineFlagArg`.
   ""
 
 method envSource*(self: Arg): Option[EnvSource] {.base.} =

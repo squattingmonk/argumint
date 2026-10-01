@@ -892,11 +892,13 @@ separately-declared groups are always independently reachable even if their
 op/value happen to coincide.
 
 `defineArg`/`defineFlag` also generate a `method variantDesc` per type,
-used by `genHelp` (via the `variantsByDesc` helper) to auto-describe a flag
-variant when its behavior diverges from its siblings: `desc` (a `flagOp*`
-call's own `help` argument, if given) wins, else it falls back to generic
-wording from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"`
-(`+=`), `"Decrease by {arg}"` (`-=`), all type-generic. Blank op (`""`) has
+used by `genHelp` (via the `variantsByDesc` helper) and completion
+(`describeVariants`) to show a flag variant's Flag Operation Description.
+It returns `""` unless the descriptions differ across the flag's ops, so
+neither caller checks that itself (ADR 0063). Each description is `desc`
+(a `flagOp*` call's own `help` argument, if given), else generic wording
+from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"` (`+=`),
+`"Decrease by {arg}"` (`-=`), all type-generic. Blank op (`""`) has
 no generic wording since its meaning is type-specific — `defineArg[T](
 typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
 blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
@@ -1023,8 +1025,8 @@ Every bucket's row shows that same text plus the arg-level annotations
 order by `annotations(arg: Arg, action = ""): seq[StyledText]`), not just the
 first-declared variant's — that repetition, not indentation, is what
 visually ties divergent rows together as variants of the same value. When
-`variantsByDesc().len > 1` and a bucket's own `variantDesc` is non-empty,
-`rows` passes that desc to `annotations` as `action`, appended last as
+a bucket's own `variantDesc` is non-empty (it only is when the variants
+diverge), `rows` passes that desc to `annotations` as `action`, appended last as
 `[action: ...]` (deliberately labeled `action:`, not `default:`, so it
 can't collide with a hypothetical future `[default: <value>]` for a flag's
 own starting value) — but only when the help text is non-empty, since
@@ -1390,13 +1392,12 @@ candidates, via `completion.describeVariants`), never for one of its enumerated
 *values* (an `mkArgument` matcher's `completions()`, or a pending option's
 own `completions()`), which always carry `help == ""` — there's no
 per-value description in the data model to draw from. `describeVariants`
-sources each variant's description from `Arg.variantDesc(variant)`
-(`backend.nim`) when an Arg's variants genuinely diverge in what they do
-(e.g. a flag's `-i`/`-d` incrementing/decrementing differently), falling
-back to the Arg's shared `.help` otherwise — mirroring
-`help.variantsByDesc`'s own bucketing rule (used by `genHelp`) so completion's
-descriptions agree with what help text would actually show. Either way the
-text goes through `prose.summary`: its first paragraph, dedented by the
+reads a variant the way help's row does: the Arg's short `.help`, then its
+Flag Operation Description from `Arg.variantDesc(variant)` (`backend.nim`)
+as `[action: ...]` when that is non-empty (e.g. a flag's `-i`/`-d`
+incrementing/decrementing differently). With no short help the description
+stands alone, and the long help never appears (ADR 0063). Each part goes
+through `prose.summary`: its first paragraph, dedented by the
 same `dedentLines` help's re-flow uses, joined onto one line, and passed
 through `plainMarkup`, so a candidate is always exactly one line. It's a
 withheld export of `prose.nim` (not re-exported by `help.nim`), which
