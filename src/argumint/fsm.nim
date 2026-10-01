@@ -164,7 +164,8 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     raise newPlainError(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(cursor: initCursor(spec, args), command: command,
-    report: initReport(spec, command), tiers: initTiers(spec.settings), levels: @[(spec: spec, command: command)])
+    report: initReport(spec, command), tiers: initTiers(spec.settings),
+    levels: @[(spec: spec, command: command)])
   if not spec.fsm.walk(pc):
     pc.report.raiseParseFailure()
 
