@@ -336,14 +336,21 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     if not self.clamp.isNil: result = self.clamp.styledHelp
 
   method variantDesc(self: FlagArg[T], variant: string): string =
+    proc describe(entry: FlagOp[T]): string =
+      let (vOp, vArg, vDesc) = entry
+      if vDesc.len > 0: return vDesc
+      case vOp
+      of "=": "Set to " & $vArg
+      of "+=": "Increase by " & $vArg
+      of "-=": "Decrease by " & $vArg
+      else: blankDesc
+
+    # Empty unless the ops diverge: see `backend.variantDesc`.
     if not self.ops.hasKey(variant): return ""
-    let (vOp, vArg, vDesc) = self.ops[variant]
-    if vDesc.len > 0: return vDesc
-    case vOp
-    of "=": "Set to " & $vArg
-    of "+=": "Increase by " & $vArg
-    of "-=": "Decrease by " & $vArg
-    else: blankDesc
+    result = describe(self.ops[variant])
+    for entry in self.ops.values:
+      if describe(entry) != result: return
+    result = ""
 
   method envSource(self: FlagArg[T]): Option[EnvSource] = self.env
 
@@ -627,6 +634,16 @@ when isMainModule:
         check "--unknown" in e.msg
         check "-r" in e.msg
       check f.variantDesc("-b") == "Bump to the next rank"
+
+    test "variantDesc is empty for every variant when the flag's ops are described alike (#154)":
+      let f = FlagArg[Rank](kind: Flag, variants: @["-b", "--bump", "-r"])
+      f.ops = newOrderedTable[string, FlagOp[Rank]]()
+      f.ops["-b"] = ("", rLow, "")
+      f.ops["--bump"] = ("", rLow, "")
+      f.ops["-r"] = ("=", rHigh, "Bump to the next rank")
+      check f.variantDesc("-b") == ""
+      check f.variantDesc("--bump") == ""
+      check f.variantDesc("-r") == ""
 
     test "defineSetFlagArg's =/+=/-=/*= ops all work on a directly-constructed FlagArg[set[T]]":
       let f = FlagArg[set[Rank]](kind: Flag, variants: @["-r"])

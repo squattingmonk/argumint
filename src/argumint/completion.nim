@@ -61,25 +61,22 @@ proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
       result.add k
 
 proc describeVariants(arg: Arg, variants: seq[string]): seq[CompletionCandidate] =
-  ## Pairs each of `arg`'s own `variants` with its most useful description.
-  ## `arg.variantDesc(v)` (e.g. a flag's auto-generated "Increase by 5", or a
-  ## `flagOp*` call's own `help` override -- see `flag*`) is only trusted when
-  ## `arg`'s variants genuinely diverge in what they do, i.e. `variantDesc`
-  ## returns more than one distinct value across them; otherwise every variant
-  ## shares `arg.help`. This mirrors `help.variantsByDesc`'s own "collapse to
-  ## one bucket whenever every variant agrees" rule (used by `genHelp`) --
-  ## without it, an ordinary flag with no divergent variants (e.g. a bare bool
-  ## `flag("--verbose", help = "Be noisy")`) would show its type's
-  ## auto-generated blank-op description ("Toggle the value") instead of its own
-  ## `help`, since `variantDesc`'s base case for a non-divergent flag still
-  ## returns that blank description, not `""`.
-  var descs: seq[string]
+  ## Pairs each of `arg`'s own `variants` with its description, read the way
+  ## help reads it: the first paragraph of `arg.help.short`, then the
+  ## variant's Flag Operation Description (`variantDesc`) in an `[action: ...]`
+  ## bracket. With no short help, the description stands alone; long help
+  ## never appears, being too long for a menu line. `variantDesc` is empty
+  ## unless the flag's variants differ, so the same variant reads the same
+  ## under every matcher. See
+  ## `docs/adr/0063-flag-operation-description-in-completion.md`.
+  let help = summary(arg.help.short)
   for v in variants:
-    descs.add arg.variantDesc(v)
-  let divergent = descs.toHashSet.len > 1
-  for i, v in variants:
-    let desc = descs[i]
-    result.add (v, summary(if divergent and desc.len > 0: desc else: arg.help.short))
+    let opDesc = summary(arg.variantDesc(v))
+    let desc =
+      if opDesc.len == 0: help
+      elif help.len == 0: opDesc
+      else: help & " [action: " & opDesc & "]"
+    result.add (v, desc)
 
 proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
     candidates: openArray[CompletionCandidate], prefix: string) =

@@ -109,3 +109,10 @@ text is (ADR 0054), cut at the first blank line, joined with spaces, and
 any tab turned into a space, before `plainMarkup`. A `"""` long description
 therefore completes as its opening summary, like a Python docstring's
 first paragraph.
+
+**Update:** superseded on per-variant descriptions by
+`docs/adr/0063-flag-operation-description-in-completion.md`. A candidate now
+shows its short help with the Flag Operation Description in an
+`[action: ...]` bracket, as help does, and `variantDesc` itself returns `""`
+unless a Flag's Variants differ, so neither caller mirrors
+`variantsByDesc`'s rule.

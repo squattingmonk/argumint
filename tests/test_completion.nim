@@ -204,12 +204,30 @@ suite "Completion candidates carry help text":
     let built = newSpec(spec)
     check built.completeArgs(@[""], "prog").find("add").help == "Add files to the index"
 
-  test "a flag with divergent per-variant ops carries each variant's own variantDesc, not its shared help":
+  test "a flag with divergent per-variant ops annotates its shared help with each variant's Flag Operation Description (#154)":
     let spec = (
       rank: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)], default = 0, help = "Adjust rank"),
     )
     let built = newSpec(spec, usage = "[options]")
     let candidates = built.completeArgs(@[""], "prog")
+    check candidates.find("--boost").help == "Adjust rank [action: Increase by 5]"
+    check candidates.find("--dampen").help == "Adjust rank [action: Decrease by 2]"
+
+  test "a variant is described the same way under every usage line that offers it (#154)":
+    let spec = (
+      rank: flag[int](ops = [flagOp("-b, --boost", "+=", 5), flagOp("-d, --dampen", "-=", 2)], default = 0, help = "Adjust rank"),
+    )
+    for usage in ["[options]", "--boost", "(--boost | --dampen)"]:
+      let candidates = newSpec(spec, usage = usage).completeArgs(@[""], "prog")
+      check candidates.find("-b").help == "Adjust rank [action: Increase by 5]"
+      check candidates.find("--boost").help == "Adjust rank [action: Increase by 5]"
+
+  test "with no short help, a divergent variant completes as its bare Flag Operation Description, never its long help (#154)":
+    let spec = (
+      rank: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)], default = 0,
+        help = (short: "", long: "Adjust the rank\nat length")),
+    )
+    let candidates = newSpec(spec, usage = "[options]").completeArgs(@[""], "prog")
     check candidates.find("--boost").help == "Increase by 5"
     check candidates.find("--dampen").help == "Decrease by 2"
 

@@ -122,10 +122,10 @@ proc longOrShort*(help: HelpText): string =
 proc rows(arg: Arg, help = arg.help.short): seq[Row] =
   ## One Row per `arg.variantsByDesc()` bucket. Text is `help` (e.g.
   ## `arg.help.longOrShort` for Paragraph Style), falling back to the
-  ## bucket's own `variantDesc` when the arg's variants diverge and that
-  ## bucket's `variantDesc` is non-empty, plus the `[...]` bracket from
-  ## `annotations` (`action` included only when divergent AND `help` is
-  ## non-empty). Callers filter `arg.hidden` themselves.
+  ## bucket's own `variantDesc` when that is non-empty (it only is when the
+  ## arg's variants diverge), plus the `[...]` bracket from `annotations`
+  ## (`action` included only when divergent AND `help` is non-empty).
+  ## Callers filter `arg.hidden` themselves.
   ##
   ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
   ## `srMetavar`). The text is Prose, with Help Markup against
@@ -134,7 +134,7 @@ proc rows(arg: Arg, help = arg.help.short): seq[Row] =
   let buckets = arg.variantsByDesc()
   for bucket in buckets:
     let
-      divergent = buckets.len > 1 and bucket.desc.len > 0
+      divergent = bucket.desc.len > 0
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
     var text = primary.toProse(arg.metavars)
@@ -441,28 +441,12 @@ when isMainModule:
       check arg.variantsByDesc() == expected
 
   suite "rows":
-    # Variants sharing a description share a row. A bucket is considered
-    # divergent if it is not the only bucket and its variantDesc is non-empty.
+    # Variants sharing a description share a row. A bucket is divergent if its
+    # variantDesc is non-empty, which `variantDesc` only allows when variants
+    # differ.
     test "a non-divergent bucket gets one row with the arg's help text":
       check TestArg(variants: @["<name>"], help: "Who to greet").rows().plain ==
         @[row("<name>", "Who to greet")]
-
-    test "a single bucket is non-divergent and ignores variantDesc":
-      let
-        arg = TestArg(
-          variants: @["-v"],
-          help: "Verbosity",
-          descs: {"-v": "Increase verbosity"}.toTable)
-        expected = @[row("-v", "Verbosity")]
-      check arg.rows().plain == expected
-
-    test "a non-divergent bucket's help text is blank if arg.help is empty":
-      let
-        arg = TestArg(
-          variants: @["-v"],
-          descs: {"-v": "Increase verbosity"}.toTable)
-        expected = @[row("-v", "")]
-      check arg.rows().plain == expected
 
     test "a divergent bucket's help text matches variantDesc if arg.help is empty":
       let
