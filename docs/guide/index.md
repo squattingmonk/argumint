@@ -11,6 +11,8 @@ public proc and type, see the
 
 ## Contents
 
+- [Tutorial](tutorial.md) — build a small notebook CLI step by step. Start
+  here if you're new to argumint.
 - [Specs and Values](specs.md) — declaring a spec, reading parsed values,
   setting values yourself, and parsing more than once.
 - [Usage Strings](usage-strings.md) — the usage-string grammar and the FSM

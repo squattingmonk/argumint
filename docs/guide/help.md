@@ -87,8 +87,8 @@ spec.parseOrQuit(prolog = """
 The indentation every line shares is removed (a tab counts as up to 8
 spaces), so start the text on the line after the opening `"""`, not right
 after it. Consecutive lines then join into a paragraph, and a blank line
-separates paragraphs. A line starting with `- `, `* `, or `1. ` starts a
-list item. A line indented to the item's text, like `but unsafe` above,
+separates paragraphs. A line starting with `-`, `*`, or `1.` and a space
+starts a list item. A line indented to the item's text, like `but unsafe` above,
 continues it, and a long item wraps under its text. Any other indented line
 is kept as its own line. To break a line without starting a new paragraph,
 leave a blank line or indent it.
