@@ -1572,6 +1572,16 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check "-v, --verbose".split(Comma) == @["-v", "--verbose"]
     check "--boost+=5".match(FlagOpVariantFormat)
 
+suite "accumulates":
+  test "is true only for args that build their value from more than one match":
+    check args("<a>", help = "").accumulates
+    check opts("--o=<o>", help = "").accumulates
+    check flag("-f", help = "").accumulates
+    check not arg("<a>", help = "").accumulates
+    check not opt("--o=<o>", help = "").accumulates
+    check not command("c", (x: arg("<x>", help = "")), help = "").accumulates
+    check not help().accumulates
+
 suite "autoFillUsage":
   test "MessageArgs are filled in individually; a single unreachable command needs no parens":
     let spec = (
@@ -1626,6 +1636,56 @@ suite "autoFillUsage":
     let s2 = newSpec(spec2, usage = "")
     expect ParseError:
       s2.parse(@[], "prog")
+
+  test "a multi-value positional is auto-filled with ..., and takes several values":
+    let spec = (
+      files: args("<file>", help = ""),
+      dest: arg("<dest>", help = ""),
+    )
+    let s = newSpec(spec, usage = "")
+    check s.usage == "<file>... <dest>"
+    s.parse(@["a", "b", "out"], "prog")
+    check spec.files.get == @["a", "b"]
+    check spec.dest == "out"
+
+  test "an auto-filled multi-value positional keeps the [options] prefix":
+    let spec = (
+      tags: opts("-t, --tag=<tag>", help = ""),
+      text: args("<text>", help = ""),
+    )
+    let s = newSpec(spec, usage = "")
+    check s.usage == "[options] <text>..."
+    s.parse(@["buy", "milk", "-t", "errands"], "prog")
+    check spec.text.get == @["buy", "milk"]
+    check spec.tags.get == @["errands"]
+
+  test "auto-filling more than one multi-value positional is a SpecDefect":
+    let spec = (
+      foo: args("<foo>", help = ""),
+      bar: args("<bar>", help = ""),
+    )
+    try:
+      discard newSpec(spec, usage = "")
+      fail()
+    except SpecDefect as e:
+      check "<foo>" in e.msg and "<bar>" in e.msg
+      check "usage" in e.msg
+
+  test "a hand-written usage line may still repeat more than one positional":
+    let spec = (
+      foo: args("<foo>", help = ""),
+      bar: args("<bar>", help = ""),
+    )
+    let s = newSpec(spec, usage = "<foo>... <bar>...")
+    s.parse(@["a", "b"], "prog")
+    check spec.foo.get == @["a"]
+    check spec.bar.get == @["b"]
+
+  test "a hand-written usage line still limits a multi-value positional to one value":
+    let spec = (files: args("<file>", help = ""))
+    let s = newSpec(spec, usage = "<file>")
+    expect ParseError:
+      s.parse(@["a", "b"], "prog")
 
   test "a standalone [options] line is added when nothing else needs appending":
     let spec = (

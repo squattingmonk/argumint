@@ -513,6 +513,12 @@ method defaultStr*(self: Arg): string {.base.} =
   ## `defineArg`.
   ""
 
+method accumulates*(self: Arg): bool {.base.} = false
+  ## Whether `self` builds its value from more than one match (see Match
+  ## Accumulation in CONTEXT.md): `args`/`opts` append, flags compose. Only a
+  ## hint for `autoFillUsage`, which writes an accumulating Positional Argument
+  ## as `<name>...`; a usage string that says otherwise still wins.
+
 method completions*(self: Arg): seq[string] {.base.} = @[]
   ## Returns every value `self` would accept as a *value* (not a variant
   ## spelling), for shell-completion purposes -- or `@[]` if unenumerable or
