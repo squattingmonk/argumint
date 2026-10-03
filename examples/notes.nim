@@ -20,7 +20,7 @@ proc readNotes(): seq[string] =
 proc writeNotes(notes: seq[string]) =
   writeFile(file, notes.mapIt(it & "\n").join)
 
-proc addNote(spec: tuple, info: HookInfo) =
+proc addNote(spec: tuple, _: HookInfo) =
   var note = spec.text.get.join(" ")
   for tag in spec.tags:
     note.add " #" & tag
@@ -30,7 +30,7 @@ proc addNote(spec: tuple, info: HookInfo) =
   if verbose:
     echo "Added to ", file, ": ", note
 
-proc listNotes(spec: tuple, info: HookInfo) =
+proc listNotes(spec: tuple, _: HookInfo) =
   let notes = readNotes()
   var ids = toSeq(1..notes.len)
   if spec.order == "newest":
@@ -38,7 +38,7 @@ proc listNotes(spec: tuple, info: HookInfo) =
   for id in ids[0 ..< min(spec.limit, ids.len)]:
     echo id, ". ", notes[id - 1]
 
-proc removeNotes(spec: tuple, info: HookInfo) =
+proc removeNotes(spec: tuple, _: HookInfo) =
   var notes = readNotes()
   if spec.all:
     notes = @[]
@@ -49,7 +49,7 @@ proc removeNotes(spec: tuple, info: HookInfo) =
       notes.delete(id - 1)
   writeNotes(notes)
 
-proc printCompletion(spec: tuple, info: HookInfo) =
+proc printCompletion(spec: tuple, _: HookInfo) =
   echo cli.completionScript(parseEnum[Shell](spec.shell), "notes")
 
 let
