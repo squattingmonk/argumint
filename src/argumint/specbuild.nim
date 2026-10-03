@@ -96,12 +96,13 @@ proc autoFillUsage(spec: Spec) =
     addLine prefix & names.join(" ")
     prefixUsed = prefixUsed or optionsUnreachable
 
+  # Before the MessageArg lines -- see architecture.md's "autoFillUsage" section.
+  if optionsUnreachable and not prefixUsed:
+    addLine "[options]"
+
   for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
     let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
     addLine variants
-
-  if optionsUnreachable and not prefixUsed:
-    addLine "[options]"
 
   if newLines.len > 0:
     spec.addUsageLines(spec.fsm, newLines)
