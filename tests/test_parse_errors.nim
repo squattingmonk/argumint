@@ -277,7 +277,7 @@ suite "one message shape":
       check false # unreachable
     except ValidationError as e:
       caught = e.msg
-    check caught.complaints == @["for --num, got 999 but expected one of 1 .. 10"]
+    check caught.complaints == @["for --num, got 999 but expected a value in 1..10"]
     check "Usage:\n  app [options]" in caught
 
   test "the usage block still follows a grammar failure":

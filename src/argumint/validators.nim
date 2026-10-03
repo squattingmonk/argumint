@@ -47,13 +47,14 @@ proc noValidator*[T](): Validator[T] = nil
 proc choice*[T](choices: openArray[T], desc = ""): Validator[T] =
   ## Returns a `Validator` that checks if a value is in `choices`. `desc`,
   ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. "choices: foo, bar, baz" / "got X but expected one of foo, bar").
+  ## (e.g. `choices: "foo", "bar"` / `got "x" but expected one of "foo",
+  ## "bar"`). String and char choices are always shown quoted.
   Validator[T](kind: vkChoice, choices: @choices, desc: desc)
 
 proc range*[T](range: Slice[T], desc = ""): Validator[T] =
   ## Returns a `Validator` that checks if a value is in `range`. `desc`,
   ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. "range: a..b" / "got X but expected one of a..b").
+  ## (e.g. "range: a..b" / "got X but expected a value in a..b").
   Validator[T](kind: vkRange, range: range, desc: desc)
 
 proc check*[T](checker: proc (x: T): bool, desc = ""): Validator[T] =
@@ -139,6 +140,31 @@ proc any*[T](validators: varargs[Validator[T]]): Validator[T] =
   ## for why this can't just be a default parameter value.
   any[T](validators, "")
 
+proc quoted(s: string): string =
+  ## `s` in double quotes, escaping only `"`, `\` and control characters --
+  ## unlike `strutils.escape`, which also escapes UTF-8 bytes as `\xHH`.
+  result = "\""
+  for c in s:
+    case c
+    of '"': result.add "\\\""
+    of '\\': result.add "\\\\"
+    of '\t': result.add "\\t"
+    of '\n': result.add "\\n"
+    of '\r': result.add "\\r"
+    of '\0'..'\x08', '\x0b', '\x0c', '\x0e'..'\x1f', '\x7f':
+      result.add "\\x" & toHex(ord(c), 2)
+    else: result.add c
+  result.add '"'
+
+proc showValue[T](value: T): string =
+  ## `value` as help and errors show it: a string or char always quoted
+  ## (see `quoted`), so a choice never reads as part of the list around it.
+  when T is string or T is char: quoted($value) else: $value
+
+proc showRange[T](range: Slice[T]): string =
+  ## `range` as help and errors show it, e.g. `0..100` or `"a".."f"`.
+  range.a.showValue & ".." & range.b.showValue
+
 proc styledHelp*[T](self: Validator[T]): StyledText =
   ## `help` as Styled Text: key labels are `srAnnotation`, values
   ## `srLiteral`, and a `desc` gets Help Markup.
@@ -149,10 +175,10 @@ proc styledHelp*[T](self: Validator[T]): StyledText =
     result = styled(srAnnotation, "choices: ")
     for i, choice in self.choices:
       if i > 0: result.add styled(", ")
-      result.add styled(srLiteral, $choice)
+      result.add styled(srLiteral, choice.showValue)
   of vkRange:
     result = styled(srAnnotation, "range: ") &
-      styled(srLiteral, fmt"{self.range.a}..{self.range.b}")
+      styled(srLiteral, self.range.showRange)
   of vkCheck, vkCheckSeen:
     discard # desc is required to say anything meaningful; already checked above
   of vkAll, vkAny:
@@ -163,7 +189,7 @@ proc styledHelp*[T](self: Validator[T]): StyledText =
 
 proc help*[T](self: Validator[T]): string =
   ## Returns a short description of what values `self` accepts, suitable for
-  ## display in help text (e.g. "choices: foo, bar, baz"), or "" if there's
+  ## display in help text (e.g. `choices: "foo", "bar"`), or "" if there's
   ## nothing meaningful to show. Every kind shows `self.desc` directly
   ## instead, when it's non-empty.
   self.styledHelp.plain
@@ -225,9 +251,7 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
   ## `vkCheckSeen`-kind validators (see `checkSeen`) -- every other kind
   ## ignores it.
   let
-    tmpVal =
-      when value is string: value.escape
-      else: $value
+    tmpVal = value.showValue
     desc = plainMarkup(self.desc)
   case self.kind
   of vkChoice:
@@ -235,13 +259,15 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
       if self.desc.len > 0:
         raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
-        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {$self.choices}")
+        let choices = self.choices.mapIt(it.showValue).join(", ")
+        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {choices}")
   of vkRange:
     if value notin self.range:
       if self.desc.len > 0:
         raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
       else:
-        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {$self.range}")
+        let bounds = self.range.showRange
+        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected a value in {bounds}")
   of vkCheck:
     if not self.checker(value):
       let suffix = if desc.len > 0: fmt": {desc}" else: ""
@@ -312,7 +338,7 @@ when isMainModule:
       check caught == "5 did not meet condition: must be 0-4"
 
       # no desc given -- falls back to the auto-generated text, as before
-      check choice(["foo", "bar"]).help() == "choices: foo, bar"
+      check choice(["foo", "bar"]).help() == "choices: \"foo\", \"bar\""
       check range(0..4).help() == "range: 0..4"
 
     test "Conditions":
@@ -326,6 +352,43 @@ when isMainModule:
       expect ValidationError:
         b.validate 3
 
+    test "a failed choice lists the choices the way help does":
+      var caught = ""
+      try:
+        choice(["date", "title"]).validate("size")
+      except ValidationError as e:
+        caught = e.msg
+      check caught == "got \"size\" but expected one of \"date\", \"title\""
+
+    test "string and char choices are always quoted, and escaped only where needed":
+      let v = choice(["date", "a, b", "", "say \"hi\"", "café", "tab\there"])
+      check v.help() == """choices: "date", "a, b", "", "say \"hi\"", "café", "tab\there""""
+      var caught = ""
+      try:
+        v.validate("crème")
+      except ValidationError as e:
+        caught = e.msg
+      check caught == """got "crème" but expected one of "date", "a, b", "", "say \"hi\"", "café", "tab\there""""
+      check choice([',', 'x']).help() == """choices: ",", "x""""
+      check choice([1, 2]).help() == "choices: 1, 2"
+
+    test "a typed char is quoted like a typed string":
+      var caught = ""
+      try:
+        choice([',', ';']).validate('x')
+      except ValidationError as e:
+        caught = e.msg
+      check caught == """got "x" but expected one of ",", ";""""
+
+    test "a char range quotes its bounds like its typed value":
+      check range('a'..'f').help() == """range: "a".."f""""
+      var caught = ""
+      try:
+        range('a'..'f').validate('z')
+      except ValidationError as e:
+        caught = e.msg
+      check caught == """got "z" but expected a value in "a".."f""""
+
     test "All short-circuits and passes the failing child's message through verbatim":
       let validator = all(range(0..100), checkIt[int](it mod 2 == 0, "must be even"))
       validator.validate(50)
@@ -335,7 +398,7 @@ when isMainModule:
         validator.validate(101)
       except ValidationError as e:
         caught = e.msg
-      check caught == "got 101 but expected one of 0 .. 100"
+      check caught == "got 101 but expected a value in 0..100"
 
       caught = ""
       try:
@@ -400,7 +463,7 @@ when isMainModule:
         validator.validate(101)
       except ValidationError as e:
         caught = e.msg
-      check caught == "got 101 but expected one of 0 .. 100"
+      check caught == "got 101 but expected a value in 0..100"
 
       caught = ""
       try:
@@ -508,7 +571,7 @@ when isMainModule:
 
     test "labels are srAnnotation and values srLiteral":
       check choice(["a", "b"]).styledHelp.roles == @[
-        (srAnnotation, "choices: "), (srLiteral, "a"), (srPlain, ", "), (srLiteral, "b")]
+        (srAnnotation, "choices: "), (srLiteral, "\"a\""), (srPlain, ", "), (srLiteral, "\"b\"")]
       check range(0..4).styledHelp.roles ==
         @[(srAnnotation, "range: "), (srLiteral, "0..4")]
 

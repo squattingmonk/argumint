@@ -704,7 +704,7 @@ inside a specific `of` branch — a field name can't be redeclared across two
 separate `of` branches even with an identical type in each, but a field
 declared ahead of the `case` is implicitly shared by all branches). `genHelp`
 combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
-(e.g. `[choices: foo, bar; default: foo]`). `defineFlagArg` (see "Flags"
+(e.g. `[choices: "foo", "bar"; default: foo]`). `defineFlagArg` (see "Flags"
 below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
 the same extension point, even though a Flag never carries a `Validator` --
 delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag

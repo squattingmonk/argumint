@@ -105,5 +105,5 @@ the value is ever stored; passing `--tag=a --tag=a` raises on the second
 raises via `checkIt`.
 
 Every validator also folds its constraint into the auto-generated help text
-(e.g. `[choices: dev, staging, prod]`), so users see what's accepted without
-needing `--help` to fail first.
+(e.g. `[choices: "dev", "staging", "prod"]`), so users see what's accepted
+without needing `--help` to fail first.
