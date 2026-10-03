@@ -1361,7 +1361,9 @@ differs by category:
 - **Options** (`opt`/`flag`, non-`MessageArg`) aren't their own usage line;
   `[options]` rides along as a prefix on whatever command/positional line
   gets auto-appended above. If nothing else gets appended but some option is
-  still unreachable, a standalone `[options]` line is added as a fallback.
+  still unreachable, a standalone `[options]` line is added as a fallback,
+  ahead of the `MessageArg` lines, so the help and version lines still
+  come last.
   Weaving `[options]` into an arbitrary hand-written line that's missing it
   is not attempted.
 
