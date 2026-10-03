@@ -205,7 +205,7 @@ mode: opt("-m, --mode=<m>", default = "fast", help = ("Pick a mode.", """
     - fast: skips verification
     - safe: checks every block
 
-    [default: fast]
+    [default: "fast"]
 ```
 
 When help text runs to more than one block, the `[...]` bracket follows it

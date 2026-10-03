@@ -7,6 +7,7 @@ import argumint/precedence
 import argumint/specbuild
 import argumint/configsource/ini
 import argumint/configsource/json
+import argumint/display
 
 privateAccess(ValueArg[string, false]) ## White-box assertions on the arg
 privateAccess(ValueArg[string, true])  ## types exported by issue #27 -- type
@@ -1286,10 +1287,28 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     check "Speed in knots [default: 10]" in helpText
-    check "Files [default: a.txt, b.txt]" in helpText
+    check "Files [default: \"a.txt\", \"b.txt\"]" in helpText
     check "who to greet" in helpText
     check "who to greet [default" notin helpText
     check "Verbose output [default" notin helpText
+
+  test "string and char defaults are quoted the way choices are":
+    let spec = (
+      sep: opt("--sep=<c>", default = ',', help = "Separator"),
+      list: opt("--list=<l>", default = "a; b", help = "List"),
+      drink: opt("--drink=<d>", default = "café", help = "Drink"),
+      n: opt("-n=<n>", default = 3, help = "Count"),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[options]", args = @["--help"], command = "prog")
+    except HelpError as e:
+      helpText = e.msg
+    check "Separator [default: \",\"]" in helpText
+    check "List [default: \"a; b\"]" in helpText
+    check "Drink [default: \"café\"]" in helpText
+    check "Count [default: 3]" in helpText
 
   test "help text suppresses [default: X] when the default is T's zero value":
     let spec = (
@@ -1318,7 +1337,7 @@ suite "Messages":
       spec.parse(settings = newSpecSettings(style = nil), usage = "<action>\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "Action to perform [choices: \"foo\", \"bar\", \"baz\"; default: foo]" in helpText
+    check "Action to perform [choices: \"foo\", \"bar\", \"baz\"; default: \"foo\"]" in helpText
 
   test "help text shows a range validator's help without a default when default is the zero value":
     let spec = (
@@ -1452,6 +1471,10 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   # existing (a rename, a deleted field). These positives are its other
   # half: together they mean "exists, but not exported". Keep the two lists
   # in sync -- see docs/adr/0030-core-types-exported-spec-opaque.md.
+  test "the value-display helpers exist":
+    check quoted("x") == "\"x\""
+    check showValue(1) == "1"
+
   test "the FSM plumbing types exist":
     var
       state: State

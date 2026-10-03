@@ -9,13 +9,18 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Four modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, `envvar.nim`, and `style.nim` — and everything else
-layers on top:
+Five modules are leaves with no local imports — `errors.nim`,
+`configsource.nim`, `display.nim`, `envvar.nim`, and `style.nim` — and
+everything else layers on top:
 `console`/`flagclamp`/`outcome`/`prose` → `lexer` →
 `backend`/`usage`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
 `tokens` → `complaints` → `precedence` → `matching` → `completion` →
 `fsm`/`specbuild` → `argumint`.
+
+`display.nim` renders a value in help and errors: a string or char always
+quoted (escaping only `"`, `\` and control characters, so UTF-8 stays
+readable), anything else as its `$`. Validators use it for choices and
+ranges, arg types for defaults and conversion failures.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError`, `ValidationError`, `MessageError`, `HelpError`,
@@ -686,8 +691,9 @@ always happens against the scalar element type, never `seq[T]`, since it
 runs before the value is stored/appended. `parse` has already arbitrated
 the declared Value Precedence tier by then (see below).
 `defineValueArg[T]` also generates a per-arity `method defaultStr`, used
-by `genHelp` to render `[default: <value>]` in help text (stringified via
-`$`; suppressed when the scalar default equals `T`'s zero value —
+by `genHelp` to render `[default: <value>]` in help text (via
+`display.showValue`, which quotes a string or char and `$`s the rest;
+suppressed when the scalar default equals `T`'s zero value —
 `default(T)` — since that's the fallback used when no default was given).
 The base `Arg.defaultStr` (commands, flags, message args) returns `""`, so
 flags never show a default.
@@ -704,7 +710,7 @@ inside a specific `of` branch — a field name can't be redeclared across two
 separate `of` branches even with an identical type in each, but a field
 declared ahead of the `case` is implicitly shared by all branches). `genHelp`
 combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
-(e.g. `[choices: "foo", "bar"; default: foo]`). `defineFlagArg` (see "Flags"
+(e.g. `[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
 below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
 the same extension point, even though a Flag never carries a `Validator` --
 delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag

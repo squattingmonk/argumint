@@ -1,5 +1,9 @@
 # `argumint.nim` re-exports `validators`, `flagclamp`, `backend.name`, and `strutils.escape`
 
+> **Note (#164):** generated code no longer calls `escape`: the conversion
+> error in `acceptImpl` now uses `display.quoted`. `export strutils.escape`
+> no longer serves the purpose below; whether to keep it is #166.
+
 `defineArg`/`defineFlag`/`defineFlagArg`/`defineSetFlag` — the public
 mechanism for registering a custom Positional Argument/Option/Flag type —
 generate methods whose bodies call `self.validator.help()`,

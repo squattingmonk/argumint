@@ -20,7 +20,7 @@
 
 import std/[macros, macrocache, options, pegs, sequtils, strformat, strutils, tables]
 
-import ./[backend, configsource, errors, flagclamp, style, validators]
+import ./[backend, configsource, display, errors, flagclamp, style, validators]
 
 type
   ValueArg*[T: not seq, multi: static bool] = ref object of Arg
@@ -184,7 +184,8 @@ proc acceptImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], c: Con
     let converted: T = c.value
     self.storeImpl(converted, c, how, validate = true)
   except ValueError:
-    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {c.value.escape}")
+    let got = c.value.quoted # Outside `fmt`: see docs/gotchas.md, openSym.
+    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {got}")
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1
@@ -246,14 +247,14 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
     ## and `==`, which nearly every type does; a `{.requiresInit.}` object
     ## would be a rare exception that fails to compile here.
     if self.default.len > 0 and self.default[0] != default(T):
-      $self.default[0]
+      display.showValue(self.default[0])
     else:
       ""
 
   method defaultStr(self: ValueArg[T, true]): string =
     ## Returns `self`'s default values comma-joined, or "" if there are none.
     if self.default.len > 0:
-      self.default.mapIt($it).join(", ")
+      self.default.mapIt(display.showValue(it)).join(", ")
     else:
       ""
 
@@ -326,7 +327,7 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
   method accept(self: FlagArg[T], c: Contribution, how: Arbitration) =
     ## `c.value` is the Variant whose Flag Operation applies, on every tier.
     if not self.ops.hasKey(c.value):
-      raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [c.value.escape, self.subject(c)])
+      raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
     if how == arReplace:
       self.clear
     let (op {.inject.}, arg {.inject.}, _) = self.ops[c.value]

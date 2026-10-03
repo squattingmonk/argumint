@@ -91,7 +91,7 @@ or anything else that generates methods inside a template.
   with "undeclared identifier" even for names clearly in scope. Use `%`
   (`strutils`) or `&` concatenation instead — e.g. `FlagArg.accept`'s
   unknown-Variant `ParseError` is built with `"$# is not a known variant
-  for the flag $#" % [c.value.escape, self.subject(c)]`, not `fmt"..."`.
+  for the flag $#" % [c.value.quoted, self.subject(c)]`, not `fmt"..."`.
 
 - **`defineSetFlag`'s body must build the `set[E]` type expression from its
   `elemType: typedesc[E]` *parameter*, not from the bare generic symbol
@@ -337,12 +337,11 @@ or anything else that generates methods inside a template.
   `defineFlagArg`/`defineSetFlag` instantiation -- for *any* custom type,
   single-layer or nested inside another template -- generates methods
   calling `self.validator.help()`/`self.validator.completions()`
-  (`validators.nim`), `self.name(...)` (`backend.nim`), and `value.escape`
-  (`strutils.escape`, inside `acceptImpl`'s `ValueError` handler), and each
-  of those resolves against the *calling file's* imports at instantiation
+  (`validators.nim`) and `self.name(...)` (`backend.nim`), and each of
+  those resolves against the *calling file's* imports at instantiation
   time. `argumint.nim` defends against this today by re-exporting exactly
   what's needed (`export validators`, `export flagclamp`, `export
-  backend.name`, `export strutils.escape` -- see
+  backend.name` -- see
   `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`), so
   `import argumint` alone is enough for a caller registering a custom type.
   Adding a *new* generated method that calls some other unqualified symbol
@@ -351,6 +350,17 @@ or anything else that generates methods inside a template.
   obviously import-related one) for that new symbol -- the fix is another
   narrow or wholesale `export` in `argumint.nim`, matching whichever pattern
   that ADR uses, not a per-caller workaround.
+
+  Two corollaries, both hit in #164:
+  - **A name inside `fmt`'s braces in a generic proc is looked up in the
+    caller's file**, even when the same call written outside `fmt` binds
+    where it's written. `acceptImpl`'s conversion error therefore computes
+    `let got = c.value.quoted` first and interpolates `{got}`.
+  - **A caller's own proc with the same name wins** over the library's
+    withheld one. A generated method calling bare `showValue` picked up a
+    caller's `proc showValue[T]`, so `defaultStr` calls
+    `display.showValue` fully qualified. `tests/test_custom_types.nim`
+    keeps a decoy in scope to catch a regression.
 
 - **This same `openSym` mechanism also bit a non-generated, ordinary
   generic proc**: `command*[S]`'s body has always written the object
