@@ -105,10 +105,10 @@ typed fields — no stringly-typed lookup by flag name.
 - **[Validators](docs/guide/args-and-options.md#validating-values)** — attach
   choice, range, or arbitrary-predicate constraints to an arg, composable with
   `all()`/`any()`, with generated help text and clear `ValidationError`s.
-- **[Env var fallback](docs/guide/precedence.md#env-vars)** — an option or
-  flag can fall back to an environment variable (including multi-value,
-  delimiter-aware fallback) when not given on the command line.
-- **[Config Source fallback](docs/guide/precedence.md#config-sources)** — an
+- **[Env var fallback](docs/guide/precedence.md#environment-variables)** — an
+  option or flag can fall back to an environment variable (including
+  multi-value, delimiter-aware fallback) when not given on the command line.
+- **[Config Source fallback](docs/guide/precedence.md#config-files)** — an
   option or flag can also fall back to a registered, read-only Config Source
   (built-in INI/JSON adapters, or your own) below env vars and above the coded
   default. See `examples/config_bootstrap.nim`.
