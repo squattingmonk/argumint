@@ -3,89 +3,114 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Basics
+A **spec** is a tuple of `Arg`s that describes your program's command line.
+To parse, argumint builds the spec into a `Spec`, its own internal structure,
+so you usually don't need to think about the `Spec` at all. This page covers
+declaring a spec, reading values out of it, writing values into it yourself,
+and parsing more than once.
 
-argumint uses a tuple (optionally nested) to represent the arguments, options,
-and commands available to the parser — this is called the **spec**. Each member
-of the spec must be an `Arg` or another spec tuple. The spec tuple is then
-passed to `parse` or `parseOrQuit` along with an optional usage string. If the
-parse is successful, the parsed values are assigned to their respective `Arg`s.
-You can then get the values with implicit conversion from the spec tuple itself.
+## Declaring a Spec
 
 ```nim
-import std/strformat
 import argumint
 
-let
-  spec = (
-    name: arg("<name>", help = "The name to call you"),
-    times: opt("-t, --times=<t>", default = 1, help = "The number of times to say hello")
-  )
+let spec = (
+  name: arg("<name>", help = "Who to greet"),
+  times: opt("-t, --times=<n>", default = 1, help = "How many times to greet"),
+  help: help(),
+)
 
-spec.parseOrQuit(usage = "<name> [--times=<t>]")
+spec.parseOrQuit()
 for _ in 1..spec.times:
-  echo fmt"Hello, {spec.name}!"
+  echo "Hello, ", spec.name, "!"
 ```
 
 ```console
-$ ./hello "Michael"
-Hello, Michael!
-
-$ ./hello "Michael" --times 2
-Hello, Michael!
-Hello, Michael!
+$ ./hello Ada
+Hello, Ada!
+$ ./hello Ada --times 2
+Hello, Ada!
+Hello, Ada!
 ```
 
-`Arg`s come in several flavors, each with distinct **variants** — names by which
-the `Arg` may be indexed. Each `Arg`'s constructor can accept a comma-separated
-list of variants (e.g., `opt("-v, --verbosity")`). These variants are how the
-`Arg` is referenced in a usage string.
+`parseOrQuit` parses the command line against the spec and stores each value
+in its `Arg`. If parsing fails, or the user asks for help, it prints a message
+and exits.
 
-- **positional arguments**, often just called arguments, have their value known
-  based on their position in the usage string. A positional argument's variants
-  are either uppercase (`VALUE`) or surrounded by angle brackets (`<value>`).
-- **optional arguments**, often just called options, have a key-value syntax.
-  The key may take either a short form (`-o`) or a long form (`--option`). While
-  a value placeholder is not required to be present in the variant, one can be
-  included for clarity in help messages and usage strings. A value placeholder
-  takes the same form as a positional argument. To prevent ambiguity between
-  value placeholders and positional arguments, value placeholders must be
-  separated from the option by `=` or `:` (e.g., `-o=<value>` or
-  `--option:<value>`).
-- **flags** are a special form of optional argument that do *not* take a value;
-  instead, their value is set based on their seen variant (e.g., `-y`/`-n` or
-  `--yes`/`--no`). They take the same form as an optional argument but should
-  not be given a value placeholder.
-- **commands** are words that don't look like a positional argument or optional
-  argument (e.g., `ship` or `move`). Commands have their own sub-spec including
-  their own arguments, options, and subcommands.
+Each field of the spec is an `Arg`. These build them:
 
-`parse`/`parseOrQuit` build the spec tuple into a `Spec` for you and throw it
-away. Call `newSpec` instead when you want to hold onto it — to build your CLI
-somewhere other than where you parse it, or to reach it later from a hook:
+- `arg` declares a positional argument with one value. `args` takes one or
+  more.
+- `opt` declares an option with a value. `opts` can be given more than once.
+- `flag` declares an option without a value. See [Flags](flags.md).
+- `command` declares a subcommand with a spec of its own. See
+  [Commands](commands.md).
+- `help`, `message` and `version` print something and exit. See
+  [Help and Messages](help.md).
+
+A field can also be a tuple of `Arg`s. Its `Arg`s join the spec as if they
+were listed directly, which is handy for sharing a group of options:
 
 ```nim
-proc buildCli(): Spec =
-  newSpec((
-    name: arg("<name>", help = "The name to call you"),
-    help: help()),
-    usage = "<name>")
+let common = (verbose: flag("-v, --verbose", help = "Show extra output"))
+let spec = (common: common, name: arg("<name>", help = "Who to greet"))
+```
 
-let spec = buildCli()
+### Variants
+
+The first argument to each constructor lists the `Arg`'s **variants**: the
+names it goes by, separated by commas.
+
+- A positional argument is written `<name>` or `NAME`.
+- An option is written `-o` or `--option`. To name its value in help, add a
+  placeholder after `=` or `:`, as in `--times=<n>`. The `=` keeps the
+  placeholder from reading as a positional argument.
+- A flag is written like an option, without a placeholder.
+- A command is a plain word, like `add`.
+
+Usage strings refer to `Arg`s by these names (see
+[Usage Strings](usage-strings.md)). A malformed variant is a bug in your
+program, not in the user's input, so building the spec raises a `SpecDefect`:
+
+```nim
+let spec = (
+  good: arg("<good>", help = "A positional argument"),
+  bad: arg("bad", help = "Missing its angle brackets"),
+)
 spec.parseOrQuit()
 ```
 
-A `Spec` is an opaque handle: you can name it, pass it around, and hand it to
-`parse`/`parseOrQuit`/`dot`/`completionScript`/`completeArgs`, but its
-internals belong to argumint. The exception is `spec.settings`, the
-`newSpecSettings` value shared by reference with every nested command's spec,
-which is meant to be read and mutated — see
-[Value Precedence](precedence.md#value-precedence).
+```console
+$ ./bad
+Error constructing spec: invalid positional arg variant for bad: bad
+```
+
+## Keeping a Built Spec
+
+Calling `parse` or `parseOrQuit` on a tuple builds it into a `Spec`, parses,
+and throws the `Spec` away. To keep it, build it yourself with `newSpec`:
+
+```nim
+let cli = newSpec(spec, prolog = "Greets people")
+cli.parseOrQuit()
+echo spec.name
+```
+
+You need the built `Spec` for `completionScript` (see
+[Shell Completion](completion.md)), to reach it later from a hook, or when you
+build your command line in one place and parse it in another. Its values still
+go to the `Arg`s in your tuple.
+
+A `Spec` is opaque: you pass it to procs like `parseOrQuit` and
+`completionScript`, but you don't look inside. The one exception is
+`spec.settings`, the `newSpecSettings` value that controls things like help
+width. It's shared with every nested command's spec, so changing it changes
+the whole program.
 
 ### Changing the Defaults at Compile Time
 
-The defaults `newSpecSettings` uses can be changed when the program is
-built, without touching its code. Pass a `-d:` define to `nim c`, or put
+The defaults `newSpecSettings` uses can be changed when the program is built,
+without touching its code. Pass a `-d:` define to `nim c`, or put
 `switch("define", "argumint.maxWidth=80")` in the program's `config.nims`:
 
 | Define | Constant | Default | Allowed |
@@ -96,21 +121,27 @@ built, without touching its code. Pass a `-d:` define to `nim c`, or put
 | `-d:argumint.envDelim=S` | `DefaultEnvDelim` | `:` | any; empty means env values aren't split |
 | `-d:argumint.strictOptions=B` | `DefaultStrictOptions` | `true` | `true`/`false` |
 
-`width` is the fallback used when no terminal width can be detected, and
-`maxWidth` caps a detected width (see
-[Displaying Help](help.md#displaying-help)). A value outside the allowed range
-fails the build with a message naming the define. A setting passed to
-`newSpecSettings` explicitly still wins over its define.
+- `width` is the help width used when the terminal's width can't be detected.
+  `maxWidth` caps a detected width. See
+  [Displaying Help](help.md#displaying-help).
+- `maxVariantsWidth` limits how wide the column of option names in help can
+  get.
+- `envDelim` splits an environment variable into several values, for an
+  `Arg` that takes several. See
+  [Value Precedence](precedence.md#value-precedence).
+- `strictOptions` changes what your program accepts (see
+  [Strict Option Checking](errors.md#strict-option-checking)), so only the
+  program's author should set it.
+- The width and delimiter defines are safe for anyone building the program,
+  such as a packager.
 
-`argumint.strictOptions` changes what the program's own grammar accepts (see
-[Strict Option Checking](errors.md#strict-option-checking)), so it's meant for
-the program's author. The width and delimiter defines are safe for anyone
-building the program, such as a packager.
+A value outside the allowed range fails the build with a message naming the
+define. A setting passed to `newSpecSettings` still wins over its define.
 
 ## Getting Values Out
 
-An `Arg` converts implicitly to its value type, so most of the time you can
-use it as if it were that value:
+An `Arg` converts to its value wherever Nim knows the type it wants, so most of
+the time you can use it as if it were the value:
 
 ```nim
 let spec = (
@@ -119,203 +150,237 @@ let spec = (
   tags: opts("--tag=<t>"),
   verbose: flag("-v, --verbose"))
 
-echo fmt"Hello, {spec.name}!"     # interpolation
+echo "Hello, " & spec.name & "!"  # concatenation
 if spec.name == "Bob": ...        # comparison
 for t in spec.tags: ...           # iteration
 let n = spec.count + 1            # arithmetic
 if spec.verbose: ...              # a flag as a condition
 ```
 
-A conversion fires only where the expected type is already known. It can't
-fire where a generic parameter has to be inferred *from* the `Arg` — the
-type variable binds to the `Arg` instead of to its value, and you get an
-error mentioning `ValueArg`. Reach for `get` there:
+The conversion can't happen when Nim has to work out a generic type from the
+`Arg` itself. It picks the `Arg`'s own type instead, and you get an error
+that mentions `ValueArg`. Use `get` to ask for the value explicitly:
 
 ```nim
-spec.tags.get.join(",")               # generic over openArray[T]
-"a" in spec.tags.get                  # generic over the container
+spec.tags.get.join(",")               # join is generic
+"a" in spec.tags.get                  # so is `in`
 some(spec.name.get)                   # Option[T]
 case spec.name.get                    # a case selector
 of "Bob": discard
 %*{"name": spec.name.get}             # JSON construction
-let xs: seq[string] = @[spec.name.get]
-var s = spec.name.get                 # var inference
+var s = spec.name.get                 # type inference
 ```
 
-`get` works on every kind of `Arg` and always returns exactly what the
-implicit conversion would: the parsed value for a scalar `arg`/`opt`, the
-accumulated `seq` for `args`/`opts`, the composed value for a `flag`, and
-the coded `default` if nothing supplied one.
+`get` works on every kind of `Arg`. It returns the parsed value of an `arg` or
+`opt`, all the values of an `args` or `opts`, and the result of a `flag`'s
+operations. If the `Arg` holds no value, it returns the `default`.
 
-`some(spec.name)` deserves special mention: it *compiles*, silently
-inferring `Option[ValueArg[...]]`, and only fails wherever the expected
-type is finally named. `some(spec.name.get)` is the fix.
+Watch out for `some(spec.name)`. It compiles, but it makes an
+`Option[ValueArg[...]]`, and the error only shows up where you use it.
+Write `some(spec.name.get)`.
 
-### Overriding the default at the point of use
+### Falling Back at the Point of Use
 
-`get(otherwise)` returns the parsed value when the command line, an
-environment variable, or a Config Source supplied one, and `otherwise` when
-none did — the coded `default` is ignored for that call:
+`get(otherwise)` returns the `Arg`'s value if it holds one, and `otherwise` if
+it doesn't. It ignores the `default`:
 
 ```nim
 let spec = (port: opt("--port=<n>", default = 8080))
 spec.parseOrQuit(usage = "[--port=<n>]")
 
-echo spec.port.get           # 8080 if unsupplied -- the coded default
-echo spec.port.get(freePort())   # freePort() if unsupplied
+echo spec.port.get               # 8080 if the user gave no --port
+echo spec.port.get(freePort())   # freePort() if the user gave no --port
 ```
 
-`otherwise` is not evaluated when a value was supplied, so an expensive or
-side-effecting fallback like `freePort()` above costs nothing on the path
-that discards it.
+`otherwise` is only evaluated when it's needed, so an expensive fallback like
+`freePort()` costs nothing when the user gave a port. Like the `default`, it
+isn't validated, and using it doesn't make the `Arg` count as `seen`.
 
-This is not a fifth tier of [Value Precedence](precedence.md#value-precedence):
-it substitutes for the coded `default` at read time, per call site, so two reads
-of the same `Arg` may legitimately differ. Like the `default` it replaces,
-`otherwise` is never validated and never marks the `Arg` as supplied — asking
-which tier a value actually came from is a separate question, answered by an
-`Arg`'s `seenBy`/`seen` (see `CONTEXT.md`'s *Seen Arg* entry and
-`docs/adr/0039-per-arg-provenance.md`).
+### Where a Value Came From
+
+`seen` says whether anything supplied a value, and `seenBy` says what did:
+`byCli` (the command line), `byEnv` (an environment variable), `byConfig` (a
+config file), or `byNone`:
+
+```nim
+if spec.port.seenBy == byEnv:
+  echo "Using the port from $PORT"
+```
+
+The sources are ordered from weakest to strongest, so `spec.port.seenBy >
+byConfig` means the value came from the environment or the command line. See
+[Value Precedence](precedence.md#value-precedence).
 
 ## Setting Values Yourself
 
-`parse` is the write side of the same coin. It takes a raw string and puts
-it through exactly the path a command-line value takes — the same
-converter, the same validator, the same clamp — so a programmatic write
-can't end up holding something a real one couldn't:
+Sometimes your program needs to set a value itself, such as a default worked
+out at startup. `parse` takes a string and gives it the same conversion and
+validation a command-line value gets:
 
 ```nim
-let port = opt("--port=<n>", default = 80, help = "")
+let port = opt("--port=<n>", default = 80)
 
-port.parse("8080", seenBy = some(byCli))   # seed it as if the user typed it
-port.get                                   # => 8080
-port.seenBy                                # => byCli
+port.parse("8080", seenBy = some(byCli))  # as if the user typed --port 8080
+port.get                                  # 8080
+port.seenBy                               # byCli
 
-port.clear()                               # back to the coded default
-port.get                                   # => 80
+port.clear()                              # forget it
+port.get                                  # 80, the default again
 ```
 
-The `seenBy` argument names which [Value
-Precedence](precedence.md#value-precedence) tier you're writing as. Omitting it
-means "extend whatever tier is current" — useful for adding to an `Arg` a tier
-already supplied, and for seeding one nothing has: the value is stored and
-`get`/`get(otherwise)` return it, but the `Arg` itself stays unseen (`seenBy`
-stays `byNone`), so a real tier can still arbitrate against it exactly as a
-supplied one would (see below).
+A value that doesn't convert raises a `ParseError`, and one the validator
+rejects raises a `ValidationError`.
 
-A tier you declare is then arbitrated against by the real ones, so a value
-written *before* `parse*` runs is a seed rather than something that gets
-silently clobbered:
+`seenBy` says which source your value counts as. It's an `Option`, so wrap
+the source in `some`: a plain `byCli` won't convert.
+
+Whenever a value arrives at an `Arg` that already has one, the two sources
+decide what happens:
+
+- A stronger source replaces the old value.
+- The same source adds to it, for an `Arg` that takes several values, or
+  replaces it, for one that takes a single value.
+- A weaker source is ignored.
+
+That works in both directions. A value you write is ignored if the `Arg`
+already has one from a stronger source:
 
 ```nim
+let spec = (port: opt("--port=<n>", default = 80))
+
+spec.parse(args = @["--port", "81"])
+spec.port.parse("90", seenBy = some(byConfig))
+spec.port.get                # 81: the command line is stronger
+```
+
+And a value you write before parsing is a starting point, not something the
+command line silently loses:
+
+```nim
+let tags = opts("--tag=<t>")
+let spec = (tags: tags)
+
 tags.parse("built-in", seenBy = some(byCli))
 spec.parse(args = @["--tag", "mine"])
-tags.get                     # => @["built-in", "mine"] — same tier, so appended
+tags.get                     # @["built-in", "mine"]: same source, so added
+```
 
-tags.parse("built-in")       # no tier declared
+`seenBy = none(SeenBy)`, the default when you leave `seenBy` out, means your
+value counts as whatever source the `Arg` already has, so it's never ignored.
+On an `Arg` nothing has set yet, the value is stored without a source: `get`
+returns it, but `seen` stays `false`, so any real source replaces it:
+
+```nim
+let tags = opts("--tag=<t>")
+let spec = (tags: tags)
+
+tags.parse("built-in")       # the same as seenBy = none(SeenBy)
 spec.parse(args = @["--tag", "mine"])
-tags.get                     # => @["mine"] — the command line outranks it, so it replaced
+tags.get                     # @["mine"]: the command line replaced it
 ```
 
-A stronger tier replaces, an equal tier appends, and a weaker one is
-refused — `parse` never demotes an `Arg`. Call `clear` first if handing it
-to a weaker tier is what you actually want. A multi-value `Arg` appends on
-each call, so `clear` plus one `parse` per value replaces the whole set —
-or use `replace` (below) for the typed, one-call, atomic version of the
-same idiom. A `Flag` is the one shape that reads differently: the value you
-pass *is* the variant whose operation to apply, so one call is one bump:
+`some(byNone)` behaves the same way on an `Arg` nothing has set yet. Once
+something has set it, though, `some(byNone)` counts as the weakest source and
+is ignored, while `none(SeenBy)` still writes.
+
+To let a weaker source take over, call `clear` first:
 
 ```nim
+let spec = (port: opt("--port=<n>", default = 80))
+
+spec.parse(args = @["--port", "81"])
+spec.port.clear()
+spec.port.parse("90", seenBy = some(byConfig))
+spec.port.get                # 90
+```
+
+For a flag, the string you pass is the variant whose
+[operation](flags.md) to apply, so each call is one use of the flag:
+
+```nim
+let verbose = flag[int](ops = [flagOp("-v, --verbose", "+=", 1)])
+
 verbose.parse("--verbose", seenBy = some(byCli))
+verbose.parse("-v", seenBy = some(byCli))
+verbose.get                  # 2
 ```
 
-### Writing an Already-Typed Value
+### Writing a Typed Value
 
-`parse` takes a raw `string` and converts it, which is a problem if you
-already have the `T` you want and no reason to round-trip it back through
-`$`. `put` is `parse` with the conversion step removed — same arbitration,
-same provenance rules, same replace-for-scalar/append-for-multi shape —
-just handed a typed value directly:
+If you already have a value of the right type, `put` stores it without
+converting it from a string. Otherwise it works like `parse`:
 
 ```nim
-port.put(8080, seenBy = some(byCli))   # no string, no conversion
-port.get                               # => 8080
+port.put(8080, seenBy = some(byCli))
+port.get                     # 8080
 ```
 
-It validates by default, same as `parse`, but — unlike `parse` — you can
-opt out at any arity:
+`put` runs the `Arg`'s [validator](args-and-options.md#validating-values) on
+the value. Pass `validate = false` to skip that:
 
 ```nim
 tags.put("unchecked", seenBy = some(byCli), validate = false)
 ```
 
-A `Flag`'s `put` always applies its clamp and never validates — there's no
-`validate` parameter to pass, since a `Flag` has no validator to skip, and
-no `variant` parameter either, since nothing on that path can fail:
+A flag has no validator, so its `put` has no `validate` parameter. It still
+applies the flag's [clamp](flags.md):
 
 ```nim
 let level = flag[int](ops = [flagOp("-l", "+=", 1)], default = 0,
-                       clamp = clamp(0..2), help = "")
+                      clamp = clamp(0..2))
 level.put(99, seenBy = some(byCli))
-level.get                             # => 2, clamp-coerced like any other write
+level.get                    # 2, clamped
 ```
 
-### Replacing a Multi Arg's Values in One Call
+### Replacing Every Value at Once
 
-`clear` then one `put`/`parse` per value works, but it isn't atomic: if a
-value partway through the batch fails validation, the `Arg` is left
-holding a prefix of the new values with the old ones already gone.
-`replace` is a typed, one-call, atomic version of the same idiom — every
-value is validated before anything is written, so a rejected batch leaves
-the `Arg` exactly as it was:
+To swap all the values of an `args` or `opts` for new ones, you could call
+`clear` and then `put` each value. But if a value partway through is rejected,
+the `Arg` is left with only some of the new values. `replace` validates every
+new value before changing anything, so if one is rejected, the `Arg` keeps
+its old values:
 
 ```nim
+let tags = opts("--tag=<t>", validator = unique[string]())
+
 tags.put("old", seenBy = some(byCli))
 tags.replace(@["a", "b"], seenBy = some(byCli))
-tags.get                               # => @["a", "b"] -- "old" is gone
+tags.get                     # @["a", "b"]
 
-tags.replace(@["a", "a"], seenBy = some(byCli))  # fails against a unique validator
-tags.get                               # => @["a", "b"] -- untouched by the failed call
+tags.replace(@["a", "a"], seenBy = some(byCli))  # raises ValidationError
+tags.get                     # still @["a", "b"]
 ```
 
-Each candidate is validated against the other new values already accepted
-in the same call, never against the values it's replacing — the `Arg`'s
-own prior values are about to be discarded, so checking against them would
-reject a value the batch is about to be the only holder of.
+Some validators, like `unique`, check a value against the ones the `Arg`
+already holds. `replace` checks each new value against the other new values
+only, since the old ones are about to go. Replacing `@["a"]` with
+`@["a", "b"]` passes `unique`, even though `"a"` is already there.
 
-Unlike `put`/`parse`, `replace` never arbitrates against the `Arg`'s
-current tier: it always applies, which means it can demote — the explicit
-spelling for handing an `Arg` to a weaker tier, in one call instead of
-`clear` followed by a loop. Omitting `seenBy` keeps whichever tier the
-`Arg` already carries rather than clearing it, since `replace` overwrites
-the value and the provenance together and there's nothing left for a
-`clear` to undo.
-
-A `Spec` is still single-use either way — see
-[Parsing More Than Once](#parsing-more-than-once).
+Unlike `parse` and `put`, `replace` always applies, even from a weaker source.
+So to let a weaker source take over, you can `replace` with that source
+instead of calling `clear` first. With `none(SeenBy)`, the default, it keeps
+the current source.
 
 ## Parsing More Than Once
 
-A spec tuple is **single-use**. `parse`/`parseOrQuit` assign into the `Arg`s
-you declared, and Match Accumulation is per-`Arg` lifetime rather than
-per-parse — so a second parse against the same spec doesn't start fresh:
+A spec tuple is single-use. A second parse builds on the first instead of
+starting fresh:
 
 ```nim
 let spec = (tags: opts("--tag=<t>"), port: opt("--port=<n>", default = 80))
 
-spec.parse(args = @["--tag", "a", "--port", "81"], command = "app")
-spec.parse(args = @["--tag", "b"], command = "app")
-# spec.tags is now @["a", "b"], and spec.port is still 81 -- from a command
-# line that never mentioned --port
+spec.parse(args = @["--tag", "a", "--port", "81"])
+spec.parse(args = @["--tag", "b"])
+spec.tags.get                # @["a", "b"]
+spec.port.get                # 81, though the second command line had no --port
 ```
 
-That last part is the one to watch: `port` reads as a perfectly ordinary
-value, with nothing to indicate it came from the previous parse.
+The port is the one to watch: nothing about `81` says it came from the first
+parse.
 
-Use **`parsed`** (or `parsedOrQuit`) when you need to parse repeatedly — in a
-REPL or server, or in a test with a table of `(argv, expected)` cases. It
-parses a *fresh* spec and returns it, so each call is independent and a parse
-becomes a pure function of its arguments. Give it a builder proc:
+To parse more than once, as a REPL, a server, or a table-driven test does, use
+`parsed` or `parsedOrQuit`. Give it a proc that builds the spec. It builds a
+fresh spec for each call, parses into it, and returns it:
 
 ```nim
 import std/cmdline
@@ -325,9 +390,9 @@ proc buildCli(): auto =
 
 for line in stdin.lines:
   let cli = parsed(buildCli, args = line.parseCmdLine, command = "repl")
-  echo cli.port          # 80 unless *this* line set it
+  echo cli.port              # 80 unless this line set --port
 ```
 
-One limit: values for a command's own nested spec are readable only through that
-command's [hooks](commands.md#before-action-and-after-hooks), not off the
-returned tuple — a spec tuple holds a `CommandArg`, not the nested tuple.
+A command's own values can't be read from the returned tuple, which only holds
+the command itself. Read them in the command's
+[hooks](commands.md#before-action-and-after-hooks) instead.
