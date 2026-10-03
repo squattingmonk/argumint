@@ -3,368 +3,534 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Displaying Help
-
-`help` builds a `HelpArg`: a flag that, when matched, prints an auto-generated
-help message for the spec (usage lines, grouped args with their `help` text,
-`[default: ...]`/validator constraints folded in — see the [Features
-list](https://github.com/squattingmonk/argumint#features)) and exits
-successfully, the same short-circuiting behavior as `message`/`version`. Every
-spec throughout this guide declaring a `help: help()` field has been using this.
+`help()` adds a `-h, --help` flag that prints help for your program, built
+from its spec, and exits:
 
 ```nim
+import argumint
+
 let spec = (
-  name: arg("<name>", help = "The name to call you"),
-  help: help()
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, env = "SHIP_SPEED",
+    validator = range(1..30), help = "Speed in knots"),
+  dock: flag("--dock", help = "Dock when it arrives"),
+  help: help(),
 )
 
-spec.parseOrQuit(usage = "<name>", prolog = "Greets someone by name")
+spec.parseOrQuit(prolog = "Moves a ship to its next port.",
+  epilog = "Ships never move faster than 30 knots.")
+echo "Moving ", spec.name, " at ", spec.speed
 ```
 
 ```console
-$ ./hello --help
-Greets someone by name
+$ ./ship --help
+Moves a ship to its next port.
 
 Usage:
-  hello <name>
-  hello (-h | --help)
+  ship [options] <name>
+  ship (-h | --help)
 
 Arguments:
-  <name>      The name to call you
+  <name>            Ship to move
+
+Options:
+  -s, --speed=<kn>  Speed in knots [range: 1..30; default: 10; env: SHIP_SPEED]
+  --dock            Dock when it arrives
+  -h, --help        Display this help message
+
+Ships never move faster than 30 knots.
+```
+
+From the top, help shows:
+
+- The `prolog`, if you gave one.
+- The usage lines. See [Usage Strings](usage-strings.md).
+- Each `Arg` with its names and its `help` text. The brackets after the text
+  list what argumint knows about the value: its default, its validator, and
+  where else it can come from. See
+  [Arguments and Options](args-and-options.md) and
+  [Value Precedence](precedence.md).
+- The `epilog`, if you gave one.
+
+`parse` and `parseOrQuit` take `prolog` and `epilog` for the program's help,
+and `command` takes them for a command's help.
+
+To give the flag other names, pass them first. For example, `help("--help")`
+leaves `-h` free for a `--host` option. Pass `help = "..."` to change the
+flag's own description.
+
+## Groups
+
+Help lists each `Arg` under a heading:
+
+- **Commands** for commands.
+- **Arguments** for positional arguments.
+- **Options** for options and flags.
+
+Pass `group` to put an `Arg` under a heading of your own:
+
+```nim
+import argumint
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, help = "Speed in knots"),
+  verbose: flag("-v, --verbose", help = "Show each step", group = "Output"),
+  quiet: flag("-q, --quiet", help = "Show nothing", group = "Output"),
+  warp: flag("--warp", help = "Old name for a fast speed", hidden = true),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "Moving ", spec.name, if spec.warp: " at warp" else: ""
+```
+
+```console
+$ ./ship --help
+Usage:
+  ship [options] <name>
+  ship (-h | --help)
+
+Arguments:
+  <name>            Ship to move
+
+Options:
+  -s, --speed=<kn>  Speed in knots [default: 10]
+  -h, --help        Display this help message
+
+Output:
+  -v, --verbose     Show each step
+  -q, --quiet       Show nothing
+```
+
+The built-in groups come first, in the order above, and then your own groups
+in the order you first use them. Within a group, `Arg`s are listed in the
+order you declared them.
+
+`hidden = true` leaves an `Arg` out of these lists, but the user can still
+give it, as with `--warp` above:
+
+```console
+$ ./ship --warp Titanic
+Moving Titanic at warp
+```
+
+A hidden `Arg` still shows in any usage line that names it. A positional
+argument or a command is always named in a usage line, so hiding one only
+removes it from the lists.
+
+## Writing Longer Text
+
+The prolog, the epilog and each `Arg`'s help text wrap to fit. Their line
+breaks are re-flowed, so you can write a long one as an indented `"""`
+string:
+
+```nim
+import argumint
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  help: help(),
+)
+
+spec.parseOrQuit(prolog = """
+  Moves a ship to its next port. Each ship keeps a log of every
+  port it visits, and these lines join into one paragraph.
+
+  A ship takes one of two routes:
+  - coastal: stays near land, which is slower but keeps the ship
+    out of rough water
+  - open sea: the fastest way between ports
+
+      ship Titanic
+  """)
+```
+
+```console
+$ ./ship --help
+Moves a ship to its next port. Each ship keeps a log of every port it visits,
+and these lines join into one paragraph.
+
+A ship takes one of two routes:
+- coastal: stays near land, which is slower but keeps the ship out of rough
+  water
+- open sea: the fastest way between ports
+
+    ship Titanic
+
+Usage:
+  ship <name>
+  ship (-h | --help)
+
+Arguments:
+  <name>      Ship to move
 
 Options:
   -h, --help  Display this help message
 ```
 
-Each `Arg` is printed with all its variants along with the `help` text specified
-in its constructor. To hide an `Arg` from the help message (e.g., for an `Arg`
-deprecated but supported for legacy reasons), set `hidden = true` in the `Arg`'s
-constructor.
+These rules turn the text into paragraphs:
 
-Front and end matter for the help message come from the `prolog` and `epilog`
-fields in `parse()`/`parseOrQuit()`/`command()`.
+- The indent that every line shares is removed, so start the text on the
+  line after the opening `"""`.
+- Lines next to each other join into one paragraph, and a blank line starts a
+  new one.
+- A line starting with `-`, `*` or a number and a dot, then a space, starts a
+  list item. A
+  line indented to the item's text, like `out of rough water`, continues it.
+- Any other indented line stays a line of its own, like the example command
+  above.
 
-Each `Arg`'s help entry is grouped by type: positional arguments are grouped
-under `Arguments`, options and flags are grouped under `Options`, and commands
-are grouped under `Commands`. You can control which group an `Arg` appears in
-(and even add your own custom groups) using the `group` parameter in its
-constructor. Within the group, `Arg`s are ordered in the order they are declared
-in the spec.
+## Fitting the Terminal
 
-Usage lines and help text wrap at `SpecSettings.width` (default: the
-detected terminal width, capped at `DefaultMaxWidth` = 100 and falling back
-to `DefaultWidth` = 80 columns, detected only when help or an error is
-first rendered); the variants column (`-v, --verbose`)
-wraps once it exceeds `SpecSettings.maxVariantsWidth` (default 30; `0`
-means unlimited). Set either via `newSpecSettings`, passed as
-`parse`/`parseOrQuit`'s `settings` argument:
+Help wraps to the terminal's width, or to `COLUMNS` if it's set, up to 100
+columns. When there's no terminal to measure, as when help is piped to a file,
+it wraps at 80. Pass
+`width` to `newSpecSettings` to choose your own:
 
 ```nim
-spec.parseOrQuit(settings = newSpecSettings(width = 100, maxVariantsWidth = 40))
+spec.parseOrQuit(settings = newSpecSettings(width = 60))
 ```
 
-An explicit `width` is never capped. Pass `width = detectWidth()` to follow
-the terminal however wide it is, or `width = min(detectWidth(), 120)` for a
-cap of your own.
+A width you choose is used as given. Pass `width = detectWidth()` to use the
+whole terminal however wide it is, or `width = min(detectWidth(), 120)` to
+pick a different limit. To change the 100 and the 80 when you compile, see
+[Changing the Defaults at Compile Time](specs.md#changing-the-defaults-at-compile-time).
 
-The prolog and epilog wrap at the same width. Their line breaks are
-re-flowed, so a long one can be written as an indented `"""` string:
-
-```nim
-spec.parseOrQuit(prolog = """
-  Naval Fate: moves ships and lays mines, and
-  keeps lines that run on together in one paragraph.
-
-  Modes:
-  - fast: skips verification, which is quick
-    but unsafe
-  - safe: checks every block
-
-      naval_fate ship new <name>
-  """)
-```
-
-The indentation every line shares is removed (a tab counts as up to 8
-spaces), so start the text on the line after the opening `"""`, not right
-after it. Consecutive lines then join into a paragraph, and a blank line
-separates paragraphs. A line starting with `-`, `*`, or `1.` and a space
-starts a list item. A line indented to the item's text, like `but unsafe` above,
-continues it, and a long item wraps under its text. Any other indented line
-is kept as its own line. To break a line without starting a new paragraph,
-leave a blank line or indent it.
-
-A variant name or help-text word too long to fit its column splits at the
-character level rather than overflowing it whole. If that's undesirable for
-a particular spec (e.g. one with unusually long option names), raise
-`maxVariantsWidth`/`width` to fit, or set `maxVariantsWidth = 0` to disable
-the variants-column cap entirely.
-
-### Paragraph Style and Long-Form Help Text
-
-The help message is rendered by a pluggable `HelpFormatter` (`proc (spec:
-Spec, command: string): string`). Two ship built-in. **Column Style**
-(`formatColumn`, the default shown above) aligns every arg's variants and
-help text into a two-column table. **Paragraph Style** (`formatParagraph`)
-instead puts each arg's variants on their own line, with its help text
-wrapped as an indented paragraph below — more room for args with long
-variant names or long descriptions, at the cost of column alignment. Pass
-it to `help()`'s `formatter` parameter:
+The column of names wraps too, once it's wider than `maxVariantsWidth`
+(30 by default):
 
 ```nim
+import argumint
+
 let spec = (
-  name: arg("<name>", help = "The name to call you"),
-  help: help(formatter = formatParagraph)
+  speed: opt("-s, --speed=<kn>", default = 10,
+    help = "Speed in knots, which the ship keeps until it reaches port"),
+  log: opt("-l, --log, --log-file=<path>", help = "Where to write the ship's log"),
+  help: help(),
 )
 
-spec.parseOrQuit(usage = "<name>", prolog = "Greets someone by name")
-```
-
-```console
-$ ./hello --help
-Greets someone by name
-
-Usage:
-  hello <name>
-  hello (-h | --help)
-
-Arguments:
-  <name>
-    The name to call you
-
-Options:
-  -h, --help
-    Display this help message
-```
-
-A spec can declare more than one `help()` flag, each with its own
-formatter — e.g. `-h`/`--help` for the default Column Style and a separate
-`--help-verbose` for Paragraph Style.
-
-An arg's `help` parameter can also take a `(short, long)` pair instead of a
-plain string, giving it a longer, prose-form description for specs that
-want more detail than fits comfortably in a two-column table. Paragraph
-Style prefers the long form when it's given; Column Style always uses the
-short form, since a fixed-width column has no room for a longer
-description anyway:
-
-```nim
-let spec = (
-  speed: opt[int]("--speed=<speed>", default = 10, help = (
-    "Speed in knots",
-    "Speed in knots. Must be between 1 and 100; higher speeds increase fuel consumption.")),
-  help: help(formatter = formatParagraph)
-)
+spec.parseOrQuit(settings = newSpecSettings(width = 50, maxVariantsWidth = 20))
 ```
 
 ```console
 $ ./ship --help
 Usage:
-  ship [--speed=<speed>]
+  ship [options]
   ship (-h | --help)
 
 Options:
-  --speed=<speed>
-    Speed in knots. Must be between 1 and 100; higher speeds increase fuel
-    consumption. [default: 10]
-
-  -h, --help
-    Display this help message
+  -s, --speed=<kn>      Speed in knots, which the
+                        ship keeps until it
+                        reaches port [default: 10]
+  -l, --log,            Where to write the ship's
+    --log-file=<path>   log
+  -h, --help            Display this help message
 ```
 
-The same spec under the default Column Style ignores the long form
-entirely:
+A name or word too long for its column is split in the middle. To avoid that,
+raise `maxVariantsWidth` or `width`, or pass `maxVariantsWidth = 0` to let
+the column of names grow as wide as it needs.
 
-```console
-$ ./ship --help
-Usage:
-  ship [--speed=<speed>]
-  ship (-h | --help)
+## Paragraph Style
 
-Options:
-  --speed=<speed>  Speed in knots [default: 10]
-  -h, --help       Display this help message
-```
+By default, help uses Column Style (`formatColumn`), which lines up names and
+descriptions in two columns. Paragraph Style (`formatParagraph`) puts each
+description in a paragraph under its names instead, which leaves more room for
+long text. Pass it to `help` as `formatter`.
 
-Help text is re-flowed by the same rule as the prolog and epilog, so a
-long form can be a `"""` string with paragraphs and lists:
+An `Arg`'s `help` can also be a pair of a short and a long description.
+Paragraph Style shows the long one, and the default style shows the short
+one. This spec has a second help flag for the long form:
 
 ```nim
-mode: opt("-m, --mode=<m>", default = "fast", help = ("Pick a mode.", """
-  Picks how blocks are checked.
+import argumint
 
-  Modes:
-  - fast: skips verification
-  - safe: checks every block"""))
-```
-
-```console
-  -m, --mode=<m>
-    Picks how blocks are checked.
-
-    Modes:
-    - fast: skips verification
-    - safe: checks every block
-
-    [default: "fast"]
-```
-
-When help text runs to more than one block, the `[...]` bracket follows it
-as its own paragraph, so it never reads as part of a list item. Column
-Style lays out a multi-block short form the same way, inside its column.
-See `docs/adr/0054-reflow-prolog-and-epilog.md` for the rule and
-`docs/adr/0055-reflow-arg-help-text.md` for how rows carry it.
-
-A `HelpFormatter` renders the whole message, so a custom one controls
-section order and labels as well as how each arg is laid out. It's a proc
-taking a `HelpContext`: everything one render of one Spec needs, with its
-width and styler already applied. To write one, `import argumint/help`
-directly for the context's pieces, the same ones
-`formatColumn`/`formatParagraph` are built from: `groups` (each group's
-visible args, in display order), `rows`/`Row` (an arg's variants and
-resolved help text), `prose` (a prolog or epilog re-flowed, as described
-above), `usage` (the wrapped usage lines, without a label), `heading`, and
-`markup` for styling your own prose; plus `spec` for the
-`prolog`/`epilog`/`usage` accessors and `joinSections` (joins the non-empty
-parts with a blank line between each). Variants, usage lines and headings
-are `StyledText`, a sequence of spans that each carry a role (option,
-positional, header, ...): lay them out with `wrap` and `len`, then turn
-each line into a string with `ctx.render`, which colours it as the
-built-ins do, or plain when the spec is unstyled. A `Row.text` and what
-`prose` returns are `Prose`: help text re-flowed into paragraphs, list
-items and indented lines. `wrap` is the only way to lay it out, giving
-`StyledText` lines with each block's continuation lines hung under its
-text:
-
-```nim
-import std/strutils
-import argumint, argumint/help
-
-proc formatShouty(ctx: HelpContext): string =
-  let width = max(ctx.width, 24)
-  var groups: seq[string]
-  for name, args in ctx.groups:
-    var lines = @[name.toUpperAscii & ":"]
-    for arg in args:
-      for row in ctx.rows(arg):
-        lines.add "  " & ctx.render(row.variants)
-        for line in row.text.wrap(width - 4):
-          lines.add "    " & ctx.render(line)
-    groups.add lines.join("\n")
-  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
-    "USAGE:\n" & ctx.render(ctx.usage),
-    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
-```
-
-These stay reachable only through that direct import rather than a plain
-`import argumint`, keeping this lower-level surface opt-in for anyone who
-doesn't need it (the `HelpContext` type itself is nameable from either, as
-`HelpFormatter` is). A parse error's usage block doesn't go through a
-formatter; it always uses the standard `Usage:` layout.
-
-### Styling Help and Errors
-
-When stdout and stderr are both a terminal, help and parse-error output are
-coloured by role: headers bold, options and commands bold cyan,
-`<positionals>` and `<metavars>` cyan, env var names yellow, literal values
-green, URLs blue and underlined, the `[...]` annotation brackets dim, the
-`Parsing error:` label bold red, and the token a parse error blames
-(`srInvalid`) bold yellow. Anywhere else, like a pipe, a file, or
-`TERM=dumb`, the output is plain text, so escape codes never end up in a
-log. `NO_COLOR` (set to anything) turns colour off; `FORCE_COLOR` (set to
-anything) or `CLICOLOR_FORCE` (set to anything but `0`) turns it on even
-without a terminal. On Windows, argumint turns on the console's ANSI
-handling itself.
-
-The styler is `SpecSettings.style`, which defaults to `autoStyler`, the
-detection above, run only when help or an error is first rendered. Pass
-`nil` for plain text always, or your own look:
-
-```nim
-var theme = defaultTheme
-theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
-theme[srHeader] = TextStyle(attrs: {styleBright})
-
-spec.parseOrQuit(settings = newSpecSettings(style = ansiStyler(theme)))
-```
-
-A `Theme` sets a `TextStyle` (a `std/terminal` foreground colour plus a set
-of attributes like bold and underline) for each `StyleRole`. For anything a
-theme can't express, like true colour, backgrounds, or clickable `srUrl`
-hyperlinks, write your own `Styler`, a proc that decorates one span of text:
-`proc (role: StyleRole, text: string): string`. Since layout is measured
-before styling, a styler can add whatever it likes without breaking
-alignment. A caught exception's `msg` is always plain, help included. Its
-`styledMsg` holds the styled form, the same text when there's no styler, and
-is what `parseOrQuit` prints.
-
-Help text, `prolog`, `epilog`, and a validator's or clamp's `desc` are
-**Help Markup**: wrap a name in backticks and it gets the style of what it
-looks like.
-
-```nim
 let spec = (
-  speed: opt("--speed=<kn>", default = 10,
-    help = "Speed in `<kn>`; overrides `$SHIP_SPEED`"),
-  help: help()
-)
-
-spec.parseOrQuit(epilog = "See `ship move --help` for more.")
-```
-
-`-x`/`--xx` is styled as an option, `--xx=<m>` as an option and its
-metavar, `<name>` (or all-caps `NAME`) as a metavar if the arg itself takes
-a `<name>` value and as a positional otherwise, `$NAME` or `%NAME%` as an
-env var, `https://...` (any `scheme://`) as a URL, and anything else as a
-literal. When the output is styled, the backticks are dropped; when it's
-plain, they're kept, so the text reads the same either way. Write a doubled
-backtick (``` `` ```) for a literal one. Markup never fails: an unclosed
-backtick is just a backtick, and a backticked `--flag` doesn't have to be
-one of your spec's (since help may well mention another program's).
-
-## Custom Messages
-
-`message`/`version` each build a `MessageArg`: a flag that, when matched,
-raises a `MessageError` printing a fixed string, short-circuiting the rest
-of the spec's dispatch. `parse` lets you intercept the `MessageError`,
-while `parseOrQuit` exits with `QuitSuccess` when one is raised.
-
-- `message()` prints a given message.
-- `version()` is a thin wrapper around `message` for the common case of a
-  version flag (e.g. `version("-v, --version", "1.2.3")`)
-
-```nim
-let spec = (
-  ver: version("-v, --version", "myapp 1.2.3"),
-  license: message("--license", "MIT License. See LICENSE for details.",
-    help = "Show license information"),
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, help = ("Speed in knots",
+    "Speed in knots. Faster ships burn more fuel, and no ship goes faster than 30.")),
+  help: help(),
+  helpLong: help("--help-long", help = "Display this help with more detail",
+    formatter = formatParagraph),
 )
 
 spec.parseOrQuit()
 ```
 
 ```console
-$ ./myapp --version
-myapp 1.2.3
+$ ./ship --help
+Usage:
+  ship [options] <name>
+  ship (-h | --help)
+  ship --help-long
 
-$ ./myapp --license
-MIT License. See LICENSE for details.
+Arguments:
+  <name>            Ship to move
+
+Options:
+  -s, --speed=<kn>  Speed in knots [default: 10]
+  -h, --help        Display this help message
+  --help-long       Display this help with more detail
+
+$ ./ship --help-long
+Usage:
+  ship [options] <name>
+  ship (-h | --help)
+  ship --help-long
+
+Arguments:
+  <name>
+    Ship to move
+
+Options:
+  -s, --speed=<kn>
+    Speed in knots. Faster ships burn more fuel, and no ship goes faster than
+    30. [default: 10]
+
+  -h, --help
+    Display this help message
+
+  --help-long
+    Display this help with more detail
 ```
 
-`version`/`message` both just take a plain `string`, so nothing stops that
-string from coming from a compile-time define instead of a literal — handy for
-keeping a `--version` flag in sync with your `.nimble` file (or a git revision)
-without editing source on every release:
+A long description follows the rules in
+[Writing Longer Text](#writing-longer-text), so it can have paragraphs and
+lists too.
+
+## Colour
+
+When both standard output and standard error go to a terminal, help and error
+messages are in colour:
+headings in bold, option and command names in bold cyan, placeholders like
+`<name>` in cyan, environment variables in yellow, values in green, and the
+brackets after each description dimmed. Piped to a file or another program,
+or with `TERM=dumb`, the output is plain text.
+
+The user can choose too:
+
+- `NO_COLOR`, set to anything but an empty value, turns colour off.
+- `FORCE_COLOR`, set to anything but an empty value, or `CLICOLOR_FORCE`, set
+  to anything but `0`, turns it on even without a terminal. Either one wins
+  over `NO_COLOR` and `TERM=dumb`.
+
+On Windows, argumint turns on the console's colour support itself.
+
+To change the colours, copy `defaultTheme`, change the roles you want, and
+pass an `ansiStyler` built from it as `style`:
 
 ```nim
-const NimblePkgVersion {.strdefine.} = "devel"
+var theme = defaultTheme
+theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
+theme[srHeader] = TextStyle(attrs: {styleUnderscore})
 
-let
-  spec = (
-    ver: version("-v, --version", NimblePkgVersion),
-    # ...
-  )
+spec.parseOrQuit(settings = newSpecSettings(style = ansiStyler(theme)))
 ```
 
-Building with `nimble build`/`nimble c` sets `NimblePkgVersion` for you,
-straight from the package's own `.nimble` file; a plain `nim c` falls back
-to `"devel"` unless you pass `-d:NimblePkgVersion=...` yourself.
+Each `TextStyle` has a colour and a set of attributes from `std/terminal`.
+The roles start with `sr`. See `StyleRole` in the
+[API reference](https://squattingmonk.github.io/argumint/argumint.html) for
+the full list. Pass `style = nil` for plain text everywhere.
+
+A style you pass is always used, even when the output isn't a terminal or
+`NO_COLOR` is set. Check for those yourself if your program should still
+honour them.
+
+For anything a theme can't do, like true colour, write your own `Styler`: a
+proc that takes a role and a piece of text, and returns the text to print.
+argumint calls it once for each piece of the message, such as an option's
+name or a heading. This one colours names orange and makes headings bold:
+
+```nim
+import argumint
+
+proc orange(role: StyleRole, text: string): string =
+  case role
+  of srOption, srCommand: "\e[38;2;255;135;0m" & text & "\e[0m"
+  of srHeader: "\e[1m" & text & "\e[0m"
+  else: text
+
+let spec = (
+  speed: opt("-s, --speed=<kn>", default = 10, help = "Speed in knots"),
+  help: help(),
+)
+
+spec.parseOrQuit(settings = newSpecSettings(style = orange))
+```
+
+`cat -v` shows the escape codes it adds:
+
+```console
+$ ./ship --help | cat -v
+^[[1mUsage:^[[0m
+  ship ^[[38;2;255;135;0m[options]^[[0m
+  ship (^[[38;2;255;135;0m-h^[[0m | ^[[38;2;255;135;0m--help^[[0m)
+
+^[[1mOptions:^[[0m
+  ^[[38;2;255;135;0m-s^[[0m, ^[[38;2;255;135;0m--speed^[[0m=<kn>  Speed in knots [default: 10]
+  ^[[38;2;255;135;0m-h^[[0m, ^[[38;2;255;135;0m--help^[[0m        Display this help message
+```
+
+argumint lines up the columns before calling the styler, so what it adds
+doesn't throw off the layout. Return `text` unchanged for any role you don't
+want to style.
+
+When you catch an error or help from `parse`, its `msg` is always plain text.
+Its `styledMsg` holds the coloured form, which is what `parseOrQuit` prints.
+
+### Marking Up Text
+
+In help text, the prolog, the epilog, and a validator's or clamp's
+description, wrap text in backticks to colour it as what it looks like:
+
+```nim
+import argumint
+
+let spec = (
+  speed: opt("-s, --speed=<kn>", default = 10, env = "SHIP_SPEED",
+    help = "Speed in `<kn>`; overrides `$SHIP_SPEED`"),
+  help: help(),
+)
+
+spec.parseOrQuit(epilog = "Ports are listed at `https://example.com/ports`.")
+```
+
+- `-x` or `--name` is coloured as an option, and `--name=<value>` as an
+  option and its placeholder.
+- `<name>` is coloured as a placeholder.
+- `$NAME` or `%NAME%` is coloured as an environment variable.
+- A URL like `https://...` is coloured as a link.
+- Anything else is coloured as a value.
+
+In colour, the backticks are dropped. In plain text they stay, so the text
+reads the same either way:
+
+```console
+$ ./ship --help
+Usage:
+  ship [options]
+  ship (-h | --help)
+
+Options:
+  -s, --speed=<kn>  Speed in `<kn>`; overrides `$SHIP_SPEED` [default: 10; env:
+                    SHIP_SPEED]
+  -h, --help        Display this help message
+
+Ports are listed at `https://example.com/ports`.
+```
+
+Write two backticks for a literal one. A backtick with no partner is left as
+it is.
+
+## Your Own Help Layout
+
+A **formatter** writes the whole help message. To write your own,
+`import argumint/help` and write a proc that takes a `HelpContext` and
+returns the text:
+
+```nim
+import std/strutils
+import argumint, argumint/help
+
+proc formatShouty(ctx: HelpContext): string =
+  var groups: seq[string]
+  for name, args in ctx.groups:
+    var lines = @[name.toUpperAscii & ":"]
+    for arg in args:
+      for row in ctx.rows(arg):
+        lines.add "  " & ctx.render(row.variants)
+        for line in row.text.wrap(ctx.width - 4):
+          lines.add "    " & ctx.render(line)
+    groups.add lines.join("\n")
+  joinSections(
+    ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
+    "USAGE:\n" & ctx.render(ctx.usage),
+    joinSections(groups),
+    ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, help = "Speed in knots"),
+  help: help(formatter = formatShouty),
+)
+
+spec.parseOrQuit(prolog = "Moves a ship to its next port.")
+```
+
+```console
+$ ./ship --help
+Moves a ship to its next port.
+
+USAGE:
+  ship [options] <name>
+  ship (-h | --help)
+
+ARGUMENTS:
+  <name>
+    Ship to move
+
+OPTIONS:
+  -s, --speed=<kn>
+    Speed in knots [default: 10]
+  -h, --help
+    Display this help message
+```
+
+The context gives you the pieces the built-in formatters use:
+
+- `ctx.groups` gives each group's name and the `Arg`s it shows, in order.
+- `ctx.rows(arg)` gives an `Arg`'s names and its help text, with the
+  brackets added.
+- `ctx.prose(text)` re-flows a prolog or epilog, and `wrap` lays it out at a
+  width.
+- `ctx.usage` gives the usage lines, and `ctx.width` the width to wrap at.
+- `ctx.render` turns any of these into a string, in colour when the output
+  is.
+- `joinSections` joins the parts that aren't empty with a blank line between
+  them.
+
+A parse error always shows its usage lines in the standard layout, whatever
+the formatter.
+
+## Messages and Versions
+
+`version` and `message` add a flag that prints some text and exits, the way
+`--help` does:
+
+```nim
+import argumint
+
+const NimblePkgVersion {.strdefine.} = "devel"
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  version: version("-V, --version", "ship " & NimblePkgVersion),
+  license: message("--license", "MIT License. See LICENSE for details.",
+    help = "Show the license"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "Moving ", spec.name
+```
+
+```console
+$ ./ship --version
+ship devel
+$ ./ship --license
+MIT License. See LICENSE for details.
+$ ./ship Titanic
+Moving Titanic
+```
+
+The user doesn't need to give `<name>` with `--version`, since argumint adds
+a usage line for each of these flags.
+
+Nimble sets `NimblePkgVersion` to your package's version when it builds your
+program, so `--version` stays in step with your `.nimble` file. A plain
+`nim c` gives `devel` unless you pass `-d:NimblePkgVersion=1.2.3`.
+
+`parseOrQuit` prints the text and exits with status 0. `parse` raises a
+`MessageError` instead, or a `HelpError` for help, with the text as its
+`msg`. See [Error Handling](errors.md).

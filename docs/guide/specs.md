@@ -123,7 +123,7 @@ without touching its code. Pass a `-d:` define to `nim c`, or put
 
 - `width` is the help width used when the terminal's width can't be detected.
   `maxWidth` caps a detected width. See
-  [Displaying Help](help.md#displaying-help).
+  [Fitting the Terminal](help.md#fitting-the-terminal).
 - `maxVariantsWidth` limits how wide the column of option names in help can
   get.
 - `envDelim` splits an environment variable into several values, for an

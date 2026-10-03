@@ -384,8 +384,9 @@ Installing @["foo"]
 A hook's `HookInfo` describes the whole command line, not just its own
 level. `info.matched` holds every `Arg` the command line matched, at every
 level. `info.showsMessage` is true when the user asked for help, a version,
-or another [message](help.md), so a `before` hook can skip work that only a
-real run needs. Add this to the first example on this page:
+or another [message](help.md#messages-and-versions), so a `before` hook can
+skip work that only a real run needs. Add this to the first example on this
+page:
 
 ```nim
 proc openDb(spec: tuple, info: HookInfo) =

@@ -112,14 +112,14 @@ typed fields — no stringly-typed lookup by flag name.
   option or flag can also fall back to a registered, read-only Config Source
   (built-in INI/JSON adapters, or your own) below env vars and above the coded
   default. See `examples/config_bootstrap.nim`.
-- **[Auto-generated, wrapped help](docs/guide/help.md#displaying-help)**
+- **[Auto-generated, wrapped help](docs/guide/help.md)**
   — usage lines and per-arg help text are generated from the spec and wrapped
   to a configurable width; `[default: ...]` and validator constraints are
   folded into the help text automatically. Choose between a two-column Column
   Style (the default) or a Paragraph Style layout with more room for long
   descriptions, and give an arg a longer, prose-form description that only
   Paragraph Style shows. Help and parse errors are [coloured in a
-  terminal](docs/guide/help.md#styling-help-and-errors) and plain everywhere
+  terminal](docs/guide/help.md#colour) and plain everywhere
   else.
 - **[Shell completion](docs/guide/completion.md#shell-completion)** — dynamic,
   FSM-driven `bash`/`zsh`/`fish` completion generated from the same spec that
