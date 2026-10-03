@@ -54,6 +54,17 @@ defineFlag(Mood, "Cycle to the next mood"):
 
 defineSetFlag(Rank)
 
+type Point = object
+  x, y: int
+
+converter toPoint(value: string): Point =
+  let parts = value.split(',')
+  Point(x: parseInt(parts[0]), y: parseInt(parts[1]))
+
+# A type with no `<=`, so no `range` validator: registering it must still
+# compile (#206).
+defineArg Point
+
 suite "registering a custom type through a bare `import argumint`":
   test "the one-argument `defineArg` gives a value type its parse method":
     let spec = (rank: arg[Rank]("<rank>", help = ""), help: help())
@@ -134,3 +145,26 @@ suite "registering a custom type through a bare `import argumint`":
       help: help())
     spec.parse(args = @["--mid", "--high"], command = "prog")
     check spec.ranks.get == {rMid, rHigh}
+
+  test "a type with no `<=` is a value type, and shows its default":
+    let spec = (at: opt("--at=<point>", default = Point(x: 1, y: 2), help = "Where"),
+                help: help())
+    spec.parse(args = @["--at", "3,4"], command = "prog")
+    check spec.at.get == Point(x: 3, y: 4)
+    var helpText = ""
+    try:
+      spec.parse(args = @["--help"], command = "prog",
+                 settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check "Where [default: (x: 1, y: 2)]" in helpText
+
+  test "a type with no `<=` takes every other validator":
+    let spec = (at: opt("--at=<point>", default = Point(x: 1, y: 2), help = "",
+                        validator = any(choice([Point(x: 0, y: 0)]),
+                                        checkIt[Point](it.x == it.y, "on the diagonal"))),
+                help: help())
+    spec.parse(args = @["--at", "5,5"], command = "prog")
+    check spec.at.get == Point(x: 5, y: 5)
+    expect ValidationError:
+      spec.parse(args = @["--at", "1,2"], command = "prog")

@@ -54,7 +54,10 @@ proc choice*[T](choices: openArray[T], desc = ""): Validator[T] =
 proc range*[T](range: Slice[T], desc = ""): Validator[T] =
   ## Returns a `Validator` that checks if a value is in `range`. `desc`,
   ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. "range: a..b" / "got X but expected a value in a..b").
+  ## (e.g. "range: a..b" / "got X but expected a value in a..b"). `T`
+  ## must have `<=`.
+  when not compiles(range.a <= range.b):
+    {.error: "range() needs a type with <=".}
   Validator[T](kind: vkRange, range: range, desc: desc)
 
 proc check*[T](checker: proc (x: T): bool, desc = ""): Validator[T] =
@@ -241,12 +244,15 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
         let choices = self.choices.mapIt(it.showValue).join(", ")
         raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {choices}")
   of vkRange:
-    if value notin self.range:
-      if self.desc.len > 0:
-        raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
-      else:
-        let bounds = self.range.showRange
-        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected a value in {bounds}")
+    # Only `range` builds one, and it needs `<=`: a type without stays
+    # registrable (#206).
+    when compiles(value <= value):
+      if value notin self.range:
+        if self.desc.len > 0:
+          raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
+        else:
+          let bounds = self.range.showRange
+          raise newPlainError(ValidationError, fmt"got {tmpVal} but expected a value in {bounds}")
   of vkCheck:
     if not self.checker(value):
       let suffix = if desc.len > 0: fmt": {desc}" else: ""
