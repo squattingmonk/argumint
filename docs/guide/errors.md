@@ -22,7 +22,7 @@ Every parse-time failure derives from `CatchableError`:
   corrects instead (see
   [Keeping Values in Bounds](flags.md#keeping-values-in-bounds))
 - `MessageError` — a `message()`/`version()` flag was matched (see
-  [Custom Messages](help.md#custom-messages))
+  [Messages and Versions](help.md#messages-and-versions))
 - `HelpError`/`CompletionError` — both subtypes of `MessageError`, raised for a
   matched `help()` flag or a shell-completion request respectively, carrying the
   rendered help text/candidates as `.msg`
