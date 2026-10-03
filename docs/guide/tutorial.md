@@ -169,7 +169,7 @@ proc readNotes(): seq[string] =
   if fileExists(file): readFile(file).splitLines.filterIt(it.len > 0)
   else: @[]
 
-proc addNote(spec: tuple, info: HookInfo) =
+proc addNote(spec: tuple, _: HookInfo) =
   var note = spec.text.get.join(" ")
   for tag in spec.tags:
     note.add " #" & tag
@@ -179,7 +179,7 @@ proc addNote(spec: tuple, info: HookInfo) =
   if verbose:
     echo "Added to ", file, ": ", note
 
-proc listNotes(spec: tuple, info: HookInfo) =
+proc listNotes(spec: tuple, _: HookInfo) =
   for i, note in readNotes():
     if i == spec.limit: break
     echo i + 1, ". ", note
@@ -211,7 +211,9 @@ spec.parseOrQuit(prolog = "A tiny note-taking CLI")
 `command` takes a word and a spec of its own. Everything after the word on the
 command line is parsed against that spec. Its `action` runs once the whole
 command line has parsed, and receives the command's own spec, so `addNote`
-reads `spec.text` and `listNotes` reads `spec.limit`.
+reads `spec.text` and `listNotes` reads `spec.limit`. The second parameter, a
+`HookInfo`, describes everything the command line matched. These hooks don't
+need it, so they name it `_`. See [HookInfo](commands.md#hookinfo).
 
 `file` and `verbose` belong to the top-level spec, which the hooks can't see.
 Declaring them first, outside any tuple, lets the hooks read them directly.
@@ -298,7 +300,7 @@ Then number each note by its place in the file, so the numbers stay the same
 whichever order they're shown in:
 
 ```nim
-proc listNotes(spec: tuple, info: HookInfo) =
+proc listNotes(spec: tuple, _: HookInfo) =
   let notes = readNotes()
   var ids = toSeq(1..notes.len)
   if spec.order == "newest":
@@ -358,7 +360,7 @@ after `readNotes`:
 proc writeNotes(notes: seq[string]) =
   writeFile(file, notes.mapIt(it & "\n").join)
 
-proc removeNotes(spec: tuple, info: HookInfo) =
+proc removeNotes(spec: tuple, _: HookInfo) =
   var notes = readNotes()
   if spec.all:
     notes = @[]
@@ -466,7 +468,7 @@ agrees with the parser. Add a command that prints the script for a shell:
 ```nim
 var cli: Spec
 
-proc printCompletion(spec: tuple, info: HookInfo) =
+proc printCompletion(spec: tuple, _: HookInfo) =
   echo cli.completionScript(parseEnum[Shell](spec.shell), "notes")
 ```
 
