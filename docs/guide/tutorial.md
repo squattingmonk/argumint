@@ -457,7 +457,7 @@ Options:
 ```
 
 Values can also come from a config file. See
-[Value Precedence](precedence.md#value-precedence).
+[Value Precedence](precedence.md).
 
 ## Shell Completion
 

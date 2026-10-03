@@ -22,8 +22,8 @@ public proc and type, see the
   values.
 - [Flags](flags.md) — flag types and operations, flags in a usage string,
   your own flag types, and keeping values in bounds.
-- [Value Precedence](precedence.md) — falling back to env vars and Config
-  Sources.
+- [Value Precedence](precedence.md) — reading values from environment
+  variables and config files.
 - [Commands](commands.md) — nested subcommands and their hooks.
 - [Help and Messages](help.md) — generated help, Paragraph Style, styling,
   and custom messages like `--version`.

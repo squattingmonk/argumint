@@ -128,7 +128,7 @@ without touching its code. Pass a `-d:` define to `nim c`, or put
   get.
 - `envDelim` splits an environment variable into several values, for an
   `Arg` that takes several. See
-  [Value Precedence](precedence.md#value-precedence).
+  [Splitting a Variable into Several Values](precedence.md#splitting-a-variable-into-several-values).
 - `strictOptions` changes what your program accepts (see
   [Strict Option Checking](errors.md#strict-option-checking)), so only the
   program's author should set it.
@@ -209,7 +209,7 @@ if spec.port.seenBy == byEnv:
 
 The sources are ordered from weakest to strongest, so `spec.port.seenBy >
 byConfig` means the value came from the environment or the command line. See
-[Value Precedence](precedence.md#value-precedence).
+[Value Precedence](precedence.md).
 
 ## Setting Values Yourself
 
