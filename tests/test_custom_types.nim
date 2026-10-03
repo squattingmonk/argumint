@@ -20,6 +20,10 @@ type Rank = enum
 
 converter toRank(value: string): Rank = parseEnum[Rank](value)
 
+# A caller's own helper sharing a name with argumint's internal one: the
+# generated `defaultStr` must still call argumint's (`display.showValue`).
+proc showValue[T](value: T): string = "decoy"
+
 # The one-argument overload: a value type with a hand-written converter and
 # no flag support at all.
 defineArg Rank
@@ -110,6 +114,18 @@ suite "registering a custom type through a bare `import argumint`":
       helpText = e.msg
     check "Cycle to the next mood" in helpText
     check "Set to wild" in helpText
+
+  test "a caller's same-named helper doesn't replace the default's rendering":
+    let spec = (rank: opt("--rank=<r>", default = rHigh, help = "Rank"),
+                help: help())
+    var helpText = ""
+    try:
+      spec.parse(args = @["--help"], command = "app",
+                 settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check "Rank [default: rHigh]" in helpText
+    check showValue(1) == "decoy" # the decoy is really in scope here
 
   test "`defineSetFlag` registers set support for the same enum":
     let spec = (

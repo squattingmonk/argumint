@@ -240,6 +240,15 @@ suite "a bad value names the source it came from (#145)":
       spec.parse(usage = "[-v]", args = @[], command = "app",
                  settings = newSpecSettings(style = nil)))
 
+  test "an unknown Flag variant shows non-ASCII input as typed":
+    putEnv("ARGUMINT_WRITE_V", "--café")
+    defer: delEnv("ARGUMINT_WRITE_V")
+    let spec = (v: flag[int](ops = [flagOp("-v", "+=", 1)], default = 0,
+                             env = "ARGUMINT_WRITE_V", help = ""))
+    check "\"--café\" is not a known variant for the flag -v" in failure(proc () =
+      spec.parse(usage = "[-v]", args = @[], command = "app",
+                 settings = newSpecSettings(style = nil)))
+
   test "a Config Key names itself":
     let spec = (port: opt("--port=<n>", default = 80,
                           configKey = configKey("server", "port"), help = ""))

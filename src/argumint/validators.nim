@@ -10,7 +10,7 @@
 
 import std/[sequtils, strformat, strutils, sugar]
 
-import ./[errors, lexer, style]
+import ./[display, errors, lexer, style]
 export ValidationError ## Defined in `errors.nim` with the rest of the
   ## taxonomy; re-exported so importing this module alone still names what
   ## its validators raise.
@@ -139,27 +139,6 @@ proc any*[T](validators: varargs[Validator[T]]): Validator[T] =
   ## Same as `any(validators, desc = "")`. See `all`'s equivalent overload
   ## for why this can't just be a default parameter value.
   any[T](validators, "")
-
-proc quoted(s: string): string =
-  ## `s` in double quotes, escaping only `"`, `\` and control characters --
-  ## unlike `strutils.escape`, which also escapes UTF-8 bytes as `\xHH`.
-  result = "\""
-  for c in s:
-    case c
-    of '"': result.add "\\\""
-    of '\\': result.add "\\\\"
-    of '\t': result.add "\\t"
-    of '\n': result.add "\\n"
-    of '\r': result.add "\\r"
-    of '\0'..'\x08', '\x0b', '\x0c', '\x0e'..'\x1f', '\x7f':
-      result.add "\\x" & toHex(ord(c), 2)
-    else: result.add c
-  result.add '"'
-
-proc showValue[T](value: T): string =
-  ## `value` as help and errors show it: a string or char always quoted
-  ## (see `quoted`), so a choice never reads as part of the list around it.
-  when T is string or T is char: quoted($value) else: $value
 
 proc showRange[T](range: Slice[T]): string =
   ## `range` as help and errors show it, e.g. `0..100` or `"a".."f"`.
