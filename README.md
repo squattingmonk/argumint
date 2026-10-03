@@ -78,8 +78,7 @@ typed fields — no stringly-typed lookup by flag name.
 
 ## Features
 
-- **[Usage strings compiled to a real
-  FSM](docs/guide/usage-strings.md#usage-strings-grammar-and-the-fsm)** — a
+- **[Usage strings compiled to a real FSM](docs/guide/usage-strings.md)** — a
   docopt-style usage string is compiled once into a finite state machine, and
   that FSM is what actually parses the command line, so patterns like `[-r]
   <src>... <dest>` or mutually exclusive `(--moored | --drifting)` just work —

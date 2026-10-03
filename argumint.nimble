@@ -45,6 +45,9 @@ task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   # the rendered `.html` here. md2html also titles a page with its file
   # path unless it opens with an RST overline title, which GitHub can't
   # render, so swap in the page's own `# Title` and drop its duplicate.
+  # md2html has no `![alt](src)` either -- it renders a `!` and a link -- so
+  # turn those back into images.
+  const imageLink = "!<a class=\"reference external\" href=\""
   for file in listFiles("docs/guide"):
     if file.endsWith(".md"):
       exec "nim md2html --hints:off --outdir:" & outDir & "/guide " & file
@@ -57,6 +60,16 @@ task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
         stop = page.find("</h1>", start) + "</h1>".len
         title = page[page.find('>', start) + 1 ..< stop - "</h1>".len]
       page = page[0 ..< start] & page[stop .. ^1]
+      var i = page.find(imageLink)
+      while i >= 0:
+        let
+          srcEnd = page.find('"', i + imageLink.len)
+          altEnd = page.find("</a>", srcEnd)
+          src = page[i + imageLink.len ..< srcEnd]
+          alt = page[page.find('>', srcEnd) + 1 ..< altEnd]
+          img = "<img src=\"" & src & "\" alt=\"" & alt & "\"/>"
+        page = page[0 ..< i] & img & page[altEnd + "</a>".len .. ^1]
+        i = page.find(imageLink, i + img.len)
       writeFile(html, page.replace(">" & path & "<", ">" & title & "<"))
   cpDir("docs/images", outDir & "/images")
   writeFile(outDir & "/index.html", "<!DOCTYPE html>\n<meta http-equiv=\"refresh\" content=\"0; url=guide/index.html\">\n")

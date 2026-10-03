@@ -3,166 +3,131 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Usage Strings, Grammar, and the FSM
-
-This is the thing that makes argumint different from other argument
-parsers: the **usage string** isn't just a docstring shown to the user.
-It's compiled, once, into a finite state machine (FSM), and that FSM is
-what actually walks the real command line at parse time. There's no
-separate imperative validation layer bolted on beside it — whatever the
-usage string says is legal *is* what gets accepted, and nothing else.
-
-A usage string is one or more **Usage Lines**, separated by newlines, each
-one an independent, complete pattern — the whole string means "the command
-line must match this line, *or* this one, *or* this one." An indented line
-continues the Usage Line before it, so a long one can wrap, and blank lines
-are ignored. Within a single Usage Line, these tokens combine into a
-grammar:
-
-| Syntax            | Meaning                                                                                     |
-| ---               | ---                                                                                         |
-| `command`         | A literal word naming a [command](commands.md#commands) (e.g. `ship`).                                 |
-| `<name>` / `NAME` | A [positional argument](args-and-options.md).                                  |
-| `-o` / `--option` | An [option or flag](args-and-options.md), by any one of its declared variants. |
-| `-abc`            | A cluster of short options (sugar for `-a -b -c`)                                           |
-| `[...]`           | Everything inside is optional.                                                              |
-| `(...)`           | Groups tokens, usually so `\|` or `...` applies to the group.                               |
-| `a \| b`          | Exactly one of `a` or `b` — mutually exclusive alternatives.                                |
-| `...`             | The atom before it (an arg, option, or group) can repeat.                                   |
-| `[options]`       | Catch-all for any option/flag not named elsewhere on this line.                             |
-| `--`              | End-of-options marker: everything after it is a positional value.                           |
-| `{cmd}`           | Only at a line's start: the command path. A line of just `{cmd}` is a Bare Call.            |
-
-Note: unlike docopt, atoms inside `[]` are not independently optional (e.g.,
-`[-a -b -c]` is not equivalent to `[-a] [-b] [-c]`).
-
-Every name in a usage string is checked against the `Arg`s you've actually
-declared, once, at spec construction — a typo like `--verbos` when you
-declared `--verbose` is a `SpecDefect` raised before your program ever
-runs, not a bug that surfaces later from a mismatch nobody caught:
-
-```console
-$ ./demo
-Error constructing spec: Error at (1:1): Undeclared option: --verbos
-[--verbos]
- ^
-```
-
-This is also why a usage line never mentions the binary's own name or its
-own (sub)command's name — neither one is a declared `Arg`, so writing it
-would be exactly the same kind of "undeclared" mistake:
+A **usage string** describes the command lines your program accepts. argumint
+writes one from your spec, but you can write your own to say exactly what's
+allowed. It isn't just text for help: argumint checks the command line against
+it, so whatever the usage string allows is what's accepted, and nothing else.
 
 ```nim
-let spec = (x: arg("<x>"), y: arg("<y>"), help: help())
-spec.parseOrQuit(usage = "myapp <x> <y>")  # WRONG: "myapp" isn't declared
-```
+import argumint
 
-```console
-Error constructing spec: Error at (1:0): Undeclared command: myapp
-myapp <x> <y>
-^
-```
-
-Dropping `myapp` fixes it — and the generated help still shows it, because
-`parse*`/`parseOrQuit*`/`command()` prepend the binary's (or, for a nested
-command, that command's own) name to every line of the `Usage:` block
-they display, entirely separately from what you write in `usage`:
-
-```console
-$ ./myapp --help
-Usage:
-  myapp <x> <y>
-  myapp (-h | --help)
-```
-
-To write that name anyway, the way docopt does, start a line with `{cmd}`,
-which stands for it. It's optional on each line, and a line that is only
-`{cmd}` is a **Bare Call**: the command with nothing after it.
-
-```nim
-let spec = (x: arg("<x>"), y: arg("<y>"), help: help())
-spec.parseOrQuit(usage = """
-{cmd}
-{cmd} <x> [<y>]
-""")
-```
-
-```console
-$ ./myapp --help
-Usage:
-  myapp
-  myapp <x> [<y>]
-  myapp (-h | --help)
-```
-
-A blank line isn't a Bare Call, since blank lines are ignored, so the
-newline before the closing `"""` adds nothing. A usage string built with
-`fmt` needs `{{cmd}}`.
-
-None of this is enforced by hand-written `if`/`case` code — every one of
-these constructs becomes a specific piece of the compiled FSM (a
-`Matcher`), and matching a real command line against it is just walking
-that graph with backtracking. That's what lets patterns docopt itself
-can't express work here without any special-casing:
-
-```nim
-usage = "[-r] <src>... <dest>"
-```
-
-is *optional* flag, *repeated* positional, *required* positional, in that
-order. Mutually exclusive alternatives compose the same way:
-
-```nim
-usage = "<x> <y> [--moored | --drifting]"
-```
-
-accepts two required positionals followed by *at most one* of
-`--moored`/`--drifting`. Passing both in the same invocation is a
-`ParseError`, not something you'd need to check for by hand:
-
-```console
-$ ./mine 1 2 --moored --drifting
-Parsing error:
-  - unexpected flag: --drifting
-
-Usage:
-  mine <x> <y> [--moored | --drifting]
-  mine (-h | --help)
-```
-
-Separate Usage Lines let you express invocation shapes that don't share a
-common optional/required structure at all — not just alternatives within
-one line:
-
-```nim
 let spec = (
-  src: arg("<src>", default = ""),
-  dest: arg("<dest>", default = ""),
-  list: flag("--list", help = "List existing backups instead"),
-  help: help()
+  src: args("<src>", help = "Files to copy"),
+  dest: arg("<dest>", help = "Where to copy them"),
+  recursive: flag("-r, --recursive", help = "Copy directories too"),
+  help: help(),
 )
 
-spec.parseOrQuit(usage = "<src> <dest>\n--list")
+spec.parseOrQuit(usage = "[-r] <src>... <dest>")
+echo "copy ", spec.src, " to ", spec.dest, if spec.recursive: " recursively" else: ""
 ```
 
-`<src> <dest>` and `--list` are two entirely independent Usage Lines here,
-not one line with everything optional — so a bare invocation (neither
-positionals nor `--list`) and a mixed one (`--list` plus a stray
-positional) are both rejected, rather than silently accepted the way an
-all-optional single line (`[<src> <dest>] [--list]`) would allow either
-one:
+This usage string says `-r` is optional, `<src>` takes one or more values, and
+`<dest>` takes exactly one value at the end:
+
+```console
+$ ./cp a.txt b.txt backup/
+copy @["a.txt", "b.txt"] to backup/
+$ ./cp -r photos backup/
+copy @["photos"] to backup/ recursively
+$ ./cp a.txt
+Parsing error:
+  - missing argument: <dest>
+
+Usage:
+  cp [-r] <src>... <dest>
+  cp (-h | --help)
+```
+
+The usage string leaves out the program's name. Help adds it to each line,
+along with the help line argumint filled in for you.
+
+## The Grammar
+
+A usage string is made of these pieces:
+
+- `<name>` is a [positional argument](args-and-options.md).
+- `-o` or `--option` is an [option](args-and-options.md) or
+  [flag](flags.md), by any of its names. Write `-o=<value>` to show the
+  option's value placeholder in help.
+- `-abc` is several short options at once, the same as `-a -b -c`.
+- A plain word is a [command](commands.md).
+- `[...]` makes everything inside it optional.
+- `(...)` groups pieces, so that `|` or `...` applies to the whole group.
+- `a | b` means either `a` or `b`, but not both.
+- `...` lets the piece before it repeat.
+- `[options]` stands for any option not named elsewhere on the line.
+- `--` makes everything after it a positional value.
+- `{cmd}` stands for the program's name, at the start of a line. In a
+  subcommand's usage string, it also includes the subcommand's name.
+
+Everything inside one pair of brackets is optional as a whole, not piece by
+piece. `[-a -b]` accepts both flags or neither, but not `-a` alone. Write
+`[-a] [-b]` to make each one optional.
+
+## Choosing Between Options
+
+Use `|` when the user can give one thing or another, but not both:
+
+```nim
+import argumint
+
+let spec = (
+  file: arg("<file>", help = "File to open"),
+  read: flag("-r, --read", help = "Open for reading"),
+  write: flag("-w, --write", help = "Open for writing"),
+  help: help(),
+)
+
+spec.parseOrQuit(usage = "<file> [--read | --write]")
+echo "read=", spec.read, " write=", spec.write
+```
+
+```console
+$ ./mode notes.txt --read
+read=true write=false
+$ ./mode notes.txt -r -w
+Parsing error:
+  - unexpected flag: -w
+
+Usage:
+  mode <file> [--read | --write]
+  mode (-h | --help)
+```
+
+## More Than One Line
+
+Each line of a usage string is a separate way to call your program. The
+command line has to match one of them:
+
+```nim
+import argumint
+
+let spec = (
+  src: arg("<src>", help = "File to back up"),
+  dest: arg("<dest>", help = "Where to put the backup"),
+  list: flag("-l, --list", help = "List existing backups instead"),
+  help: help(),
+)
+
+spec.parseOrQuit(usage = """
+{cmd} <src> <dest>
+{cmd} --list
+""")
+if spec.list:
+  echo "Listing backups..."
+else:
+  echo "Backing up ", spec.src, " to ", spec.dest
+```
 
 ```console
 $ ./backup a.txt dest/
 Backing up a.txt to dest/
-
 $ ./backup --list
 Listing backups...
-
-$ ./backup
+$ ./backup --list a.txt
 Parsing error:
-  - missing option: (--list | -h)
-  - missing argument: <src>
+  - unexpected argument: a.txt
 
 Usage:
   backup <src> <dest>
@@ -170,238 +135,327 @@ Usage:
   backup (-h | --help)
 ```
 
-One thing this *doesn't* mean: that a command word and its subcommand's own
-grammar can be written on the same Usage Line.
-`mine (set | remove) <x> <y> [--moored | --drifting]` looks tempting but isn't
-legal — a matched Command consumes every remaining token, so nothing else on
-that line could ever be reached. See [A Command's Own Usage
-Line](commands.md#usage-lines-for-a-command) for why, and how a Command's own
-nested spec compiles into its own FSM that gets spliced into the parent's.
+A single line like `[<src> <dest>] [--list]` would accept `--list a.txt`, and
+also no arguments at all. Separate lines keep the two shapes apart.
 
-### The `[options]` Catch-all
+Blank lines are ignored. An indented line continues the line before it, so a
+long one can wrap.
 
-`[options]` matches any declared option or flag *not explicitly named
-elsewhere on that same Usage Line* — mentioning one explicitly only
-excludes it from the catch-all on the line it's mentioned on; a different
-Usage Line's own `[options]` still covers it. Whatever ends up reachable
-only through the catch-all can be matched an arbitrary number of times,
-with no `...` needed — unlike an explicitly-named option or flag, which
-can only match once per line unless you add `...` yourself:
+## Repeating
+
+`...` lets the piece before it repeat. What happens to the values depends on
+the `Arg`:
+
+- An `args` or `opts` keeps every value. Written without `...`, it takes
+  exactly one.
+- An `arg` or `opt` keeps only the last value.
+
+`...` after a group repeats the whole group:
 
 ```nim
-import std/strformat
 import argumint
 
 let spec = (
-  name: opt("--name=<n>", default = ""),
-  verbosity: flag[int](ops = [flagOp("--verbose", "+=", 1)], default = 0),
-  help: help()
+  keys: args("<key>"),
+  values: args("<value>"),
 )
 
-spec.parseOrQuit(usage = "--name=<n> [options]")
-echo fmt"name={spec.name} verbosity={spec.verbosity}"
+spec.parseOrQuit(usage = "(<key> <value>)...")
+echo spec.keys, " ", spec.values
 ```
 
-`--name` is explicitly named on this line, so it can appear at most once;
-`--verbose` isn't, so it's covered by `[options]` and can repeat freely:
+```console
+$ ./pairs a 1 b 2
+@["a", "b"] @["1", "2"]
+$ ./pairs a 1 b
+Parsing error:
+  - unexpected argument: b
+
+Usage:
+  pairs (<key> <value>)...
+```
+
+## Catching the Other Options
+
+`[options]` stands for every option not named elsewhere on the same line. An
+option it covers can be given any number of times, and in any order:
+
+```nim
+import argumint
+
+let spec = (
+  name: opt("-n, --name=<name>", help = "Who to greet"),
+  verbose: flag[int](ops = [flagOp("-v, --verbose", "+=", 1)], help = "Show more"),
+  quiet: flag("-q, --quiet", help = "Show less"),
+  help: help(),
+)
+
+spec.parseOrQuit(usage = "--name=<name> [options]")
+echo "name=", spec.name, " verbose=", spec.verbose, " quiet=", spec.quiet
+```
+
+`--name` is named on the line, so it's required and can be given only once.
+`-v` and `-q` are covered by `[options]`. Naming an option takes it out of
+`[options]` only on that line, so another line's `[options]` still covers it.
 
 ```console
-$ ./myapp --name=a --verbose --verbose --verbose
-name=a verbosity=3
-
-$ ./myapp --name=a --name=b
+$ ./greet --name Ada -vvv -q
+name=Ada verbose=3 quiet=true
+$ ./greet --name=a --name=b
 Parsing error:
   - unexpected option: --name=b
 
 Usage:
-  myapp --name=<n> [options]
-  myapp (-h | --help)
+  greet --name=<name> [options]
+  greet (-h | --help)
 ```
 
-### The End of Options Marker
+## Where Options Can Go
 
-A literal `--` can be typed anywhere on the actual command line to force
-every token after it to be treated as a positional value, even one that's
-option- or command-shaped — this works unconditionally, whether or not any
-Usage Line declares `--` at all:
+Options can come in any order, and before, after, or between positional
+arguments, no matter what order the usage string shows them in. A usage string
+of `--foo --bar` also accepts `--bar --foo`. Only the positional arguments have
+to stay in order:
 
 ```nim
-let spec = (files: args("<file>"), verbose: flag("-v, --verbose"), help: help())
-spec.parseOrQuit(usage = "<file>... [options]")
-```
-
-```console
-$ ./myapp a.txt -- --verbose -v.txt
-files=@["a.txt", "--verbose", "-v.txt"] verbose=false
-```
-
-`--verbose` and `-v.txt` land in `files` as literal text instead of being
-parsed as a flag/option, because the typed `--` came first.
-
-Declaring `--` *in a Usage Line* is a different, related thing: once a
-matched path reaches that position, the marker counts as seen whether or
-not the user actually typed a literal `--` there — it's a permanent
-grammar-level switch to positional-only, not a token that has to show up
-on the command line:
-
-```nim
-let spec2 = (a: arg("<a>"), rest: args("<b>"))
-spec2.parseOrQuit(usage = "<a> -- <b>...")
-```
-
-```console
-$ ./myapp2 first --flag-looking second
-a=first rest=@["--flag-looking", "second"]
-
-$ ./myapp2 first -- --flag-looking second
-a=first rest=@["--flag-looking", "second"]
-```
-
-Both invocations give identical results — the second `--` is redundant
-once the Usage Line itself already declares the marker at that position.
-Only a Positional Argument may follow `--` within the same Usage Line — an
-Option, Flag, `[options]`, Command, or a second `--` can never be reached
-there, so each is rejected at spec-construction time:
-
-```nim
-spec2.parseOrQuit(usage = "<a> -- <b>... --")
-```
-
-```console
-Error constructing spec: Error at (1:14): Only a Positional Argument may follow
-  the End-of-Options Marker ('--') earlier in the same Usage Line -- an Option,
-  Flag, [options], Command, or a second '--' can never be reached there, since a
-  matched Marker forces every later token to be treated as a positional value
-<a> -- <b>... --
-              ^
-```
-
-### Backtracking, not left-to-right scanning
-
-Because matching walks the compiled FSM rather than scanning the raw
-argument array once, left-to-right, an option or flag doesn't have to
-appear in any particular position relative to repeated positionals — it
-only has to appear *somewhere* the grammar allows it. Given:
-
-```nim
-import std/strformat
 import argumint
 
 let spec = (
   files: args("<file>", help = "Files to process"),
-  verbose: flag("-v, --verbose", help = "Be verbose"),
-  help: help()
+  verbose: flag("-v, --verbose", help = "Show more"),
+  help: help(),
 )
 
 spec.parseOrQuit(usage = "<file>... [options]")
-echo fmt"files={spec.files} verbose={spec.verbose}"
+echo "files=", spec.files, " verbose=", spec.verbose
 ```
-
-all three of these are accepted identically:
 
 ```console
-$ ./myapp a.txt --verbose b.txt
+$ ./files a.txt -v b.txt
 files=@["a.txt", "b.txt"] verbose=true
-
-$ ./myapp --verbose a.txt b.txt
+$ ./files -v a.txt b.txt
 files=@["a.txt", "b.txt"] verbose=true
-
-$ ./myapp a.txt b.txt --verbose
+$ ./files a.txt b.txt -v
 files=@["a.txt", "b.txt"] verbose=true
 ```
 
-`--verbose` is recognized and pulled out of the stream wherever it shows
-up, instead of being greedily swallowed as a positional value. This falls
-out of how the FSM's transitions are ordered (options/flags/commands are
-always tried before a plain positional at the same position) — it's not a
-special rule for `[options]` specifically.
+## The End of Options Marker
 
-### Auto-generated usage strings
+The user can type `--` to make everything after it a positional value, even if
+it looks like an option or a command. This works with any usage string, such
+as the `files` example above:
 
-`usage` is optional — and even when you do supply one, it's checked against
-every `Arg` you've declared, not just taken as the whole truth: anything not
-reachable anywhere in it gets a line appended automatically. This is why the
-[Quickstart](https://github.com/squattingmonk/argumint#quickstart) and the
-`[-r] <src>... <dest>` example [above](#visualizing-the-compiled-fsm) don't need
-to spell out `-h`/`--help` themselves. The fill-in rule differs by kind:
+```console
+$ ./files a.txt -- -v -x.txt
+files=@["a.txt", "-v", "-x.txt"] verbose=false
+```
 
-- **Positional args** are all-or-nothing: they're only auto-appended (as
-  one joined `<a> <b>` line, in declaration order) when *none* of them are
-  reachable yet. If your `usage` already mentions even one, the rest are
-  left alone rather than guessed at. An `args` positional argument is
-  written as `<a>...`, so it takes one or more values. A usage line you
-  write yourself still decides: `<a>` there takes exactly one value, even
-  for an `args`. With more than one `args` positional argument, `newSpec`
-  raises a `SpecDefect` instead of guessing how to split the values; write
-  the usage line yourself, e.g. `<a> <b>...`.
-- **Commands** left unreachable are joined into a single `(cmd1 | cmd2)`
-  alternation line, so a shared `[options]` prefix isn't repeated once per
-  command.
-- **Message args** (`help()`, `version()`, `message()`) are filled in
-  individually — each missing one gets its own line, since they're
-  independently optional and never carry a `[options]` prefix.
-- **Options and flags** never get a line of their own; `[options]` just
-  rides along as a prefix on whichever line above got appended. If
-  nothing else needed appending but an option is still unreachable, a
-  standalone `[options]` line is added as a fallback.
-
-### Visualizing the compiled FSM
-
-Since the usage string really does compile into a graph, you can look at
-that graph directly — useful when a usage string isn't matching the way
-you expect. `spec.dot(usage = ...)` renders it as
-[Graphviz](https://graphviz.org/) dot source (`scripts/dot2png.sh` in this
-repo turns that into a viewable PNG):
+Put `--` in the usage string itself and everything after that point is a
+positional value, whether or not the user types `--`. This suits a program
+that passes arguments on to another one:
 
 ```nim
 import argumint
 
 let spec = (
-  src: args("<src>", help = "Source file(s)"),
-  dest: arg("<dest>", help = "Destination"),
-  recursive: flag("-r, --recursive"),
-  help: help()
+  prog: arg("<prog>", help = "Program to run"),
+  rest: args("<arg>", help = "Arguments to pass it"),
+  help: help(),
+)
+
+spec.parseOrQuit(usage = "<prog> -- <arg>...")
+echo "prog=", spec.prog, " rest=", spec.rest
+```
+
+```console
+$ ./run ls -l -a
+prog=ls rest=@["-l", "-a"]
+$ ./run ls -- -l
+prog=ls rest=@["-l"]
+```
+
+After `--` in a usage line, only positional arguments can follow.
+
+## Naming the Program
+
+To write the program's name in a usage line, start the line with `{cmd}`. A
+line that's only `{cmd}` lets the program run with no arguments at all:
+
+```nim
+import argumint
+
+let spec = (
+  file: arg("<file>", help = "File to show"),
+  lines: opt("-n, --lines=<n>", default = 10, help = "Lines to show"),
+  help: help(),
+)
+
+spec.parseOrQuit(usage = """
+{cmd}
+{cmd} <file> [-n=<n>]
+""")
+echo "file=", spec.file, " lines=", spec.lines
+```
+
+```console
+$ ./show
+file= lines=10
+$ ./show notes.txt -n 3
+file=notes.txt lines=3
+$ ./show --help
+Usage:
+  show
+  show <file> [-n=<n>]
+  show (-h | --help)
+
+Arguments:
+  <file>           File to show
+
+Options:
+  -n, --lines=<n>  Lines to show [default: 10]
+  -h, --help       Display this help message
+```
+
+`{cmd}` is optional on each line. A usage string built with `fmt` needs
+`{{cmd}}`.
+
+In a subcommand's usage string, `{cmd}` stands for the whole command path, such
+as `notes add`. Don't write the subcommand's name after it.
+
+## What argumint Fills In
+
+You don't have to mention every `Arg` in your usage string. argumint adds a
+line for anything the user couldn't otherwise reach:
+
+- Positional arguments get one line, in the order you declared them, but only
+  if your usage string mentions none of them. An `args` is written `<src>...`.
+  If more than one `args` needs filling in, argumint can't tell how to split
+  the values between them, so you have to write the line yourself.
+- Commands share one line, like `(add | list)`.
+- `help`, `version` and `message` each get a line of their own.
+- Options that are left out are covered by `[options]` at the start of the
+  first line argumint adds, or by a line of their own.
+
+Go back to the copy example at the top of this page. Without a usage string,
+argumint writes the whole thing:
+
+```nim
+spec.parseOrQuit()
+```
+
+```console
+$ ./cp --help
+Usage:
+  cp [options] <src>... <dest>
+  cp (-h | --help)
+
+Arguments:
+  <src>            Files to copy
+  <dest>           Where to copy them
+
+Options:
+  -r, --recursive  Copy directories too
+  -h, --help       Display this help message
+```
+
+With a usage string that leaves out `-r`, argumint adds an `[options]` line
+for it. `<src>` is written without `...` here, so it takes exactly one value:
+
+```nim
+spec.parseOrQuit(usage = "<src> <dest>")
+```
+
+```console
+$ ./cp --help
+Usage:
+  cp <src> <dest>
+  cp [options]
+  cp (-h | --help)
+
+Arguments:
+  <src>            Files to copy
+  <dest>           Where to copy them
+
+Options:
+  -r, --recursive  Copy directories too
+  -h, --help       Display this help message
+```
+
+## Mistakes in a Usage String
+
+argumint checks every name in a usage string against your spec when it builds
+the spec. A typo is a bug in your program, so it raises a `SpecDefect` before
+any parsing happens:
+
+```nim
+import argumint
+
+let spec = (
+  file: arg("<file>"),
+  verbose: flag("-v, --verbose"),
+)
+
+spec.parseOrQuit(usage = "[--verbos] <file>")
+```
+
+```console
+$ ./typo
+Error constructing spec: Error at (1:1): Undeclared option: --verbos
+[--verbos] <file>
+ ^
+```
+
+Writing the program's name without `{cmd}` is the same mistake, since argumint
+reads it as an undeclared command:
+
+```nim
+spec.parseOrQuit(usage = "typo <file>")
+```
+
+```console
+$ ./typo
+Error constructing spec: Error at (1:0): Undeclared command: typo
+typo <file>
+^
+```
+
+A command can't be followed by anything else on the same line, because the
+command takes the rest of the command line. Its arguments go in its own usage
+string. See
+[Usage Lines for a Command](commands.md#usage-lines-for-a-command).
+
+## Seeing the State Machine
+
+argumint compiles a usage string into a state machine, and matches the
+command line by walking it. When a usage string doesn't behave the way you
+expect, `dot` shows that machine as [Graphviz](https://graphviz.org/) source:
+
+```nim
+import argumint
+
+let spec = (
+  src: args("<src>", help = "Files to copy"),
+  dest: arg("<dest>", help = "Where to copy them"),
+  recursive: flag("-r, --recursive", help = "Copy directories too"),
+  help: help(),
 )
 
 echo spec.dot(usage = "[-r] <src>... <dest>")
 ```
 
+Graphviz's `dot` command turns that into a picture:
+
 ```console
-digraph G {
-    rankdir=LR
-
-    S1 [label="S1"]
-    S1 -> S2 [label="Opt(-r)"]
-    S1 -> S5 [label="Opt(-h)"]
-    S1 -> S3 [label="Arg(<src>)"]
-
-    S2 [label="S2"]
-    S2 -> S3 [label="Arg(<src>)"]
-
-    S3 [label="S3"]
-    S3 -> S4 [label="Arg(<dest>)"]
-    S3 -> S3 [label="Arg(<src>)"]
-
-    S4 [peripheries=2] [label="S4"]
-
-    S5 [peripheries=2] [label="S5"]
-}
+$ ./cpdot | dot -Tpng -o cp.png
 ```
 
-Feeding that into `scripts/dot2png.sh` gives:
+![State machine for the copy example](../images/cp-usage-fsm.png)
 
-![FSM compiled from `[-r] <src>... <dest>`](../images/cp-usage-fsm.png)
+Start at `S1`. `-r` is optional, so `S1` can reach `S3` with or without it.
+`<src>` loops on `S3`, and `<dest>` ends at `S4`. The `-h` branch to `S5` is
+the help line argumint filled in. A state with a double border is where a
+command line can end.
 
-Reading this: from the start state `S1`, `-r` moves to `S2` (skippable, so
-`S1` also reaches `S3` directly — that's the `[-r]`), `<src>` can loop on
-`S3` any number of times (the `...`), and `<dest>` finally reaches the
-terminal state `S4`. `S1 -> S5` is `-h`/`--help`, auto-filled in on its own
-line since it wasn't mentioned in the `usage` given here.
-
-For a bigger, real-world example, here's the full FSM compiled from
-`examples/naval_fate.nim`'s entire spec — every level of nesting (`ship`/
-`mine` and each of their own subcommands) shows up as one connected graph,
-since a Command's nested FSM is spliced directly into its parent's (see
-[Usage Lines for a Command](commands.md#usage-lines-for-a-command)):
-[naval-fate-fsm.png](../images/naval-fate-fsm.png) (not embedded here —
-it's a big graph).
+For a larger example, see the
+[state machine for naval_fate.nim](../images/naval-fate-fsm.png), which
+includes every subcommand.
