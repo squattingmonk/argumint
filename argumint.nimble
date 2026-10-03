@@ -26,6 +26,15 @@ task examples, "Compile every example":
     if file.endsWith(".nim"):
       exec "nim c " & file
 
+proc docExec(command: string) =
+  ## Runs `command` like `exec`, but also fails on an error it only prints:
+  ## `nim doc` reports a malformed doc comment and still exits 0.
+  echo command
+  let (output, code) = gorgeEx(command)
+  echo output
+  if code != 0 or ") Error: " in output:
+    quit "docs build failed", QuitFailure
+
 task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   let
     outDir = "htmldocs"
@@ -37,9 +46,9 @@ task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   # config-file backends users import directly), so they need their own
   # pass to get their own pages. Sharing `docRoot`/`outDir` keeps both passes'
   # relative links (and the combined `theindex.html`) resolving correctly.
-  exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint.nim"
-  exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/ini.nim"
-  exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/json.nim"
+  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint.nim"
+  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/ini.nim"
+  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/json.nim"
   # The user guide: plain Markdown that reads on GitHub too, so its links
   # between pages say `.md` -- md2html leaves them alone, so point them at
   # the rendered `.html` here. md2html also titles a page with its file
@@ -50,7 +59,7 @@ task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   const imageLink = "!<a class=\"reference external\" href=\""
   for file in listFiles("docs/guide"):
     if file.endsWith(".md"):
-      exec "nim md2html --hints:off --outdir:" & outDir & "/guide " & file
+      docExec "nim md2html --hints:off --outdir:" & outDir & "/guide " & file
       let
         html = outDir & "/guide/" & file.rsplit({'/', '\\'}, 1)[^1].replace(".md", ".html")
         path = file.replace('\\', '/').replace(".md", "")

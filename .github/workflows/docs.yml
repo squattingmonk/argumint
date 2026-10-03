@@ -1,18 +1,24 @@
-name: Deploy docs
+name: Docs
 
+# A pull request builds the docs without deploying them, so a broken doc
+# comment or guide page fails review instead of the next deploy. `nimble docs`
+# fails on any error `nim doc` or `md2html` reports (see `docExec` in
+# argumint.nimble).
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Pushing again to an open PR cancels the previous commit's build, as in
+# test.yml. Runs on main share one group and never cancel, so they deploy in
+# order.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.head_ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -23,14 +29,18 @@ jobs:
         with:
           nim-version: "2.2.4"
       - run: nimble docs
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: htmldocs
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
