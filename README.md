@@ -92,14 +92,14 @@ typed fields — no stringly-typed lookup by flag name.
   `char`) are supported out of the box, and it's easy to add support for more.
 - **[Positional args,
   options](docs/guide/args-and-options.md)**,
-  **[flags](docs/guide/flags.md#declaring-flags)**, and
+  **[flags](docs/guide/flags.md)**, and
   **[commands](docs/guide/commands.md#commands)** — declared uniformly as
   fields of one spec tuple, freely combinable in a usage string.
 - **[Nested subcommands](docs/guide/commands.md#commands)** — a `command()`
   field owns its own nested spec, so a CLI like `myapp ship move <x> <y>` can
   be built out of independently testable pieces. See `examples/naval_fate.nim`
   for a full multi-level example (docopt's canonical Naval Fate demo).
-- **[Flag operations](docs/guide/flags.md#declaring-flags)** — a flag isn't
+- **[Flag operations](docs/guide/flags.md#flag-operations)** — a flag isn't
   just a boolean; variants can set, increment, decrement, or reset a shared
   value (`-v, --verbose, --quiet=0`). See `examples/verbosity.nim`.
 - **[Validators](docs/guide/args-and-options.md#validating-values)** — attach
