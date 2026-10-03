@@ -260,7 +260,7 @@ suite "a bad value names the source it came from (#145)":
     check failure(proc () = port.parse("x", seenBy = some(byEnv))) ==
       "expected int for --port (env: PORT) but got \"x\""
     check failure(proc () = port.put(99, seenBy = some(byConfig))) ==
-      "for --port (configKey: port), got 99 but expected one of 1 .. 10"
+      "for --port (configKey: port), got 99 but expected a value in 1..10"
 
   test "a write declaring no tier, or the command line, names the Arg":
     let port = opt("--port=<n>", default = 80, env = "PORT", help = "")

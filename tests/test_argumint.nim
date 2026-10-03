@@ -1318,7 +1318,7 @@ suite "Messages":
       spec.parse(settings = newSpecSettings(style = nil), usage = "<action>\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "Action to perform [choices: foo, bar, baz; default: foo]" in helpText
+    check "Action to perform [choices: \"foo\", \"bar\", \"baz\"; default: foo]" in helpText
 
   test "help text shows a range validator's help without a default when default is the zero value":
     let spec = (

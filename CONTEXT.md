@@ -592,7 +592,7 @@ A Validator composing several other Validators of the same element type
 with OR semantics -- at least one must pass. May itself contain another
 Any or All as a child, with the same no-auto-flatten rule as All. In
 generated help text, a child that is itself a composite (All or Any) is
-parenthesized to disambiguate nested AND/OR grouping, e.g. `(choices: a, b
+parenthesized to disambiguate nested AND/OR grouping, e.g. `(choices: 1, 2
 or range: 0..5) and must be even`. See All for the AND counterpart, and
 Validator Failure Message for how All and Any report failure differently.
 _Avoid_: OR, combinator (ambiguous with All)
@@ -604,7 +604,7 @@ avoid colliding with the `help()` proc), used identically when given: it's
 shown directly as the failure reason. For Choice, Range, Check, and the
 history-aware Check built via `checkSeen`, there's exactly one check to
 fail, so `desc` simply replaces that kind's auto-generated wording (e.g.
-Choice's "got X but expected one of [...]"). All and Any, which compose
+Choice's `got "x" but expected one of "a", "b"`). All and Any, which compose
 several child Validators, differ only when `desc` is *absent*: All passes
 the first failing child's own message through verbatim (already the most
 specific reason, since All short-circuits), while Any -- which has no

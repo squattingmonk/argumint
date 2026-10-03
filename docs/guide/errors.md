@@ -44,7 +44,7 @@ $ ./demo --num 5
 
 $ ./demo --num 999
 Validation error:
-  - for --num, got 999 but expected one of 1 .. 10
+  - for --num, got 999 but expected a value in 1..10
 
 Usage:
   demo [--num=<n>]
