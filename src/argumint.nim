@@ -8,11 +8,8 @@
 ## options fall out of that FSM's grammar rather than hand-written
 ## validation code.
 ##
-## See the README for a quickstart and `examples/naval_fate.nim` for a full
-## worked example with subcommands. `CONTEXT.md` defines this library's
-## vocabulary (Spec, Arg, Variant, Validator, Value Precedence, ...) and
-## `docs/architecture.md` traces the spec-construction -> FSM-compilation ->
-## runtime-matching -> value-conversion pipeline file by file.
+## See the [user guide](guide/index.html) for how to use it, and
+## `examples/naval_fate.nim` for a full worked example with subcommands.
 
 {.experimental: "openSym".}
 
