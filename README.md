@@ -131,6 +131,9 @@ typed fields — no stringly-typed lookup by flag name.
 
 ## Documentation
 
+- [Tutorial](https://squattingmonk.github.io/argumint/guide/tutorial.html)
+  — build a small CLI with subcommands, validation, and completion, step by
+  step.
 - [User guide](https://squattingmonk.github.io/argumint/guide/) — how to
   declare a spec, write usage strings, and use flags, commands, help,
   completion, and the rest. The same pages are readable on GitHub under
@@ -160,6 +163,8 @@ examples/<name>.nim`:
 - `verbosity.nim` — flag operations (`=`, `+=`, `-=`) driving one shared
   value from several variants.
 - `git.nim` — a git-like CLI with several sibling subcommands.
+- `notes.nim` — the notebook CLI built in the
+  [tutorial](docs/guide/tutorial.md).
 - `serve.nim` — options with validators and env var fallback.
 - `dot.nim` — rendering a spec's FSM as a Graphviz `.dot` file, for
   debugging a usage string's compiled grammar.
