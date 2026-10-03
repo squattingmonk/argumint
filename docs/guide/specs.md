@@ -61,7 +61,7 @@ let spec = (common: common, name: arg("<name>", help = "Who to greet"))
 The first argument to each constructor lists the `Arg`'s **variants**: the
 names it goes by, separated by commas.
 
-- A positional argument is written `<name>` or `NAME`.
+- A positional argument is written `<name>`.
 - An option is written `-o` or `--option`. To name its value in help, add a
   placeholder after `=` or `:`, as in `--times=<n>`. The `=` keeps the
   placeholder from reading as a positional argument.
