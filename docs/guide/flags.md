@@ -3,240 +3,349 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Declaring Flags
-
-`flag[T]()` builds a flag: an optional argument that never takes a value from
-the command line, changing its stored value instead based on which variant was
-seen (e.g. `-v`/`--verbose` increments, `--quiet` resets — see
-`examples/verbosity.nim`). `T` and `default` follow the same rules as
-`arg[T]()`/`opt[T]()`, except the implicit fallback is `bool` instead of
-`string`, since a plain on/off flag is by far the most common case:
-
-- explicit `[T]`, no `default` — falls back to `default(T)` (e.g. `0`, `0.0`,
-  `false`)
-- no `[T]`, explicit `default` — `T` is inferred from the default value's type
-- neither — `T` falls back to `bool`, `default` to `false`
+A **flag** is an option that doesn't take a value. Instead, giving the flag
+changes a value that it holds. A flag can be switched on, count how many times
+it's given, or do something you choose for each of its names.
 
 ```nim
-let
-  spec = (
-    foo: flag("--foo"),                  # T implicitly bool, default false
-    bar: flag("--bar", default = 3),     # T implicitly int, default 3
-    baz: flag[int]("--baz"),             # T explicitly int, default 0
-    qux: flag[int]("--qux", default = 5) # T explicitly int, default 5
-  )
+import argumint
+
+let spec = (
+  verbose: flag[int]("-v, --verbose", help = "Show more"),
+  force: flag("-f, --force", help = "Overwrite existing files"),
+  color: flag("--no-color", default = true, help = "Turn off colour"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "verbose=", spec.verbose, " force=", spec.force, " color=", spec.color
 ```
 
-Beyond the type-specific implicit behavior above (`bool` toggles, `int`
-increments by 1), a flag can declare **explicit Flag Operations** via
-`flagOp`, passed to `ops`: each names its own spelling(s), an operation,
-and a value, deciding how seeing that variant changes the flag's stored
-value:
+```console
+$ ./build
+verbose=0 force=false color=true
+$ ./build -vvv -f --no-color
+verbose=3 force=true color=false
+```
 
-- `"="` — set the value directly
-- `"+="` / `"-="` — add or subtract the value (`int`/`float64` only)
+- A `bool` flag is the opposite of its default once it's given. Giving it
+  again doesn't flip it back.
+- An `int` flag adds 1 each time it's given, so `-vvv` gives 3.
+
+A flag can also be set by an environment variable or a config file, whose
+value is one of the flag's names. See [Value Precedence](precedence.md).
+
+## Types and Defaults
+
+A flag's type and default follow the same rules as an
+[option's](args-and-options.md#types-and-defaults), except that with neither,
+the flag is a `bool`:
 
 ```nim
 let spec = (
-  verbosity: flag[int](
-    "-v, --verbose",
-    ops = [
-      flagOp("--quiet", "=", 0),
-      flagOp("--boost", "+=", 5),
-    ],
-    default = 0
-  )
+  force: flag("--force"),                    # bool, default false
+  color: flag("--no-color", default = true), # bool, default true
+  verbose: flag[int]("-v"),                  # int, default 0
+  level: flag("-l", default = 2),            # int, default 2
 )
 ```
 
-declares four variants sharing one value: `-v`/`--verbose` increment by 1
-(the implicit blank-op behavior for `int`), `--quiet` resets to `0`, and
-`--boost` jumps by 5 — see `examples/verbosity.nim` for the full runnable
-version, including `clamp` to pin the result to a range.
+These types work out of the box:
 
-Each `flagOp`'s `op`/`value` are spec metadata, decided when you write the
-spec — they're never something the user types, and they never appear in
-the usage string. Only the bare flag names do, e.g. `[-v | --verbose |
---quiet | --boost]...`.
+- `bool` and `int`, whose names work as shown at the top of this page.
+- `float`, `string` and `char`, which need [operations](#flag-operations) to
+  say what each name does.
 
-When every explicit Variant's value has a natural string spelling (the
-common case — no custom type, no multi-spelling group), `ops` also accepts
-a plain comma-separated string instead of an array of `flagOp` calls, as
-convenience sugar for exactly the same thing:
+## Flag Operations
+
+An **operation** says what a name does to the flag's value. Pass `flagOp`
+calls as `ops`, each with its names, its operation, and a value:
 
 ```nim
+import argumint
+
 let spec = (
-  verbosity: flag("-v, --verbose", default = 0, ops = "--quiet=0, --boost+=5, --dampen-=2")
+  verbosity: flag("-v, --verbose", default = 1, help = "How much to say",
+    ops = [flagOp("-q, --quiet", "=", 0), flagOp("--loud", "+=", 5)]),
+  help: help(),
 )
+
+spec.parseOrQuit()
+echo "verbosity=", spec.verbosity
 ```
 
-is equivalent to the array form above. Each entry is `<flag><op><value>`,
-becoming its own single-spelling group — a multi-spelling explicit group,
-or a value with no string spelling (e.g. a multi-element `set[E]`), still
-needs the array form directly. See
-`docs/adr/0028-flag-ops-string-convenience.md`.
+`-v` and `--verbose` add 1, as for any `int` flag. `-q` and `--quiet` set the
+value to 0, and `--loud` adds 5. Help describes what each name does:
 
-### Variant Exclusivity and Composition Order
+```console
+$ ./talk --loud -v
+verbosity=7
+$ ./talk --help
+Usage:
+  talk [options]
+  talk (-h | --help)
 
-Variants declared together — either in `flag`'s own `variants` string, or
-together in one `flagOp` call — are *aliases*, and are treated as
-interchangeable. When a flag's variant is mentioned in a usage string, any
-alias of that variant can be used to satisfy that position within the
-grammar. Since each alias indexes the same flag and Flag Operation, you
-don't need to reference all of them within the usage string (i.e., either
-`-v` or `--verbose` will do) — though you may choose to do so for clarity
-to the user. Variants declared in *different* `flagOp` calls are never
-aliases of each other, even if their op/value happen to match, so they
-cannot satisfy each others' positions in the usage string grammar (e.g.
-`--quiet` cannot substitute for `--verbose`).
+Options:
+  -v, --verbose  How much to say [action: Increment by 1]
+  -q, --quiet    How much to say [action: Set to 0]
+  --loud         How much to say [action: Increase by 5]
+  -h, --help     Display this help message
+```
+
+Pass `help` to a `flagOp` to replace its description, as in
+`flagOp("--loud", "+=", 5, help = "Shout")`.
+
+These operations are built in:
+
+- `=` sets the value. It works for every built-in type.
+- `+=` adds to the value, and `-=` subtracts from it. They work for `int` and
+  `float`.
+
+The operations run in the order the user typed the names, so the same names in
+a different order can give a different value:
+
+```console
+$ ./talk -vv -q
+verbosity=0
+$ ./talk -q -v
+verbosity=1
+```
+
+### Writing Operations as a String
+
+`ops` can also be a string, with each entry written as a name, an operation,
+and a value. argumint converts each value from text to the flag's type, here a
+`float`:
 
 ```nim
-let spec = (direction: flag[int](ops = [
-  flagOp("--up", "=", 1), flagOp("--down", "=", -1),
-  flagOp("--left", "=", 2), flagOp("--right", "=", -2),
-]))
-spec.parseOrQuit(usage = "(--up | --down) (--left | --right)")
+import argumint
+
+let spec = (
+  speed: flag(default = 1.0, help = "Playback speed",
+    ops = "--slow=0.5, --fast=2.0"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "speed=", spec.speed
 ```
 
-`--up --down` is a `ParseError` here: `--up` satisfies `(--up | --down)`'s
-position, but `--down` isn't an alias of `--left` or `--right`, so it is
-rejected as an unexpected option.
+```console
+$ ./play
+speed=1.0
+$ ./play --fast
+speed=2.0
+```
 
-Note that since flags (like options) have order-independence, `--up --left` and
-`--left --up` can both satisfy the above usage line. A flag's matched variants
-always compose in the order they were actually typed on the command line — not
-the order the usage string declares them in. This matters once operations stop
-being commutative (see [Clamping Flag Values](#clamping-flag-values) below):
-given `ops = [flagOp("-u", "+=", 5), flagOp("-d", "-=", 2)]` clamped to
-`0..10`, `-u -d` and `-d -u` are both valid against `usage = "-u -d"`, but
-land on different final values, since each composes strictly left-to-right
-in typed order. For the full mechanics, see
-`docs/adr/0026-flag-op-alias-exclusivity.md`.
+Each entry has only one name, and its value has to convert from a string. For
+an operation with more than one name, or a value you can't write as a string,
+use `flagOp`.
 
-### Custom Flag Types
+## Flags in a Usage String
 
-`bool`/`int`/`float64`/`char`/`string` work as `flag[T]` out of the box, but
-any type can — argumint needs two things from you to make it work:
+A [usage string](usage-strings.md) names only a flag's names, never an
+operation or its value. Like options, flags can come in any order. A flag can
+be given only once in each place that names it, so add `...` to let it
+repeat:
 
-- a `converter` from `string` to `T` — `defineFlag` also wires up
-  `arg[T]`/`opt[T]` support for the same type (shared machinery), which
-  parses raw command-line strings, even though a `flagOp`'s own `value: T`
-  is always a real, already-typed Nim value and never goes through this
-  converter itself
-- a `defineFlag(T, blankDesc): case op of ...` block declaring which
-  operations `T` supports and what each one does to `value`
+```nim
+import argumint
+
+let spec = (
+  file: arg("<file>"),
+  verbose: flag[int]("-v, --verbose", help = "Show more"),
+)
+
+spec.parseOrQuit(usage = "[-v]... <file>")
+echo "verbose=", spec.verbose
+```
+
+```console
+$ ./show -vv notes.txt
+verbose=2
+```
+
+With `[-v] <file>`, `-vv` would be an unexpected flag. Flags covered by
+`[options]` can always repeat.
+
+Names declared together are interchangeable, so `-v` in the usage string also
+accepts `--verbose`. Names from different operations aren't, even when they
+belong to the same flag. Each one needs its own place in the usage string:
+
+```nim
+import argumint
+
+let spec = (
+  direction: flag(default = "", help = "Direction to move",
+    ops = "--up=up, --down=down, --left=left, --right=right"),
+)
+
+spec.parseOrQuit(usage = "(--up | --down)")
+echo spec.direction
+```
+
+Here `--left` and `--right` can never be given, since the usage string names
+neither of them:
+
+```console
+$ ./move --up
+up
+$ ./move --left
+Parsing error:
+  - missing option: (--up | --down)
+
+Usage:
+  move (--up | --down)
+```
+
+## Your Own Flag Types
+
+To use your own type for a flag, write a `converter` from `string` and call
+`defineFlag` with a `case` on the operation:
 
 ```nim
 import std/strutils
+import argumint
 
-type LogLevel = enum
+type Level = enum
   debug, info, warn, error
 
-converter toLogLevel(value: string): LogLevel = parseEnum[LogLevel](value)
+converter toLevel(value: string): Level = parseEnum[Level](value)
 
-defineFlag(LogLevel, "Bump up one level"):
+defineFlag(Level, "Show less"):
   case op
-  of "": value = LogLevel((ord(value) + 1) mod (ord(high(LogLevel)) + 1))
+  of "": (if value < high(Level): inc value)
   of "=": value = arg
-  else: raise newException(SpecDefect, "log level flags only support = operations")
+  else: discard
 
 let spec = (
-  level: flag[LogLevel](
-    "-v, --verbose",
-    ops = [
-      flagOp("--debug", "=", debug),
-      flagOp("--warn", "=", warn),
-      flagOp("--error", "=", error),
-    ],
-    default = info, help = "Set the log level"
-  )
+  level: flag("-q, --quieter", default = info, help = "Log level",
+    ops = [flagOp("--debug", "=", debug)]),
+  help: help(),
 )
+
+spec.parseOrQuit()
+echo spec.level
 ```
 
-Here `-v`/`--verbose` share the blank op (bump up a level each time seen),
-while `--debug`/`--warn`/`--error` each set the level directly via their
-own `flagOp`. See `docs/architecture.md`'s "Flags" section for the full
-mechanism, including `defineArg`, which registers a type for
-`arg`/`opt`/`args`/`opts` the same way `defineFlag` does for `flag`.
+Inside the `case`, `value` is the flag's value, `op` is the operation, and
+`arg` is the operation's value. The `""` branch is what the flag's own names
+do, and the second argument to `defineFlag` describes it in help. argumint
+reads the operations a type supports from the `of` branches, and rejects any
+other operation when it builds the spec.
 
-`set[E]` for any enum `E` is common enough to have a ready-made helper,
-`defineSetFlag(E)`, instead of writing your own `case op` block — it wires up
-`=` (set), `+=` (include/union), `-=` (exclude/difference), and `*=`
-(intersect) for you:
+```console
+$ ./log -q
+warn
+$ ./log -qqqq
+error
+$ ./log --help
+Usage:
+  log [options]
+  log (-h | --help)
+
+Options:
+  -q, --quieter  Log level [action: Show less]
+  --debug        Log level [action: Set to debug]
+  -h, --help     Display this help message
+```
+
+`defineFlag` also does what `defineArg` does, so the type works for an `arg`
+or `opt` too. See [Your Own Types](args-and-options.md#your-own-types). The
+string form of `ops` uses the converter to read each value.
+
+### Sets of Enum Values
+
+A flag can hold a `set` of an enum. Call `defineSetFlag` with the enum, and
+each operation's value is a set:
+
+- `=` replaces the flag's set.
+- `+=` adds the elements, and `-=` removes them.
+- `*=` keeps only the elements in both sets.
 
 ```nim
-type Color = enum
-  red, green, blue
+import argumint
 
-defineSetFlag(Color)
+type Topping = enum
+  cheese, ham, olives
 
-const warmColors = {red, green}
+defineSetFlag(Topping)
 
 let spec = (
-  palette: flag[set[Color]](
+  toppings: flag(default = {cheese}, help = "Toppings",
     ops = [
-      flagOp("--red", "=", {red}),
-      flagOp("--green", "=", {green}),
-      flagOp("--blue", "=", {blue}),
-      flagOp("--warm", "=", warmColors),
-    ],
-    default = {},
-    help = "Select colors"
-  )
+      flagOp("--ham", "+=", {ham}, help = "Add ham"),
+      flagOp("--olives", "+=", {olives}, help = "Add olives"),
+      flagOp("--no-cheese", "-=", {cheese}, help = "Leave off the cheese"),
+      flagOp("--deluxe", "=", {cheese, ham, olives}, help = "Everything"),
+    ]),
+  help: help(),
 )
+
+spec.parseOrQuit()
+echo spec.toppings
 ```
 
-`--red`/`--green`/`--blue` each set a single element; `--warm` sets *two*
-at once, `{red, green}` — since a `flagOp`'s `value` is always a real,
-already-typed `T`, there's no string-spelling limitation to work around:
-any value expressible in Nim, however it's built, can be passed directly.
+```console
+$ ./pizza --ham --olives
+{cheese, ham, olives}
+$ ./pizza --no-cheese --olives
+{olives}
+```
 
-### Clamping Flag Values
+## Keeping Values in Bounds
 
-A flag's `clamp` param (`argumint/flagclamp`) silently adjusts its value after
-every Flag Operation. Unlike a `Validator` (see above), which raises
-`ValidationError` when a value doesn't qualify, `clamp` never raises — it just
-corrects the value instead:
-
-- `clamp(bounds: Slice[T])` pins the value to `bounds`, e.g. `clamp(0..10)`
-- `adjust(fn: T -> T)` runs an arbitrary function instead, for a `T` with no
-  natural ordering (e.g. `set[E]`)
+A flag can't have a [validator](args-and-options.md#validating-values), since
+its value comes from its operations. Instead, `clamp` keeps the value in a
+range. It runs after every operation, and never raises an error:
 
 ```nim
-import std/os
-
-defineSetFlag(FilePermission)
+import argumint
 
 let spec = (
-  verbosity: flag[int](
-    "-v, --verbose",
-    ops = [
-      flagOp("--quiet", "=", 0),
-      flagOp("--boost", "+=", 5),
-      flagOp("--dampen", "-=", 2),
-    ],
-    default = 0, clamp = clamp(0..10)
-  ),
-  permissions: flag[set[FilePermission]](
-    ops = [
-      flagOp("-r", "+=", {fpUserRead}),
-      flagOp("-w", "+=", {fpUserWrite}),
-      flagOp("-x", "+=", {fpUserExec}),
-    ],
-    default = {},
-    clamp = adjust(proc (v: set[FilePermission]): set[FilePermission] =
-      (if fpUserWrite in v: v + {fpUserRead} else: v))
-  )
+  volume: flag(default = 5, help = "Volume",
+    ops = "--up+=3, --down-=3, --mute=0",
+    clamp = clamp(0..10)),
+  help: help(),
 )
+
+spec.parseOrQuit()
+echo "volume=", spec.volume
 ```
 
-- Repeating `-v`/`--boost` past 10 (or `--dampen` below 0) silently keeps
-  `verbosity`'s value pinned at the bound instead of over/underflowing.
-- `permissions`'s set type has no natural ordering, so `adjust` is used instead:
-  a write-only file is rarely what anyone actually wants, so whenever `-w` is
-  granted without `-r`, `adjust` silently adds read access too rather than
-  leaving a write-only permission set.
+```console
+$ ./vol --up --up
+volume=10
+$ ./vol --down --down --up
+volume=3
+$ ./vol --help
+Usage:
+  vol [options]
+  vol (-h | --help)
 
-Note: `default` must already satisfy `clamp`/`adjust`, or spec construction
-raises `SpecDefect` — see `examples/verbosity.nim` for the full runnable demo of
-`clamp`.
+Options:
+  --up        Volume [clamp: 0..10; action: Increase by 3]
+  --down      Volume [clamp: 0..10; action: Decrease by 3]
+  --mute      Volume [clamp: 0..10; action: Set to 0]
+  -h, --help  Display this help message
+```
+
+`--down --down` takes the volume to 0, not -1, so `--up` then gives 3. Pass
+`desc` to replace the clamp's text in help, or `desc = some("")` to hide it.
+
+The default has to be in the range too. If it isn't, building the spec raises
+a `SpecDefect`.
+
+For a type with no order, like a set, `adjust` runs a proc of your own after
+every operation instead. In the pizza example, this adds cheese to any pizza
+with ham:
+
+```nim
+clamp = adjust(proc (t: set[Topping]): set[Topping] =
+  if ham in t: t + {cheese} else: t)
+```
+
+```console
+$ ./pizza --no-cheese --ham
+{cheese, ham}
+```

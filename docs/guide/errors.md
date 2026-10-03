@@ -19,7 +19,8 @@ Every parse-time failure derives from `CatchableError`:
 - `ValidationError` — a value matched the grammar but failed its `validator`
   (see [Validating Values](args-and-options.md#validating-values)) — never
   raised for a `flag`, since a `Validator` doesn't apply there; `clamp` silently
-  corrects instead (see [Clamping Flag Values](flags.md#clamping-flag-values))
+  corrects instead (see
+  [Keeping Values in Bounds](flags.md#keeping-values-in-bounds))
 - `MessageError` — a `message()`/`version()` flag was matched (see
   [Custom Messages](help.md#custom-messages))
 - `HelpError`/`CompletionError` — both subtypes of `MessageError`, raised for a

@@ -140,7 +140,7 @@ Usage:
 
 The converter raises a `ValueError` for a value it can't convert, and argumint
 reports it. To use the type for a flag too, see
-[Custom Flag Types](flags.md#custom-flag-types).
+[Your Own Flag Types](flags.md#your-own-flag-types).
 
 ## Validating Values
 

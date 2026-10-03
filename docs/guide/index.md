@@ -20,8 +20,8 @@ public proc and type, see the
 - [Arguments and Options](args-and-options.md) — declaring positional
   arguments and options, their types and defaults, and validating their
   values.
-- [Flags](flags.md) — flag operations, composition order, custom flag types,
-  and clamping.
+- [Flags](flags.md) — flag types and operations, flags in a usage string,
+  your own flag types, and keeping values in bounds.
 - [Value Precedence](precedence.md) — falling back to env vars and Config
   Sources.
 - [Commands](commands.md) — nested subcommands and their hooks.
