@@ -513,9 +513,8 @@ The finished program is
 [`examples/notes.nim`](https://github.com/squattingmonk/argumint/blob/main/examples/notes.nim).
 From here:
 
-- [Specs and Values](specs.md#basics) covers reading and setting values,
-  `parse` for programs that handle their own errors, and parsing more than
-  once.
+- [Specs and Values](specs.md) covers reading and setting values, and
+  parsing more than once.
 - [Help and Messages](help.md#displaying-help) covers help layout, colour,
   and `--version`.
 - [Error Handling](errors.md#error-handling) covers catching parse errors
