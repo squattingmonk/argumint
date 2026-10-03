@@ -40,4 +40,23 @@ task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint.nim"
   exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/ini.nim"
   exec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/json.nim"
-  writeFile(outDir & "/index.html", "<!DOCTYPE html>\n<meta http-equiv=\"refresh\" content=\"0; url=argumint.html\">\n")
+  # The user guide: plain Markdown that reads on GitHub too, so its links
+  # between pages say `.md` -- md2html leaves them alone, so point them at
+  # the rendered `.html` here. md2html also titles a page with its file
+  # path unless it opens with an RST overline title, which GitHub can't
+  # render, so swap in the page's own `# Title` and drop its duplicate.
+  for file in listFiles("docs/guide"):
+    if file.endsWith(".md"):
+      exec "nim md2html --hints:off --outdir:" & outDir & "/guide " & file
+      let
+        html = outDir & "/guide/" & file.rsplit({'/', '\\'}, 1)[^1].replace(".md", ".html")
+        path = file.replace('\\', '/').replace(".md", "")
+      var page = readFile(html).replace(".md\"", ".html\"").replace(".md#", ".html#")
+      let
+        start = page.find("<h1 id=\"")
+        stop = page.find("</h1>", start) + "</h1>".len
+        title = page[page.find('>', start) + 1 ..< stop - "</h1>".len]
+      page = page[0 ..< start] & page[stop .. ^1]
+      writeFile(html, page.replace(">" & path & "<", ">" & title & "<"))
+  cpDir("docs/images", outDir & "/images")
+  writeFile(outDir & "/index.html", "<!DOCTYPE html>\n<meta http-equiv=\"refresh\" content=\"0; url=guide/index.html\">\n")
