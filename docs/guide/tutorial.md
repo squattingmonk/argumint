@@ -519,5 +519,5 @@ From here:
   parsing more than once.
 - [Help and Messages](help.md) covers help layout, colour,
   and `--version`.
-- [Error Handling](errors.md#error-handling) covers catching parse errors
+- [Error Handling](errors.md) covers catching parse errors
   yourself.
