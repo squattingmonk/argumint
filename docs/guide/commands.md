@@ -3,236 +3,460 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Commands
-
-`command(variants, spec, help, prolog, epilog, usage, group, hidden)` builds a
-`CommandArg`: a field whose `variants` are words (e.g., `ship`, `move`) rather
-than `-o`/`--option`/`<arg>` forms, and whose `spec` is a full nested spec tuple
-with its own args/options/flags — and its own nested commands, to any depth.
-Matching a command word hands the rest of the command line off to that command's
-own `spec`/`usage`, the same way the top-level `spec`/`usage` governs everything
-before it.
+A **command** is a word that picks what your program does, like `install` in
+`pkg install foo`. Each command has a spec of its own, and everything after
+the word on the command line is parsed against that spec:
 
 ```nim
-import std/strformat
 import argumint
 
-proc cmdAdd(spec: tuple, info: HookInfo) =
-  for file in spec.files:
-    echo fmt"Staging {file}"
+proc install(spec: tuple, _: HookInfo) =
+  for name in spec.names:
+    echo "Installing ", name
+
+proc remove(spec: tuple, _: HookInfo) =
+  for name in spec.names:
+    echo "Removing ", name
 
 let
-  add = (files: args("<file>", help = "Files to stage"), help: help())
-
+  installSpec = (
+    names: args("<name>", help = "Packages to install"),
+    help: help(),
+  )
+  removeSpec = (
+    names: args("<name>", help = "Packages to remove"),
+    help: help(),
+  )
   spec = (
-    add: command("add", add, action = cmdAdd, usage = "<file>...",
-      help = "Add file contents to the index"),
-    help: help()
+    install: command("install", installSpec, action = install,
+      help = "Install packages", prolog = "Install packages by name.",
+      epilog = "Installed packages go in ~/.pkg."),
+    remove: command("remove", removeSpec, action = remove,
+      help = "Remove packages"),
+    help: help(),
   )
 
-spec.parseOrQuit(prolog = "A tiny git-like CLI")
+spec.parseOrQuit(prolog = "A tiny package manager")
+```
+
+`command` takes the command's name and its spec. Its `action` runs once the
+whole command line has parsed, and receives the command's own spec, so
+`install` reads `spec.names` from `installSpec`. See
+[Before, Action, and After Hooks](#before-action-and-after-hooks).
+
+```console
+$ ./pkg install foo bar
+Installing foo
+Installing bar
+$ ./pkg update
+Parsing error:
+  - unrecognized command: update
+
+Usage:
+  pkg (install | remove)
+  pkg (-h | --help)
+```
+
+A command's `help` is its summary in the program's help. Its `prolog` heads
+its own help, and its `epilog` ends it. argumint writes the usage at both
+levels:
+
+```console
+$ ./pkg --help
+A tiny package manager
+
+Usage:
+  pkg (install | remove)
+  pkg (-h | --help)
+
+Commands:
+  install     Install packages
+  remove      Remove packages
+
+Options:
+  -h, --help  Display this help message
+
+$ ./pkg install --help
+Install packages by name.
+
+Usage:
+  pkg install <name>...
+  pkg install (-h | --help)
+
+Arguments:
+  <name>      Packages to install
+
+Options:
+  -h, --help  Display this help message
+
+Installed packages go in ~/.pkg.
+```
+
+## More Than One Name
+
+A command can have more than one name. List them in one string, as for an
+option:
+
+```nim
+    remove: command("remove, rm", removeSpec, action = remove,
+      help = "Remove packages"),
 ```
 
 ```console
-$ ./git add a.txt b.txt
-Staging a.txt
-Staging b.txt
-
-$ ./git --help
-A tiny git-like CLI
+$ ./pkg rm foo
+Removing foo
+$ ./pkg --help
+A tiny package manager
 
 Usage:
-  git add
-  git (-h | --help)
+  pkg (install | remove | rm)
+  pkg (-h | --help)
 
 Commands:
-  add         Add file contents to the index
+  install     Install packages
+  remove, rm  Remove packages
 
 Options:
   -h, --help  Display this help message
 ```
 
-Like a top-level spec, a command's own `usage` is auto-generated from its
-declared args if omitted — that's why the top-level `spec` above needs no
-explicit `usage` at all: `add`/`(-h | --help)` are derived straight from its two
-fields. `add --help` shows `add`'s own usage (`add <file>...`), generated the
-same way, one level down.
+## Knowing Which Command Ran
 
-### Usage Lines for a Command
-
-A Command's nested spec compiles to its own FSM exactly like a top-level
-spec, and that FSM is spliced into the parent's as a single `Command`
-transition. Matching a command word hands the *entire* remaining command
-line to the nested spec's own grammar — it never returns control to the
-parent Usage Line afterward. That's why a Command's own args, options, and
-flags always belong on the Command's *own* `usage`, never tacked onto the
-same Usage Line as the command word itself:
+For a simple program, you don't need an
+[action](#before-action-and-after-hooks) to use commands. After parsing,
+`seen` says whether the user gave a command, and its spec holds the values:
 
 ```nim
-let mineArgs = (
-  x: arg("<x>"),
-  y: arg("<y>"),
-  moored: flag("--moored"),
-  drifting: flag("--drifting")
-)
-
-let mine = (
-  set: command("set", mineArgs),
-  remove: command("remove", mineArgs)
-)
-
-let spec = (mine: command("mine", mine))
-spec.parseOrQuit(
-  usage = "mine (set | remove) <x> <y> [--moored | --drifting]"
-)
-```
-
-```console
-Error constructing spec: Error at (1:5): Nothing may follow a Command earlier in
-  the same Usage Line -- a matched Command consumes every remaining argument, so
-  anything after it can never be reached; use '(a | b)' for alternatives, or
-  move it into the earlier Command's own usage
-mine (set | remove) <x> <y> [--moored | --drifting]
-     ^
-```
-
-`<x> <y> [--moored | --drifting]` belongs on `set`/`remove`'s own `usage`
-instead — the parent's line stops at `(set | remove)`:
-
-```nim
-let mine = (
-  set: command("set", mineArgs,
-    usage = "<x> <y> [--moored | --drifting]"),
-  remove: command("remove", mineArgs,
-    usage = "<x> <y> [--moored | --drifting]")
-)
-```
-
-This mirrors `examples/naval_fate.nim`'s `mine` command, whose `set`/
-`remove` subcommands each declare their own `<x> <y> [--moored |
---drifting]` usage rather than sharing one line with `mine` itself.
-
-### Before, Action, and After Hooks
-
-Every `command()` (and the top-level `parse`/`parseOrQuit` itself) accepts
-`before`/`action`/`after` hooks, each a `proc(spec: S, info: HookInfo)` (`spec`
-is that level's own parsed tuple). Firing order across a whole matched chain,
-root to leaf and back:
-
-1. `before` fires once each level's own values are parsed, root-to-leaf — an
-   outer command's `before` always runs, and sees its own values, before a
-   nested one's does.
-2. `action` fires exactly once, at the dynamic leaf — the deepest level actually
-   matched *this invocation*, whether or not that's the deepest level the spec
-   could reach. A command with no nested command matched is the leaf; one that
-   routes into a subcommand is not, and its own `action` (if any) doesn't fire
-   that time.
-3. `after` fires leaf-to-root, guaranteed once a level's own `before` has
-   completed — success or failure, via nested `try`/`finally`, so a deeper level
-   failing still lets every already-entered ancestor's `after` run for cleanup.
-
-```nim
-var log: seq[string]
-
-proc shipBefore(spec: tuple, info: HookInfo) = log.add "ship: before"
-proc shipAfter(spec: tuple, info: HookInfo) = log.add "ship: after"
-proc moveBefore(spec: tuple, info: HookInfo) = log.add "move: before"
-proc moveAction(spec: tuple, info: HookInfo) = log.add "move: action (" & spec.name & ")"
-proc moveAfter(spec: tuple, info: HookInfo) = log.add "move: after"
+import argumint
 
 let
-  move = (name: arg("<name>", help = "Ship to move"))
-  ship = (
-    move: command("move", move, before = moveBefore, action = moveAction,
-      after = moveAfter, usage = "<name>", help = "Move a ship"),
-  )
+  installSpec = (names: args("<name>", help = "Packages to install"))
+  removeSpec = (names: args("<name>", help = "Packages to remove"))
   spec = (
-    ship: command("ship", ship, before = shipBefore, after = shipAfter,
-      help = "Ship commands"),
+    install: command("install", installSpec, help = "Install packages"),
+    remove: command("remove", removeSpec, help = "Remove packages"),
   )
 
-spec.parseOrQuit(usage = "ship", args = @["ship", "move", "Titanic"])
-echo log
+spec.parseOrQuit()
+if spec.install.seen:
+  echo "Installing ", installSpec.names
+elif spec.remove.seen:
+  echo "Removing ", removeSpec.names
 ```
 
 ```console
-$ ./naval_fate ship move Titanic
-@["ship: before", "move: before", "move: action (Titanic)", "move: after", "ship: after"]
+$ ./pkg install a b
+Installing @["a", "b"]
+$ ./pkg remove c
+Removing @["c"]
 ```
 
-If `move`'s own `before` raised instead of `move`'s `action` ever running,
-`ship`'s `after` still fires (`ship` already completed its own `before`, so it's
-a fully "entered" level), even though `move`'s never does (it never finished
-entering) — the log would end up `@["ship: before", "ship: after"]`, with the
-exception still propagating to the caller afterward.
+## Commands Inside Commands
 
-### `HookInfo`
-
-Every hook receives `info: HookInfo`, a flat view of every `Arg` matched
-during the *whole* invocation — not just that level's own spec — so an
-outer router command's `before` can see what a nested command matched too.
-
-- `info.matched: seq[Arg]` — every matched `Arg`, across every level
-- `info.showsMessage: bool` — true if any matched `Arg` is a `MessageArg`
-  (`help()`/`message()`/`version()`), i.e. this invocation is just going to
-  print something and exit rather than reach a real `action`
+A command's spec can have commands of its own, to any depth:
 
 ```nim
-proc connectToDatabase() = echo "Connecting to the database..."
+import argumint
 
-proc appBefore(spec: tuple, info: HookInfo) =
-  if not info.showsMessage:
-    connectToDatabase()
+proc addRemote(spec: tuple, _: HookInfo) =
+  echo "Added ", spec.name, " at ", spec.url
 
-let spec = (
-  name: arg("<name>", help = "The name to call you"),
-  help: help()
-)
+proc listRemotes(spec: tuple, _: HookInfo) =
+  echo if spec.verbose: "origin https://example.com/pkgs" else: "origin"
 
-spec.parseOrQuit(usage = "<name>", before = appBefore)
+let
+  addSpec = (
+    name: arg("<name>", help = "Name of the remote"),
+    url: arg("<url>", help = "Where to fetch packages from"),
+    help: help(),
+  )
+  listSpec = (
+    verbose: flag("-v, --verbose", help = "Show each remote's URL"),
+    help: help(),
+  )
+  remoteSpec = (
+    add: command("add", addSpec, action = addRemote, help = "Add a remote"),
+    list: command("list", listSpec, action = listRemotes, help = "List remotes"),
+    help: help(),
+  )
+  spec = (
+    remote: command("remote", remoteSpec, help = "Manage package sources"),
+    help: help(),
+  )
+
+spec.parseOrQuit()
 ```
 
-`./hello --help` never connects to the database; `./hello Michael` does,
-right before printing its greeting — `info.showsMessage` lets expensive
-`before`-time setup skip itself for a request that's just going to print
-help/version/a message and exit anyway.
+```console
+$ ./pkg remote add origin https://example.com/pkgs
+Added origin at https://example.com/pkgs
+$ ./pkg remote list -v
+origin https://example.com/pkgs
+$ ./pkg remote --help
+Usage:
+  pkg remote (add | list)
+  pkg remote (-h | --help)
+
+Commands:
+  add         Add a remote
+  list        List remotes
+
+Options:
+  -h, --help  Display this help message
+```
+
+Only the deepest command the user gave runs its `action`. `remote` has none,
+since it only leads to `add` and `list`.
+
+## Usage Lines for a Command
+
+A command takes the rest of the command line, so nothing can follow it on a
+usage line. Its own arguments and options go in its own usage string, passed
+as `usage`:
+
+```nim
+import argumint
+
+let
+  installSpec = (
+    names: args("<name>", help = "Packages to install"),
+    force: flag("-f, --force", help = "Reinstall installed packages"),
+    help: help(),
+  )
+  spec = (
+    install: command("install", installSpec, help = "Install packages"),
+  )
+
+spec.parseOrQuit(usage = "install [-f] <name>...")
+```
+
+argumint can never match anything after `install` here, so building the spec
+raises a `SpecDefect`:
+
+```console
+$ ./pkg install foo
+Error constructing spec: Error at (1:8): Nothing may follow a Command earlier in the same Usage Line -- a matched Command consumes every remaining argument, so anything after it can never be reached; use '(a | b)' for alternatives, or move it into the earlier Command's own usage
+install [-f] <name>...
+        ^
+```
+
+Move the rest of the line into the command:
+
+```nim
+  spec = (
+    install: command("install", installSpec, usage = "[-f] <name>...",
+      help = "Install packages"),
+  )
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./pkg install --help
+Usage:
+  pkg install [-f] <name>...
+  pkg install (-h | --help)
+
+Arguments:
+  <name>       Packages to install
+
+Options:
+  -f, --force  Reinstall installed packages
+  -h, --help   Display this help message
+```
+
+In a command's usage string, `{cmd}` stands for the whole command path, like
+`pkg install`. See [Naming the Program](usage-strings.md#naming-the-program).
+
+## Before, Action, and After Hooks
+
+A spec can run three hooks once the command line has parsed:
+
+- `before` runs first, at every level the user gave, starting from the
+  program's own spec.
+- `action` runs once, at the deepest level the user gave.
+- `after` runs last, at every level, in the reverse order.
+
+`command` takes all three, and so do `parse` and `parseOrQuit` for the
+program's own spec. Each hook is a proc that takes its level's spec and a
+`HookInfo`:
+
+```nim
+import argumint
+
+proc pkgBefore(spec: tuple, _: HookInfo) = echo "pkg: before"
+proc pkgAfter(spec: tuple, _: HookInfo) = echo "pkg: after"
+proc remoteBefore(spec: tuple, _: HookInfo) = echo "remote: before"
+proc remoteAfter(spec: tuple, _: HookInfo) = echo "remote: after"
+proc addRemote(spec: tuple, _: HookInfo) = echo "add: action"
+
+let
+  addSpec = (
+    name: arg("<name>", help = "Name of the remote"),
+    url: arg("<url>", help = "Where to fetch packages from"),
+    help: help(),
+  )
+  remoteSpec = (
+    add: command("add", addSpec, action = addRemote, help = "Add a remote"),
+    help: help(),
+  )
+  spec = (
+    remote: command("remote", remoteSpec, before = remoteBefore,
+      after = remoteAfter, help = "Manage package sources"),
+    help: help(),
+  )
+
+spec.parseOrQuit(before = pkgBefore, after = pkgAfter)
+```
+
+```console
+$ ./pkg remote add origin https://example.com/pkgs
+pkg: before
+remote: before
+add: action
+remote: after
+pkg: after
+```
+
+The hooks run only after every value on the command line is converted and
+validated, so a mistake anywhere means no hook runs at all. A hook can read
+any value at its own level.
+
+`after` is for cleanup, so it runs even if a deeper hook raises an exception,
+as long as its own `before` finished. If `remoteBefore` raised, `pkgAfter` would
+still run, but `remoteAfter` wouldn't. The exception then reaches your program
+as usual.
+
+When the user asks for help, the `before` and `after` hooks still run down to
+the level where they asked, but no `action` does:
+
+```console
+$ ./pkg remote --help
+pkg: before
+remote: before
+remote: after
+pkg: after
+Usage:
+  pkg remote add
+  pkg remote (-h | --help)
+
+Commands:
+  add         Add a remote
+
+Options:
+  -h, --help  Display this help message
+```
+
+### An Action for the Program Itself
+
+The program's own spec runs its `action` when the user gives no command. Add a
+usage line with no command on it, such as `{cmd}` on its own:
+
+```nim
+import argumint
+
+proc showStatus(spec: tuple, _: HookInfo) = echo "All packages are up to date"
+proc install(spec: tuple, _: HookInfo) = echo "Installing ", spec.names
+
+let
+  installSpec = (names: args("<name>", help = "Packages to install"), help: help())
+  spec = (
+    install: command("install", installSpec, action = install,
+      help = "Install packages"),
+    help: help(),
+  )
+
+spec.parseOrQuit(action = showStatus, usage = """
+{cmd}
+{cmd} install
+""")
+```
+
+```console
+$ ./pkg
+All packages are up to date
+$ ./pkg install foo
+Installing @["foo"]
+```
+
+### What a Hook Can See
+
+A hook's `HookInfo` describes the whole command line, not just its own
+level. `info.matched` holds every `Arg` the command line matched, at every
+level. `info.showsMessage` is true when the user asked for help, a version,
+or another [message](help.md), so a `before` hook can skip work that only a
+real run needs. Add this to the first example on this page:
+
+```nim
+proc openDb(spec: tuple, info: HookInfo) =
+  if not info.showsMessage:
+    echo "Opening the package database"
+
+spec.parseOrQuit(before = openDb)
+```
+
+```console
+$ ./pkg install foo
+Opening the package database
+Installing foo
+$ ./pkg install --help
+Install packages by name.
+
+Usage:
+  pkg install <name>...
+  pkg install (-h | --help)
+
+Arguments:
+  <name>      Packages to install
+
+Options:
+  -h, --help  Display this help message
+
+Installed packages go in ~/.pkg.
+```
 
 ### Passing Extra Context to Hooks
 
-`command(variants, spec, options, ...)` — with an extra positional argument
-between `spec` and `help` — gives every hook a second parameter,
-`proc(spec: S, opts: O, info: HookInfo)`. `options` is arbitrary caller-chosen
-context, not necessarily CLI-shaped: typically the enclosing spec (or a piece of
-it) that a deeply nested command's hooks otherwise have no way to reach, since
-`spec: S` alone is scoped to just that command's own tuple.
+A hook receives only its own level's spec. To read a value from another
+level, share its `Arg` between the specs, as the
+[tutorial](tutorial.md#subcommands) does.
+
+To pass a hook more than one value, give `command` a third argument after the
+spec. Each of its hooks then takes that argument after its spec:
 
 ```nim
-proc cmdAdd(spec: tuple, opts: tuple, info: HookInfo) =
-  if opts.verbose:
-    echo fmt"(verbose) staging {spec.files.len} file(s)"
-  for file in spec.files:
-    echo fmt"Staging {file}"
+import argumint
+
+proc install(spec: tuple, global: tuple, _: HookInfo) =
+  for name in spec.names:
+    if global.dryRun:
+      echo "Would install ", name
+    else:
+      echo "Installing ", name
 
 let
-  verboseFlag = flag("--verbose", help = "Show extra output")
-  globalOpts = (verbose: verboseFlag)
-  add = (files: args("<file>", help = "Files to stage"), help: help())
-
+  global = (
+    dryRun: flag("-n, --dry-run", help = "Show what would happen"),
+  )
+  installSpec = (names: args("<name>", help = "Packages to install"))
   spec = (
-    verbose: verboseFlag,
-    add: command("add", add, globalOpts, action = cmdAdd,
-      usage = "<file>...", help = "Add file contents to the index"),
-    help: help()
+    dryRun: global.dryRun,
+    install: command("install", installSpec, global, action = install,
+      help = "Install packages"),
+    help: help(),
   )
 
-spec.parseOrQuit(prolog = "A tiny git-like CLI")
+spec.parseOrQuit()
 ```
 
-`--verbose add a.txt` prints the extra count line; `add a.txt` alone doesn't.
-Note that `verboseFlag` is declared once and reused by reference in both
-`spec.verbose` (so it's reachable/settable from the command line) and
-`globalOpts.verbose` (so `cmdAdd` can read it) — since `Arg`s are `ref` objects,
-this same trick works for sharing any single `Arg` (not just a whole tuple's
-worth) across a spec and its nested commands, and is usually simpler than
-threading a whole extra `options: O` tuple through just to share one flag's
-value.
+`dryRun` belongs to the program's spec, so the user gives it before
+`install`, and the hook reads it from `global`:
+
+```console
+$ ./pkg install foo
+Installing foo
+$ ./pkg -n install foo
+Would install foo
+```
+
+The extra argument can be anything, not just a tuple of `Arg`s.

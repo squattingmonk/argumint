@@ -213,7 +213,8 @@ command line is parsed against that spec. Its `action` runs once the whole
 command line has parsed, and receives the command's own spec, so `addNote`
 reads `spec.text` and `listNotes` reads `spec.limit`. The second parameter, a
 `HookInfo`, describes everything the command line matched. These hooks don't
-need it, so they name it `_`. See [HookInfo](commands.md#hookinfo).
+need it, so they name it `_`. See
+[What a Hook Can See](commands.md#what-a-hook-can-see).
 
 `file` and `verbose` belong to the top-level spec, which the hooks can't see.
 Declaring them first, outside any tuple, lets the hooks read them directly.
@@ -277,7 +278,7 @@ Usage:
 ```
 
 Commands nest to any depth, and have `before` and `after` hooks as well. See
-[Commands](commands.md#commands).
+[Commands](commands.md).
 
 ## Validating Values
 
