@@ -237,6 +237,8 @@ template defineValueArg*[T](typeName: typedesc[T]): untyped =
   method accept(self: ValueArg[T, true], c: Contribution, how: Arbitration) =
     self.acceptImpl(c, how)
 
+  method accumulates(self: ValueArg[T, true]): bool = true
+
   method defaultStr(self: ValueArg[T, false]): string =
     ## Returns `self`'s default value stringified, or "" if it's still `T`'s
     ## zero value (e.g. "", 0, or false) -- the fallback used when no
@@ -331,6 +333,8 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     self.value.handleFlag(op, arg)
     if not self.clamp.isNil:
       self.value = self.clamp.apply(self.value)
+
+  method accumulates(self: FlagArg[T]): bool = true
 
   method validatorHelp(self: FlagArg[T]): StyledText =
     if not self.clamp.isNil: result = self.clamp.styledHelp

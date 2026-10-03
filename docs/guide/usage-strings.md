@@ -328,7 +328,12 @@ to spell out `-h`/`--help` themselves. The fill-in rule differs by kind:
 - **Positional args** are all-or-nothing: they're only auto-appended (as
   one joined `<a> <b>` line, in declaration order) when *none* of them are
   reachable yet. If your `usage` already mentions even one, the rest are
-  left alone rather than guessed at.
+  left alone rather than guessed at. An `args` positional argument is
+  written as `<a>...`, so it takes one or more values. A usage line you
+  write yourself still decides: `<a>` there takes exactly one value, even
+  for an `args`. With more than one `args` positional argument, `newSpec`
+  raises a `SpecDefect` instead of guessing how to split the values; write
+  the usage line yourself, e.g. `<a> <b>...`.
 - **Commands** left unreachable are joined into a single `(cmd1 | cmd2)`
   alternation line, so a shared `[options]` prefix isn't repeated once per
   command.

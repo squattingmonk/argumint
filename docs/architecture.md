@@ -1347,7 +1347,11 @@ differs by category:
   reachable; it won't be duplicated.
 - **Positional args** are all-or-nothing: only auto-appended (as one joined
   `<a> <b>` line, in declaration order) when *none* of them are reachable
-  yet. A partially-specified sequence is left alone.
+  yet. A partially-specified sequence is left alone. An `Arg` whose
+  `accumulates` method returns `true` (an `args`) is written `<a>...`;
+  this is only a hint, so a hand-written `<a>` still matches one value.
+  More than one accumulating Positional Argument raises a `SpecDefect`
+  instead, since how values split between them is the author's call.
 - **Options** (`opt`/`flag`, non-`MessageArg`) aren't their own usage line;
   `[options]` rides along as a prefix on whatever command/positional line
   gets auto-appended above. If nothing else gets appended but some option is

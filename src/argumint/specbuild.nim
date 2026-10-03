@@ -83,7 +83,17 @@ proc autoFillUsage(spec: Spec) =
 
   let positionals = spec.args.filterIt(it.kind == Positional)
   if positionals.len > 0 and positionals.allIt(it notin reachable):
-    addLine prefix & positionals.mapIt(it.name).join(" ")
+    let accumulating = positionals.filterIt(it.accumulates).mapIt(it.name)
+    # How values split between several is the author's call -- see
+    # architecture.md's "autoFillUsage" section.
+    if accumulating.len > 1:
+      let names = accumulating.join(", ")
+      raise newException(SpecDefect,
+        "can't auto-fill a usage line for more than one multi-value " &
+        fmt"Positional Argument ({names}); write a usage line that shows " &
+        "how values split between them")
+    let names = positionals.mapIt(if it.name in accumulating: it.name & "..." else: it.name)
+    addLine prefix & names.join(" ")
     prefixUsed = prefixUsed or optionsUnreachable
 
   for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
