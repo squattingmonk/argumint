@@ -24,8 +24,8 @@ Two things you wire up yourself:
   `parse`/`parseOrQuit` is even called (opening a DB connection, loading config)
   reruns on every keystroke, not just real invocations. `isCompletionRequest()`
   lets you skip it. (A `before` hook doesn't need this — see `info.showsMessage`
-  in [Commands](commands.md#hookinfo) — since completion requests never reach
-  `dispatch` at all.)
+  in [Commands](commands.md#what-a-hook-can-see) — since completion requests
+  never reach `dispatch` at all.)
 
 ```nim
 import std/strformat

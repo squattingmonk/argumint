@@ -93,9 +93,9 @@ typed fields — no stringly-typed lookup by flag name.
 - **[Positional args,
   options](docs/guide/args-and-options.md)**,
   **[flags](docs/guide/flags.md)**, and
-  **[commands](docs/guide/commands.md#commands)** — declared uniformly as
+  **[commands](docs/guide/commands.md)** — declared uniformly as
   fields of one spec tuple, freely combinable in a usage string.
-- **[Nested subcommands](docs/guide/commands.md#commands)** — a `command()`
+- **[Nested subcommands](docs/guide/commands.md)** — a `command()`
   field owns its own nested spec, so a CLI like `myapp ship move <x> <y>` can
   be built out of independently testable pieces. See `examples/naval_fate.nim`
   for a full multi-level example (docopt's canonical Naval Fate demo).
