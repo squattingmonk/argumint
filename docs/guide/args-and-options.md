@@ -3,107 +3,306 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-## Declaring Arguments and Options
-
-Every field in a spec tuple is built with a constructor: `arg[T]()` for
-positional arguments or `opt[T]()` for options, where `T` is the value type for
-the argument. `T` and `default` can each be given explicitly, or left for
-argumint to infer:
-
-- explicit `[T]`, no `default` — falls back to `default(T)` (e.g. `0`, `0.0`,
-  `false`)
-- no `[T]`, explicit `default` — `T` is inferred from the default value's type
-- neither — `T` falls back to `string`, `default` to `""`
-
-The implicit forms are more friendly, so they are preferred in the examples.
+Most of a command line is positional arguments and options that take a
+value. This page covers declaring them, giving them types and defaults,
+taking more than one value, and checking the values the user gives.
 
 ```nim
-let
-  spec = (
-    foo: arg("<foo>"),              # T implicitly string, default ""
-    bar: arg("<bar>", default = 3), # T implicitly int, default 3
-    baz: opt[int]("--baz=<n>"),     # T explicitly int, default 0
-    qux: opt[int]("--qux=<n>", 5)   # T explicitly int, default 5
-  )
+import argumint
+
+let spec = (
+  src: args("<src>", help = "Files to copy"),
+  dest: arg("<dest>", help = "Where to copy them"),
+  mode: opt("-m, --mode=<mode>", default = "644", help = "Permissions for the copies"),
+  retries: opt[int]("-r, --retries=<n>", help = "How many times to retry"),
+  exclude: opts("-x, --exclude=<glob>", help = "Skip files matching this pattern"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "src: ", spec.src
+echo "dest: ", spec.dest
+echo "mode: ", spec.mode
+echo "retries: ", spec.retries
+echo "exclude: ", spec.exclude
 ```
 
-**`arg` and `opt` can each capture a single value.** If the argument or option
-is matched more than once (e.g., usage string is `<name>...`), only the last
-value seen is kept. `args[T]()` and `opts[T]()` are their **multi-value
-counterparts**: instead of a plain `T`, their stored value is a `seq[T]`,
-collecting every value matched. `T` and `default` follow the same rules as
-`arg[T]()`/`opt[T]()`, with one difference — `T` can't be inferred from a bare
-`@[]`, so an explicit `default` needs at least one element:
-
-- explicit `[T]`, no `default` — falls back to `newSeq[T]()` (`@[]`)
-- no `[T]`, explicit `default` (non-empty) — `T` is inferred from the
-  default's element type
-- neither — `T` falls back to `string`, `default` to `@[]`
-
-```nim
-let
-  spec = (
-    foo: args("<foo>"),                    # T implicitly string, default @[]
-    bar: opts[int]("--bar=<n>"),           # T explicitly int, default @[]
-    baz: opts("--baz=<n>", default = @[1]) # T implicitly int, default @[1]
-  )
-
-spec.parseOrQuit(
-  usage = "<foo>... [--bar=<n>]... [--baz=<n>]...",
-  args = @["a.txt", "b.txt", "--bar", "3", "--bar", "4", "--baz", "5"])
-assert spec.foo == @["a.txt", "b.txt"]
-assert spec.bar == @[3, 4]
-assert spec.baz == @[5]
+```console
+$ ./copy a.txt b.txt backup/ -x '*.tmp' --exclude '*.bak'
+src: @["a.txt", "b.txt"]
+dest: backup/
+mode: 644
+retries: 0
+exclude: @["*.tmp", "*.bak"]
 ```
 
-The default value of `arg[T]()`/`args[T]()`/`opt[T]()`/`opts[T]()` fall back to
-`default` for their value if the `Arg` is not seen during parsing. `opt[T]()`
-and `opts[T]()` can also fall back to an environment variable via `env` or a
-config file via `configKey` if the user doesn't specify a value on the
-command-line. See [Value Precedence](precedence.md#value-precedence).
+- `arg` declares a positional argument with one value. `args` takes one or
+  more.
+- `opt` declares an option with a value. `opts` can be given more than once.
 
-### Validating Values
+Options can come before, after, or between the positional values. If an `opt`
+is given more than once, the last value wins.
 
-`arg`/`opt`/`args`/`opts` each take an optional `validator: Validator[T]`
-(`argumint/validators`), checked against every value the user actually
-supplies — never against a coded `default`, so an `Arg` the user never
-touches is exempt (see
-`docs/adr/0008-validators-dont-run-against-defaults.md`). A failing value
-raises `ValidationError` (contrast `flag`'s `clamp`, which never raises —
-see below).
+## Types and Defaults
 
-- `choice(values)` — must be one of `values`
-- `range(bounds)` — must fall within `bounds`
-- `check(pred)` / `checkIt(pred)` — must satisfy an arbitrary predicate
-  (`checkIt` lets you write the predicate inline, using `it` for the value)
-- `unique()` — for `args`/`opts`, must not repeat a value already matched
-  for the same `Arg`
-- `all(...)` / `any(...)` — combine several validators with AND/OR
-  semantics, nesting freely
-
-`choice`/`range` infer `T` from their arguments, and `all`/`any` infer it
-from their child validators; `check`/`checkIt`/`checkSeen`/`checkSeenIt`/
-`unique` always need an explicit `[T]` (e.g. `unique[string]()`), no matter
-how `T` is determined elsewhere in the same `arg`/`opt`/`args`/`opts` call.
+Each `Arg` has a value type and a default. The default is used when the user
+doesn't give a value. You can write the type in brackets, give a default, do
+both, or do neither:
 
 ```nim
 let spec = (
-  port: opt[int]("--port=<n>", default = 8080, validator = range(1..65535)),
-  env: opt("--env=<name>", default = "dev",
-    validator = choice(["dev", "staging", "prod"])),
-  tags: opts("--tag=<t>", validator = unique[string]()),
-  even: opt[int]("--even=<n>", default = 0,
-    validator = check[int](proc (x: int): bool = x mod 2 == 0, "must be even")),
-  word: arg("<word>",
-    validator = checkIt[string](it.len <= 10, "must be at most 10 characters"))
+  name: arg("<name>"),                             # string, default ""
+  count: arg[int]("<count>"),                      # int, default 0
+  level: opt("-l, --level=<n>", default = 1),      # int, default 1
+  ratio: opt[float]("--ratio=<x>", default = 0.5), # float, default 0.5
 )
 ```
 
-Passing `--port=0` or `--env=test` above raises a `ValidationError` before
-the value is ever stored; passing `--tag=a --tag=a` raises on the second
-`a`; `--even=3` raises via `check`; a `<word>` longer than 10 characters
-raises via `checkIt`.
+With only a default, the type comes from the default. With only a type, the
+default is that type's zero value. With neither, the value is a `string`.
 
-Every validator also folds its constraint into the auto-generated help text
-(e.g. `[choices: "dev", "staging", "prod"]`), so users see what's accepted
-without needing `--help` to fail first.
+These types work out of the box:
+
+- `string`
+- `int` and `float`
+- `bool`, which accepts `true`/`false`, `yes`/`no`, `y`/`n`, `on`/`off`, and
+  `1`/`0`. For an option that's simply present or absent, use a
+  [flag](flags.md) instead.
+- `char`, which must be a single character
+
+A value that doesn't convert is reported with the usage:
+
+```console
+$ ./copy a.txt out -r x
+Parsing error:
+  - expected int for -r but got "x"
+
+Usage:
+  copy [options] <src>... <dest>
+  copy (-h | --help)
+```
+
+An option can also take its value from an environment variable or a config
+file. See [Value Precedence](precedence.md).
+
+## Taking More Than One Value
+
+`args` and `opts` hold a `seq` of values instead of a single one. Their type
+and default work the same way, but the default is a `seq`:
+
+```nim
+let spec = (
+  files: args("<file>"),                        # seq[string], default @[]
+  nums: opts[int]("--num=<n>"),                 # seq[int], default @[]
+  sizes: opts("--size=<n>", default = @[1, 2]), # seq[int], default @[1, 2]
+)
+```
+
+Nim can't work out a type from an empty `@[]`, so to give an empty default
+you write the type in brackets instead. Values the user gives replace the
+default rather than adding to it, so `--size 7 --size 8` gives `@[7, 8]`.
+
+## Your Own Types
+
+Any type can be a value type if you write a `converter` from `string` and call
+`defineArg`:
+
+```nim
+import std/strutils
+import argumint
+
+type Color = enum
+  red, green, blue
+
+converter toColor(value: string): Color = parseEnum[Color](value)
+defineArg(Color)
+
+let spec = (
+  color: opt("-c, --color=<color>", default = green, help = "Colour to use"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo spec.color
+```
+
+```console
+$ ./paint -c blue
+blue
+$ ./paint -c purple
+Parsing error:
+  - expected Color for -c but got "purple"
+
+Usage:
+  paint [options]
+  paint (-h | --help)
+```
+
+The converter raises a `ValueError` for a value it can't convert, and argumint
+reports it. To use the type for a flag too, see
+[Custom Flag Types](flags.md#custom-flag-types).
+
+## Validating Values
+
+A **validator** checks each value the user gives. Pass one as `validator`:
+
+```nim
+import argumint
+
+let spec = (
+  port: opt("-p, --port=<n>", default = 8080, help = "Port to listen on",
+    validator = range(1..65535)),
+  env: opt("-e, --env=<name>", default = "dev", help = "Settings to load",
+    validator = choice(["dev", "staging", "prod"])),
+  workers: opt("-w, --workers=<n>", default = 2, help = "Worker processes",
+    validator = checkIt[int](it mod 2 == 0, "must be even")),
+  tags: opts("-t, --tag=<tag>", help = "Tag the server",
+    validator = unique[string]()),
+  help: help(),
+)
+
+spec.parseOrQuit()
+```
+
+Help shows what each option accepts:
+
+```console
+$ ./serve --help
+Usage:
+  serve [options]
+  serve (-h | --help)
+
+Options:
+  -p, --port=<n>     Port to listen on [range: 1..65535; default: 8080]
+  -e, --env=<name>   Settings to load [choices: "dev", "staging", "prod";
+                     default: "dev"]
+  -w, --workers=<n>  Worker processes [must be even; default: 2]
+  -t, --tag=<tag>    Tag the server [must be unique]
+  -h, --help         Display this help message
+```
+
+A value that fails is reported before your program sees it:
+
+```console
+$ ./serve -p 0
+Validation error:
+  - for -p, got 0 but expected a value in 1..65535
+
+Usage:
+  serve [options]
+  serve (-h | --help)
+$ ./serve -t web -t web
+Validation error:
+  - for -t, "web" did not meet condition: must be unique
+
+Usage:
+  serve [options]
+  serve (-h | --help)
+```
+
+These validators are built in:
+
+- `range(a..b)` accepts a value from `a` to `b`.
+- `choice([...])` accepts one of the listed values.
+- `check(proc)` accepts a value the proc returns `true` for. `checkIt` is the
+  same, but takes an expression that uses `it` for the value.
+- `unique()` accepts a value of an `args` or `opts` that hasn't been given
+  already.
+- `checkSeen(proc)` and `checkSeenIt` are like `check` and `checkIt`, but
+  also see the values given before this one, as `seen`.
+
+`range`, `choice`, `check` and `checkSeen` work out the value type from what
+you pass them. `checkIt`, `checkSeenIt` and `unique` have nothing to work it
+out from, so write it in brackets, as in `unique[string]()`.
+
+A validator checks only the values the user gives, whether on the command
+line, in an environment variable, or in a config file. It never checks your
+own default, so a default outside the range is fine.
+
+### Writing Your Own Checks
+
+Give `check` a proc that takes the value and returns whether it's good. The
+last argument describes the rule for help and errors:
+
+```nim
+import argumint
+
+proc isPrime(n: int): bool =
+  if n < 2: return false
+  for d in 2..<n:
+    if n mod d == 0: return false
+  true
+
+let spec = (
+  seed: opt("--seed=<n>", default = 7, help = "Random seed",
+    validator = check(isPrime, "must be prime")),
+  steps: opts("--step=<n>", help = "Steps, each larger than the last",
+    validator = checkSeenIt[int](seen.len == 0 or it > seen[^1], "must increase")),
+)
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./seeds --seed 8
+Validation error:
+  - for --seed, 8 did not meet condition: must be prime
+
+Usage:
+  seeds [options]
+$ ./seeds --step 3 --step 2
+Validation error:
+  - for --step, 2 did not meet condition: must increase
+
+Usage:
+  seeds [options]
+```
+
+Without a description, `checkIt` and `checkSeenIt` show the expression
+itself.
+
+### Combining Validators
+
+`all` passes when every validator passes. `any` passes when at least one
+does. Each takes any number of validators, including other `all`s and `any`s,
+and works out the value type from them:
+
+```nim
+import std/strutils
+import argumint
+
+let spec = (
+  size: opt("-s, --size=<n>", default = 4, help = "Block size",
+    validator = all(range(1..64), checkIt[int](it mod 4 == 0, "a multiple of 4"))),
+  level: opt("-l, --level=<level>", default = "info", help = "Log level",
+    validator = any(choice(["debug", "info"]), checkIt[string](it.startsWith("x-")),
+      desc = "debug, info, or a custom x- level")),
+  help: help(),
+)
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./blocks --help
+Usage:
+  blocks [options]
+  blocks (-h | --help)
+
+Options:
+  -s, --size=<n>       Block size [range: 1..64 and a multiple of 4; default: 4]
+  -l, --level=<level>  Log level [debug, info, or a custom x- level; default:
+                       "info"]
+  -h, --help           Display this help message
+$ ./blocks -s 6
+Validation error:
+  - for -s, 6 did not meet condition: a multiple of 4
+
+Usage:
+  blocks [options]
+  blocks (-h | --help)
+```
+
+`all` reports the first validator that fails. Without a description, `any`
+lists all of its validators, joined with "or". Every validator takes an
+optional `desc` to replace its text in help and errors, as `any` does above.

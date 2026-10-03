@@ -18,7 +18,8 @@ public proc and type, see the
 - [Usage Strings](usage-strings.md) — the usage-string grammar and the FSM
   it compiles to.
 - [Arguments and Options](args-and-options.md) — declaring positional
-  arguments and options, and validating their values.
+  arguments and options, their types and defaults, and validating their
+  values.
 - [Flags](flags.md) — flag operations, composition order, custom flag types,
   and clamping.
 - [Value Precedence](precedence.md) — falling back to env vars and Config
