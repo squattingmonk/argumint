@@ -231,9 +231,9 @@ proc prose*(ctx: HelpContext, text: string): Prose =
   ## - The indentation every line shares is removed (`dedent`).
   ## - Consecutive unindented lines join into a paragraph; a blank line
   ##   separates paragraphs and is kept.
-  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
-  ##   indented to exactly the item's text column continues it; the item wraps
-  ##   hanging at that column.
+  ## - A line starting with `-`, `*`, or a number and `.`, then a space,
+  ##   starts a list item. A line indented to exactly the item's text column
+  ##   continues it; the item wraps hanging at that column.
   ## - Any other indented line is kept as its own line, wrapping at its indent.
   ##
   ## See `docs/adr/0054-reflow-prolog-and-epilog.md`.

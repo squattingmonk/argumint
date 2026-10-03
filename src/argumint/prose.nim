@@ -71,8 +71,9 @@ proc toProse*(text: string, metavars: openArray[string] = []): Prose =
   ##
   ## - Consecutive unindented lines join into a paragraph; a blank line
   ##   separates paragraphs and is kept.
-  ## - A line starting with `- `, `* `, or `1. ` starts a list item. A line
-  ##   indented to exactly the item's text column continues it.
+  ## - A line starting with `-`, `*`, or a number and `.`, then a space,
+  ##   starts a list item. A line indented to exactly the item's text column
+  ##   continues it.
   ## - Any other indented line is its own block.
   var pending: seq[tuple[shape: ProseBlock, raw: string]]
   for line in text.dedentLines:
