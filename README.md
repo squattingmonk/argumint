@@ -121,7 +121,7 @@ typed fields — no stringly-typed lookup by flag name.
   Paragraph Style shows. Help and parse errors are [coloured in a
   terminal](docs/guide/help.md#colour) and plain everywhere
   else.
-- **[Shell completion](docs/guide/completion.md#shell-completion)** — dynamic,
+- **[Shell completion](docs/guide/completion.md)** — dynamic,
   FSM-driven `bash`/`zsh`/`fish` completion generated from the same spec that
   drives parsing, so completions can never drift out of sync with what
   actually parses. `fish` and `zsh` also show each candidate's help text

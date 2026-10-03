@@ -499,14 +499,15 @@ cli.parseOrQuit()
 With `notes` on your `PATH`, load the script in your shell:
 
 ```console
-$ source <(notes completion bash)    # bash or zsh
+$ source <(notes completion bash)    # bash
+$ source <(notes completion zsh)     # zsh
 $ notes completion fish | source     # fish
 ```
 
 Pressing Tab now completes `notes l` to `notes list`, and offers `newest`
 and `oldest` as values for `notes list --order`. The choices come from the
 `choice` validator, so they can't drift out of sync with what `notes` accepts.
-See [Shell Completion](completion.md#shell-completion).
+See [Shell Completion](completion.md).
 
 ## Where to Go Next
 
