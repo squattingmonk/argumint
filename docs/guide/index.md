@@ -22,6 +22,8 @@ public proc and type, see the
   values.
 - [Flags](flags.md) — flag types and operations, flags in a usage string,
   your own flag types, and keeping values in bounds.
+- [Custom Types](custom-types.md) — your own value types, for arguments,
+  options, and flags, and your own kind of `Arg`.
 - [Value Precedence](precedence.md) — reading values from environment
   variables and config files.
 - [Commands](commands.md) — nested subcommands and their hooks.

@@ -104,8 +104,7 @@ larger program step by step.
   `--file:file`.
 - **[Typed values](docs/guide/args-and-options.md#types-and-defaults):**
   `string`, `int`, `float`, `bool`, and `char` out of the box, and
-  [your own types](docs/guide/args-and-options.md#your-own-types) with a
-  converter.
+  [your own types](docs/guide/custom-types.md) with a converter.
 - **[Validators](docs/guide/args-and-options.md#validating-values):** limit a
   value to a set of choices or a range, or write your own check, and combine
   them with `all` and `any`. Help lists each limit for you.
