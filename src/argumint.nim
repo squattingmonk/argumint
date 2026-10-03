@@ -139,7 +139,9 @@ export terminal.ForegroundColor, terminal.Style
 template defineArg*[T](typeName: typedesc[T]): untyped =
   ## Defines parse methods for arguments with a value of type `T`. Use this
   ## version if you want to write your own converter to parse a string into a
-  ## `T`.
+  ## `T`. `T` needs `$` and `==`, and `<=` for a `range` validator. A type
+  ## with no zero value, like one marked `{.requiresInit.}`, isn't supported.
+  ## See the [Custom Types](guide/custom-types.html) guide page.
   defineValueArg typeName
 
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
@@ -151,7 +153,7 @@ template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
   ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
   ## - `arg: T`: an argument to the operation
   ## Blank-op (`""`) variants show no auto-generated description in help
-  ## text; use `defineFlag` to supply one.
+  ## text; use `defineFlag` to supply one. `T` needs the same as above.
   defineFlagArg(typeName, "", flagHandler)
 
 template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =

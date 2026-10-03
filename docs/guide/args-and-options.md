@@ -139,8 +139,8 @@ Usage:
 ```
 
 The converter raises a `ValueError` for a value it can't convert, and argumint
-reports it. To use the type for a flag too, see
-[Your Own Flag Types](flags.md#your-own-flag-types).
+reports it. For what else a type needs, how to use it for a flag, and how to
+write your own kind of `Arg`, see [Custom Types](custom-types.md).
 
 ## Validating Values
 

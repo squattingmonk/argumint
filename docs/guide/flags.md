@@ -251,8 +251,8 @@ Options:
 ```
 
 `defineFlag` also does what `defineArg` does, so the type works for an `arg`
-or `opt` too. See [Your Own Types](args-and-options.md#your-own-types). The
-string form of `ops` uses the converter to read each value.
+or `opt` too. The string form of `ops` uses the converter to read each value.
+For more, see [Custom Types](custom-types.md#flags).
 
 ### Sets of Enum Values
 
