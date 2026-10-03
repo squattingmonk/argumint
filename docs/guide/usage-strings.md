@@ -22,8 +22,8 @@ grammar:
 | Syntax            | Meaning                                                                                     |
 | ---               | ---                                                                                         |
 | `command`         | A literal word naming a [command](commands.md#commands) (e.g. `ship`).                                 |
-| `<name>` / `NAME` | A [positional argument](args-and-options.md#declaring-arguments-and-options).                                  |
-| `-o` / `--option` | An [option or flag](args-and-options.md#declaring-arguments-and-options), by any one of its declared variants. |
+| `<name>` / `NAME` | A [positional argument](args-and-options.md).                                  |
+| `-o` / `--option` | An [option or flag](args-and-options.md), by any one of its declared variants. |
 | `-abc`            | A cluster of short options (sugar for `-a -b -c`)                                           |
 | `[...]`           | Everything inside is optional.                                                              |
 | `(...)`           | Groups tokens, usually so `\|` or `...` applies to the group.                               |

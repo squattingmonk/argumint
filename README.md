@@ -92,7 +92,7 @@ typed fields — no stringly-typed lookup by flag name.
 - Fully type-safe. Common value types (`string`, `int`, `float`, `bool` and
   `char`) are supported out of the box, and it's easy to add support for more.
 - **[Positional args,
-  options](docs/guide/args-and-options.md#declaring-arguments-and-options)**,
+  options](docs/guide/args-and-options.md)**,
   **[flags](docs/guide/flags.md#declaring-flags)**, and
   **[commands](docs/guide/commands.md#commands)** — declared uniformly as
   fields of one spec tuple, freely combinable in a usage string.
