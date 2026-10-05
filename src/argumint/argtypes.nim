@@ -488,9 +488,6 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
   result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default,
     help: help, group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
-  if not clamp.isNil and clamp.apply(default) != default:
-    raise newException(SpecDefect, fmt"default {default} for flag {variants} does not satisfy its own clamp")
-
   # Implicit (blank-op) group: every bare spelling in `variants` shares
   # (op: "", arg: default) and forms one alias group automatically, since
   # they can only ever share that one (op, arg) pair.
@@ -498,6 +495,12 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
   # `checkFlagOp`'s lookup, with a message that names the variant.
   if implicitVariants.len > 0 and "" notin getFlagOps(flagOpsKey(T)):
     raise newException(SpecDefect, fmt"{implicitVariants[0]} has no operation: {$typeOf(T)} flags have no blank operation; give it one with ops")
+  if not clamp.isNil and clamp.apply(default) != default:
+    let name =
+      if implicitVariants.len > 0: implicitVariants[0]
+      elif ops.len > 0 and ops[0].variants.len > 0: ops[0].variants[0]
+      else: ""
+    raise newException(SpecDefect, fmt"default {default} for flag {name} does not satisfy its own clamp")
   for name in implicitVariants:
     if result.ops.hasKeyOrPut(name, (op: "", arg: default, desc: "")):
       raise newException(SpecDefect, fmt"duplicate variant for {name}")
