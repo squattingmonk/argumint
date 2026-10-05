@@ -463,7 +463,14 @@ rather than four fields kept in lockstep by convention. `adopt` takes
 `spec`/`command` as explicit arguments rather than reading them off the
 adopted `Report` itself, because the failing position comes from the
 branch's own *live* cursor, which must never retroactively overwrite
-`pc.cursor.spec` — see ADR 0019 point 7.
+`pc.cursor.spec` — see ADR 0019 point 7. The one exception: when the adopted
+`Report` already names a deeper level (its command string strictly extends
+the one passed in), it keeps its own. Each enclosing `walk` frame adopts the
+same report again on the way back up, and would otherwise replace a failure
+two or more levels down with its own level's usage (#192). For that to hold,
+`Report.clear`, called on every branch that matches, also points the report
+at the level now live, so a report never carries an earlier sibling's deeper
+level into a later branch.
 
 Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
 matchers it satisfied: where the first token it could not consume sits, whole

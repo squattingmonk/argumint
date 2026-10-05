@@ -28,7 +28,7 @@ proc walk(s: State, pc: var ParseContext): bool =
     # re-purposes the field as the descent's own output, so start it fresh.
     fresh.maxReach = (0, 0)
     if tr.matcher.match(fresh, atTerminal = s.terminal):
-      fresh.report.clear()
+      fresh.report.clear(fresh.cursor.spec, fresh.command)
       if tr.next.walk(fresh):
         pc = fresh
         return true

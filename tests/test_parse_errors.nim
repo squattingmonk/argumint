@@ -625,3 +625,64 @@ suite "an unresolved cluster names the short option that failed, and its origin"
     check named(@["--speed", "-bc"]) ==
       @["missing value: option --speed requires a value",
         "unrecognized option: -b (in -bc)"]
+
+suite "a nested command's failure shows its own level's usage (#192)":
+  proc usageLines(msg: string): seq[string] =
+    ## The usage block's lines, unindented.
+    msg.split("Usage:\n")[1].splitLines.filterIt(it.len > 0).mapIt(it.strip)
+
+  proc usageBlock(args: seq[string]): seq[string] =
+    ## The usage block's lines for `args` against a three-level command tree.
+    let
+      c = (x: arg("<x>", help = ""), y: arg("<y>", help = ""))
+      b = (c: command("c", c, help = ""), z: arg("<z>", help = ""))
+      a = (b: command("b", b, help = ""), v: flag("-v", help = ""))
+      # `--top` gives the top level an `[options]` line, and something to
+      # put before the command.
+      spec = (a: command("a", a, help = ""), top: opt("--top=<t>", help = ""),
+              help: help())
+    let msg = failure:
+      spec.parse(args = args, command = "deep",
+        settings = newSpecSettings(style = nil))
+    msg.usageLines
+
+  test "three levels down":
+    check usageBlock(@["a", "b", "c", "1"]) == @["deep a b c <x> <y>"]
+    check usageBlock(@["a", "b", "c", "1", "2", "3"]) == @["deep a b c <x> <y>"]
+    check usageBlock(@["--top=1", "a", "b", "c", "1"]) == @["deep a b c <x> <y>"]
+
+  test "two levels down":
+    check usageBlock(@["a", "b"]) == @["deep a b c", "deep a b <z>"]
+
+  test "one and zero levels down are unchanged":
+    check usageBlock(@["a"]) == @["deep a [options] b"]
+    check usageBlock(@[]) == @["deep [options] a", "deep (-h | --help)"]
+
+  test "a sibling that got deeper doesn't lend its level to a later failure":
+    # `b c` fails first, deeper; `<p> ... <u>` then reaches further at `a`.
+    let
+      c = (x: arg("<x>", help = ""), y: arg("<y>", help = ""))
+      b = (c: command("c", c, help = ""), z: arg("<z>", help = ""))
+      a = (b: command("b", b, help = ""), p: arg("<p>", help = ""),
+           q: arg("<q>", help = ""), r: arg("<r>", help = ""),
+           s: arg("<s>", help = ""), t: arg("<t>", help = ""),
+           u: arg("<u>", help = ""))
+      spec = (a: command("a", a, usage = "b\n<p> <q> <r> <s> <t> <u>", help = ""))
+    let msg = failure:
+      spec.parse(args = @["a", "b", "c", "1", "2", "3"], command = "deep",
+        settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing argument: <u>"]
+    check msg.usageLines == @["deep a b", "deep a <p> <q> <r> <s> <t> <u>"]
+
+  test "nor does a sibling command whose name extends this one":
+    let
+      x = (x: arg("<x>", help = ""), y: arg("<y>", help = ""))
+      ab = (x: command("x", x, help = ""))
+      a = (r: arg("<r>", help = ""), s: arg("<s>", help = ""), t: arg("<t>", help = ""))
+      spec = (ab: command("ab", ab, help = ""), a: command("a", a, help = ""),
+              p: arg("<p>", help = ""), q: arg("<q>", help = ""))
+    let msg = failure:
+      spec.parse(args = @["ab", "x", "a", "2", "3"], usage = "ab\n<p> <q> a",
+        command = "deep", settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing argument: <t>"]
+    check msg.usageLines == @["deep a <r> <s> <t>"]

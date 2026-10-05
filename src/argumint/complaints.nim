@@ -255,13 +255,17 @@ proc hasLeftovers*(r: Report): bool =
   ## none of them named a leftover token yet.
   r.leftovers.len > 0
 
-proc clear*(r: var Report) =
-  ## Empties `messages`/`leftovers` only -- `spec`/`command` survive, since a
-  ## successful match doesn't change which level is live. Called on a branch
-  ## that just matched, so whatever an *earlier* transition on this same branch
-  ## complained about is moot. See `docs/architecture.md` §3b.
+proc clear*(r: var Report, spec: Spec, command: string) =
+  ## Empties `messages`/`leftovers` and points `r` at `spec`/`command`, the
+  ## level now live. Called on a branch that just matched, so whatever an
+  ## *earlier* transition on this same branch complained about is moot -- and
+  ## so is the level an earlier sibling's failure was adopted at, which
+  ## `adopt` would otherwise take for a deeper one (#192). See
+  ## `docs/architecture.md` §3b.
   r.messages.setLen(0)
   r.leftovers.setLen(0)
+  r.spec = spec
+  r.command = command
 
 proc mark*(r: Report): ReportMark =
   ## This `Report`'s current size, for `rollback` to restore -- the `Options`
@@ -281,10 +285,19 @@ proc adopt*(r: var Report, other: Report, spec: Spec, command: string) =
   ## *live* cursor, which must never retroactively overwrite `pc.cursor.spec` --
   ## see ADR 0019 point 7. Used when a sibling branch's Reach exceeds the
   ## running best, or nothing has complained yet -- see ADR 0036.
+  ##
+  ## If `other` already names a level below `command`, adopted by a nested
+  ## `walk`, it keeps that one: each enclosing frame adopts the same report
+  ## again, and would otherwise show its own level's usage (#192). A deeper
+  ## level's command string strictly extends its parent's.
   r.messages = other.messages
   r.leftovers = other.leftovers
-  r.spec = spec
-  r.command = command
+  if other.command.startsWith(command & " "):
+    r.spec = other.spec
+    r.command = other.command
+  else:
+    r.spec = spec
+    r.command = command
 
 proc merge*(r: var Report, other: Report) =
   ## Folds `other`'s complaints into `r` instead of replacing them -- for a
@@ -751,14 +764,14 @@ when isMainModule:
       a.merge(b)
       check a.finalComplaints.len == 1
 
-    test "clear empties messages/leftovers but leaves spec/command intact":
+    test "clear empties messages/leftovers and moves to the given level":
       var r = initReport(spec, "app")
       r.missingOption("--foo")
       r.leftover(initCursor(spec, @["extra"]))
-      r.clear()
+      r.clear(spec, "app sub")
       check r.isEmpty
       r.note("boom")
-      check "app" in r.failureMessage
+      check "app sub" in r.failureMessage
 
   suite "styled failures":
 
