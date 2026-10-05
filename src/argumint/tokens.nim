@@ -257,6 +257,22 @@ proc consumeOptsEnd*(cur: var TokenCursor, pos: int): bool =
     cur.optsEnd = true
     result = true
 
+proc isSeparateValue*(cur: TokenCursor, pos: int): bool =
+  ## Whether `cur.tokens[pos]` would be taken as an Optional's separate-token
+  ## value when the tokens before it are read in order, peeling clusters as
+  ## `consume` does. Lets an option scan tell a Command word from an option's
+  ## value -- see architecture.md §3, "Option scans stop at a Command".
+  var
+    walk = cur
+    target = pos
+  while target > 0:
+    let c = walk.classify(0)
+    if c.consumed == 2 and target == 1:
+      return true
+    walk.consume(0, c)
+    if c.remainder.len == 0:
+      target -= c.consumed
+
 when isMainModule:
   import std/[unittest]
   import ../argumint

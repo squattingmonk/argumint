@@ -405,3 +405,67 @@ suite "An option given before its place in the Usage Line (#181)":
     check parsed(withV, @["--name=n", "a", "b"]) == "x=a y=b name=n"
     check parsed(withV, @["a", "b", "--name", "n"]) == "x=a y=b name=n"
     check parsed("[options] <x> <y>", @["--name", "n", "a", "b"]) == "x=a y=b name=n"
+
+suite "A parent's options stop at its Command (#171)":
+  # See architecture.md's "Option scans stop at a Command".
+  proc parsed(args: seq[string], usage = ""): string =
+    let sub = (text: args("<text>", help = ""))
+    let spec = (
+      v: flag("-v", help = ""),
+      name: opt("--name=<n>", default = "", help = ""),
+      add: command("add", sub, help = ""),
+    )
+    try:
+      spec.parse(usage = usage, args = args, command = "prog",
+        settings = newSpecSettings(style = nil))
+    except ParseError as e:
+      return e.msg
+    result = "v=" & $spec.v & " name=" & spec.name & " text=" & sub.text.get.join(",")
+
+  test "a parent option after the command word is unrecognized":
+    check "unrecognized option: -v" in parsed(@["add", "-v", "x"])
+    check "unrecognized option: --name" in parsed(@["add", "--name", "n", "x"])
+
+  test "a parent option before the command word still matches":
+    check parsed(@["-v", "add", "x"]) == "v=true name= text=x"
+    check parsed(@["-v", "--name", "n", "add", "x"]) == "v=true name=n text=x"
+
+  test "an option neither level declares is still unrecognized":
+    check "unrecognized option: -x" in parsed(@["add", "-x", "x"])
+
+  test "a command word that is an option's separate value doesn't stop the scan":
+    check parsed(@["--name", "add", "-v", "add", "x"]) == "v=true name=add text=x"
+    check parsed(@["--name=add", "-v", "add", "x"]) == "v=true name=add text=x"
+    check parsed(@["--name", "add", "-v", "add", "x"], usage = "[-v] [--name=<n>] add") ==
+      "v=true name=add text=x"
+
+  test "a command word that is a clustered option's value doesn't stop the scan":
+    let sub = (text: args("<text>", help = ""))
+    let spec = (
+      q: flag("-q", help = ""),
+      v: flag("-v", help = ""),
+      n: opt("-n=<n>", default = "", help = ""),
+      add: command("add", sub, help = ""),
+    )
+    spec.parse(usage = "[-q] [-v] [-n=<n>] add", args = @["-vn", "add", "-q", "add", "x"],
+      command = "prog")
+    check spec.q and spec.v
+    check spec.n == "add"
+    check sub.text == @["x"]
+
+  test "an option that is itself a value doesn't make the next word one":
+    let lax = newSpecSettings(strictOptions = false)
+    let sub = (text: args("<text>", help = ""))
+    let spec = (
+      v: flag("-v", help = ""),
+      name: opt("--name=<n>", default = "", help = ""),
+      add: command("add", sub, help = ""),
+    )
+    spec.parse(args = @["--name", "--name", "add", "-v", "add", "x"],
+      command = "prog", settings = lax)
+    check spec.name == "--name"
+    check not spec.v # unrecognized at `add`'s level, so lax makes it text
+    check sub.text == @["-v", "add", "x"]
+
+  test "a parent option before the command word can't reach past it for a --":
+    check parsed(@["-v", "add", "--", "-v"]) == "v=true name= text=-v"

@@ -96,6 +96,17 @@ suite "values are parsed for the whole tree before any hook fires":
       spec.parse(usage = "[-v]... go", args = args, command = "app")
       check int(shared) == 2
 
+  test "a shared flag after an unrecognized option is the child's own match":
+    # `-x` is `<name>` here, without strictOptions -- see ADR 0034.
+    let shared = flag[int](ops = [flagOp("-v", "+=", 1)], default = 0, help = "")
+    let sub = (v: shared, name: arg("<name>", default = "", help = ""))
+    let spec = (v: shared,
+                go: command("go", sub, usage = "[-v]... <name>", help = ""))
+    spec.parse(usage = "[-v]... go", args = @["go", "-x", "-v"], command = "app",
+               settings = newSpecSettings(strictOptions = false))
+    check int(shared) == 1
+    check string(sub.name) == "-x"
+
 suite "a conversion failure beats a matched Message Argument":
   test "a bad value below the level --help matched at still raises":
     # The one behavior change for input that previously succeeded: `-h`
