@@ -98,10 +98,11 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     pc.cursor.optsEnd = true
     result = true
   of mkArgument:
-    # Skip Option/Flag-classified tokens (order-independent -- see ADR
-    # 0019). A Command-classified token is accepted as literal text just
-    # like a Positional one -- the scan must not skip past it looking
-    # further ahead, see ADR 0019 point 6 on why that breaks ordering.
+    # Skip Option/Flag-classified tokens, and a separate-token value with
+    # them (order-independent -- see ADR 0019). A Command-classified token
+    # is accepted as literal text just like a Positional one -- the scan
+    # must not skip past it looking further ahead, see ADR 0019 point 6 on
+    # why that breaks ordering.
     var pos = 0
     while pos < pc.cursor.len:
       if pc.cursor.consumeOptsEnd(pos):
@@ -119,7 +120,8 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
           result = true
           break
       else:
-        pos.inc
+        # Skip a separate-token value too (#181); at least 1 so it can't stall.
+        pos += max(c.consumed, 1)
     if not result and pc.matches.getOrDefault(m.arg).len == 0:
       # Only report a genuinely-unmatched arg -- if this arg already matched
       # at least once (a satisfied `<arg>...` repeat), a failed attempt at

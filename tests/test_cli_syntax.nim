@@ -368,3 +368,40 @@ suite "An option-shaped token unrecognized by one alternative can still match a 
     # Non-Option Short exemption is what keeps ADR 0019 gap 2 working.
     spec.parse(usage = "--verbose|<raw>...", args = @["-5", "-1.5"], command = "prog")
     check spec.raw == @["-5", "-1.5"]
+
+suite "An option given before its place in the Usage Line (#181)":
+  # See the Argument scan in matching.nim.
+  proc parsed(usage: string, args: seq[string]): string =
+    let spec = (
+      x: arg("<x>", help = ""),
+      y: arg("<y>", help = ""),
+      name: opt("--name=<n>", default = "", help = ""),
+      o: opt("-o=<o>", default = "", help = ""),
+      v: flag("-v", help = ""),
+    )
+    spec.parse(usage = usage, args = args, command = "prog")
+    result = "x=" & spec.x & " y=" & spec.y & " name=" & spec.name
+    if spec.o.len > 0: result.add " o=" & spec.o
+    if spec.v: result.add " v=true"
+
+  const
+    withV = "<x> --name=<n> <y> [-v]"
+    withO = "<x> --name=<n> <y> [-o=<o>]"
+
+  test "before the first positional":
+    check parsed(withV, @["--name", "n", "a", "b"]) == "x=a y=b name=n"
+
+  test "after a flag that is also out of place":
+    check parsed(withV, @["-v", "--name", "n", "a", "b"]) == "x=a y=b name=n v=true"
+    check parsed(withV, @["--name", "n", "-v", "a", "b"]) == "x=a y=b name=n v=true"
+
+  test "with another out-of-place option that takes a value":
+    check parsed(withO, @["-o", "p", "--name", "n", "a", "b"]) == "x=a y=b name=n o=p"
+    check parsed(withO, @["--name", "n", "-o", "p", "a", "b"]) == "x=a y=b name=n o=p"
+    check parsed(withO, @["a", "-o", "p", "b", "--name", "n"]) == "x=a y=b name=n o=p"
+
+  test "in place, attached or after its place, as before":
+    check parsed(withV, @["a", "--name", "n", "b"]) == "x=a y=b name=n"
+    check parsed(withV, @["--name=n", "a", "b"]) == "x=a y=b name=n"
+    check parsed(withV, @["a", "b", "--name", "n"]) == "x=a y=b name=n"
+    check parsed("[options] <x> <y>", @["--name", "n", "a", "b"]) == "x=a y=b name=n"
