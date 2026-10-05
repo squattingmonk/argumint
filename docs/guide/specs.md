@@ -384,6 +384,7 @@ fresh spec for each call, parses into it, and returns it:
 
 ```nim
 import std/cmdline
+import argumint
 
 proc buildCli(): auto =
   (tags: opts("--tag=<t>"), port: opt("--port=<n>", default = 80), help: help())

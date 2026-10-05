@@ -43,6 +43,10 @@ registration.
   default settings must pass `newSpecSettings(style = nil)`, since the
   default styler colours output whenever it runs in a terminal; running
   the suite with `FORCE_COLOR=1` finds any that don't.
+- Compile every whole-program example in the user guide (`docs/guide/*.md`
+  blocks starting with `import`) with `nimble docscheck`; the docs workflow
+  runs it on pull requests. A block that doesn't start with `import` is a
+  fragment and isn't checked. See `tools/guideblocks.nim`.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 - `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code

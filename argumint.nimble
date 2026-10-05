@@ -21,6 +21,10 @@ task test, "Run the test suite":
   # file's tests run without any wiring here. See tools/runtests.nim.
   exec "nim c -r --hints:off tools/runtests.nim"
 
+task docscheck, "Compile every whole-program example in the user guide":
+  # Compiles without running them; see tools/guideblocks.nim.
+  exec "nim c -r --hints:off tools/guideblocks.nim"
+
 task examples, "Compile every example":
   for file in listFiles("examples"):
     if file.endsWith(".nim"):
