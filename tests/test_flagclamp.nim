@@ -46,6 +46,17 @@ suite "Flag Clamp integration":
     expect SpecDefect:
       discard flag[int]("--verbose", default = 15, help = "", clamp = clamp(0..10))
 
+  test "the out-of-range default's SpecDefect names the flag's first spelling (#184)":
+    template message(body: untyped): string =
+      var caught = ""
+      try: discard body
+      except SpecDefect as e: caught = e.msg
+      caught
+    check message(flag(default = 50, ops = "--up+=3, --down-=3", clamp = clamp(0..10))) ==
+      "default 50 for flag --up does not satisfy its own clamp"
+    check message(flag("-v, --volume", default = 50, clamp = clamp(0..10))) ==
+      "default 50 for flag -v does not satisfy its own clamp"
+
   test "a default that already satisfies its own clamp is accepted":
     discard flag[int]("--verbose", default = 5, help = "", clamp = clamp(0..10))
     discard flag[int]("--verbose", default = 0, help = "", clamp = clamp(0..10))
