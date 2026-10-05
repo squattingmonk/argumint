@@ -57,8 +57,13 @@ type
     of Optional:
       opt*: Arg
       optName*: string
+        ## The option's name as typed, without its value
       optVal*: string
+        ## The option's value, whether attached, folded, or the next token
       optSep*: string
+        ## What the user typed between `optName` and `optVal`: `=` or `:`
+        ## when attached, `" "` when the value is the next token (#180), and
+        ## `""` when it's folded into a short cluster (`-nb`)
     of Flag:
       flag*: Arg
       flagName*: string
@@ -197,7 +202,8 @@ proc classify*(cur: TokenCursor, pos: int): Classification =
           return Classification(kind: Flag, flag: option, flagName: variant, consumed: 1)
         of Optional:
           if pos + 1 < cur.len and not cur.refusesAsValue(pos + 1):
-            return Classification(kind: Optional, opt: option, optName: variant, optVal: cur[pos + 1].raw, consumed: 2)
+            return Classification(kind: Optional, opt: option, optName: variant,
+              optSep: " ", optVal: cur[pos + 1].raw, consumed: 2)
           # Declared, but nothing usable follows -- a starved option, not an
           # unknown name. Errors under both settings.
           return starved(option, variant, token.raw)
@@ -519,6 +525,7 @@ when isMainModule:
       var cur = initCursor(spec, @["--port", "80", "extra"])
       let c = cur.classify(0)
       check c.consumed == 2
+      check c.optSep == " "
       cur.consume(0, c)
       check cur.len == 1
       check cur[0].raw == "extra"
