@@ -1,8 +1,8 @@
 ## The `ValueArg`/`FlagArg` data model and every piece of machinery that
 ## touches their private fields: the method-generating `defineValueArg`/
-## `defineFlagArg`/`defineSetFlagArg` templates, the `flagOps` registry
-## they write, the `initValueArg`/`initFlagArg` constructors, and the
-## `rawValue`/`rawDefault` read accessors.
+## `defineFlagArg`/`defineSetFlagArg` templates, the `flagOps` and
+## `valueTypes` registries they write, the `initValueArg`/`initFlagArg`
+## constructors, and the `rawValue`/`rawDefault` read accessors.
 ##
 ## Everything here is exported so `argumint.nim` can reach it, and none of
 ## it is re-exported by that facade -- the public names (`arg`/`opt`/
@@ -237,10 +237,34 @@ proc checkFlagOp*[T](op: string) =
     let escapedOp = strutils.escape(op)
     raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
+const valueTypes = CacheSeq"valueTypes"
+  ## Every type registered with `defineArg` so far, read by
+  ## `requireValueType`. A registry rather than an overload: see
+  ## docs/gotchas.md.
+
+macro registerValueType(T: typedesc) =
+  valueTypes.add T.getTypeInst[1]
+
+macro isValueType(T: typedesc): bool =
+  ## Whether `T` is a registered type or an alias of one. `sameType`, so a
+  ## type that merely converts to one (`int8`, `range[0..10]`) isn't.
+  let t = T.getTypeInst[1]
+  result = newLit(false)
+  for registered in valueTypes:
+    if sameType(t, registered):
+      return newLit(true)
+
+template requireValueType(T: typedesc) =
+  ## Stops compilation unless `T` was registered with `defineArg`.
+  when not isValueType(T):
+    {.error: $T & " is not a value type: call `defineArg(" & $T & ")` before using it (with a converter from string)".}
+
 template defineValueArg*[T](typeName: typedesc[T]): untyped =
   ## Generates the `ValueArg[T, false]`/`ValueArg[T, true]` methods for `T`.
   ## The machinery behind `argumint.nim`'s one-argument `defineArg*`; see
   ## there for the user-facing docs.
+  registerValueType(typeName)
+
   method accept(self: ValueArg[T, false], c: Contribution, how: Arbitration) =
     self.acceptImpl(c, how)
 
@@ -472,6 +496,7 @@ proc initValueArg*[T: not seq; multi: static bool](kind: ArgKind, variants: stri
   ## object constructor this replaced named every field, and `help`/`group`
   ## are adjacent same-typed parameters that a positional call could swap
   ## silently.
+  requireValueType(T)
   ValueArg[T, multi](kind: kind, variants: variants.split(Comma), default: default,
     help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: cfgKey)
 
@@ -621,6 +646,15 @@ when isMainModule:
       const registeredInt = "int" in flagOps
       check registeredInt
       check "+=" in getFlagOps("int")
+
+    test "the `valueTypes` registry, `isValueType` and `requireValueType` exist but are private to this module":
+      # Same reasoning: `initValueArg` is their only reader.
+      const registered = valueTypes.len > 0
+      check registered
+      check isValueType(int)
+      check not isValueType(int8)
+      check compiles(requireValueType(int))
+      check not compiles(requireValueType(int8))
 
     test "the string-to-scalar converters exist but are private to this module":
       # `tests/test_public_api.nim` asserts a bare `import argumint` leaves

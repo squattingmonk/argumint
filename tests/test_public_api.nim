@@ -22,10 +22,12 @@
 # and calls it, rather than with `test_argumint.nim`'s suite.
 #
 # A third, of exactly the `FlagOp` kind: the four string-to-scalar
-# converters (`toInt`/`toFloat`/`toBool`/`toChar`), the `flagOps` registry,
-# and `getFlagOps` are all private to `src/argumint/argtypes.nim` -- not
-# merely withheld from this facade -- so no importer can name them. Their
-# mirrors live in that file's own embedded suite alongside `FlagOp`'s.
+# converters (`toInt`/`toFloat`/`toBool`/`toChar`), the `flagOps` and
+# `valueTypes` registries, `getFlagOps`, `isValueType` and
+# `requireValueType` are all private to
+# `src/argumint/argtypes.nim` -- not merely withheld from this facade -- so
+# no importer can name them. Their mirrors live in that file's own embedded
+# suite alongside `FlagOp`'s.
 
 import std/[os, sequtils, unittest]
 
@@ -181,6 +183,9 @@ suite "Types nameable after a bare `import argumint`":
     # embedded suite -- see the third exception in this file's header.
     check not compiles(getFlagOps("int"))
     check not compiles(flagOps)
+    check not compiles(isValueType(int))
+    check not compiles(valueTypes)
+    check not declared(requireValueType)
 
   test "the string-to-scalar converters stay private to `argumint/argtypes`":
     # They fire for `acceptImpl`'s `let tmp: T = c.value` and for

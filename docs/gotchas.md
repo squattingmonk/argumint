@@ -369,6 +369,15 @@ or anything else that generates methods inside a template.
     `display.showValue` fully qualified. `tests/test_custom_types.nim`
     keeps a decoy in scope to catch a regression.
 
+- **"Is `T` registered?" can't be an overload found by `mixin`.** A
+  `mixin` symbol resolves in the module that instantiates the generic, so a
+  `requireValueType` built on `mixin isValueType` failed for `opt[int]`
+  reached through another library's generic, whose caller never imported
+  argumint. Overload resolution also matches by conversion, so `int8` and
+  `range[0..10]` found `int`'s overload and slipped through. `valueTypes`
+  (`argtypes.nim`) is a `CacheSeq` instead, global to the compile, checked
+  with `sameType`: exact, though an alias still matches (issue #167).
+
 - **This same `openSym` mechanism also bit a non-generated, ordinary
   generic proc**: `command*[S]`'s body has always written the object
   constructor field bare, `CommandArg(kind: Command, ...)` -- relying on

@@ -92,21 +92,21 @@ split on, and `subject`, all of which have consumers on both sides of the
 split.
 
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
-below the `argumint.nim` facade, and holds the `ValueArg`/`FlagArg` data
-model plus **everything that touches their private fields**: the
+below the `argumint.nim` facade, and holds the `ValueArg`/`FlagArg` data model
+plus **everything that touches their private fields**: the
 `defineValueArg`/`defineFlagArg`/`defineSetFlagArg` method generators, the
-`flagOps` `CacheTable` they write, `acceptImpl`, the `initValueArg`/
-`initFlagArg` constructors, the `rawValue`/`rawDefault` read accessors, and
-the flag mini-language parsers. Every public name over that machinery —
-`arg`/`args`/`opt`/`opts`/`flag`/`flagOp`, `get`/`toT`/`toSeqT`,
-`defineArg`/`defineFlag`/`defineSetFlag` — stays in `argumint.nim` with its
-documentation and delegates. The split is forced rather than stylistic:
-`privateAccess` does not survive instantiation in another module, so
-anything generic or templated that reads a private field has to live beside
-the type (see `docs/gotchas.md`). `argtypes` is exported for the facade's
-benefit and withheld from its re-export list, exactly like `specbuild`'s
-`beginSpec`/`finishSpec`; it is an implementation-detail module, not a
-promised import path.
+`flagOps` `CacheTable` and `valueTypes` `CacheSeq` they write, `acceptImpl`,
+the `initValueArg`/`initFlagArg` constructors, the `rawValue`/`rawDefault`
+read accessors, and the flag mini-language parsers. Every public name over
+that machinery — `arg`/`args`/`opt`/`opts`/`flag`/`flagOp`,
+`get`/`toT`/`toSeqT`, `defineArg`/`defineFlag`/`defineSetFlag` — stays in
+`argumint.nim` with its documentation and delegates. The split is forced
+rather than stylistic: `privateAccess` does not survive instantiation in
+another module, so anything generic or templated that reads a private field
+has to live beside the type (see `docs/gotchas.md`). `argtypes` is exported
+for the facade's benefit and withheld from its re-export list, exactly like
+`specbuild`'s `beginSpec`/`finishSpec`; it is an implementation-detail module,
+not a promised import path.
 
 `tokens.nim` sits directly above `backend` and below `complaints`/`fsm`, and
 holds `RawToken`/`Classification` plus every operation that decides what one
@@ -660,6 +660,15 @@ appending on each match). `arg*`/`opt*` construct the scalar arity only
 Because `multi` is a `static bool`, `ValueArg[T, false]` and `ValueArg[T,
 true]` are distinct concrete types to the compiler, so `toT`/`toSeqT` can be
 overloaded per-arity without ambiguity.
+
+`initValueArg` refuses to compile for a type no `defineArg` has registered
+yet: `defineValueArg` adds each type to the `valueTypes` `CacheSeq`, and
+`requireValueType` checks `T` against it with `sameType`. Without that check,
+an unregistered `ValueArg[T]` fell back to `Arg`'s base methods and silently
+ignored every value. Being a compile-time registry, it sees only registrations
+already compiled, so `defineArg` has to come before a type's first use, as
+`flagOps` already required; see `docs/gotchas.md` for why it isn't an overload
+(issue #167).
 
 Both type names are exported from `argtypes` and re-exported by the facade,
 on the same terms as `Spec` — nameable, state private — so an arg can cross
