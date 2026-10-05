@@ -495,6 +495,9 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
   # (op: "", arg: default) and forms one alias group automatically, since
   # they can only ever share that one (op, arg) pair.
   let implicitVariants = splitFlagSpellings(variants)
+  # `checkFlagOp`'s lookup, with a message that names the variant.
+  if implicitVariants.len > 0 and "" notin getFlagOps(flagOpsKey(T)):
+    raise newException(SpecDefect, fmt"{implicitVariants[0]} has no operation: {$typeOf(T)} flags have no blank operation; give it one with ops")
   for name in implicitVariants:
     if result.ops.hasKeyOrPut(name, (op: "", arg: default, desc: "")):
       raise newException(SpecDefect, fmt"duplicate variant for {name}")

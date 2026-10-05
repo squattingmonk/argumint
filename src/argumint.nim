@@ -463,7 +463,9 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
   ##   flipping `default` for bool flags, or incrementing the existing
   ##   value by 1 for int flags. Every spelling here is automatically a
   ##   FlagOp Alias of every other, since they can only ever share one
-  ##   `(op, value)` pair.
+  ##   `(op, value)` pair. A type with no blank op (`float`, `string`,
+  ##   `char`, a set, or a custom type with no `of ""` branch) takes no
+  ##   spellings here: spec construction raises `SpecDefect`.
   ## - `ops` optionally declares one or more explicit FlagOp Alias groups,
   ##   built with `flagOp*` -- each names its own spellings, `op`, `value`,
   ##   and `help`, e.g. `ops = [flagOp("-b, --boost", "+=", 5, "Boost by

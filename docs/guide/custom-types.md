@@ -208,8 +208,10 @@ Fri 2 Oct
 ```
 
 Each `of` branch names an operation the type supports, and argumint rejects
-any other when it builds the spec. Here, only `=` works. A flag's operation
-value has the flag's own type, so a `DateTime` flag can't add a `Duration`.
+any other when it builds the spec. Here, only `=` works, and with no `""`
+branch every name needs `ops`: `flag[DateTime]("--day")` is rejected too. A
+flag's operation value has the flag's own type, so a `DateTime` flag can't
+add a `Duration`.
 
 The block replaces a separate `defineArg(DateTime)`, so the type also works
 for an `arg` or `opt`. The `ops` string form uses your converter, so

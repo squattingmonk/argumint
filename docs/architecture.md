@@ -882,7 +882,8 @@ what a textual declaration-order rule inside `argumint.nim` used to (see
 A Flag's Variants are declared one of two ways (see `docs/adr/
 0027-flag-op-declarations.md`): bare spellings in `flag*`'s own `variants`
 string always share the type's implicit blank-op behavior against the
-Flag's own `default`; `flagOp*(variants, op, value, help = "")` builds one
+Flag's own `default`, and `initFlagArg` rejects them when the type
+registered no blank op; `flagOp*(variants, op, value, help = "")` builds one
 explicit `FlagOpGroup[T]`, passed to `flag*`'s `ops: varargs[FlagOpGroup[T]]`
 param, with `op`/`value` mandatory. Both routes to an explicit group --
 `flagOp*` on its own `op` param, and `parseFlagOpsString` on each parsed
