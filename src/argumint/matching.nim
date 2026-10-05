@@ -46,7 +46,7 @@ type
       ## and whether `--` has been crossed -- consulted by `classify`/
       ## `match` as the walk progresses; `cursor.spec` is never
       ## retroactively overwritten by a failed sibling's own descent (see
-      ## `Report.adopt`). See `TokenCursor` (`tokens.nim`)
+      ## ADR 0019 point 7). See `TokenCursor` (`tokens.nim`)
     command*: string
       ## The command string up to the current subcommand, for the live
       ## walk position -- names the level `cursor.spec` governs

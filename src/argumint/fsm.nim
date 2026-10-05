@@ -41,7 +41,7 @@ proc walk(s: State, pc: var ParseContext): bool =
       # `maxReach` only ever rises -- adopting a lesser branch's complaints
       # must not lower the bar later siblings tie against. See ADR 0036.
       pc.maxReach = max(pc.maxReach, branchReach)
-      pc.report.adopt(fresh.report, fresh.cursor.spec, fresh.command)
+      pc.report.adopt(fresh.report)
     elif branchReach == pc.maxReach:
       # A Reach-tied sibling merges its complaints into the running set
       # instead of replacing it outright -- two same-kind failures (e.g.

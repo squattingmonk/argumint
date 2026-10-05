@@ -406,9 +406,10 @@ fields a later sibling transition's own `fresh` copy starts from — harmless
 before this change (a failed Command descent could never be followed by a
 sibling Argument attempt reusing the same leftover token), but reachable
 now. `ParseContext.report` (`complaints.Report`, §3b) carries dedicated
-`spec`/`command` fields of its own for this, written only by `Report.adopt`
-(the merge step) and read only when formatting the final failure message, so
-`cursor.spec`/`.command` stay reserved for live walk state. See
+`spec`/`command` fields of its own for this, set by `Report.clear` when a
+branch matches, carried up by `Report.adopt` (the merge step), and read only
+when formatting the final failure message, so `cursor.spec`/`.command` stay
+reserved for live walk state. See
 `docs/adr/0019-lazy-token-classification.md`. `Report`'s leftovers (§3b) are
 recorded on the same terms.
 
@@ -456,21 +457,16 @@ merge-on-tied bookkeeping at the bottom of `walk`'s transition loop
   `unrecognized option: --nope` case.
 
 `Report` also carries the failing `spec`/`command` (what used to be
-`ParseContext.errorSpec`/`.errorCommand`) — all four pieces are written
-together at `Report.adopt` (`walk`'s one adoption site) and read together at
-the one raise site (`Report.raiseParseFailure`), so they travel as one value
-rather than four fields kept in lockstep by convention. `adopt` takes
-`spec`/`command` as explicit arguments rather than reading them off the
-adopted `Report` itself, because the failing position comes from the
-branch's own *live* cursor, which must never retroactively overwrite
-`pc.cursor.spec` — see ADR 0019 point 7. The one exception: when the adopted
-`Report` already names a deeper level (its command string strictly extends
-the one passed in), it keeps its own. Each enclosing `walk` frame adopts the
-same report again on the way back up, and would otherwise replace a failure
-two or more levels down with its own level's usage (#192). For that to hold,
-`Report.clear`, called on every branch that matches, also points the report
-at the level now live, so a report never carries an earlier sibling's deeper
-level into a later branch.
+`ParseContext.errorSpec`/`.errorCommand`) — all four pieces travel as one
+value, read together at the one raise site (`Report.raiseParseFailure`),
+rather than four fields kept in lockstep by convention. The level is set by
+`Report.clear` on every branch that matches, from the branch's live cursor at
+that moment, and `Report.adopt` takes a sibling's whole `Report`, level and
+all. A failure several levels down so keeps its own level as each enclosing
+`walk` frame adopts it on the way back up (#192). Resetting the level in
+`clear` matters as much: without it a branch kept an earlier sibling's deeper
+level, and adopted that as its own. Nothing here writes `pc.cursor.spec`, which
+a failed sibling must never retroactively overwrite — see ADR 0019 point 7.
 
 Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
 matchers it satisfied: where the first token it could not consume sits, whole

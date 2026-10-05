@@ -44,8 +44,8 @@ type
     ## (`leftovers`), plus the `Spec`/command string the eventual message's
     ## usage block is rendered against. `spec`/`command` travel with the
     ## complaints rather than living beside them on `ParseContext`, since
-    ## all four are written together at `walk`'s one adoption site
-    ## (`adopt`) and read together at the one raise site
+    ## the level is set when a branch matches (`clear`), carried up with the
+    ## complaints (`adopt`), and read with them at the one raise site
     ## (`raiseParseFailure`). Fields unexported -- callers go through the
     ## verbs below, never the fields directly.
     messages: seq[Complaint]
@@ -260,7 +260,7 @@ proc clear*(r: var Report, spec: Spec, command: string) =
   ## level now live. Called on a branch that just matched, so whatever an
   ## *earlier* transition on this same branch complained about is moot -- and
   ## so is the level an earlier sibling's failure was adopted at, which
-  ## `adopt` would otherwise take for a deeper one (#192). See
+  ## `adopt` would otherwise carry up as this branch's (#192). See
   ## `docs/architecture.md` §3b.
   r.messages.setLen(0)
   r.leftovers.setLen(0)
@@ -278,26 +278,14 @@ proc rollback*(r: var Report, m: ReportMark) =
   r.messages.setLen(m.messages)
   r.leftovers.setLen(m.leftovers)
 
-proc adopt*(r: var Report, other: Report, spec: Spec, command: string) =
-  ## Replaces `r`'s complaints with `other`'s, for `spec`/`command` --
-  ## `spec`/`command` are taken as explicit arguments rather than read off
-  ## `other` itself, because the failing position comes from the branch's own
-  ## *live* cursor, which must never retroactively overwrite `pc.cursor.spec` --
-  ## see ADR 0019 point 7. Used when a sibling branch's Reach exceeds the
-  ## running best, or nothing has complained yet -- see ADR 0036.
-  ##
-  ## If `other` already names a level below `command`, adopted by a nested
-  ## `walk`, it keeps that one: each enclosing frame adopts the same report
-  ## again, and would otherwise show its own level's usage (#192). A deeper
-  ## level's command string strictly extends its parent's.
-  r.messages = other.messages
-  r.leftovers = other.leftovers
-  if other.command.startsWith(command & " "):
-    r.spec = other.spec
-    r.command = other.command
-  else:
-    r.spec = spec
-    r.command = command
+proc adopt*(r: var Report, other: Report) =
+  ## Replaces `r` with `other`: its complaints and the level they're about.
+  ## That level is wherever `other`'s branch last matched (`clear`), or one a
+  ## nested `walk` adopted from deeper down, so a failure several levels down
+  ## keeps its own usage as each enclosing frame adopts it in turn (#192).
+  ## Used when a sibling branch's Reach exceeds the running best, or nothing
+  ## has complained yet -- see ADR 0036.
+  r = other
 
 proc merge*(r: var Report, other: Report) =
   ## Folds `other`'s complaints into `r` instead of replacing them -- for a
