@@ -28,7 +28,7 @@ proc walk(s: State, pc: var ParseContext): bool =
     # re-purposes the field as the descent's own output, so start it fresh.
     fresh.maxReach = (0, 0)
     if tr.matcher.match(fresh, atTerminal = s.terminal):
-      fresh.report.clear()
+      fresh.report.clear(fresh.cursor.spec, fresh.command)
       if tr.next.walk(fresh):
         pc = fresh
         return true
@@ -41,7 +41,8 @@ proc walk(s: State, pc: var ParseContext): bool =
       # `maxReach` only ever rises -- adopting a lesser branch's complaints
       # must not lower the bar later siblings tie against. See ADR 0036.
       pc.maxReach = max(pc.maxReach, branchReach)
-      pc.report.adopt(fresh.report, fresh.cursor.spec, fresh.command)
+      # The level comes too, so a deeper failure keeps its usage (#192).
+      pc.report = fresh.report
     elif branchReach == pc.maxReach:
       # A Reach-tied sibling merges its complaints into the running set
       # instead of replacing it outright -- two same-kind failures (e.g.

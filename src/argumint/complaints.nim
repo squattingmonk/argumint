@@ -39,15 +39,15 @@ type
     ## restore -- see `mark`.
 
   Report* = object
-    ## Everything accumulated about why a parse branch failed: what the
-    ## grammar wanted (`messages`) and what the input left over
-    ## (`leftovers`), plus the `Spec`/command string the eventual message's
-    ## usage block is rendered against. `spec`/`command` travel with the
-    ## complaints rather than living beside them on `ParseContext`, since
-    ## all four are written together at `walk`'s one adoption site
-    ## (`adopt`) and read together at the one raise site
-    ## (`raiseParseFailure`). Fields unexported -- callers go through the
-    ## verbs below, never the fields directly.
+    ## Everything accumulated about why a parse branch failed: what the grammar
+    ## wanted (`messages`) and what the input left over (`leftovers`), plus the
+    ## `Spec`/command string the eventual message's usage block is rendered
+    ## against. `spec`/`command` travel with the complaints rather than living
+    ## beside them on `ParseContext`, since the level is set when a branch
+    ## matches (`clear`), carried up with the complaints when `walk` takes a
+    ## sibling's `Report` whole, and read with them at the one raise site
+    ## (`raiseParseFailure`). Fields unexported -- callers go through the verbs
+    ## below, never the fields directly.
     messages: seq[Complaint]
     leftovers: seq[Leftover]
     spec: Spec
@@ -255,13 +255,17 @@ proc hasLeftovers*(r: Report): bool =
   ## none of them named a leftover token yet.
   r.leftovers.len > 0
 
-proc clear*(r: var Report) =
-  ## Empties `messages`/`leftovers` only -- `spec`/`command` survive, since a
-  ## successful match doesn't change which level is live. Called on a branch
-  ## that just matched, so whatever an *earlier* transition on this same branch
-  ## complained about is moot. See `docs/architecture.md` §3b.
+proc clear*(r: var Report, spec: Spec, command: string) =
+  ## Empties `messages`/`leftovers` and points `r` at `spec`/`command`, the
+  ## level now live. Called on a branch that just matched, so whatever an
+  ## *earlier* transition on this same branch complained about is moot -- and
+  ## so is the level an earlier sibling's failure was adopted at, which
+  ## `walk` would otherwise carry up as this branch's (#192). See
+  ## `docs/architecture.md` §3b.
   r.messages.setLen(0)
   r.leftovers.setLen(0)
+  r.spec = spec
+  r.command = command
 
 proc mark*(r: Report): ReportMark =
   ## This `Report`'s current size, for `rollback` to restore -- the `Options`
@@ -273,18 +277,6 @@ proc rollback*(r: var Report, m: ReportMark) =
   ## Discards everything recorded since `m` -- see `mark`.
   r.messages.setLen(m.messages)
   r.leftovers.setLen(m.leftovers)
-
-proc adopt*(r: var Report, other: Report, spec: Spec, command: string) =
-  ## Replaces `r`'s complaints with `other`'s, for `spec`/`command` --
-  ## `spec`/`command` are taken as explicit arguments rather than read off
-  ## `other` itself, because the failing position comes from the branch's own
-  ## *live* cursor, which must never retroactively overwrite `pc.cursor.spec` --
-  ## see ADR 0019 point 7. Used when a sibling branch's Reach exceeds the
-  ## running best, or nothing has complained yet -- see ADR 0036.
-  r.messages = other.messages
-  r.leftovers = other.leftovers
-  r.spec = spec
-  r.command = command
 
 proc merge*(r: var Report, other: Report) =
   ## Folds `other`'s complaints into `r` instead of replacing them -- for a
@@ -751,14 +743,14 @@ when isMainModule:
       a.merge(b)
       check a.finalComplaints.len == 1
 
-    test "clear empties messages/leftovers but leaves spec/command intact":
+    test "clear empties messages/leftovers and moves to the given level":
       var r = initReport(spec, "app")
       r.missingOption("--foo")
       r.leftover(initCursor(spec, @["extra"]))
-      r.clear()
+      r.clear(spec, "app sub")
       check r.isEmpty
       r.note("boom")
-      check "app" in r.failureMessage
+      check "app sub" in r.failureMessage
 
   suite "styled failures":
 
