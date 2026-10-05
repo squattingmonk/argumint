@@ -182,15 +182,12 @@ or anything else that generates methods inside a template.
   single `except MessageError` branch uses `echo e.msg; quit(QuitSuccess)`,
   never `quit(e.msg, QuitSuccess)`.
 
-- **`hash(x: ref T)` requires `-d:nimPreviewHashRef`.** `HashSet[State]`/
-  `Table[State, ...]` (used by `collectFrontier`, and pre-existing in
-  `fsmgraph.nim`'s `terminals`/`collectArgs`/`sortTransitions`) only compile
-  because `config.nims` sets this flag project-wide (see CLAUDE.md). A
-  scratch file compiled *outside* this project's directory tree (e.g. in
-  `/tmp`) won't pick up `config.nims` automatically and fails with a
-  confusing "type mismatch: expected ... Expression: hash(key)" error with
-  no obvious mention of `ref`/`State` — pass `-d:nimPreviewHashRef` by hand
-  when compiling a throwaway repro outside the repo.
+- **A `ref` used as a hash key needs its own `hash`.** Nim 2.2 only hashes
+  a `ref` under `-d:nimPreviewHashRef`, and a library's `config.nims`
+  doesn't reach the programs that import it. Without an overload, a
+  `HashSet`/`Table` keyed on the `ref` fails with "type mismatch ...
+  Expression: hash(key)", naming neither the type nor the flag. `State`
+  defines an identity hash for this (issue #169); `Arg` hashes its name.
 
 - **`sequence`'s local `add` helper (`parser.nim`) copies each child atom's
   `Transition`s onto its own growing state rather than reusing them** — `for

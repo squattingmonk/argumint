@@ -435,6 +435,11 @@ proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
   hash(self.name)
 
+proc hash*(self: State): Hash =
+  ## Identity hash, matching `ref`'s default `==`; see docs/gotchas.md.
+  ## Remove it once `nimPreviewHashRef` is Nim's default.
+  hash(cast[pointer](self))
+
 proc showsMessage*(info: HookInfo): bool =
   ## True if `info.matched` includes a Message Argument (Help or a plain
   ## `message()`/`version()`) -- i.e. this invocation's dispatch will

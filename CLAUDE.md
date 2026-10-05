@@ -49,8 +49,6 @@ registration.
   fragment and isn't checked. See `tools/guideblocks.nim`.
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
-- `config.nims` sets `-d:nimPreviewHashRef` globally — required for the code
-  to compile under Nim 2.2's ref-hashing preview.
 
 ## Where things live
 
