@@ -154,6 +154,8 @@ template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
   ## - `arg: T`: an argument to the operation
   ## Blank-op (`""`) variants show no auto-generated description in help
   ## text; use `defineFlag` to supply one. `T` needs the same as above.
+  ##
+  ## Register `T` under its own name, not an alias of it.
   defineFlagArg(typeName, "", flagHandler)
 
 template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
