@@ -45,8 +45,8 @@ proc walk(s: State, pc: var ParseContext): bool =
     elif branchReach == pc.maxReach:
       # A Reach-tied sibling merges its complaints into the running set
       # instead of replacing it outright -- two same-kind failures (e.g.
-      # both `-h` and `--verbose` missing at the same [options] position)
-      # are meant to accumulate onto one grouped line via formatComplaints.
+      # both `--list` and `--all` missing on separate Usage Lines) are meant
+      # to accumulate onto one grouped line via formatComplaints.
       # Without the merge, whichever sibling happens to run last would
       # silently discard an equally-valid earlier complaint. See ADR 0036 for
       # why the exclusivity case this used to be justified by no longer is.

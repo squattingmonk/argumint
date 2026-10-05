@@ -184,3 +184,24 @@ failure is worded.
   the user into a second error. Contrast `shp --help`, where the option sits
   *after* the command position and the corrected line works. Filed as #41 and
   closed as working as intended.
+
+## Addendum: a merge drops Message Argument complaints
+
+An empty command line ties every Usage Line at Reach 0, so the merge kept the
+auto-filled `(-h | --help)` line's complaint beside the real one: `missing
+option: (--all | -h)` for a spec wanting `(<id>... | --all)`. Asking for help
+is never what the user left out, so `merge` now drops complaints about a
+Message Argument whenever any other complaint survives (#176). The usage block
+still shows the help line, so it stays discoverable. If every tied branch
+wanted a Message Argument, as for a command whose only Usage Line is
+`(-h | --help)`, those complaints are kept, since the message would otherwise
+say nothing.
+
+The `--list` / `(-h | --help)` example above now reports `missing option:
+--list`; the grouping it illustrates still holds for two ordinary options.
+Likewise `naval_fate` with no arguments, which ADR 0035's consequences quote
+as `missing option: (-h | -v)`, now reports only `missing command: (ship |
+mine)`.
+
+Filtering in `finalComplaints` instead gave the same output on every case
+tried; `merge` is where ties meet, so the rule lives there.
