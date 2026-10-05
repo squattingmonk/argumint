@@ -204,6 +204,18 @@ suite "the offending token is named":
     check asCommand.complaints == @["unrecognized command: stray"]
     check asArgument.complaints == @["unexpected argument: stray"]
 
+  test "a repeated option is named as it was typed (#180)":
+    proc repeated(args: seq[string]): seq[string] =
+      let spec = (name: opt("-n, --name=<name>", help = ""), help: help())
+      let msg = failure:
+        spec.parse(args = args, command = "app", usage = "--name=<name> [options]",
+          settings = newSpecSettings(style = nil))
+      msg.complaints
+    check repeated(@["--name", "a", "--name", "b"]) == @["unexpected option: --name b"]
+    check repeated(@["-n", "a", "-n", "b"]) == @["unexpected option: -n b"]
+    check repeated(@["--name=a", "--name=b"]) == @["unexpected option: --name=b"]
+    check repeated(@["-na", "-nb"]) == @["unexpected option: -nb"]
+
 suite "did-you-mean":
   proc suggestSpec(): auto =
     (port: opt("--port=<n>", default = 0, help = ""),
