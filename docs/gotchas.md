@@ -108,6 +108,16 @@ or anything else that generates methods inside a template.
   node kinds like the `nnkBracketExpr` a generic instantiation produces;
   `repr` does.
 
+- **`$T` in a generic names whichever alias instantiated it first.** Nim
+  caches one instance for `float`, `float64` and `type Meters = float`, so
+  `$T` inside it prints the spelling that reached it first anywhere in the
+  compile: `flag[float]` gives `"float"`, `flag(default = 1.0)` gives
+  `"float64"`. Don't key anything on `$T`; `flagOpsKey` (`argtypes.nim`)
+  falls back to the alias-free `getType` name instead (issue #212). A
+  regression test has to control which spelling comes first, so it takes a
+  file per order: `tests/test_flag_float_spelled.nim` and
+  `tests/test_flag_float_inferred.nim`.
+
 - **Nesting `defineArg(set[elemType]): case op ... value = arg ...` inside
   another template's body** (`defineSetFlag`, rather than calling `defineArg`
   directly at top level the way `Priority`/`Level`/`Speed` do) makes the

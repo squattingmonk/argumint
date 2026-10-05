@@ -65,7 +65,8 @@ const flagOps = CacheTable"flagOps"
   ## written by `defineFlagOps` (below) and read by `getFlagOps`. Crosses
   ## the module boundary in both directions: the built-in registrations at
   ## the bottom of this file write it, and so does a user's own `defineArg`
-  ## call in their own module.
+  ## call in their own module. Keyed by the type as written at registration;
+  ## read through `flagOpsKey`.
 
 # ------------------------------------------------------------------------------
 # These converters allow the methods below to convert implicitly from strings to
@@ -216,6 +217,14 @@ macro getFlagOps(typeName: string): untyped =
     raise newException(SpecDefect, fmt"{typeName} is not a supported type for flags")
   result = flagOps[$typeName]
 
+macro flagOpsKey(T: typedesc): string =
+  ## `T`'s key in `flagOps`: its name, or failing that its alias-free name,
+  ## so `float64` finds `float`'s ops. Not `$T`: see docs/gotchas.md.
+  let
+    asWritten = T.getTypeInst[1].repr
+    resolved = T.getType[1].repr
+  result = newLit(if asWritten notin flagOps and resolved in flagOps: resolved else: asWritten)
+
 proc checkFlagOp*[T](op: string) =
   ## Raises `SpecDefect` unless `op` is one of the Flag Operations `T`
   ## registered via `defineArg`/`defineFlag`. Both ways of declaring an
@@ -224,7 +233,7 @@ proc checkFlagOp*[T](op: string) =
   ## parsed `<op>` -- and they must reject the same ops with the same
   ## message, so they share one implementation rather than two copies on
   ## either side of the module seam.
-  if op notin getFlagOps($T):
+  if op notin getFlagOps(flagOpsKey(T)):
     let escapedOp = strutils.escape(op)
     raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
@@ -440,7 +449,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOpGroup[T]] =
       # on implicit conversion -- see docs/gotchas.md.
       when T is string: arg = matches[2]
       elif T is int: arg = toInt(matches[2])
-      elif T is float64: arg = toFloat(matches[2])
+      elif T is float: arg = toFloat(matches[2])
       elif T is bool: arg = toBool(matches[2])
       elif T is char: arg = toChar(matches[2])
       else: arg = matches[2]
@@ -540,7 +549,7 @@ defineFlagArg int, "Increment by 1":
   of "-=": value.dec arg
   else: raise newException(SpecDefect, "integer flags only support =, +=, and -= operations")
 
-defineFlagArg float64, "":
+defineFlagArg float, "":
   case op
   of "=": value = arg
   of "+=": value += arg

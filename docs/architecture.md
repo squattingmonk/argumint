@@ -886,7 +886,7 @@ Flag's own `default`; `flagOp*(variants, op, value, help = "")` builds one
 explicit `FlagOpGroup[T]`, passed to `flag*`'s `ops: varargs[FlagOpGroup[T]]`
 param, with `op`/`value` mandatory. Both routes to an explicit group --
 `flagOp*` on its own `op` param, and `parseFlagOpsString` on each parsed
-`<op>` -- validate against `getFlagOps($T)` through one shared
+`<op>` -- validate against `getFlagOps(flagOpsKey(T))` through one shared
 `checkFlagOp[T]` (`argtypes.nim`), so they reject the same ops with the
 same message from either side of the seam -- and so `getFlagOps` needs no
 export. `flag*` flattens every declared group (the one implicit group, plus
