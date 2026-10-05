@@ -152,8 +152,8 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       pc.report.leftover(pc.cursor)
   of mkOption:
     # Skip tokens that don't classify as *this* opt so option/arg order
-    # doesn't matter -- see the Argument branch above on why a
-    # Command-classified token doesn't need special-casing here either.
+    # doesn't matter, stopping at this level's Command -- see architecture.md
+    # §3, "Option scans stop at a Command".
     var pos = 0
     while pos < pc.cursor.len:
       if pc.cursor.consumeOptsEnd(pos):
@@ -178,6 +178,9 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
             pc.matches.push(c.flag, pc.cursor.spec, c.flagName, c.flagName, pc.cursor[pos].idx)
             pc.cursor.consume(pos, c)
             return true
+      of Command:
+        if not pc.cursor.isSeparateValue(pos):
+          break
       else:
         discard
       pos.inc

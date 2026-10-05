@@ -317,6 +317,19 @@ in scope for this specific walk attempt, already updated by a matched
   don't classify as *this specific* Arg; if a shape doesn't resolve to any
   declared option at all, the matcher simply doesn't match — no
   exception — leaving the token for a different matcher to try.
+
+  **Option scans stop at a Command.** The scan breaks at a token that
+  classifies as one of `cursor.spec`'s own Commands, so a parent's option
+  given after the command word (`add -v`) is left for the subcommand's
+  level, where it's unrecognized: nothing follows a Command in a Usage Line
+  and a matched Command takes every remaining argument (ADR 0010). The one
+  exception is a Command word that is really an Optional's separate-token
+  value (`--name add -v add`, `-vn add -q add`), which the scan steps past.
+  `tokens.isSeparateValue` decides that by reading a copy of the cursor in
+  order from the start, peeling clusters as `consume` does, since the token
+  just before the word can be a cluster or itself a value. The scan itself
+  still steps one token at a time rather than skipping a whole Optional's
+  `consumed`, which ADR 0034's starved-option case depends on (issue #171).
 - **mkArgument** scans forward past tokens that classify as a real
   Option/Flag (`State.prepare`'s priority sort, `mkOption < mkOptions <
   mkCommand < mkArgument < mkOptsEnd < mkShortcut`, see §2, already gave a real
