@@ -404,14 +404,13 @@ records the furthest-reaching failed branch's spec/command for the final error
 message, used to write into the *same* `ParseContext.cursor.spec`/`.command`
 fields a later sibling transition's own `fresh` copy starts from — harmless
 before this change (a failed Command descent could never be followed by a
-sibling Argument attempt reusing the same leftover token), but reachable
-now. `ParseContext.report` (`complaints.Report`, §3b) carries dedicated
-`spec`/`command` fields of its own for this, set by `Report.clear` when a
-branch matches, carried up by `Report.adopt` (the merge step), and read only
-when formatting the final failure message, so `cursor.spec`/`.command` stay
-reserved for live walk state. See
-`docs/adr/0019-lazy-token-classification.md`. `Report`'s leftovers (§3b) are
-recorded on the same terms.
+sibling Argument attempt reusing the same leftover token), but reachable now.
+`ParseContext.report` (`complaints.Report`, §3b) carries dedicated
+`spec`/`command` fields of its own for this, set by `Report.clear` when a branch
+matches, carried up when `walk` adopts a sibling's `Report`, and read only when
+formatting the final failure message, so `cursor.spec`/`.command` stay reserved
+for live walk state. See `docs/adr/0019-lazy-token-classification.md`.
+`Report`'s leftovers (§3b) are recorded on the same terms.
 
 A literal `--` is recognized in the same eager shape pass and, the first
 time the walk encounters it on a given path, sets `pc.cursor.optsEnd =
@@ -425,11 +424,11 @@ convert/store values.
 
 ## 3b. Failure reporting (`complaints.nim`)
 
-Everything above concerns a walk that fails; this is what the user sees when
-it does. A `Report` (embedded in `ParseContext` as `report`) accumulates two
+Everything above concerns a walk that fails; this is what the user sees when it
+does. A `Report` (embedded in `ParseContext` as `report`) accumulates two
 channels during the walk, both subject to the same replace-on-further /
-merge-on-tied bookkeeping at the bottom of `walk`'s transition loop
-(`Report.adopt`/`Report.merge`) — neither `walk` (`fsm.nim`) nor `match`/
+merge-on-tied bookkeeping at the bottom of `walk`'s transition loop (replacing
+`pc.report` whole, or `Report.merge`) — neither `walk` (`fsm.nim`) nor `match`/
 `push` (`matching.nim`) reach into either channel directly, only through
 `Report`'s verbs:
 
@@ -457,16 +456,16 @@ merge-on-tied bookkeeping at the bottom of `walk`'s transition loop
   `unrecognized option: --nope` case.
 
 `Report` also carries the failing `spec`/`command` (what used to be
-`ParseContext.errorSpec`/`.errorCommand`) — all four pieces travel as one
-value, read together at the one raise site (`Report.raiseParseFailure`),
-rather than four fields kept in lockstep by convention. The level is set by
-`Report.clear` on every branch that matches, from the branch's live cursor at
-that moment, and `Report.adopt` takes a sibling's whole `Report`, level and
-all. A failure several levels down so keeps its own level as each enclosing
-`walk` frame adopts it on the way back up (#192). Resetting the level in
-`clear` matters as much: without it a branch kept an earlier sibling's deeper
-level, and adopted that as its own. Nothing here writes `pc.cursor.spec`, which
-a failed sibling must never retroactively overwrite — see ADR 0019 point 7.
+`ParseContext.errorSpec`/`.errorCommand`) — all four pieces travel as one value,
+read together at the one raise site (`Report.raiseParseFailure`), rather than
+four fields kept in lockstep by convention. The level is set by `Report.clear`
+on every branch that matches, from the branch's live cursor at that moment, and
+`walk` takes a further-reaching sibling's `Report` whole, level and all. A
+failure several levels down so keeps its own level as each enclosing `walk`
+frame adopts it on the way back up (#192). Resetting the level in `clear`
+matters as much: without it a branch kept an earlier sibling's deeper level, and
+adopted that as its own. Nothing here writes `pc.cursor.spec`, which a failed
+sibling must never retroactively overwrite — see ADR 0019 point 7.
 
 Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
 matchers it satisfied: where the first token it could not consume sits, whole

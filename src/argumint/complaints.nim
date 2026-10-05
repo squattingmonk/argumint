@@ -39,15 +39,15 @@ type
     ## restore -- see `mark`.
 
   Report* = object
-    ## Everything accumulated about why a parse branch failed: what the
-    ## grammar wanted (`messages`) and what the input left over
-    ## (`leftovers`), plus the `Spec`/command string the eventual message's
-    ## usage block is rendered against. `spec`/`command` travel with the
-    ## complaints rather than living beside them on `ParseContext`, since
-    ## the level is set when a branch matches (`clear`), carried up with the
-    ## complaints (`adopt`), and read with them at the one raise site
-    ## (`raiseParseFailure`). Fields unexported -- callers go through the
-    ## verbs below, never the fields directly.
+    ## Everything accumulated about why a parse branch failed: what the grammar
+    ## wanted (`messages`) and what the input left over (`leftovers`), plus the
+    ## `Spec`/command string the eventual message's usage block is rendered
+    ## against. `spec`/`command` travel with the complaints rather than living
+    ## beside them on `ParseContext`, since the level is set when a branch
+    ## matches (`clear`), carried up with the complaints when `walk` takes a
+    ## sibling's `Report` whole, and read with them at the one raise site
+    ## (`raiseParseFailure`). Fields unexported -- callers go through the verbs
+    ## below, never the fields directly.
     messages: seq[Complaint]
     leftovers: seq[Leftover]
     spec: Spec
@@ -260,7 +260,7 @@ proc clear*(r: var Report, spec: Spec, command: string) =
   ## level now live. Called on a branch that just matched, so whatever an
   ## *earlier* transition on this same branch complained about is moot -- and
   ## so is the level an earlier sibling's failure was adopted at, which
-  ## `adopt` would otherwise carry up as this branch's (#192). See
+  ## `walk` would otherwise carry up as this branch's (#192). See
   ## `docs/architecture.md` §3b.
   r.messages.setLen(0)
   r.leftovers.setLen(0)
@@ -277,15 +277,6 @@ proc rollback*(r: var Report, m: ReportMark) =
   ## Discards everything recorded since `m` -- see `mark`.
   r.messages.setLen(m.messages)
   r.leftovers.setLen(m.leftovers)
-
-proc adopt*(r: var Report, other: Report) =
-  ## Replaces `r` with `other`: its complaints and the level they're about.
-  ## That level is wherever `other`'s branch last matched (`clear`), or one a
-  ## nested `walk` adopted from deeper down, so a failure several levels down
-  ## keeps its own usage as each enclosing frame adopts it in turn (#192).
-  ## Used when a sibling branch's Reach exceeds the running best, or nothing
-  ## has complained yet -- see ADR 0036.
-  r = other
 
 proc merge*(r: var Report, other: Report) =
   ## Folds `other`'s complaints into `r` instead of replacing them -- for a
