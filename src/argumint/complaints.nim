@@ -11,14 +11,21 @@ import std/[algorithm, sequtils, strformat, strutils, tables, unicode]
 import ./[backend, errors, style, tokens, usage]
 
 type
-  Complaint = tuple[kind: string, subject: StyledText, names: bool]
+  Complaint = tuple
     ## A failure reason, e.g. `missing option: -v`. Structured so same-kind
-    ## complaints group at render time; an empty `kind` renders as a bare
-    ## sentence. `names` marks one that points at a token the user typed -- a
-    ## property, never a test on the wording, since ADR 0034's starved complaint
-    ## must count. `subject`'s roles are set where it's built, never by markup,
-    ## since it may hold typed input. Built via `complaint`, never as a bare
+    ## complaints group at render time. Built via `complaint`, never as a bare
     ## tuple. See ADR 0035 and ADR 0056.
+    kind: string
+      ## What went wrong; an empty one renders `subject` as a bare sentence
+    subject: StyledText
+      ## What it went wrong with. Roles are set where it's built, never by
+      ## markup, since it may hold typed input
+    names: bool
+      ## Whether it points at a token the user typed -- a property, never a
+      ## test on the wording, since ADR 0034's starved complaint must count
+    aboutMessageArg: bool
+      ## Whether it's about a Message Argument, which a Reach-tied merge drops
+      ## beside any other complaint -- see ADR 0036
 
   Leftover = TokenCursor
     ## One failed branch's unconsumed tokens, plus the context to
@@ -51,11 +58,13 @@ proc initReport*(spec: Spec, command: string): Report =
   ## block -- see `Report`.
   Report(spec: spec, command: command)
 
-proc complaint(kind: string, subject: StyledText, names = false): Complaint =
+proc complaint(kind: string, subject: StyledText, names = false,
+    aboutMessageArg = false): Complaint =
   ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
   ## pointing at a specific token the user typed -- see `Complaint.names`
-  ## and ADR 0035.
-  (kind, subject, names)
+  ## and ADR 0035. Pass `aboutMessageArg = true` for one about a Message
+  ## Argument.
+  (kind, subject, names, aboutMessageArg)
 
 proc dedupKey(c: Complaint): tuple[kind, subject: string, names: bool] =
   ## What makes two complaints the same: roles don't count, so styling never
@@ -176,10 +185,12 @@ proc missingCommand*(r: var Report, name: string) =
   ## ever looks -- see `docs/architecture.md` §3.
   r.messages.add complaint("missing command", styled(srCommand, name))
 
-proc missingOption*(r: var Report, variant: string) =
+proc missingOption*(r: var Report, variant: string, aboutMessageArg = false) =
   ## Records that a required `opt`/`flag` was never matched. Unconditional
-  ## on purpose -- see ADR 0035's rejected third rule.
-  r.messages.add complaint("missing option", styledOption(variant))
+  ## on purpose -- see ADR 0035's rejected third rule. Pass
+  ## `aboutMessageArg = true` when it's a Message Argument -- see `merge`.
+  r.messages.add complaint("missing option", styledOption(variant),
+    aboutMessageArg = aboutMessageArg)
 
 proc unexpected*(r: var Report, arg: Arg) =
   ## Records a Value Precedence fallback tier oversupplying `arg` beyond
@@ -277,14 +288,18 @@ proc adopt*(r: var Report, other: Report, spec: Spec, command: string) =
 
 proc merge*(r: var Report, other: Report) =
   ## Folds `other`'s complaints into `r` instead of replacing them -- for a
-  ## Reach-tied sibling, so two same-kind failures (e.g. both `-h` and
-  ## `--verbose` missing at the same `[options]` position) accumulate onto one
-  ## grouped line via `formatComplaints` rather than the sibling that happens to
-  ## run last silently discarding an earlier one. See ADR 0036.
+  ## Reach-tied sibling, so two same-kind failures (e.g. both `--list` and
+  ## `--all` missing on separate Usage Lines) accumulate onto one grouped line
+  ## via `formatComplaints` rather than the sibling that happens to run last
+  ## silently discarding an earlier one. Then drops complaints about a Message
+  ## Argument, unless nothing else is left. See ADR 0036.
   for msg in other.messages:
     r.addUnique msg
   for lo in other.leftovers:
     r.addLeftoverRaw(lo)
+  # Asking for help is never what the user left out -- see ADR 0036.
+  if r.messages.anyIt(not it.aboutMessageArg):
+    r.messages.keepItIf(not it.aboutMessageArg)
 
 proc handleLeftovers(complaints: var seq[Complaint], leftovers: seq[Leftover]): bool =
   ## Generates complaints for any leftover tokens if there are no naming
@@ -348,7 +363,7 @@ proc formatComplaints(messages: seq[Complaint]): StyledText =
   # changes the line.
   var subjectsByKind = initOrderedTable[string, seq[Complaint]]()
   for c in messages:
-    let unnamed = (c.kind, c.subject, false)
+    let unnamed = complaint(c.kind, c.subject)
     if subjectsByKind.hasKeyOrPut(c.kind, @[unnamed]) and
       not subjectsByKind[c.kind].anyIt(it.dedupKey == unnamed.dedupKey):
         subjectsByKind[c.kind].add unnamed

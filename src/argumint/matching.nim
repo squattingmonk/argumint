@@ -193,7 +193,8 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
 
     # Unconditional on purpose -- a `m.opt notin pc.matches` guard can't tell
     # one occurrence from two; see ADR 0035's rejected third rule.
-    pc.report.missingOption(if m.variant.len > 0: m.variant else: m.opt.name)
+    pc.report.missingOption(if m.variant.len > 0: m.variant else: m.opt.name,
+      aboutMessageArg = m.opt of MessageArg)
     # A failed Option matcher never reaches `walk`'s tail, so it records its
     # own leftover -- see ADR 0035, and ADR 0019 point 4 on why this can't
     # live in tokenization.

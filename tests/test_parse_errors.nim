@@ -80,8 +80,56 @@ suite "a `missing option` complaint is only ever about a genuine deficiency":
                 dest: arg("<dest>", default = "", help = ""),
                 list: flag("--list", help = ""), help: help())
     let msg = failure:
-      spec.parse(args = @[], command = "backup", usage = "<src> <dest>\n--list\n(-h | --help)")
-    check msg.complaints == @["missing option: (--list | -h)", "missing argument: <src>"]
+      spec.parse(args = @[], command = "backup", usage = "<src> <dest>\n--list\n(-h | --help)",
+        settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing option: --list", "missing argument: <src>"]
+
+suite "a Message Argument is never reported missing alongside another complaint (#176)":
+  # Asking for help is never what the user left out. See ADR 0036.
+  proc idsOrAllSpec(): auto =
+    ## Issue #176's own spec.
+    (ids: args[int]("<id>", help = ""), all: flag("--all", help = ""), help: help())
+
+  test "only the other branches' complaints are left":
+    let msg = failure:
+      idsOrAllSpec().parse(args = @[], command = "app", usage = "(<id>... | --all)",
+        settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing option: --all", "missing argument: <id>"]
+    check "  app (-h | --help)" in msg
+
+  test "whether the message line is auto-filled, hand-written, or behind [options]":
+    for usage in ["(<id>... | --all)", "(<id>... | --all)\n(-h | --help)",
+                  "[options] <id>..."]:
+      let msg = failure:
+        idsOrAllSpec().parse(args = @[], command = "app", usage = usage,
+          settings = newSpecSettings(style = nil))
+      let expected =
+        if usage.startsWith("[options]"): @["missing argument: <id>"]
+        else: @["missing option: --all", "missing argument: <id>"]
+      check msg.complaints == expected
+
+  test "or shares its line with an option the user gave":
+    # `--all` is unreachable, so `[options] <id>...` is auto-filled; both lines
+    # reach past `--list`.
+    let spec = (ids: args[int]("<id>", help = ""), all: flag("--all", help = ""),
+                list: flag("--list", help = ""), help: help())
+    let msg = failure:
+      spec.parse(args = @["--list"], command = "app", usage = "--list -h",
+        settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing argument: <id>"]
+
+  test "a message line that's the only one failing is still reported":
+    let spec = (tag: command("tag", (help: help()), usage = "(-h | --help)", help = ""))
+    let msg = failure:
+      spec.parse(args = @["tag"], command = "app", settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing option: -h"]
+
+  test "and two tied message lines are both reported":
+    let sub = (help: help(), version: version("--version", "1.0"))
+    let spec = (tag: command("tag", sub, usage = "(-h | --help)\n--version", help = ""))
+    let msg = failure:
+      spec.parse(args = @["tag"], command = "app", settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing option: (-h | --version)"]
 
 suite "the offending token is named":
   test "a typo'd command is named and given a suggestion":
@@ -433,9 +481,11 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
 
   test "the tied-branch merge still groups same-kind complaints onto one line":
     # Reach ties at 0 for both usage lines, so both `missing option`s survive.
-    let spec = (list: flag("--list", help = ""), help: help())
-    let msg = failure: spec.parse(args = @[], command = "app", usage = "--list\n(-h | --help)")
-    check msg.complaints == @["missing option: (--list | -h)"]
+    let spec = (list: flag("--list", help = ""), all: flag("--all", help = ""))
+    let msg = failure:
+      spec.parse(args = @[], command = "app", usage = "--list\n--all",
+        settings = newSpecSettings(style = nil))
+    check msg.complaints == @["missing option: (--list | --all)"]
 
 suite "a `missing argument` complaint is only ever about a genuine deficiency":
   # The positional analogue of the `missing option` suite above (issue #38).
@@ -495,9 +545,10 @@ suite "a `missing argument` complaint is only ever about a genuine deficiency":
                 dest: arg("<dest>", default = "", help = ""),
                 list: flag("--list", help = ""), help: help())
     let msg = failure:
-      spec.parse(args = @[], command = "app", usage = "<src> <dest>\n--list")
+      spec.parse(args = @[], command = "app", usage = "<src> <dest>\n--list",
+        settings = newSpecSettings(style = nil))
     check msg.complaints ==
-      @["missing option: (--list | -h)", "missing argument: <src>"]
+      @["missing option: --list", "missing argument: <src>"]
 
   test "an all-optional line with nothing to complain about still parses":
     let spec = (rest: args("<rest>", help = ""),)
