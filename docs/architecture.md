@@ -1389,6 +1389,11 @@ differs by category:
   come last.
   Weaving `[options]` into an arbitrary hand-written line that's missing it
   is not attempted.
+- **A Bare Call** (`{cmd}`, ADR 0061) is added ahead of the `MessageArg`
+  lines when `spec.usage` is still empty by then, i.e. nothing was
+  hand-written and nothing else was filled in. Otherwise a spec holding only
+  `help()` would accept nothing but `-h`, so a command like that couldn't
+  run its action (#175).
 
 ## 6. Shell completion (`completion.nim`)
 

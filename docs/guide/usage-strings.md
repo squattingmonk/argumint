@@ -335,6 +335,8 @@ line for anything the user couldn't otherwise reach:
 - `help`, `version` and `message` each get a line of their own.
 - Options that are left out are covered by `[options]` at the start of the
   first line argumint adds, or by a line of their own.
+- If your spec has nothing but `help`, `version` or `message`, argumint also
+  adds a line for the command on its own, so it can run with no arguments.
 
 Go back to the copy example at the top of this page. Without a usage string,
 argumint writes the whole thing:

@@ -12,7 +12,7 @@
 
 import std/[importutils, pegs, sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, errors, fsmgraph, parser]
+import ./[backend, errors, fsmgraph, parser, usage]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
@@ -64,9 +64,10 @@ proc autoFillUsage(spec: Spec) =
     ## Appends `line` to both the human-readable `spec.usage` and the
     ## `newLines` list later spliced onto `spec.fsm` -- one call keeps the
     ## two in sync instead of relying on every call site to remember both.
+    ## `newLines` gets it through `splitUsage`, as `genFsm` would.
     spec.usage.addSep("\n")
     spec.usage.add line
-    newLines.add line
+    newLines.add line.splitUsage
 
   let reachable = spec.fsm.referencedArgs()
   let optionsUnreachable = spec.options.values.toSeq.deduplicate
@@ -100,7 +101,13 @@ proc autoFillUsage(spec: Spec) =
   if optionsUnreachable and not prefixUsed:
     addLine "[options]"
 
-  for arg in spec.args.filterIt(it of MessageArg and it notin reachable):
+  let messageArgs = spec.args.filterIt(it of MessageArg and it notin reachable)
+  # Nothing else accepts an empty command line -- see architecture.md's
+  # "autoFillUsage" section.
+  if spec.usage.len == 0 and messageArgs.len > 0:
+    addLine "{cmd}"
+
+  for arg in messageArgs:
     let variants = if arg.variants.len > 1: "(" & arg.variants.join(" | ") & ")" else: arg.variants[0]
     addLine variants
 
