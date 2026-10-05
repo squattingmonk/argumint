@@ -35,9 +35,11 @@ registration.
   standalone `std/unittest` suite (`tests/config.nims` adds `src` to the
   path for anything placed there) -- reserved for cross-module integration
   tests or ones needing extra fixtures (e.g. `test_precedence.nim`,
-  `configsource`'s tests). Add new tests either as a `when isMainModule`
-  block in the module under test or as a new `tests/test_*.nim` file -- no
-  per-file wiring needed beyond that. `tools/runtests.nim` drives it
+  `configsource`'s tests). A helper module a test imports goes in
+  `tests/fixtures/`, which the runner doesn't build on its own. Add new
+  tests either as a `when isMainModule` block in the module under test or
+  as a new `tests/test_*.nim` file -- no per-file wiring needed beyond
+  that. `tools/runtests.nim` drives it
   (parallel compile, serial run) -- see its module doc for how failures
   are reported. A test that renders help or a parse error through
   default settings must pass `newSpecSettings(style = nil)`, since the

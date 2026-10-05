@@ -32,6 +32,17 @@ categorization; that's a separate axis, which is why Message Argument is
 tagged `kind: Flag` despite not being a domain specialization of Flag.)
 _Avoid_: Argument (ambiguous with a raw command-line string)
 
+**Value Type**:
+A type an Arg's value can have: one registered with `defineArg` (directly,
+or through `defineFlag`/`defineSetFlag`), with a converter from string. The
+built-ins (`string`, `bool`, `int`, `float`, `char`) are registered by
+argumint. An alias of a Value Type is the same type, but a type that only
+converts to one (`int8`, `range[0..10]`) isn't. Using any other type in
+`arg`/`args`/`opt`/`opts` is a compile error (issue #167).
+A type must be registered before its first use.
+_Avoid_: custom type (when meaning any Value Type; the built-ins are Value
+Types too), registered type
+
 **Variant**:
 A name that denotes a particular Arg within a Usage String. All of an
 Arg's Variants are interchangeable for matching purposes — any one

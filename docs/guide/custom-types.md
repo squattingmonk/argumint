@@ -51,7 +51,11 @@ error, with a message of its own in place of the converter's.
 checks of its own.
 
 Call `defineArg` once per type, at the top level of a module, where the
-converter is in scope.
+converter is in scope, and before anything uses the type. The module that
+defines the type is the safest place. Using a type in an `arg` or `opt` before
+its `defineArg` call, or with none, is a compile error that names the call to
+add. The same goes for a type like `int8` or `range[0..10]`, which converts to
+`int` but isn't `int`. A plain alias, like `type Port = int`, needs nothing.
 
 ### Without a Default
 

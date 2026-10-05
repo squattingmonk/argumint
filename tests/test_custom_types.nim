@@ -11,7 +11,7 @@
 # public names (`argumint.nim`); that boundary is exactly what this file
 # guards. See `docs/adr/0043-facade-machinery-seam.md`.
 
-import std/[strutils, unittest]
+import std/[os, osproc, strutils, unittest]
 
 import argumint
 
@@ -168,3 +168,69 @@ suite "registering a custom type through a bare `import argumint`":
     check spec.at.get == Point(x: 5, y: 5)
     expect ValidationError:
       spec.parse(args = @["--at", "1,2"], command = "prog")
+
+type Unregistered = enum
+  uOne, uTwo
+
+proc checkErrors(code: string): string =
+  ## What `nim check` says about `code`, after a prelude declaring `Hue`.
+  let
+    dir = getTempDir() / "argumint_t167_" & $getCurrentProcessId()
+    src = dir / "snippet.nim"
+  createDir(dir)
+  defer: removeDir(dir)
+  writeFile(src, "import std/strutils\nimport argumint\ntype Hue = enum hRed, hBlue\n" & code)
+  let src2 = currentSourcePath().parentDir.parentDir / "src"
+  execCmdEx(quoteShellCommand([getCurrentCompilerExe(), "check", "--hints:off",
+    "--path:" & src2, src])).output
+
+suite "a type never registered with `defineArg` (#167)":
+  test "doesn't compile in `arg`, `args`, `opt` or `opts`":
+    check not compiles(arg("<unreg>", default = uTwo))
+    check not compiles(args[Unregistered]("<unreg>"))
+    check not compiles(opt("--unreg=<unreg>", default = uTwo))
+    check not compiles(opts[Unregistered]("--unreg=<unreg>"))
+
+  test "nor does a type that only converts to a registered one":
+    # These used to compile and then ignore every value given.
+    check not compiles(opt[int8]("--small=<n>"))
+    check not compiles(opt[float32]("--single=<n>"))
+    check not compiles(opt[Natural]("--count=<n>"))
+    check not compiles(opt[range[0..10]]("--level=<n>"))
+
+  test "an alias of a registered type is the same type":
+    type
+      Port = int
+      RankAlias = Rank
+    let spec = (port: opt[Port]("--port=<n>"), rank: opt[RankAlias]("--rank=<r>"))
+    spec.parse(args = @["--port", "80", "--rank", "rMid"], command = "prog")
+    check spec.port.get == 80
+    check spec.rank.get == rMid
+
+  test "the compile error names the `defineArg` call to add":
+    check "Hue is not a value type: call `defineArg(Hue)` before using it" in
+      checkErrors("let a = opt(\"--hue=<hue>\", default = hBlue)\n")
+
+  test "`defineArg` has to come before the type's first use":
+    check "Hue is not a value type" in checkErrors(
+      "converter toHue(s: string): Hue = parseEnum[Hue](s)\n" &
+      "let a = opt(\"--hue=<hue>\", default = hBlue)\n" &
+      "defineArg(Hue)\n")
+
+  test "every built-in value type still works directly":
+    let spec = (
+      n: arg[int]("<num>"),
+      f: opt[float]("--fl=<num>"),
+      g: opt[float64]("--fl64=<num>"),
+      b: opt[bool]("--yes=<bool>"),
+      c: args[char]("<chr>"),
+      s: opts[string]("--str=<str>"),
+    )
+    spec.parse(args = @["3", "x", "y", "--fl", "1.5", "--fl64", "2.5", "--yes", "true", "--str", "a"],
+               command = "prog")
+    check spec.n.get == 3
+    check spec.f.get == 1.5
+    check spec.g.get == 2.5
+    check spec.b.get == true
+    check spec.c.get == @['x', 'y']
+    check spec.s.get == @["a"]
