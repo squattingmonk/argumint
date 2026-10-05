@@ -1659,6 +1659,39 @@ suite "autoFillUsage":
     )
     check newSpec(spec).usage == "[options]\n(-h | --help)"
 
+  test "a spec holding only Message Arguments gets a Bare Call (#175)":
+    let plain = newSpecSettings(style = nil)
+    check newSpec((help: help())).usage == "{cmd}\n(-h | --help)"
+    parse((help: help()), args = @[], command = "prog", settings = plain)
+
+    var listed = false
+    proc listNotes(spec: tuple, _: HookInfo) = listed = true
+    let spec = (
+      list: command("list", (help: help()), action = listNotes, help = ""),
+      help: help(),
+    )
+    spec.parse(args = @["list"], command = "prog", settings = plain)
+    check listed
+    try:
+      spec.parse(args = @["list", "-h"], command = "prog", settings = plain)
+      fail()
+    except HelpError as e:
+      check e.msg.startsWith("Usage:\n  prog list\n  prog list (-h | --help)\n")
+
+  test "a hand-written usage gets no Bare Call (#175)":
+    let tag = (
+      tag: command("tag", (help: help()), usage = "(-h | --help)", help = ""),
+    )
+    expect ParseError:
+      tag.parse(args = @["tag"], command = "prog",
+        settings = newSpecSettings(style = nil))
+    check newSpec((x: arg("<x>", help = ""), help: help()), usage = "<x>").usage ==
+      "<x>\n(-h | --help)"
+
+  test "a spec without Message Arguments gets no Bare Call (#175)":
+    check newSpec(()).usage == ""
+    check newSpec((v: flag("-v", help = ""))).usage == "[options]"
+
   test "positional args are only filled in when none of them are reachable":
     let spec = (
       a: arg("<a>", help = ""),

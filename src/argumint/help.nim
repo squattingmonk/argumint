@@ -1240,6 +1240,7 @@ when isMainModule:
         spec = plainSpec((help: help))
         expected = """
           Usage:
+            prog
             prog --help
 
           Options:
@@ -1260,6 +1261,7 @@ when isMainModule:
         spec = plainSpec((help: help))
         expected = """
           Usage:
+            prog
             prog --help
 
           Options:

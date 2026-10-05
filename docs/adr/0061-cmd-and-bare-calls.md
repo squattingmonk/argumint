@@ -60,3 +60,11 @@ built that way.
   just the program.
 - **An empty group, `[]`, as a Bare Call.** Also free today, but it reads
   as nothing rather than as the command.
+
+## Addendum: auto-filled Bare Calls
+
+`autoFillUsage` now writes one `{cmd}` line, contrary to "appends its lines
+without it" above. When a spec has no usage string and nothing to fill in
+but Message Argument lines, it adds a Bare Call ahead of them, so a command
+holding only `help()` can be called on its own (#175). A hand-written usage
+string is left alone.
