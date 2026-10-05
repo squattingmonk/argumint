@@ -281,6 +281,31 @@ suite "Flags":
     spec.parse(usage = "[--priority]", args = @["--priority"], command = "prog")
     check spec.p == high
 
+  test "a bare name is rejected at construction when T has no blank op (#183)":
+    template rejects(body: untyped) =
+      var caught = ""
+      try: discard body
+      except SpecDefect as e: caught = e.msg
+      check "--xx" in caught
+      check "blank operation" in caught
+    rejects flag[float]("--xx")
+    rejects flag[string]("--xx")
+    rejects flag[char]("--xx")
+    rejects flag[float]("--xx", ops = "--up+=1.5")
+    rejects flag[Priority]("--xx")
+    rejects flag[set[Color]]("--xx")
+
+  test "a bare name still builds when T has a blank op, and ops alone are unaffected (#183)":
+    let spec = (
+      quiet: flag("--quiet"),
+      verbosity: flag[int]("-v, --verbose"),
+      speed: flag[float](ops = "--up+=1.5"),
+    )
+    spec.parse(usage = "[--quiet] [-v]... [--up]", args = @["--quiet", "-v", "-v", "--up"], command = "prog")
+    check spec.quiet == true
+    check spec.verbosity == 2
+    check spec.speed == 1.5
+
   test "flag[T] with an explicit T and no default falls back to default(T), same as arg/opt/args/opts":
     let spec = (
       verbosity: flag[int]("--verbose", help = ""),

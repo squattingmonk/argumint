@@ -54,7 +54,8 @@ These types work out of the box:
 
 - `bool` and `int`, whose names work as shown at the top of this page.
 - `float`, `string` and `char`, which need [operations](#flag-operations) to
-  say what each name does.
+  say what each name does. Giving one a name of its own, as in
+  `flag[float]("--speed")`, raises a `SpecDefect` when the spec is built.
 
 ## Flag Operations
 
@@ -230,9 +231,10 @@ echo spec.level
 
 Inside the `case`, `value` is the flag's value, `op` is the operation, and
 `arg` is the operation's value. The `""` branch is what the flag's own names
-do, and the second argument to `defineFlag` describes it in help. argumint
-reads the operations a type supports from the `of` branches, and rejects any
-other operation when it builds the spec.
+do, and the second argument to `defineFlag` describes it in help. Without a
+`""` branch, the type's flags need `ops` for every name. argumint reads the
+operations a type supports from the `of` branches, and rejects any other
+operation when it builds the spec.
 
 ```console
 $ ./log -q
