@@ -3,7 +3,8 @@ name: Docs
 # A pull request builds the docs without deploying them, so a broken doc
 # comment or guide page fails review instead of the next deploy. `nimble docs`
 # fails on any error `nim doc` or `md2html` reports (see `docExec` in
-# argumint.nimble).
+# argumint.nimble), and `nimble docscheck` on a guide example that no longer
+# compiles (see tools/guideblocks.nim).
 on:
   push:
     branches: [main]
@@ -29,6 +30,7 @@ jobs:
         with:
           nim-version: "2.2.4"
       - run: nimble docs
+      - run: nimble docscheck
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:

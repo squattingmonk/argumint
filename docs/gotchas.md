@@ -623,9 +623,9 @@ or anything else that generates methods inside a template.
   drains while it runs, so a child that writes more than the pipe buffer
   (64K on Linux, far less on Windows) blocks forever. Calling
   `execCmdEx` from several threads instead races on pipe file descriptors
-  ("Bad file descriptor"). `tools/runtests.nim` therefore lets compiler
-  output stream through and keeps clean compiles silent with
-  `--hints:off --warnings:off`.
+  ("Bad file descriptor"). `tools/runtests.nim` and `tools/guideblocks.nim`
+  therefore let compiler output stream through and keep clean compiles
+  silent with `--hints:off --warnings:off`.
 
 - **An `if` expression won't convert a proc that calls a closure.** `if
   f.isNil: formatColumn else: f` (with `f: HelpFormatter`) compiles only
