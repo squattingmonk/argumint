@@ -610,11 +610,13 @@ runs at most once per Arg per cursor (cached in `ValueCursor.tried`, including a
 env (`existsEnv`), but load-bearing for Config Source, since a
 user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
 decides in advance how many times a matcher gets visited — it falls out
-entirely from however many times `walk` actually visits it: a real repeat
-(`...`, or reachable only through `[options]`) loops back and keeps
-consuming until the list runs out; the same Arg named more than once in one
-Usage Line with no `...` is just two separate matcher instances, and the
-cursor is consulted twice either way.
+entirely from however many times `walk` actually visits it: a `...` repeat
+loops back and keeps consuming until the list runs out; the same Arg named
+more than once in one Usage Line with no `...` is just two separate matcher
+instances, and the cursor is consulted twice either way. The `[options]`
+catch-all is the exception: it only loops back on a CLI token, so its
+matchers (the ones with an empty `variant`) probe with `takeAll = true` and take
+every remaining value in one visit (#188).
 
 The two tiers differ only in how they arrive at that per-Arg `seq[string]`
 of candidate values, each asking its own leaf module. Env:

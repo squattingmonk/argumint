@@ -75,12 +75,13 @@ proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[stri
     else: none(seq[string])
 
 proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
-    settings: SpecSettings): bool =
+    settings: SpecSettings, takeAll: bool): bool =
   ## Lets `t`'s value stand in for a missing CLI value during the walk --
   ## `resolve` is called at most once per `arg` for the life of `cursor`
   ## (see `ValueCursor.tried`). Returning `false` just lets the walk fail
   ## normally; the actual value-setting happens later, in
-  ## `applyFallbacks`'s post-walk sweep.
+  ## `applyFallbacks`'s post-walk sweep. `takeAll` takes every remaining value
+  ## at once, for a catch-all that won't loop back without a CLI token.
   if arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, settings)
@@ -90,14 +91,15 @@ proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
     return false
   let consumed = cursor.consumed.getOrDefault(arg, 0)
   if consumed < cursor.values[arg].len:
-    cursor.consumed[arg] = consumed + 1
+    cursor.consumed[arg] = if takeAll: cursor.values[arg].len else: consumed + 1
     return true
 
-proc probe*(tiers: var Tiers, arg: Arg): bool =
+proc probe*(tiers: var Tiers, arg: Arg, takeAll = false): bool =
   ## Tries each fallback tier in precedence order -- env, then Config
-  ## Source -- for a CLI token `match`'s `Option` arm couldn't find.
+  ## Source -- for a CLI token `match`'s `Option` arm couldn't find. `takeAll`
+  ## takes every remaining value at once (#188).
   for t in FallbackTier:
-    if tiers.cursors[t].probe(t, arg, tiers.settings):
+    if tiers.cursors[t].probe(t, arg, tiers.settings, takeAll):
       return true
 
 proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,

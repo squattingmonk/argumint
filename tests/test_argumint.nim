@@ -2112,6 +2112,55 @@ suite "Fallback tiers (env and Config Source)":
       spec.parse(usage = "[--tag=<tag>] ship", settings = settings, args = @["ship"], command = "prog")
       check tag == @["foo"]
 
+    # #188: under [options], each fallback value used to need a CLI token to
+    # loop the catch-all round again.
+    proc verboseSpec(t: FallbackTier): auto =
+      (
+        name: opt("--name=<n>", help = ""),
+        verbose: flag[int]("-v, --verbose", env = envFor(t), configKey = keyFor(t), help = ""),
+      )
+
+    for (values, args, name, verbose) in [
+      (@["-v", "-v"], newSeq[string](), "", 2),
+      (@["-v", "-v"], @["--name", "a"], "a", 2),
+      (@["-v", "-v"], @["--name", "a", "--name", "b"], "b", 2),
+      (@["-v", "-v", "-v"], @["-v"], "", 1),
+    ]:
+      test tier & ": [options] applies every flag value with " & $args & " given":
+        let settings = t.supply(values)
+        defer: clearFallback()
+        let spec = verboseSpec(t)
+        spec.parse(settings = settings, args = args, command = "prog")
+        check spec.name == name
+        check spec.verbose == verbose
+
+    test tier & ": an explicit repeatable flag applies every value beside another option":
+      let settings = t.supply("-v", "-v")
+      defer: clearFallback()
+      let spec = verboseSpec(t)
+      spec.parse(usage = "[--name=<n>] [-v]...", settings = settings, args = @["--name", "a"], command = "prog")
+      check spec.name == "a"
+      check spec.verbose == 2
+
+    proc tagsSpec(t: FallbackTier): auto =
+      (
+        port: opt("-p, --port=<port>", default = 0, help = ""),
+        tags: opts("-t, --tag=<tag>", env = envFor(t), configKey = keyFor(t), help = ""),
+      )
+
+    for (args, port, tags) in [
+      (@["-p", "1"], 1, @["a", "b", "c"]),
+      (newSeq[string](), 0, @["a", "b", "c"]),
+      (@["-t", "d"], 0, @["d"]),
+    ]:
+      test tier & ": [options] applies every opts value with " & $args & " given":
+        let settings = t.supply("a", "b", "c")
+        defer: clearFallback()
+        let spec = tagsSpec(t)
+        spec.parse(settings = settings, args = args, command = "prog")
+        check spec.port == port
+        check spec.tags == tags
+
 suite "Environment variables":
   test "opts: env var supplies multiple values via the delimiter":
     putEnv("ARGUMINT_TEST_TAGS", "foo:bar:baz")
@@ -2398,6 +2447,19 @@ suite "Config Source":
     )
     spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
     check spec.tags == @["foo", "bar", "baz"]
+
+  test "end-to-end: a jsonConfigSource array applies in full under [options] beside another option (#188)":
+    let path = getTempDir() / "argumint_test_config_188.json"
+    writeFile(path, """{"verbose": ["--verbose", "--verbose"]}""")
+    defer: removeFile(path)
+    let settings = newSpecSettings(style = nil, configSources = @[jsonConfigSource(path)])
+    let spec = (
+      name: opt("--name=<n>", help = ""),
+      verbose: flag[int]("-v, --verbose", configKey = "verbose", help = ""),
+    )
+    spec.parse(settings = settings, args = @["--name", "a"], command = "prog")
+    check spec.name == "a"
+    check spec.verbose == 2
 
   test "end-to-end: a Config Source file missing the configured key falls through to the coded default":
     let path = getTempDir() / "argumint_test_config_missing.ini"
