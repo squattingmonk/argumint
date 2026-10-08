@@ -127,6 +127,8 @@ type
       ## `docs/adr/0034-strict-option-checking.md`
     style: Styler
       ## `autoStyler` until the `style` getter first resolves it
+    theme: Theme
+      ## What an `autoStyler` style resolves to colour with
 
   HookInfo* = object
     matched*: seq[Arg]
@@ -306,7 +308,8 @@ proc appName*(): string =
 proc newSpecSettings*(width = 0,
     maxVariantsWidth = DefaultMaxVariantsWidth,
     envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions, style: Styler = autoStyler): SpecSettings =
+    strictOptions = DefaultStrictOptions, style: Styler = autoStyler,
+    theme = defaultTheme): SpecSettings =
   ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
   ## param. Every default below can be changed at compile time with a
   ## `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
@@ -352,8 +355,12 @@ proc newSpecSettings*(width = 0,
   ##   Style Role. `autoStyler` (the default) resolves it on first read: the
   ##   built-in ANSI theme when output is going to a terminal, else plain.
   ##   Pass `nil` for plain text always, or `ansiStyler(theme)` or your own
-  ##   `Styler` to opt out of detection. See
-  ##   `docs/adr/0051-help-and-error-styling.md`.
+  ##   `Styler` to colour always. To change the colours but keep detection,
+  ##   pass `theme` instead. See `docs/adr/0051-help-and-error-styling.md`.
+  ## - `theme` is the colours `autoStyler` uses when it colours output. It
+  ##   only matters while `style` is `autoStyler`; for your own `Styler`,
+  ##   check `wantsColor()` yourself. See
+  ##   `docs/adr/0067-theme-keeps-colour-detection.md`.
   ##
   ## Neither default touches the terminal here, so building settings (or a
   ## Spec) never probes it; only reading `width` or `style` does, which help
@@ -366,7 +373,8 @@ proc newSpecSettings*(width = 0,
   ## every not-yet-dispatched `Spec` in the tree -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
   SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
-    configSources: configSources, strictOptions: strictOptions, style: style)
+    configSources: configSources, strictOptions: strictOptions, style: style,
+    theme: theme)
 
 proc width*(s: SpecSettings): int =
   ## The column width usage/help text wraps at. A `0` is detected here, on
@@ -383,7 +391,7 @@ proc style*(s: SpecSettings): Styler =
   ## `autoStyler` is resolved here, on first read, and kept -- so nothing
   ## probes the terminal until output is rendered. See
   ## `docs/adr/0058-lazy-terminal-detection.md`.
-  if s.style == autoStyler: s.style = resolvedStyler()
+  if s.style == autoStyler: s.style = resolvedStyler(s.theme)
   s.style
 
 proc `style=`*(s: SpecSettings, style: Styler) =

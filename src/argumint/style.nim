@@ -264,9 +264,9 @@ proc ansiStyler*(theme: Theme): Styler =
 
 proc autoStyler*(role: StyleRole, text: string): string =
   ## `newSpecSettings`'s default `style`: a marker, not a styler. The first
-  ## read of `SpecSettings.style` replaces it with `ansiStyler(defaultTheme)`
-  ## if output is going to a terminal, else nil. Called directly, it leaves
-  ## `text` plain.
+  ## read of `SpecSettings.style` replaces it with `ansiStyler` of the
+  ## settings' `theme` (`defaultTheme` unless given) if `wantsColor()`, else
+  ## nil. Called directly, it leaves `text` plain.
   text
 
 let

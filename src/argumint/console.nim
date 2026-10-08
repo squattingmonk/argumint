@@ -89,22 +89,27 @@ proc resolvedWidth*(): int =
   ## `DefaultMaxWidth` -- see `docs/adr/0052-default-help-width-cap.md`.
   min(detectWidth(), DefaultMaxWidth)
 
-proc resolvedStyler*(): Styler =
-  ## What an `autoStyler` style resolves to: `ansiStyler(defaultTheme)` if
-  ## output is going to a terminal, else nil (plain). Nil when `NO_COLOR` is
-  ## non-empty, `TERM` is `dumb`, or stdout and stderr aren't both terminals
-  ## -- unless `FORCE_COLOR` is non-empty or `CLICOLOR_FORCE` is set to
-  ## anything but `0`, which force colour on. On Windows it also enables the
-  ## console's ANSI handling, and is nil if that fails and colour wasn't
-  ## forced.
+proc wantsColor*(): bool =
+  ## Whether help and error output should be coloured: the rule `autoStyler`
+  ## follows, for a custom `Styler` to follow too (`style = if wantsColor():
+  ## myStyler else: nil`). False when `NO_COLOR` is non-empty, `TERM` is
+  ## `dumb`, or stdout and stderr aren't both terminals -- unless
+  ## `FORCE_COLOR` is non-empty or `CLICOLOR_FORCE` is set to anything but
+  ## `0`, which force colour on. On Windows it also enables the console's
+  ## ANSI handling, and is false if that fails and colour wasn't forced.
   let env = proc (key: string): string = getEnv(key)
   if not wantsColor(env, ttys = stdout.isatty and stderr.isatty):
-    return nil
+    return false
   when defined(windows):
     let forced = wantsColor(env, ttys = false)
     if not enableVirtualTerminal() and not forced:
-      return nil
-  ansiStyler(defaultTheme)
+      return false
+  true
+
+proc resolvedStyler*(theme = defaultTheme): Styler =
+  ## What an `autoStyler` style resolves to: `ansiStyler(theme)` if
+  ## `wantsColor()`, else nil (plain).
+  if wantsColor(): ansiStyler(theme) else: nil
 
 when isMainModule:
   import std/unittest
@@ -138,6 +143,31 @@ when isMainModule:
       check wantsColor(env(("CLICOLOR_FORCE", "1")), ttys = false)
       check wantsColor(env(("CLICOLOR_FORCE", "1"), ("TERM", "dumb")), ttys = false)
       check not wantsColor(env(("CLICOLOR_FORCE", "0")), ttys = false)
+
+  suite "wantsColor()":
+    template withEnv(vars: openArray[(string, string)], body: untyped) =
+      let keys = ["FORCE_COLOR", "CLICOLOR_FORCE", "NO_COLOR", "TERM"]
+      var saved: seq[(string, bool, string)]
+      for k in keys: saved.add (k, existsEnv(k), getEnv(k))
+      for k in keys: delEnv(k)
+      for (k, v) in vars: putEnv(k, v)
+      try: body
+      finally:
+        for (k, had, v) in saved:
+          if had: putEnv(k, v) else: delEnv(k)
+
+    test "is true when colour is forced":
+      withEnv([("FORCE_COLOR", "1")]):
+        check wantsColor()
+
+    test "is false when NO_COLOR is set and colour isn't forced":
+      withEnv([("NO_COLOR", "1")]):
+        check not wantsColor()
+
+    test "follows whether both streams are terminals otherwise":
+      withEnv(newSeq[(string, string)]()):
+        when defined(windows): skip()
+        else: check wantsColor() == (stdout.isatty and stderr.isatty)
 
   suite "resolvedStyler":
     test "is nil when output isn't a terminal and colour isn't forced":

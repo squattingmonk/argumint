@@ -40,8 +40,8 @@ and whether it can take colour (`resolvedStyler`), which `SpecSettings`'
 `width`/`style` getters call on first read (ADR 0058). Each rule is a pure
 decider taking its environment as parameters (`chooseWidth`, `wantsColor`)
 beside a thin probe of the real process, and the one `winlean` import
-lives here. It imports only `style`, for `ansiStyler(defaultTheme)`;
-`backend` re-exports the public width names.
+lives here. It imports only `style`, for `ansiStyler`. `backend`
+re-exports the public width names, and the facade re-exports `wantsColor()`.
 
 `envvar.nim` is the env tier's counterpart to `configsource.nim`:
 `EnvSource` and its constructors (`env`, `toEnvSource`), `DefaultEnvDelim`,
@@ -1146,11 +1146,13 @@ form for prose that never reaches a styler: completion descriptions,
 `ValidationError` messages, and `help()`.
 
 The styler itself is `spec.settings.style`. Its default, the `autoStyler`
-marker, is resolved on the getter's first read by `resolvedStyler`
-(`console.nim`) and kept (ADR 0058). Its env-var rule is the pure
-`wantsColor(env, ttys)`, so tests can drive it without a terminal; on
-Windows, `enableVirtualTerminal` sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
-through `winlean`'s `getConsoleMode`/`setConsoleMode`.
+marker, is resolved on the getter's first read by
+`resolvedStyler(settings.theme)` (`console.nim`) to `ansiStyler(theme)` or
+nil, and kept (ADR 0058, 0067). Its env-var rule is the pure
+`wantsColor(env, ttys)`, so tests can drive it without a terminal, behind
+the public `wantsColor()` probe; on Windows, `enableVirtualTerminal` sets
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING` through `winlean`'s
+`getConsoleMode`/`setConsoleMode`.
 
 **Column Style** (`formatColumn`) aligns rows into two columns shared
 across every group. `colWidth` comes from `variantsColWidth(spec: Spec):

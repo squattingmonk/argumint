@@ -21,7 +21,9 @@ also enables `ENABLE_VIRTUAL_TERMINAL_PROCESSING` on both handles, and is
 nil if that fails and colour wasn't forced. Every misdetection lands on
 plain text, never on escape codes in a pipe. Checking both streams, not
 just the one being written, is what lets a single setting serve both help
-(stdout) and errors (stderr, ADR 0050).
+(stdout) and errors (stderr, ADR 0050). (**Update:** ADR 0067 resolves
+`autoStyler` to `ansiStyler(theme)`, with `theme` from `newSpecSettings`,
+and makes the rule public as `wantsColor()`.)
 
 On top of the seam sits a data layer for the common case: `TextStyle`
 (a `std/terminal` `ForegroundColor` plus a `set[Style]`; no background),
@@ -131,7 +133,7 @@ reads the same everywhere.
   built-in validators do. Building Styled Text is the supported use.
   `StyledText`'s public `spans` field is still reachable through it, but
   `Span` can't be named and the layout helpers (`Row`, wrapping, `join`)
-  stay in `argumint/help`.
+  stay in `argumint/help`. **Update:** ADR 0067 adds `wantsColor`.
 - `rows` and `annotations` take `keepTicks`. A custom formatter that renders
   with `spec.settings.style` should pass `keepTicks = style.isNil`; one that
   ignores the setting renders plain, as before. **Update:** ADR 0057
