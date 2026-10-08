@@ -613,10 +613,12 @@ decides in advance how many times a matcher gets visited — it falls out
 entirely from however many times `walk` actually visits it: a `...` repeat
 loops back and keeps consuming until the list runs out; the same Arg named
 more than once in one Usage Line with no `...` is just two separate matcher
-instances, and the cursor is consulted twice either way. The `[options]`
-catch-all is the exception: it only loops back on a CLI token, so its
-matchers (the ones with an empty `variant`) probe with `takeAll = true` and take
-every remaining value in one visit (#188).
+instances, and the cursor is consulted twice either way. The Options
+Catch-all is the exception: it repeats without limit, so its matchers (the
+ones with an empty `variant`) probe with `catchAll = true`, which marks the
+Arg in `ValueCursor.covered` instead of taking a value. A covered Arg gets
+every value with no oversupply check, and a nested command's own slots still
+find all of them (#188).
 
 The two tiers differ only in how they arrive at that per-Arg `seq[string]`
 of candidate values, each asking its own leaf module. Env:
