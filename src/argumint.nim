@@ -15,7 +15,7 @@
 
 import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[argtypes, backend, completion, configsource, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
+import ./argumint/[argtypes, backend, completion, configsource, console, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -130,6 +130,7 @@ export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
 export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
   style.defaultTheme, style.ansiStyler, style.autoStyler
 export style.StyledText, style.styled, style.`&`
+export console.wantsColor
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------

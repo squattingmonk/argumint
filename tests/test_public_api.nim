@@ -302,6 +302,10 @@ suite "`Spec` is an opaque handle":
     let settings = newSpecSettings(style = ansiStyler(theme))
     check not settings.style.isNil
     check compiles(newSpecSettings(style = autoStyler))
+    check compiles(newSpecSettings(theme = theme))
+    check not compiles(newSpecSettings().theme)
+    # The colour rule is public so a custom `Styler` can follow it (#195).
+    check wantsColor() is bool
     # Detection happens behind the getters; the resolvers aren't API.
     check not declared(resolvedWidth)
     check not declared(resolvedStyler)

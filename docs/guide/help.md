@@ -320,24 +320,21 @@ The user can choose too:
 On Windows, argumint turns on the console's colour support itself.
 
 To change the colours, copy `defaultTheme`, change the roles you want, and
-pass an `ansiStyler` built from it as `style`:
+pass it as `theme`:
 
 ```nim
 var theme = defaultTheme
 theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
 theme[srHeader] = TextStyle(attrs: {styleUnderscore})
 
-spec.parseOrQuit(settings = newSpecSettings(style = ansiStyler(theme)))
+spec.parseOrQuit(settings = newSpecSettings(theme = theme))
 ```
 
+argumint still decides whether to use colour at all, by the rules above.
 Each `TextStyle` has a colour and a set of attributes from `std/terminal`.
 The roles start with `sr`. See `StyleRole` in the
 [API reference](https://squattingmonk.github.io/argumint/argumint.html) for
 the full list. Pass `style = nil` for plain text everywhere.
-
-A style you pass is always used, even when the output isn't a terminal or
-`NO_COLOR` is set. Check for those yourself if your program should still
-honour them.
 
 For anything a theme can't do, like true colour, write your own `Styler`: a
 proc that takes a role and a piece of text, and returns the text to print.
@@ -377,6 +374,15 @@ $ ./ship --help | cat -v
 argumint lines up the columns before calling the styler, so what it adds
 doesn't throw off the layout. Return `text` unchanged for any role you don't
 want to style.
+
+A `style` you pass is always used, even when the output isn't a terminal or
+`NO_COLOR` is set. That's why `cat -v` shows the codes above. To follow the
+same rules as the default, check `wantsColor()`:
+
+```nim
+spec.parseOrQuit(settings = newSpecSettings(
+  style = if wantsColor(): orange else: nil))
+```
 
 When you catch an error or help from `parse`, its `msg` is always plain text.
 Its `styledMsg` holds the coloured form, which is what `parseOrQuit` prints.

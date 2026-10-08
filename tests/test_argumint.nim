@@ -1,4 +1,4 @@
-import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, unittest]
+import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
 import argumint/argtypes
@@ -1570,6 +1570,30 @@ suite "Messages":
       settings.style = autoStyler
       check settings.style.isNil # re-armed
 
+  test "a theme is what the auto-detected style colours with":
+    restoringEnv(["FORCE_COLOR", "CLICOLOR_FORCE", "NO_COLOR"]):
+      var theme = defaultTheme
+      theme[srOption] = TextStyle(fg: fgMagenta, attrs: {styleBright})
+      delEnv("CLICOLOR_FORCE")
+      delEnv("NO_COLOR")
+      putEnv("FORCE_COLOR", "1")
+      check (newSpecSettings(theme = theme).style)(srOption, "--name") ==
+        ansiStyler(theme)(srOption, "--name")
+      check (newSpecSettings().style)(srOption, "--name") ==
+        ansiStyler(defaultTheme)(srOption, "--name")
+      delEnv("FORCE_COLOR")
+      if not (stdout.isatty and stderr.isatty):
+        check newSpecSettings(theme = theme).style.isNil
+      putEnv("NO_COLOR", "1")
+      check newSpecSettings(theme = theme).style.isNil
+
+  test "a theme doesn't touch an explicit style":
+    var theme = defaultTheme
+    theme[srOption] = TextStyle(fg: fgMagenta)
+    check newSpecSettings(style = nil, theme = theme).style.isNil
+    let styler: Styler = proc (role: StyleRole, text: string): string = "!" & text
+    check (newSpecSettings(style = styler, theme = theme).style)(srOption, "x") == "!x"
+
   test "an explicit style is used as given":
     let styler: Styler = proc (role: StyleRole, text: string): string = "!" & text
     check newSpecSettings(style = nil).style.isNil
@@ -1641,6 +1665,12 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check spec.groups.len > 0
     check spec.prolog == "pro"
     check spec.epilog == "epi"
+
+  test "`SpecSettings`'s private `theme` field exists":
+    privateAccess(SpecSettings)
+    var theme = defaultTheme
+    theme[srEnv] = TextStyle(fg: fgRed)
+    check newSpecSettings(theme = theme).theme == theme
 
   test "`ValueArg`/`FlagArg`'s private fields exist":
     # Reached here only via the `privateAccess` calls at the top of this
