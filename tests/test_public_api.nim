@@ -150,7 +150,6 @@ suite "Types nameable after a bare `import argumint`":
     # "Library-internal names ..." suite.
     check not compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
     check not compiles(splitEnvValue("a:b", none(string), ":"))
-    check not compiles(EnvListSep)
 
   test "the value-display helpers stay out of the facade":
     # Exported from `display` for `validators`/`argtypes` only. Mirrored by

@@ -623,13 +623,12 @@ find all of them (#188).
 The two tiers differ only in how they arrive at that per-Arg `seq[string]`
 of candidate values, each asking its own leaf module. Env:
 `envvar.lookupEnv` reads the variable and always splits it
-(`envvar.splitEnvValue`) — on `\x1e` (ASCII Record Separator) if present,
-since that's how fish auto-joins a native list variable's elements when
-exporting it to a subprocess, otherwise on `Spec.settings.envDelim`
-(cascades like `width`, default `:`), keeping empty segments as literal
-values rather than dropping them. Config Source: `arg.configKey` is
-looked up via `lookupConfigSources(settings.configSources, key)`,
-which already returns an assembled `seq[string]` (the last layered source
+(`envvar.splitEnvValue`) — on the Arg's own `EnvSource.delim` if set,
+otherwise on `Spec.settings.envDelim` (cascades like `width`, default `:`),
+keeping empty segments as literal values rather than dropping them. Config
+Source: `arg.configKey` is looked up via
+`lookupConfigSources(settings.configSources, key)`, which already returns
+an assembled `seq[string]` (the last layered source
 with a hit for that key, in full — see CONTEXT.md's Config Source entry
 for why there's no delimiter-splitting step here at all).
 

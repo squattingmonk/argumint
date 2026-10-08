@@ -793,16 +793,11 @@ _Avoid_: merge, override (a tier *outranks*; nothing is overridden)
 **Env Delimiter**:
 The character sequence a configured environment variable's raw value is
 split on before being fed into Value Precedence's environment-variable
-tier. Consulted in order: an Env Source's own delimiter override, if
-explicitly set to the empty string, means this Arg's value is never split
-at all — a stronger instruction than everything below it, including
-`\x1e`. Otherwise `\x1e` (ASCII Record Separator) wins if present — this
-is how fish auto-joins a native list variable's elements when exporting it
-to a subprocess's environment, for any variable name, not just ones fish
-special-cases like `PATH`. Otherwise, a non-empty Env Source override
-wins. Failing all of those, `Spec.settings.envDelim`, which cascades to
-nested Command Specs the same way `width` does and defaults to `:` (the
-`PATH`-style convention `bash`/`zsh` users already reach for). A resulting
+tier. An Env Source's own delimiter override wins; set to the empty
+string, it means this Arg's value is never split at all. Failing that,
+`Spec.settings.envDelim`, which cascades to nested Command Specs the same
+way `width` does and defaults to `:` (the `PATH`-style convention
+`bash`/`zsh` users already reach for). A resulting
 empty value (a stray leading/trailing/doubled delimiter) is kept as a
 literal value rather than dropped, so an env value is never treated
 differently from a value typed on the command line.

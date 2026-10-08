@@ -86,6 +86,8 @@ proc fakeSource(pairs: varargs[(ConfigKey, seq[string])]): ConfigSource =
 # One fixture for both fallback tiers, so a shared behaviour is written once
 # and run for each -- see the "Fallback tiers" suite.
 const FallbackVar = "ARGUMINT_TEST_FALLBACK"
+const FallbackDelim = ","
+  ## No fixture value contains it.
 
 proc tierName(t: FallbackTier): string =
   case t
@@ -94,7 +96,7 @@ proc tierName(t: FallbackTier): string =
 
 proc envFor(t: FallbackTier): Option[EnvSource] =
   ## `t`'s source for an Arg under test; the other tier gets none.
-  if t == ftEnv: some(EnvSource(name: FallbackVar)) else: none(EnvSource)
+  if t == ftEnv: env(FallbackVar, FallbackDelim) else: none(EnvSource)
 
 proc keyFor(t: FallbackTier): ConfigKey =
   ## `t`'s Config Key for an Arg under test; the other tier gets none.
@@ -102,11 +104,11 @@ proc keyFor(t: FallbackTier): ConfigKey =
 
 proc supply(t: FallbackTier, values: varargs[string]): SpecSettings =
   ## Settings under which `t` supplies `values`, in order. Joined on
-  ## `EnvListSep`, so the env tier's split doesn't depend on `envDelim`.
+  ## `FallbackDelim`, so the env tier's split doesn't depend on `envDelim`.
   ## Pair with `defer: clearFallback()`.
   case t
   of ftEnv:
-    putEnv(FallbackVar, @values.join(EnvListSep))
+    putEnv(FallbackVar, @values.join(FallbackDelim))
     newSpecSettings(style = nil)
   of ftConfig:
     newSpecSettings(style = nil, configSources = @[fakeSource((configKey("fallback"), @values))])
@@ -1580,7 +1582,6 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   test "the env tier's reading and splitting exist in `argumint/envvar`":
     check compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
     check splitEnvValue("a:b", none(string), ":") == @["a", "b"]
-    check EnvListSep == "\x1e"
 
   test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
     # Exported from `argtypes` only so the facade's generic constructors,
@@ -2262,14 +2263,24 @@ suite "Environment variables":
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
     check spec.tags == @["foo", "", "bar"]
 
-  test "\\x1e takes priority over the configured delimiter":
-    putEnv("ARGUMINT_TEST_TAGS", "foo:bar\x1ebaz:qux")
+  test "a space delimiter splits a list fish exported (#190)":
+    # fish 3.0+ exports `set -x TAGS a b c` as `TAGS=a b c`.
+    putEnv("ARGUMINT_TEST_TAGS", "a b c")
+    defer: delEnv("ARGUMINT_TEST_TAGS")
+    let spec = (
+      tags: opts("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", " "), help = ""),
+    )
+    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
+    check spec.tags == @["a", "b", "c"]
+
+  test "\\x1e is not a delimiter (#190)":
+    putEnv("ARGUMINT_TEST_TAGS", "foo:bar\x1ebaz")
     defer: delEnv("ARGUMINT_TEST_TAGS")
     let spec = (
       tags: opts("--tag=<tag>", env = "ARGUMINT_TEST_TAGS", help = ""),
     )
     spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
-    check spec.tags == @["foo:bar", "baz:qux"]
+    check spec.tags == @["foo", "bar\x1ebaz"]
 
   test "a custom envDelim splits on something other than colon":
     putEnv("ARGUMINT_TEST_TAGS", "foo,bar,baz")
@@ -2302,27 +2313,18 @@ suite "Environment variables":
     check spec.a == @["foo", "bar"]
     check spec.b == @["foo", "bar"]
 
-  test "\\x1e still takes priority over a non-empty per-arg delim override":
-    putEnv("ARGUMINT_TEST_TAGS", "foo;bar\x1ebaz;qux")
-    defer: delEnv("ARGUMINT_TEST_TAGS")
-    let spec = (
-      tags: opts("--tag=<tag>", env = env("ARGUMINT_TEST_TAGS", ";"), help = ""),
-    )
-    spec.parse(usage = "[--tag=<tag>]...", args = @[], command = "prog")
-    check spec.tags == @["foo;bar", "baz;qux"]
-
-  test "an empty per-arg delim override disables splitting entirely, even over \\x1e":
-    putEnv("ARGUMINT_TEST_TOKEN", "a:b\x1ec")
+  test "an empty per-arg delim override disables splitting entirely":
+    putEnv("ARGUMINT_TEST_TOKEN", "a:b;c")
     defer: delEnv("ARGUMINT_TEST_TOKEN")
     let spec = (
       token: opt("--token=<token>", env = env("ARGUMINT_TEST_TOKEN", ""), help = ""),
     )
     spec.parse(usage = "[--token=<token>]", args = @[], command = "prog")
-    check spec.token == "a:b\x1ec"
+    check spec.token == "a:b;c"
 
   test "flag: env-named variants split on the default envDelim":
-    # The shared suite joins values on `\x1e`, so this pins the `:` path for
-    # a Flag.
+    # The shared suite splits on its own delimiter, so this pins the `:` path
+    # for a Flag.
     putEnv("ARGUMINT_TEST_VERBOSE", "--verbose:--verbose")
     defer: delEnv("ARGUMINT_TEST_VERBOSE")
     let spec = (
