@@ -284,6 +284,17 @@ let
     value <- {.*}
   """
 
+func defaultGroup*(kind: ArgKind): string =
+  ## The help group an Arg of `kind` goes in when its `group` is empty.
+  case kind
+  of ArgKind.Command: "Commands"
+  of ArgKind.Positional: "Arguments"
+  of ArgKind.Optional, ArgKind.Flag: "Options"
+
+func groupOr*(group: string, kind: ArgKind): string =
+  ## `group`, or `kind`'s `defaultGroup` if it's empty.
+  if group.len > 0: group else: kind.defaultGroup
+
 proc appName*(): string =
   ## The running binary's file name, minus any `.exe` -- the default `command`
   ## naming the program in usage lines and completion scripts.
