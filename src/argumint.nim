@@ -162,8 +162,9 @@ template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
 template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
   ## Same as `defineArg` above, but also registers `blankDesc` as the
   ## auto-generated help-text description for blank-op (`""`) variants
-  ## (e.g. `"Toggle the value"`), since that behavior is type-specific and
-  ## can't be inferred from `(op, value)` alone the way `=`/`+=`/`-=` can.
+  ## (e.g. `"Set to the opposite of the default"`), since that behavior is
+  ## type-specific and can't be inferred from `(op, value)` alone the way
+  ## `=`/`+=`/`-=` can.
   defineFlagArg(typeName, blankDesc, flagHandler)
 
 template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
