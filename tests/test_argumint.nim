@@ -181,6 +181,81 @@ suite "Positional args":
     spec.parse(usage = "[<file>...]", args = @[], command = "prog")
     check spec.files == newSeq[string]()
 
+suite "All-caps NAME variants":
+  # The variant PEG's own complaint, not a later one from the usage lexer.
+  proc invalidVariant(spec: tuple): bool =
+    try:
+      spec.parse(args = @[], command = "prog")
+    except SpecDefect as e:
+      result = "arg variant" in e.msg
+
+  test "a NAME positional and an =NAME placeholder parse like <name> ones":
+    let spec = (
+      keys: args("KEY", help = ""),
+      values: args("<value>", help = ""),
+      output: opt("-o, --output=FILE", default = "", help = ""),
+      n: arg("N", help = ""),
+    )
+    spec.parse(usage = "[options] N (KEY <value>)...",
+      args = @["3", "k1", "v1", "k2", "v2", "--output=out.txt"], command = "prog")
+    check spec.n == "3"
+    check spec.keys == @["k1", "k2"]
+    check spec.values == @["v1", "v2"]
+    check spec.output == "out.txt"
+
+  test "a short option with a NAME placeholder takes a separate value":
+    let spec = (output: opt("-o, --output=FILE", default = "", help = ""),)
+    spec.parse(args = @["-o", "x"], command = "prog")
+    check spec.output == "x"
+
+  test "an auto-filled usage names NAME positionals":
+    let spec = (
+      src: args("SRC", help = ""),
+      dest: arg("DEST", help = ""),
+      output: opt("--output=FILE", default = "", help = ""),
+    )
+    spec.parse(args = @["a", "b", "c", "--output=f"], command = "prog")
+    check spec.src == @["a", "b"]
+    check spec.dest == "c"
+    check spec.output == "f"
+
+  test "help lists NAME positionals and placeholders":
+    let spec = (
+      key: arg("KEY", help = "A key"),
+      output: opt("-o, --output=FILE", default = "", help = "Where to write"),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(args = @["--help"], command = "prog",
+        settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check "prog [options] KEY" in helpText
+    let rows = helpText.splitLines.mapIt(it.splitWhitespace.join(" "))
+    check "KEY A key" in rows
+    check "-o, --output=FILE Where to write" in rows
+
+  test "a NAME placeholder is a metavar":
+    check opt("--output=FILE", default = "").metavars == @["FILE"]
+
+  test "a NAME can join its parts with _ or -, but not end with one":
+    let spec = (
+      src: arg("SRC_DIR", help = ""),
+      output: opt("--out=OUT-FILE", default = "", help = ""),
+    )
+    spec.parse(args = @["a", "--out=b"], command = "prog")
+    check spec.src == "a"
+    check spec.output == "b"
+    check invalidVariant((k: arg("KEY-", help = "")))
+    check invalidVariant((o: opt("--out=FILE_", default = "", help = "")))
+
+  test "a lowercase or mixed-case bare name is still a SpecDefect":
+    for variant in ["key", "Key", "kEY"]:
+      check invalidVariant((k: arg(variant, help = "")))
+    for variant in ["--output=file", "--output=File"]:
+      check invalidVariant((o: opt(variant, default = "", help = "")))
+
 suite "Optional args":
   test "parse `--option=value` and validate it":
     let spec = (
@@ -1573,7 +1648,9 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
 
   test "the variant-format PEGs exist in `argumint/backend`":
     check "<name>".match(PositionalVariantFormat)
+    check "NAME".match(PositionalVariantFormat)
     check "--name=<s>".match(OptionalVariantFormat)
+    check "--name=NAME".match(OptionalVariantFormat)
     check "-v".match(FlagVariantFormat)
 
   test "the tier rule exists in `argumint/backend`":
