@@ -241,17 +241,21 @@ let
   Comma* = peg"\s* ',' \s*"
 
   PositionalVariantFormat* = peg"""
-    # Allows you to capture <arg>
-    argument <- ^ {'<' \w (\w / ('-' \w))* '>'} $
+    # Allows you to capture <arg> or ARG
+    argument <- ^ {angled / upper} $
+    angled <- '<' \w (\w / ('-' \w))* '>'
+    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
   """
 
   OptionalVariantFormat* = peg"""
-    # Allows you to capture [-o, var] / [--option, var] in -o=<var> / --option=<var>
+    # Allows you to capture [-o, var] / [--option, var] in -o=<var> /
+    # --option=<var>, or VAR in place of <var>
     option <- ^ (shortOption / longOption) (equals helpVar)? $
     equals <- '=' / ':'
     shortOption <- {'-' \w}
     longOption <- {'--' \w (\w / ('-' \w))+}
-    helpVar <- '<' {\w (\w / ('-' \w))*} '>'
+    helpVar <- ('<' {\w (\w / ('-' \w))*} '>') / {upper}
+    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
   """
 
   FlagVariantFormat* = peg"""

@@ -46,12 +46,13 @@ along with the help line argumint filled in for you.
 
 A usage string is made of these pieces:
 
-- `<name>` is a [positional argument](args-and-options.md).
+- `<name>` or `NAME` is a [positional argument](args-and-options.md).
 - `-o` or `--option` is an [option](args-and-options.md) or
-  [flag](flags.md), by any of its names. Write `-o=<value>` to show the
-  option's value placeholder in help.
+  [flag](flags.md), by any of its names. Write `-o=<value>` or `-o=VALUE`
+  to show the option's value placeholder in help.
 - `-abc` is several short options at once, the same as `-a -b -c`.
-- A plain word is a [command](commands.md).
+- A plain word is a [command](commands.md). A word in capitals is a
+  positional argument, so a command can't be spelled in capitals.
 - `[...]` makes everything inside it optional.
 - `(...)` groups pieces, so that `|` or `...` applies to the whole group.
 - `a | b` means either `a` or `b`, but not both.

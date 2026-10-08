@@ -195,7 +195,7 @@ would otherwise have needed). It picks up its own `privateAccess(Spec)` for
 User calls `arg`, `opt`, `flag`, `command`, `help` (the Arg constructors,
 `src/argumint.nim`) to build a tuple of `Arg` objects, then `newSpec`/`parse`
 (`specbuild.nim`) assembles them into a `Spec` (`backend.nim`). Each arg is
-indexed into `spec.arguments` (positional, keyed by `<name>`),
+indexed into `spec.arguments` (positional, keyed by `<name>` or `NAME`),
 `spec.options` (optional/flag, keyed by `-o`/`--option`), or `spec.commands`
 (subcommands, keyed by the command word). If no `usage` string is given, one
 is auto-generated from the declared args (see "autoFillUsage" below).
@@ -1099,9 +1099,9 @@ space, and inserting line breaks -- never altering a word's bytes.
 
 Roles are assigned where the text is built (ADR 0051). `rows` tags each
 variant by its Arg's kind (`styledVariant`, which splits an option's
-`=<m>` into `srOption`/`srPlain`/`srMetavar` through `style.styledOption`,
-shared with complaints), and runs the help text through `markup` with the
-Arg's own `metavars`, derived from its variants by
+`=<m>` or `=M` into `srOption`/`srPlain`/`srMetavar` through
+`style.styledOption`, shared with complaints), and runs the help text through
+`markup` with the Arg's own `metavars`, derived from its variants by
 `OptionalVariantFormat`'s `helpVar` capture. `annotations` tags the
 bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
 `srEnv`; the validator part comes from `validatorHelp`, which now returns

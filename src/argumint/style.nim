@@ -115,13 +115,13 @@ proc join*(parts: openArray[StyledText], sep: StyledText): StyledText =
 
 proc styledOption*(variant: string): StyledText =
   ## An option's `variant` as `srOption`, with a value placeholder split off
-  ## (`--speed=<kn>` is `srOption`, `srPlain`, `srMetavar`). Shared by help
-  ## rows and parse-error complaints so the two can't drift.
-  let placeholder = variant.find('<')
-  if placeholder > 1:
-    styled(srOption, variant[0 ..< placeholder - 1]) &
-      styled(variant[placeholder - 1 .. placeholder - 1]) &
-      styled(srMetavar, variant[placeholder .. ^1])
+  ## (`--speed=<kn>` or `--speed=KN` is `srOption`, `srPlain`, `srMetavar`).
+  ## Shared by help rows and parse-error complaints so the two can't drift.
+  let sep = variant.find({'=', ':'})
+  if sep > 1:
+    styled(srOption, variant[0 ..< sep]) &
+      styled(variant[sep .. sep]) &
+      styled(srMetavar, variant[sep + 1 .. ^1])
   else:
     styled(srOption, variant)
 
@@ -411,6 +411,12 @@ when isMainModule:
     test "splits a value placeholder off, after its separator":
       check styledOption("--speed=<kn>") ==
         styled(srOption, "--speed") & styled("=") & styled(srMetavar, "<kn>")
+
+    test "splits an all-caps placeholder off too":
+      check styledOption("--output=FILE") ==
+        styled(srOption, "--output") & styled("=") & styled(srMetavar, "FILE")
+      check styledOption("-o:FILE") ==
+        styled(srOption, "-o") & styled(":") & styled(srMetavar, "FILE")
 
     test "an option with no placeholder is all srOption":
       check styledOption("-v") == styled(srOption, "-v")
