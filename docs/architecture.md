@@ -1523,4 +1523,7 @@ the enum's declaration order. Each script strips the last line
 unconditionally and adds file names (bash `compgen -f` with
 `compopt -o filenames`, fish `__fish_complete_path`, zsh `_files`) or
 directories (`compgen -d`, `__fish_complete_directories`, `_files -/`). See
-`docs/adr/0066-completion-falls-back-to-paths.md`.
+`docs/adr/0066-completion-falls-back-to-paths.md`. The bash script stays
+runnable on bash 3.2, macOS's `/bin/bash`: no `mapfile`, no `case` inside a
+process substitution, and `compopt` only where it exists, so 3.2 completes
+paths without escaping them.

@@ -298,16 +298,19 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
         # `__complete` prints "value<TAB>help" per line, then a directive
         # line (see docs/adr/0022 and 0066). bash has no slot for help, so
         # cut it off; `-o filenames` escapes paths and marks directories.
-        local out directive
+        # No `mapfile`/`compopt` in bash 3.2 (macOS's /bin/bash).
+        local out paths="" line
         out=$({binaryName} __complete "${{args[@]}}" "$cur")
-        directive=${{out##*$'\n'}}
-        mapfile -t COMPREPLY < <(compgen -W "$(printf '%s\n' "$out" | sed '$d' | cut -f1)" -- "$cur")
-        case $directive in
-          :files) compopt -o filenames
-                  mapfile -t -O "${{#COMPREPLY[@]}}" COMPREPLY < <(compgen -f -- "$cur") ;;
-          :dirs)  compopt -o filenames
-                  mapfile -t -O "${{#COMPREPLY[@]}}" COMPREPLY < <(compgen -d -- "$cur") ;;
+        case ${{out##*$'\n'}} in
+          :files) paths=-f ;;
+          :dirs)  paths=-d ;;
         esac
+        COMPREPLY=()
+        while IFS= read -r line; do COMPREPLY+=("$line"); done < <(
+          compgen -W "$(printf '%s\n' "$out" | sed '$d' | cut -f1)" -- "$cur"
+          if [[ -n $paths ]]; then compgen $paths -- "$cur"; fi
+        )
+        if [[ -n $paths ]]; then compopt -o filenames 2>/dev/null; fi
       }}
       complete -F _{binaryName}_complete {binaryName}
       """
