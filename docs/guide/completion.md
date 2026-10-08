@@ -129,6 +129,11 @@ offers the ones that pass every check. Other values aren't completed, and the
 shell doesn't fall back to file names, so Tab offers nothing for an argument
 like `<file>`.
 
+An option, command, or argument declared with `hidden = true` isn't offered,
+even when what the user typed matches it, though it still parses. Once the
+user has typed it, completion carries on as usual, so a hidden option's
+values are still offered. See [Groups](help.md#groups).
+
 `parse` and `parseOrQuit` answer a completion request themselves, so
 `__complete` can't be the name of a command. `parseOrQuit` prints the words
 and exits with `0`. `parse` raises a `CompletionError` with the words as its

@@ -1432,7 +1432,10 @@ words are read from `spec.options` (the canonical bare-spelling → `Arg`
 map `match`'s `mkOption`/`mkOptions` branches themselves resolve against), not
 `Arg.variants` directly — the latter, for an Optional-kind `ValueArg`
 (`opt`/`opts`), still carries any declaration-time `=<placeholder>` suffix
-used only for help-text rendering.
+used only for help-text rendering. `candidateWords` skips a `hidden` Arg,
+but `pendingOptionalArgs` doesn't, so a hidden option's values still
+complete once its name is typed — see
+`docs/adr/0065-hidden-args-are-not-completed.md`.
 
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
