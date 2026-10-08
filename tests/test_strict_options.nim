@@ -6,6 +6,7 @@
 import std/[strutils, unittest]
 
 import argumint
+import argumint/completion
 
 proc catchAllSpec(): auto =
   ## `myapp [options] <file>...`, the shape where an unrecognized option
@@ -373,12 +374,12 @@ suite "strictOptions: a spec with no catch-all errors either way":
 
 suite "strictOptions: shell completion needs no special case":
   test "an already-invalid prefix yields no candidates":
-    # completeArgs never raises -- an unparseable prefix simply produces
+    # resolveCompletion never raises -- an unparseable prefix simply produces
     # nothing, leaving the shell's own file completion to take over
     # (ADR 0012).
     let spec = newSpec(catchAllSpec(), usage = CatchAll)
-    check spec.completeArgs(@["--nope", ""], "app").len == 0
+    check spec.resolveCompletion(@["--nope", ""], "app").candidates.len == 0
 
   test "a valid prefix still offers candidates":
     let spec = newSpec(catchAllSpec(), usage = CatchAll)
-    check spec.completeArgs(@["--"], "app").len > 0
+    check spec.resolveCompletion(@["--"], "app").candidates.len > 0

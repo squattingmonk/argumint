@@ -183,7 +183,8 @@ encapsulates. See issue #78.
 beyond the always-existing `genCompletionScript*` (§6) — now also holds the
 FSM-walking half of shell completion: `Frontier`, `collectFrontier`,
 `CompletionCandidate`, `bareVariants`, `describeVariants`, `addUnseen`,
-`candidateWords`, `pendingOptionalArgs`, and `completeArgs*`, moved from
+`candidateWords`, `pendingOptionalArgs`, and `completeArgs*` (now
+`resolveCompletion*`), moved from
 `fsm.nim` in issue #78 once `matching.nim` existed to import instead of
 `fsm.nim` (avoiding the import cycle `completion` ↔ `fsm` a direct move
 would otherwise have needed). It picks up its own `privateAccess(Spec)` for
@@ -1408,7 +1409,7 @@ differs by category:
 
 A compiled binary's `parse*`/`parseOrQuit*` intercepts a magic leading arg,
 `mycli __complete <partial words...>`, before any real FSM matching, env
-fallback, or dispatch — short-circuiting into `completion.completeArgs*`,
+fallback, or dispatch — short-circuiting into `completion.resolveCompletion*`,
 which re-walks `spec.fsm` to resolve candidates dynamically rather than via
 a static generated script. See
 `docs/adr/0012-fsm-driven-shell-completion.md` for why.
@@ -1419,9 +1420,9 @@ typed so far" (a `Frontier`), since several Usage Lines or `choice`
 alternatives can all still be live for a command line that isn't finished
 yet. It reuses `matching.match` unmodified, so env-var fallback (`docs/adr/
 0004`, `docs/adr/0005`) applies to completion exactly as it would to a real
-parse — see issue #78 for why this lives beside `completeArgs*` in
+parse — see issue #78 for why this lives beside `resolveCompletion*` in
 `completion.nim` rather than in `fsm.nim` alongside `walk`, the module it
-originally sketched into. `completeArgs*` reads each live frontier state's
+originally sketched into. `resolveCompletion*` reads each live frontier state's
 own outgoing
 transitions for next-word candidates (`candidateWords`) — or, when the last
 already-typed word is itself a bare Optional-kind option name still
@@ -1448,7 +1449,7 @@ only rejoins the walked path through a consuming `Argument` transition,
 and a state further back may lead to a Usage Line the typed words have
 already ruled out (`-h` after `deploy staging`).
 
-So `completeArgs*` also probes. For each option of every spec level the
+So `resolveCompletion*` also probes. For each option of every spec level the
 frontier reached (`levelOptions`), `accepts` appends it to the typed words
 (with `=x` for an Optional-kind option, since the walk never checks a
 value) and asks whether `collectFrontier` still finds a live branch; if
@@ -1507,3 +1508,19 @@ follows an option, and completes a bare separator as an empty value, since
 readline replaces only the text after it. zsh's `compadd -d` shows each
 display string in place of its word, so the script writes
 `word  -- help` there, or the bare word (#198).
+
+### Path Completion
+
+Besides its candidates, `resolveCompletion*` returns which paths the shell
+should add (`PathCompletion`, `backend.nim`), and `parse*` prints that as
+the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
+(`completion.directive`). Every position that takes a free-form value
+contributes its Arg's `complete` — each non-hidden `mkArgument` transition
+out of a frontier state, or each pending option in the pending-value case
+— unless the Arg has enumerable `completions()`, which a `choice` accepts
+alone. `Files` beats `Dirs`, which beats `None`; `widen` takes the minimum,
+the enum's declaration order. Each script strips the last line
+unconditionally and adds file names (bash `compgen -f` with
+`compopt -o filenames`, fish `__fish_complete_path`, zsh `_files`) or
+directories (`compgen -d`, `__fish_complete_directories`, `_files -/`). See
+`docs/adr/0066-completion-falls-back-to-paths.md`.

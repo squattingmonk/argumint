@@ -219,6 +219,11 @@ A validator checks only the values the user gives, whether on the command
 line, in an environment variable, or in a config file. It never checks your
 own default, so a default outside the range is fine.
 
+`choice` also gives [shell completion](completion.md#what-gets-completed) the
+values to offer. Any other value completes as a file name. Pass
+`complete = Dirs` to offer only directories, or `complete = None` to offer
+nothing.
+
 ### Writing Your Own Checks
 
 Give `check` a proc that takes the value and returns whether it's good. The

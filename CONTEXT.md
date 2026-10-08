@@ -874,3 +874,12 @@ _Avoid_: Usage pattern, usage rule
 A Usage Line that is only `{cmd}`, matching the command with nothing after
 it. A blank line is never one.
 _Avoid_: Empty usage line, blank alternative
+
+**Path Completion**:
+Which paths shell completion offers for a value with no enumerable values
+of its own: file names, with directories to descend into (`Files`, the
+default), directories only (`Dirs`), or none (`None`). Set per Arg with
+`complete`. A `choice` validator's values replace it, since no path would
+pass it. `__complete` names it on the last line of its output. See
+`docs/adr/0066-completion-falls-back-to-paths.md`.
+_Avoid_: File fallback, file completion (each names only one of the three)

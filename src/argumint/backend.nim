@@ -35,6 +35,17 @@ type
     Flag
       ## An optional argument that takes no value (e.g., `-f` or `--flag`)
 
+  PathCompletion* {.pure.} = enum
+    ## Which paths shell completion offers for a value with no enumerable
+    ## values of its own -- see
+    ## `docs/adr/0066-completion-falls-back-to-paths.md`.
+    Files
+      ## Files, and directories to descend into
+    Dirs
+      ## Directories only
+    None
+      ## No paths
+
   SeenBy* = enum
     ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
     ## provenance (`CONTEXT.md`). Ordered weakest-to-strongest, mirroring the
@@ -79,7 +90,11 @@ type
     group*: string
       ## The group where the argument should appear in help messages
     hidden*: bool
-      ## Whether the arg should be shown in help messages
+      ## Whether the arg is kept out of help messages and shell completion
+    complete*: PathCompletion
+      ## Which paths completion offers for this Arg's value, unless it has
+      ## enumerable values -- see
+      ## `docs/adr/0066-completion-falls-back-to-paths.md`.
     seenBy*: SeenBy
       ## Which Value Precedence tier supplied this Arg -- written by `parse`
       ## right after `accept` stores the value, so provenance can never outrun

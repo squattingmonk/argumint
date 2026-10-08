@@ -3,7 +3,7 @@
 ## `docs/adr/0022-completion-candidate-help-text.md`.
 ##
 ## Because completion is resolved dynamically (the compiled binary re-walks
-## its own FSM via `completeArgs*` on every request), these scripts need to
+## its own FSM via `resolveCompletion*` on every request), these scripts need to
 ## know almost nothing about `Spec`'s contents: they
 ## never enumerate commands/options themselves. Each one is purely
 ## mechanical -- register a completion function for `binaryName`, shell out
@@ -34,6 +34,10 @@ type
     ## positional's or Choice validator's own values) always carries `""`, since
     ## there's no per-value description in the data model to draw from -- see
     ## architecture.md §6.
+
+  Completion* = tuple[candidates: seq[CompletionCandidate], paths: PathCompletion]
+    ## What `resolveCompletion` offers: the candidates, and which paths the
+    ## shell adds to them.
 
 proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
@@ -83,7 +87,7 @@ proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
   ## Appends each of `candidates` whose `.value` starts with `prefix` and
   ## hasn't already been seen (via `seen`, keyed on `.value` alone) into
   ## `result`, preserving first-seen-wins order -- the dedup rule shared by
-  ## `candidateWords` and `completeArgs*`'s own pending-value branch.
+  ## `candidateWords` and `resolveCompletion*`'s own pending-value branch.
   for c in candidates:
     if c.value.startsWith(prefix) and c.value notin seen:
       seen.incl c.value
@@ -123,7 +127,7 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
 proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
   ## Every distinct `Optional`-kind (value-taking, not `Flag`) Arg reachable
   ## from a live frontier state whose variants include `name` exactly --
-  ## used by `completeArgs` to detect "the last already-typed word is itself
+  ## used by `resolveCompletion` to detect "the last already-typed word is itself
   ## a bare option name still awaiting its value" (e.g. `--log-level` typed
   ## with nothing after it yet).
   var seenArgs: HashSet[Arg]
@@ -192,16 +196,27 @@ proc accepts(spec: Spec, words: seq[string], command, variant: string, arg: Arg)
   let probe = if arg.kind == Optional: variant & "=x" else: variant
   spec.frontierAfter(words & probe, command).len > 0
 
-proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
+proc pathsFor(arg: Arg): PathCompletion =
+  ## What `arg`'s value falls back to: its own `complete`, unless it has
+  ## enumerable values, which a `choice` accepts alone.
+  if arg.completions().len > 0: PathCompletion.None else: arg.complete
+
+proc widen(paths: var PathCompletion, other: PathCompletion) =
+  ## `Files` beats `Dirs`, which beats `None` -- declared in that order.
+  paths = min(paths, other)
+
+proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Completion =
   ## Returns shell-completion candidates for `words` -- everything typed
-  ## after the `__complete` marker (see `parse*`). The last element of
-  ## `words` is the word currently being completed (possibly `""` if the
-  ## cursor follows a space with nothing typed for this word yet); every
-  ## earlier element is already complete. Never raises -- an unparseable
-  ## prefix simply yields no candidates (`collectFrontier` just finds no
-  ## live transitions for it), leaving the shell's own file-completion
-  ## fallback to take over. See `docs/adr/0012-fsm-driven-shell-completion.md`
-  ## and `docs/adr/0022-completion-candidate-help-text.md`.
+  ## after the `__complete` marker (see `parse*`) -- and which paths the
+  ## shell should add to them. The last element of `words` is the word
+  ## currently being completed (possibly `""` if the cursor follows a space
+  ## with nothing typed for this word yet); every earlier element is
+  ## already complete. Never raises -- an unparseable prefix simply yields
+  ## no candidates and no paths (`collectFrontier` just finds no live
+  ## transitions for it). See `docs/adr/0012-fsm-driven-shell-completion.md`,
+  ## `docs/adr/0022-completion-candidate-help-text.md`, and
+  ## `docs/adr/0066-completion-falls-back-to-paths.md`.
+  result.paths = PathCompletion.None
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
@@ -222,21 +237,34 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
       for arg in pending:
         let candidates = collect:
           for c in arg.completions(): (c, "")
-        result.addUnseen(seenValues, candidates, wordBeingCompleted)
+        result.candidates.addUnseen(seenValues, candidates, wordBeingCompleted)
+        result.paths.widen arg.pathsFor
       return result
 
   # Case (a): ordinary "what word can come next" completion, plus any
   # option accepted after a positional (see `accepts`).
   let frontier = spec.frontierAfter(priorWords, command)
-  result = frontier.candidateWords(wordBeingCompleted)
+  result.candidates = frontier.candidateWords(wordBeingCompleted)
   var seen: HashSet[string]
-  for c in result:
+  for c in result.candidates:
     seen.incl c.value
   for (variant, arg) in frontier.levelOptions:
     # The prefix and `seen` checks only spare `accepts` a walk.
     if not arg.hidden and variant.startsWith(wordBeingCompleted) and
         variant notin seen and spec.accepts(priorWords, command, variant, arg):
-      result.addUnseen(seen, describeVariants(arg, @[variant]), wordBeingCompleted)
+      result.candidates.addUnseen(seen, describeVariants(arg, @[variant]), wordBeingCompleted)
+  for (state, _) in frontier:
+    for tr in state.transitions:
+      if tr.matcher.kind == mkArgument and not tr.matcher.arg.hidden:
+        result.paths.widen tr.matcher.arg.pathsFor
+
+proc directive*(paths: PathCompletion): string =
+  ## The line ending `__complete`'s output, telling the shell script which
+  ## paths to add -- see `docs/adr/0066-completion-falls-back-to-paths.md`.
+  case paths
+  of PathCompletion.Files: ":files"
+  of PathCompletion.Dirs: ":dirs"
+  of PathCompletion.None: ":"
 
 proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
@@ -267,12 +295,19 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
         if [[ ($cur == "=" || $cur == ":") && ${{COMP_WORDS[COMP_CWORD-1]}} == -* ]]; then
           cur=""
         fi
-        # `__complete` prints "value<TAB>help" per line (see docs/adr/0022) --
-        # bash's own COMPREPLY has no slot to render a description into, so
-        # strip everything from the first tab onward before feeding compgen.
-        local words
-        words=$({binaryName} __complete "${{args[@]}}" "$cur" | cut -f1)
-        COMPREPLY=($(compgen -W "$words" -- "$cur"))
+        # `__complete` prints "value<TAB>help" per line, then a directive
+        # line (see docs/adr/0022 and 0066). bash has no slot for help, so
+        # cut it off; `-o filenames` escapes paths and marks directories.
+        local out directive
+        out=$({binaryName} __complete "${{args[@]}}" "$cur")
+        directive=${{out##*$'\n'}}
+        mapfile -t COMPREPLY < <(compgen -W "$(printf '%s\n' "$out" | sed '$d' | cut -f1)" -- "$cur")
+        case $directive in
+          :files) compopt -o filenames
+                  mapfile -t -O "${{#COMPREPLY[@]}}" COMPREPLY < <(compgen -f -- "$cur") ;;
+          :dirs)  compopt -o filenames
+                  mapfile -t -O "${{#COMPREPLY[@]}}" COMPREPLY < <(compgen -d -- "$cur") ;;
+        esac
       }}
       complete -F _{binaryName}_complete {binaryName}
       """
@@ -289,19 +324,25 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
           compset -P 1 '*[=:]'
           cur="$PREFIX"
         fi
-        # `__complete` prints "value<TAB>help" per line (see docs/adr/0022),
-        # or one blank line for none; the display string replaces the word.
+        # `__complete` prints "value<TAB>help" per line, then a directive
+        # line (see docs/adr/0022 and 0066); the display string replaces the
+        # word.
         local -a lines candidates descriptions
         lines=("${{(@f)$({binaryName} __complete "${{args[@]}}" "$cur")}}")
+        local directive=${{lines[-1]}}
+        lines=("${{(@)lines[1,-2]}}")
         local line word help
         for line in "${{lines[@]}}"; do
-          [[ -z $line ]] && continue
           word="${{line%%$'\t'*}}"
           help="${{line#*$'\t'}}"
           candidates+=("$word")
           descriptions+=("$word${{help:+  -- $help}}")
         done
-        compadd -d descriptions -a candidates
+        (( ${{#candidates}} )) && compadd -d descriptions -a candidates
+        case $directive in
+          :files) _files ;;
+          :dirs) _files -/ ;;
+        esac
       }}
       compdef _{binaryName}_complete {binaryName}
       """
@@ -320,36 +361,45 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
         # "--opt=<TAB>"/"--opt:<TAB>" would otherwise arrive as one opaque,
         # unmatchable word. Split it by hand into the bare option name and
         # its (possibly empty) pending value.
+        set -l words $tokens[2..-1]
+        set -l prefix ""
+        set -l value $cur
         if string match -qr '^-[^=:]*[=:]' -- $cur
-          set -l name (string replace -r '[=:].*' '' -- $cur)
-          set -l prefix (string replace -r '^([^=:]*[=:]).*' '$1' -- $cur)
-          set -l value (string replace -r '^[^=:]*[=:]' '' -- $cur)
-          # fish's own -a candidate filter compares each returned line
-          # literally against $cur (the whole "--opt=" token typed so
-          # far), not just the value -- unlike bash/zsh, which isolate
-          # the value automatically. Re-prepend the option+separator so
-          # a bare value candidate like "debug" survives that filter as
-          # "--opt=debug".
-          #
-          # `__complete` prints "value<TAB>help" per line (see docs/adr/0022)
-          # -- split that off first so $prefix lands on the value half only,
-          # then re-append the description (if any) after its own tab, so
-          # fish still matches "$prefix<value>" against $cur while keeping
-          # any description intact.
-          for candidate in ({binaryName} __complete $tokens[2..-1] $name $value)
-            set -l parts (string split -m1 \t -- $candidate)
-            if test -n "$parts[2]"
-              echo "$prefix$parts[1]"\t"$parts[2]"
-            else
-              echo "$prefix$parts[1]"
-            end
+          set -a words (string replace -r '[=:].*' '' -- $cur)
+          set prefix (string replace -r '^([^=:]*[=:]).*' '$1' -- $cur)
+          set value (string replace -r '^[^=:]*[=:]' '' -- $cur)
+        end
+        # fish's own -a candidate filter compares each returned line
+        # literally against $cur (the whole "--opt=" token typed so far), not
+        # just the value -- unlike bash/zsh, which isolate the value
+        # automatically. Re-prepend the option+separator (an empty $prefix
+        # otherwise) so a bare value candidate like "debug" survives that
+        # filter as "--opt=debug".
+        #
+        # `__complete` prints "value<TAB>help" per line (see docs/adr/0022),
+        # fish's own format for a candidate with a description, then a
+        # directive line (docs/adr/0066) -- split the help off first so
+        # $prefix lands on the value half only, then re-append it.
+        set -l out ({binaryName} __complete $words "$value")
+        set -l directive $out[-1]
+        set -e out[-1]
+        for candidate in $out
+          set -l parts (string split -m1 \t -- $candidate)
+          if test -n "$parts[2]"
+            printf '%s\t%s\n' "$prefix$parts[1]" "$parts[2]"
+          else
+            printf '%s\n' "$prefix$parts[1]"
           end
-        else
-          # `__complete` already prints "value<TAB>help" per line, which is
-          # exactly fish's own native format for a candidate with a
-          # description (see `complete`'s docs on multi-line command
-          # substitution output) -- passed straight through, unchanged.
-          {binaryName} __complete $tokens[2..-1] $cur
+        end
+        switch $directive
+          case :files
+            for p in (__fish_complete_path "$value")
+              printf '%s\n' "$prefix$p"
+            end
+          case :dirs
+            for p in (__fish_complete_directories "$value")
+              printf '%s\n' "$prefix$p"
+            end
         end
       end
       complete -c {binaryName} -f -a '(__{binaryName}_complete)'

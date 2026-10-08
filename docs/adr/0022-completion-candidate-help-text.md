@@ -29,6 +29,11 @@ The `__complete` interception in `fsm.parse*` joins candidates into
 every adapter script can split each line on the *first* tab
 unconditionally rather than branching on whether a tab exists at all.
 
+**Update:** amended by `docs/adr/0066-completion-falls-back-to-paths.md`.
+The candidate lines are now followed by one directive line (`:files`,
+`:dirs` or `:`), which every script strips, and `completeArgs` and
+`CompletionCandidate` are no longer exported.
+
 Accepted limitation, consistent with this codebase's existing style of
 documenting rather than defending against unlikely author input (see e.g.
 ADR 0012's own accepted tradeoffs): help text containing a literal tab or

@@ -1,11 +1,15 @@
-# Tests for dynamic shell completion (`fsm.completeArgs*`, the `__complete`
-# entry point, and `completion.genCompletionScript*`) -- see
+# Tests for dynamic shell completion (`completion.resolveCompletion*`, the
+# `__complete` entry point, and `completion.genCompletionScript*`) -- see
 # `docs/adr/0012-fsm-driven-shell-completion.md` and
 # `docs/adr/0022-completion-candidate-help-text.md`.
 
-import std/[os, osproc, sequtils, strutils, unittest]
+import std/[algorithm, os, osproc, sequtils, strutils, unittest]
 
 import argumint
+import argumint/completion
+
+proc completeArgs(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
+  spec.resolveCompletion(words, command).candidates
 
 proc values(candidates: seq[CompletionCandidate]): seq[string] =
   candidates.mapIt(it.value)
@@ -362,6 +366,81 @@ suite "Completion candidates carry help text":
     for c in candidates:
       check c.help == ""
 
+proc wire(spec: Spec, words: varargs[string]): seq[string] =
+  ## `__complete`'s output for `words`, one line each -- the candidates, then
+  ## the directive.
+  try:
+    spec.parse(args = @["__complete"] & @words, command = "site")
+  except CompletionError as e:
+    return e.msg.splitLines
+
+suite "Path completion directive (#200)":
+  let site = newSpec((
+    cat: command("cat", (file: arg("<file>"), n: flag("-n"), help: help()), help = "Print a file"),
+    cd: command("cd", (dir: arg("<dir>", complete = Dirs), help: help()), help = "Change directory"),
+    tag: command("tag", (name: arg("<name>", complete = None), help: help()), help = "Tag it"),
+    count: command("count", (count: arg[int]("<count>"), help: help()), help = "Count"),
+    output: opt("-o, --out=<file>"),
+    into: opt("--into=<dir>", complete = Dirs),
+    logLevel: opt("--log-level=<level>", validator = choice(["debug", "info"])),
+    completion: command("completion", (
+      shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"])),
+    ), help = "Print a script"),
+    help: help(),
+  ))
+
+  for (words, directive) in [
+    (@["cat", ""], ":files"),
+    (@["cat", "al"], ":files"),
+    (@["cat", "alpha.txt", ""], ":"),
+    (@["cd", ""], ":dirs"),
+    (@["tag", ""], ":"),
+    (@["count", ""], ":files"),
+    (@["-o", "be"], ":files"),
+    (@["--into", ""], ":dirs"),
+    (@["--log-level", ""], ":"),
+    (@["completion", "f"], ":"),
+    (@["cat", "-n", ""], ":files"),
+  ]:
+    test "completing " & $words & " ends with " & directive:
+      check site.wire(words)[^1] == directive
+
+  test "options are still offered beside files":
+    check site.wire("cat", "") == @["-h\tDisplay this help message",
+      "--help\tDisplay this help message", "-n\t", ":files"]
+
+  test "an empty result is the directive alone":
+    check site.wire("cat", "alpha.txt", "zz") == @[":"]
+
+  test "choice values replace the file fallback":
+    let spec = newSpec((mode: arg("<mode>", validator = choice(["fast", "slow"])),))
+    check spec.wire("") == @["fast\t", "slow\t", ":"]
+
+  test "Files beats Dirs across Usage Lines":
+    let spec = newSpec((
+      file: arg("<file>"),
+      dir: arg("<dir>", complete = Dirs),
+    ), usage = "<file>\n<dir>")
+    check spec.wire("")[^1] == ":files"
+
+  test "Dirs beats None across Usage Lines":
+    let spec = newSpec((
+      dir: arg("<dir>", complete = Dirs),
+      name: arg("<name>", complete = None),
+    ), usage = "<dir>\n<name>")
+    check spec.wire("")[^1] == ":dirs"
+
+  test "a hidden positional offers no paths":
+    let spec = newSpec((file: arg("<file>", hidden = true),))
+    check spec.wire("") == @[":"]
+
+  test "a typed option's value falls back to its own paths after a positional":
+    let spec = newSpec((
+      into: opt("--into=<dir>", complete = Dirs),
+      file: arg("<file>", complete = None),
+    ), usage = "[options] <file>")
+    check spec.wire("x", "--into", "")[^1] == ":dirs"
+
 suite "__complete entry point":
   test "raises CompletionError with tab-separated candidate/help lines and fires no hooks":
     var hookFired = false
@@ -378,7 +457,7 @@ suite "__complete entry point":
       built.parse(args = @["__complete", "--lo"], command = "test")
     except CompletionError as e:
       caught = e.msg
-    check caught == "--log-level\t"
+    check caught == "--log-level\t\n:"
     check not hookFired
 
   test "a candidate's help text rides along after its own tab":
@@ -391,7 +470,7 @@ suite "__complete entry point":
       built.parse(args = @["__complete", "--lo"], command = "test")
     except CompletionError as e:
       caught = e.msg
-    check caught == "--log-level\tLogging verbosity"
+    check caught == "--log-level\tLogging verbosity\n:"
 
   test "multi-line help is its first paragraph on the candidate's own line":
     let spec = (
@@ -409,7 +488,7 @@ suite "__complete entry point":
     except CompletionError as e:
       caught = e.msg
     check caught.splitLines == @[
-      "--level\tFirst line second `--level`", "--mode\tPicks a mode."]
+      "--level\tFirst line second `--level`", "--mode\tPicks a mode.", ":"]
 
 suite "genCompletionScript":
   let spec = (
@@ -429,19 +508,28 @@ suite "genCompletionScript":
   test "zsh renders help text via compadd -d":
     check "compadd -d" in built.completionScript(zsh, "mycli")
 
-proc bashComplete(script: string, words: seq[string], cword: int): tuple[forwarded, reply: seq[string]] =
+proc bashComplete(script: string, words: seq[string], cword: int,
+    directive = ":"): tuple[forwarded, reply: seq[string]] =
   ## Runs `script`'s bash function on `words` (`COMP_WORDS`, binary name
-  ## first) with the cursor on `words[cword]`. A stub `mycli` records what
-  ## the script forwards to `__complete` and offers `debug` and `info`.
-  let path = getTempDir() / "argumint_test_complete.bash"
+  ## first) with the cursor on `words[cword]`, in a directory holding
+  ## `alpha.txt` and `sub/`. A stub `mycli` records what the script forwards
+  ## to `__complete`, and offers `debug` and `info`, then `directive`.
+  let dir = getTempDir() / "argumint_test_complete"
+  createDir(dir / "sub")
+  writeFile(dir / "alpha.txt", "")
+  defer: removeDir(dir)
+  let path = dir / "complete.bash"
   writeFile(path, script & [
-    """mycli() { shift; printf 'FWD:%s\n' "$@" >&2; printf 'debug\t\ninfo\t\n'; }""",
+    """mycli() { shift; printf 'FWD:%s\n' "$@" >&2; printf 'debug\t\ninfo\t\n%s\n' """ &
+      quoteShell(directive) & "; }",
+    "cd " & quoteShell(dir),
     "COMP_WORDS=(" & words.mapIt(quoteShell(it)).join(" ") & ")",
     "COMP_CWORD=" & $cword,
+    # `compopt` only runs inside real completion.
+    "compopt() { :; }",
     "_mycli_complete",
     """printf 'REPLY:%s\n' "${COMPREPLY[@]}"""",
   ].join("\n") & "\n")
-  defer: removeFile(path)
   let (output, code) = execCmdEx("bash " & quoteShell(path) & " 2>&1")
   doAssert code == 0, output
   for line in output.splitLines:
@@ -473,3 +561,21 @@ suite "bash script forwards what the user typed (#198)":
         let got = bashComplete(script, words, cword)
         check got.forwarded == forwarded
         check got.reply == reply
+
+suite "bash script adds the paths __complete asks for (#200)":
+  let script = newSpec((
+    file: arg("<file>"),
+  )).completionScript(bash, "mycli")
+
+  for (cur, directive, reply) in [
+    ("", ":files", @["debug", "info", "alpha.txt", "complete.bash", "sub"]),
+    ("al", ":files", @["alpha.txt"]),
+    ("", ":dirs", @["debug", "info", "sub"]),
+    ("s", ":dirs", @["sub"]),
+    ("", ":", @["debug", "info"]),
+  ]:
+    test "completing " & cur.escape & " with " & directive & " offers " & $reply:
+      if defined(windows) or findExe("bash").len == 0: skip()
+      else:
+        check bashComplete(script, @["mycli", cur], 1, directive).reply.sorted == reply.sorted
+
