@@ -4,6 +4,11 @@
 > error in `acceptImpl` now uses `display.quoted`. `export strutils.escape`
 > no longer serves the purpose below; whether to keep it is #166.
 
+> **Note (#166):** `export strutils.escape` is removed, superseding the
+> `strutils.escape` part of this decision. A caller that used `escape`
+> through `import argumint` must now `import std/strutils`. The other
+> re-exports stand.
+
 `defineArg`/`defineFlag`/`defineFlagArg`/`defineSetFlag` — the public
 mechanism for registering a custom Positional Argument/Option/Flag type —
 generate methods whose bodies call `self.validator.help()`,

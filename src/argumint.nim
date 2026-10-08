@@ -27,7 +27,6 @@ export validators except styledHelp
 export flagclamp except styledHelp
 export configsource
 export backend.name
-export strutils.escape
 
 # `clamp`/`adjust`'s `desc: Option[string]` param (argumint/flagclamp, see
 # issue #12) makes `Option`-construction part of the public API surface --
