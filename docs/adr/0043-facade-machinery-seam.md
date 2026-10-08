@@ -1,5 +1,10 @@
 # Public names stay in `argumint.nim`; private-field machinery lives in a withheld submodule
 
+> **Note (#213):** `defineValueArg` and the one-argument `defineArg` are
+> gone. `ValueArgBase` and the `initValueArg`/`initValuesArg` constructors
+> that fill in its hooks live in `argtypes` and are withheld the same way
+> (ADR 0068).
+
 Splitting `argumint.nim` divides each public feature in two. The rule for
 where the halves go:
 

@@ -2,9 +2,9 @@
 
 Compiler/language quirks discovered while building argumint that cost real
 debugging time. Read this before touching `defineArg`/`defineFlag`
-(`src/argumint.nim`), `defineValueArg`/`defineFlagArg`/`defineSetFlagArg`
-(`src/argumint/argtypes.nim`, the machinery those public names delegate to),
-or anything else that generates methods inside a template.
+(`src/argumint.nim`), `defineFlagArg`/`defineSetFlagArg` and `ValueArgBase`'s
+hooks (`src/argumint/argtypes.nim`, the machinery those public names delegate
+to), or anything else that generates methods inside a template.
 
 - **`args*`/`opts*` are separate procs from `arg*`/`opt*`, not overloads of
   them.** Prototyping a second same-named overload of `arg*`/`opt*` with its
@@ -135,14 +135,13 @@ or anything else that generates methods inside a template.
   doesn't hit it.
 
 - **Appending to an `Option[seq[T]]` field via `self.value =
-  some(self.value.get & @[tmp])` silently corrupts earlier elements under
-  ORC** — only once the object type carries an extra `static bool` param
-  alongside `T`, as `ValueArg[T, multi]` does. Dormant, not fixed:
-  `ValueArg.value` is now a plain `seq[T]` that `storeImpl` just `.add`s to.
-  If it ever goes back to an `Option` (see
-  `docs/adr/0011-rejected-option-operations.md`), unwrap into a local `var`
-  and `.add` instead of reassigning an inline `get(...) & @[...]`. Guarded
-  by the "(ORC regression)" test in `src/argumint/argtypes.nim`.
+  some(self.value.get & @[tmp])` silently corrupted earlier elements under
+  ORC** — seen only while the object type carried an extra `static bool`
+  param alongside `T`, as `ValueArg[T, multi]` did until #213. That param
+  is gone, but the cause was never found. `ValuesArg.value` is an
+  `Option[seq[T]]` again, and `store` appends in place through `Option`'s
+  `var` accessor (`self.value.get.add`) rather than reassigning. Guarded by
+  the "(ORC regression)" test in `src/argumint/argtypes.nim`.
 
 - **`all`/`any` (`validators.nim`) can't take `desc` as a plain defaulted
   param (`desc = ""`) alongside a `varargs` param.** Nim can't resolve a call
@@ -155,25 +154,26 @@ or anything else that generates methods inside a template.
   with `desc = ""` — rather than one proc with a default value.
 
 - **An implicit `converter string -> T` is only found at a generic proc's
-  call site, not at its definition site.** `defineFlagArg`'s generated
-  `handleFlag` calls our own `toInt`/`toFloat`/etc. converters explicitly for
-  the built-in types rather than relying on the implicit `arg = matches[2]`
-  conversion, because `flag[T]` is instantiated wherever a caller writes it
-  -- an implicit converter only applies if it's visible in *that* scope, not
-  just here. Our built-in converters are kept private (a public `converter`
-  callable by name could otherwise silently hijack unrelated overload
-  resolution, e.g. a plain `"x" in someString`, in a module that doesn't
-  import `std/strutils` itself); a user's own `T` still gets the implicit
-  conversion, as long as they define `converter toMyType(value: string): T`
-  somewhere visible at their own `flag[T](...)` call site.
+  call site, not at its definition site.** `opt[T]` and `flag[T]` are
+  instantiated wherever a caller writes them, so `fromString`
+  (`argtypes.nim`) calls our own `toInt`/`toFloat`/etc. by name for the
+  built-in types rather than relying on an implicit `let x: T = s` -- a
+  private converter isn't visible in the caller's scope. They're plain
+  procs, not converters: a public `converter` could silently hijack
+  unrelated code in every module importing argumint (ADR 0068 lists what
+  compiles). A user's own `T` still gets the implicit conversion, as long as
+  `converter toMyType(value: string): T` is visible where the Arg is built.
+  "Where the generic is instantiated" means the *outermost* one: a library
+  wrapping `opt` in a generic of its own must export its converter, or its
+  callers can't see it (`tests/fixtures/optwrapper.nim`).
 
-- **`ValueArg[T, false].defaultStr` requires `T` to support both `default(T)`
-  and `==`** (it compares `self.default[0]` against `default(T)` to decide
-  whether a default is "meaningfully set"). Nearly every type does, but a
-  `{.requiresInit.}` object would fail to compile here if used as an
-  `arg`/`opt` value type. Not considered worth guarding against, but worth
-  knowing if `defineArg` ever fails to compile for a custom `T` with an
-  unhelpful-looking error.
+- **A `ValueArg[T]`'s help default requires `T` to support both `default(T)`
+  and `==`** (`defaultText`, behind its `defaultStr`, compares
+  `self.default` against `default(T)` to decide whether a default is
+  "meaningfully set"). Nearly every type does, but a `{.requiresInit.}`
+  object would fail to compile here if used as an `arg`/`opt` value type.
+  Not considered worth guarding against, but worth knowing if `opt` ever
+  fails to compile for a custom `T` with an unhelpful-looking error.
 
 - **`system.quit(errormsg: string, errorcode)`'s doc comment ("a shorthand
   for `echo(errormsg); quit(errorcode)`") is only true under
@@ -369,6 +369,18 @@ or anything else that generates methods inside a template.
     `display.showValue` fully qualified. `tests/test_custom_types.nim`
     keeps a decoy in scope to catch a regression.
 
+  Since #213 the whole value path (`acceptImpl`, `validate`, a
+  `Validator`'s `completions`) is instantiated in the user's module, where
+  before argumint's own registrations instantiated it for the built-ins
+  inside `argtypes`. Two more things broke, and only for a caller that
+  doesn't import argumint itself (`tests/test_value_type_wrapper.nim`):
+  - **Any call inside `fmt`'s braces**, not just a bare name:
+    `{self.subject(c)}` and `{self.help()}` are now computed into a `let`
+    first.
+  - **A proc declared further down the file** isn't found from a generic
+    above it. `candidateValues` called `validate` before its declaration,
+    so it moved below it.
+
 - **"Is `T` registered?" can't be an overload found by `mixin`.** A
   `mixin` symbol resolves in the module that instantiates the generic, so a
   `requireValueType` built on `mixin isValueType` failed for `opt[int]`
@@ -376,7 +388,9 @@ or anything else that generates methods inside a template.
   argumint. Overload resolution also matches by conversion, so `int8` and
   `range[0..10]` found `int`'s overload and slipped through. `valueTypes`
   (`argtypes.nim`) is a `CacheSeq` instead, global to the compile, checked
-  with `sameType`: exact, though an alias still matches (issue #167).
+  with `sameType`: exact, though an alias still matches (issue #167). The
+  registry is gone since #213 (ADR 0068), but `initValueArg` still checks
+  for a built-in with `sameType` rather than `is`, since `Natural is int`.
 
 - **This same `openSym` mechanism also bit a non-generated, ordinary
   generic proc**: `command*[S]`'s body has always written the object
@@ -503,12 +517,12 @@ or anything else that generates methods inside a template.
   such problem: it reaches the private field wherever it's expanded. That
   asymmetry is the whole shape of `src/argumint/argtypes.nim`: the
   `ValueArg`/`FlagArg` types live there together with every template and
-  generic that touches their private fields (`defineValueArg`/
-  `defineFlagArg`/`defineSetFlagArg`, `rawValue`/`rawDefault`,
+  generic that touches their private fields (`defineFlagArg`/
+  `defineSetFlagArg`, `ValueArgBase`'s hooks, `rawValue`/`rawDefault`,
   `acceptImpl`), while the public names those back -- `arg`/`opt`/`flag`,
   `get`, `defineArg`/`defineFlag`/`defineSetFlag` -- stay in
   `src/argumint.nim` and delegate through non-generic bookends
-  (`initValueArg`/`initFlagArg`) or through those same
+  (`initValueArg`/`initValuesArg`/`initFlagArg`) or through those same
   same-module templates. Reads go through accessors; writes go through
   `init*`, which builds a `FlagArg` whole rather than exposing mutators
   that could leave its `ops` and `aliases` tables disagreeing.
@@ -556,7 +570,7 @@ or anything else that generates methods inside a template.
   join(",")`, `"a" in spec.tags`, `case spec.name`, `%*{"k": spec.name}`,
   `let xs: seq[string] = @[spec.name]`, and `var s = spec.name` all fail,
   naming a type the caller can't spell. `some(spec.name)` is the nasty one
-  -- it *compiles*, inferring `Option[ValueArg[system.string, false]]`
+  -- it *compiles*, inferring `Option[ValueArg[system.string]]`
   (verified), and errors only wherever the expected type is finally named,
   arbitrarily far from the cause. `get*`/`get*(otherwise)`
   (`src/argumint.nim`, over `rawValue`/`rawDefault` in
@@ -568,7 +582,10 @@ or anything else that generates methods inside a template.
   every call site, not a redefinition error at declaration -- so the failure
   surfaces in the caller's code, not yours. Hit while designing `parsed*`
   (ADR 0031); differing parameter types are what make an overload legal, not
-  differing return types.
+  differing return types. Across modules it's worse: the nearest same-named
+  proc shadows the others rather than being chosen by its expected type, so
+  `let p: Port = parse(s)` fails with the `int` overload in scope (ADR
+  0068).
 
 - **A `try` expression's type is inferred from the whole expression, not
   from inside the `try` block -- so binding a conversion at the `let` ahead

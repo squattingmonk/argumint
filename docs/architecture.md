@@ -92,15 +92,16 @@ split on, and `subject`, all of which have consumers on both sides of the
 split.
 
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
-below the `argumint.nim` facade, and holds the `ValueArg`/`FlagArg` data model
-plus **everything that touches their private fields**: the
-`defineValueArg`/`defineFlagArg`/`defineSetFlagArg` method generators, the
-`flagOps` `CacheTable` and `valueTypes` `CacheSeq` they write, `acceptImpl`,
-the `initValueArg`/`initFlagArg` constructors, the `rawValue`/`rawDefault`
-read accessors, and the flag mini-language parsers. Every public name over
-that machinery — `arg`/`args`/`opt`/`opts`/`flag`/`flagOp`,
-`get`/`toT`/`toSeqT`, `defineArg`/`defineFlag`/`defineSetFlag` — stays in
-`argumint.nim` with its documentation and delegates. The split is forced
+below the `argumint.nim` facade, and holds the `ValueArg`/`ValuesArg`/
+`FlagArg` data model plus **everything that touches their private fields**:
+`ValueArgBase` and the hooks its methods call, `fromString` and `acceptImpl`,
+the `defineFlagArg`/`defineSetFlagArg` method generators and the `flagOps`
+`CacheTable` they write, the `initValueArg`/`initValuesArg`/`initFlagArg`
+constructors, the `rawValue`/`rawDefault` read accessors, and the flag
+mini-language parsers. Every public name over that machinery —
+`arg`/`args`/`opt`/`opts`/`flag`/`flagOp`, `get`/`toT`/`toSeqT`,
+`defineArg`/`defineFlag`/`defineSetFlag` — stays in `argumint.nim` with its
+documentation and delegates. The split is forced
 rather than stylistic: `privateAccess` does not survive instantiation in
 another module, so anything generic or templated that reads a private field
 has to live beside the type (see `docs/gotchas.md`). `argtypes` is exported
@@ -205,7 +206,7 @@ for a custom `Arg` that didn't, so everything reading `group` agrees. If no
 "autoFillUsage" below).
 
 Match Accumulation is per-`Arg` lifetime, not per-parse, so a spec tuple is
-single-use — parsing one twice appends to the same `ValueArg.value` and
+single-use — parsing one twice appends to the same `ValuesArg.value` and
 re-applies a `FlagArg`'s Flag Operation. `parsed*`/`parsedOrQuit*` are the
 fresh-spec-per-parse entry points; both take a builder `proc (): S` and call
 it once per parse rather than copying an existing tuple, for reasons
@@ -675,40 +676,71 @@ match. See `docs/adr/0018-config-source.md`'s "Consequences" section.
 
 ## 4. Value conversion (`argtypes.nim`, `src/argumint.nim`)
 
-`ValueArg[T: not seq, multi: static bool]` / `FlagArg[T]` are generic ref
-objects (`argtypes.nim`) holding a parsed `seq[T]`/`T`. A single
-`ValueArg` type backs both scalar args (instantiated as `ValueArg[T,
-false]`, storing its value as a 1-element seq) and multi-value args
-(instantiated as `ValueArg[T, true]`,
-appending on each match). `arg*`/`opt*` construct the scalar arity only
-(`default: T = ""`); the multi-value arity is built by the separate
-`args*`/`opts*` procs (`default: seq[T] = newSeq[T]()`) — see
-`docs/gotchas.md` for why these are separate procs rather than an overload.
-Because `multi` is a `static bool`, `ValueArg[T, false]` and `ValueArg[T,
-true]` are distinct concrete types to the compiler, so `toT`/`toSeqT` can be
-overloaded per-arity without ambiguity.
+An Arg with a value is two classes: an untyped base whose methods dispatch
+like any other, and a typed leaf generic over the value's type. Generic
+methods don't dispatch, so the leaf has no methods of its own (ADR 0068).
 
-`initValueArg` refuses to compile for a type no `defineArg` has registered
-yet: `defineValueArg` adds each type to the `valueTypes` `CacheSeq`, and
-`requireValueType` checks `T` against it with `sameType`. Without that check,
-an unregistered `ValueArg[T]` fell back to `Arg`'s base methods and silently
-ignored every value. Being a compile-time registry, it sees only registrations
-already compiled, so `defineArg` has to come before a type's first use, as
-`flagOps` already required; see `docs/gotchas.md` for why it isn't an overload
-(issue #167).
+```
+Arg                     methods: the custom-Arg contract
+├── ValueArgBase        not generic; ordinary methods
+│   ├── ValueArg[T]     arg*/opt*: Option[T], a T default, a Validator[T]
+│   └── ValuesArg[T]    args*/opts*: Option[seq[T]], a seq[T] default, the same
+└── FlagArg[T]          flag*: methods generated per type by defineFlagArg
+```
 
-Both type names are exported from `argtypes` and re-exported by the facade,
-on the same terms as `Spec` — nameable, state private — so an arg can cross
-a proc or module boundary
-(`docs/adr/0033-value-arg-flag-arg-exported.md`). `FlagOp[T]` is not, since
-`FlagArg.ops` is private. Tests reaching either type's fields need
-`privateAccess` *per instantiation*, not once per generic.
+`ValueArgBase` holds what isn't typed -- `env`, `cfgKey`, and whether it's
+multi-value -- and answers `accumulates`, `envSource` and `configKey` from
+it. The three things that need the value's type are **hooks**,
+`{.nimcall.}` procs the leaf's constructor instantiates for its type and
+stores on the base; each takes the base and downcasts to the leaf:
+
+- `write` converts, validates and stores a `Contribution`: the base's
+  `accept` calls it.
+- `reset` empties the storage: the base's `clear` calls it after dropping
+  the provenance. `none` *is* the default-applies state (ADR 0008), so there
+  is nothing to restore.
+- `describe` computes `defaultStr`, `validatorHelp` and `completions`
+  together, when help or completion asks; the three base methods each call
+  it. Precomputing them was measured and rejected: it costs every run,
+  `__complete` included.
+
+**The rule for extending it:** a new base method a `ValueArg` answers is an
+ordinary method on `ValueArgBase`, and needs a hook only if it touches typed
+storage. A new kind of typed Arg follows the same two-class pattern.
+`tests/test_argumint.nim` fails if a constructor leaves a hook unset, which
+would otherwise compile and crash at the first call. A custom `Arg` subtype
+overrides `Arg`'s methods directly, as before (ADR 0062).
+
+`arg*`/`opt*` build the scalar arity and `args*`/`opts*` the multi-value one
+-- see `docs/gotchas.md` for why these are separate procs rather than
+overloads. The two leaves are distinct types, so `get`, `put`, `toT` and
+`toSeqT` overload on them, and `replace` exists only for `ValuesArg`. They
+differ in two small private overloads, `history` (what a Validator checks a
+new value against when it extends) and `store` (set, or append in place);
+everything else is written once over `AnyValueArg[T]`, a typeclass of the
+two. The storage is an `Option` so "not supplied" (`none`) is told apart
+from a tier-less write (`put`/`replace` with no `seenBy`, which stores but
+leaves `seenBy` at `byNone`) and, for `ValuesArg`, from "supplied empty"
+(`some(@[])`).
+
+`initValueArg`/`initValuesArg` refuse to compile for a type that isn't a
+Value Type: one that isn't a built-in (checked with `sameType`, so `Natural`
+isn't `int`), isn't an enum, and has no converter from string in scope where
+the generic is instantiated. The error names the converter to write.
+
+Both leaf type names are exported from `argtypes` and re-exported by the
+facade, on the same terms as `Spec` — nameable, state private — so an arg
+can cross a proc or module boundary
+(`docs/adr/0033-value-arg-flag-arg-exported.md`). `ValueArgBase` and
+`FlagOp[T]` are not. Tests reaching a leaf's fields need `privateAccess`
+*per instantiation*, not once per generic, and `privateAccess(ValueArgBase)`
+for the base's.
 
 Because those fields are private and `privateAccess` doesn't survive
 instantiation elsewhere, the facade's constructors and accessors reach them
 only through bookends `argtypes` exports for that purpose:
-`initValueArg[T, multi]` behind `arg*`/`args*`/`opt*`/`opts*`, a
-deliberately *fat* `initFlagArg[T]` behind `flag*` (it performs the whole
+`initValueArg[T]`/`initValuesArg[T]` behind `arg*`/`args*`/`opt*`/`opts*`,
+a deliberately *fat* `initFlagArg[T]` behind `flag*` (it performs the whole
 build — ops table, alias groups, duplicate detection, clamp-versus-default
 check — rather than exposing mutators that could leave `ops` and `aliases`
 disagreeing), and the `rawValue`/`rawDefault` templates behind
@@ -717,59 +749,62 @@ None of those names is re-exported; `tests/test_public_api.nim` asserts each
 is unreachable from a bare `import argumint`, mirrored by a positive in
 `tests/test_argumint.nim`.
 
-`defineValueArg[T]` (`argtypes.nim`, the machinery behind the facade's
-one-argument `defineArg[T]`) is a template that generates a `method accept`
-for a given `T` (both arities) by calling `acceptImpl`, which converts the
-raw string via an implicit `converter` (`toInt`, `toFloat`, `toBool`,
-`toChar`; strings pass through), then hands the `T` to `storeImpl`, which
-runs the arg's `Validator[T]` (`validators.nim`) if present — validation
-always happens against the scalar element type, never `seq[T]`, since it
-runs before the value is stored/appended. `parse` has already arbitrated
-the declared Value Precedence tier by then (see below).
-`defineValueArg[T]` also generates a per-arity `method defaultStr`, used
-by `genHelp` to render `[default: <value>]` in help text (via
+`acceptImpl` converts the raw string with `fromString[T]`, then hands the
+`T` to `storeImpl`, which runs the arg's `Validator[T]` (`validators.nim`)
+if present — validation always happens against the scalar element type,
+never `seq[T]`, since it runs before the value is stored/appended. `parse`
+has already arbitrated the declared Value Precedence tier by then (see
+below). `fromString` calls the built-in conversions (`toInt`, `toFloat`,
+`toBool`, `toChar`; strings pass through) by name, parses an enum with no
+converter of its own with `parseEnum`, and otherwise writes `let x: T = s`,
+which finds the user's converter where the generic is instantiated.
+`parseFlagOpsString` uses it too.
+
+`describe`'s `defaultStr` renders `[default: <value>]` in help text (via
 `display.showValue`, which quotes a string or char and `$`s the rest;
 suppressed when the scalar default equals `T`'s zero value —
 `default(T)` — since that's the fallback used when no default was given).
 The base `Arg.defaultStr` (commands, flags, message args) returns `""`, so
 flags never show a default.
-`defineValueArg[T]` also generates a per-arity `method clear`, which
-empties the value seq and, via `procCall`, the base's provenance -- empty
-*is* the default-applies state (ADR 0008), so there is nothing to restore.
-`defineValueArg[T]` likewise generates a per-arity `method
-validatorHelp`, which calls `self.validator.styledHelp` when a
-validator is present — `Validator[T].styledHelp` returns a short styled
-description per kind, or every kind's own `desc` with Help Markup applied
-instead when one was given (`Validator[T].desc` is a single field shared by
-every kind, declared *before* the `case kind` discriminator rather than
-inside a specific `of` branch — a field name can't be redeclared across two
-separate `of` branches even with an identical type in each, but a field
-declared ahead of the `case` is implicitly shared by all branches). `genHelp`
-combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
-(e.g. `[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
-below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
-the same extension point, even though a Flag never carries a `Validator` --
+
+`describe`'s `completions` lists the values of the arg's `describedBy`: its
+`Validator`, or for an enum argumint parses, a `choice` of the enum's values
+(gaps and all, via `std/enumutils`) -- replaced by the arg's own validator
+when that lists values of its own, and filtered by it with `all` otherwise.
+A bad enum value's `ParseError` lists the same values. Its `validatorHelp`
+describes the same Validator, except that a validator with no help of its
+own leaves just the enum's values.
+`Validator[T].styledHelp` returns a short styled description per kind, or
+every kind's own `desc` with Help Markup applied instead when one was given
+(`Validator[T].desc` is a single field shared by every kind, declared
+*before* the `case kind` discriminator rather than inside a specific `of`
+branch — a field name can't be redeclared across two separate `of` branches
+even with an identical type in each, but a field declared ahead of the
+`case` is implicitly shared by all branches). `genHelp` combines
+`validatorHelp` and `defaultStr` into one bracket, `;`-separated (e.g.
+`[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
+below) generates a `method validatorHelp` for `FlagArg[T]` -- reusing the
+same extension point, even though a Flag never carries a `Validator` --
 delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag
 Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
 
-Every one of these generated methods, plus `acceptImpl`'s own exception
-handlers, calls into `validators.nim`/`backend.nim`/`std/strutils` by their
-bare (unqualified) names -- `argumint.nim`'s top-of-file `export`
-statements are what make that resolve correctly for a caller registering
-their own custom type via `defineArg`/`defineFlag`/`defineSetFlag`, not
-just for code living inside the library itself. The templates now live in
-`argtypes` while the public names stay in the facade, so both files carry
-`{.experimental: "openSym".}` and the re-export list is unchanged. See
+All of this generic code is instantiated in the user's module, so its
+unqualified calls resolve there (`docs/gotchas.md`). The methods
+`defineFlagArg` generates call into `validators.nim`/`backend.nim` by bare
+name too; `argumint.nim`'s top-of-file `export` statements are what make
+that resolve for a caller registering a flag type via
+`defineArg`/`defineFlag`/`defineSetFlag`. Both `argtypes` and the facade
+carry `{.experimental: "openSym".}`. See
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 
-The four string-to-scalar converters `acceptImpl` relies on (`toInt`,
-`toFloat`, `toBool`, `toChar`) stay **private to `argtypes`** — their only
-other consumer, `parseFlagOpsString`, lives there too. Exporting them would
-put `let n: int = "5"` in scope for everyone who imports argumint; a
-converter for a user's own `T` is declared in the user's own module and
-found at `acceptImpl`'s instantiation site, which is where it needs to be.
+The four string-to-scalar conversions stay **private to `argtypes`**, and
+are plain procs rather than converters: exporting them as converters would
+put `let n: int = "5"` in scope for everyone who imports argumint (ADR 0068
+lists what else would compile). A converter for a user's own `T` is
+declared in the user's own module and found where `opt` is instantiated,
+which is where it needs to be.
 
 ### The write side: `parse`, `arbitration`, `clear`, `action`
 
@@ -788,9 +823,10 @@ flag.parse("-v")                          # applies that Variant's Flag Operatio
 The optional `seenBy` is what makes a tier-less write useful rather than
 merely legal: ADR 0040's readers originally branched on `seen` alone, so a
 write that declared no tier was written but unreadable. ADR 0044 (issue
-#29) changed that per Arg kind -- a scalar `ValueArg` now reads whatever
-is stored regardless of `seen`; a multi `ValueArg` reads stored-or-`seen`,
-so a genuinely empty-but-Seen seq still reads as itself; a `FlagArg` reads
+#29) changed that per Arg kind -- a `ValueArg` or `ValuesArg` now reads
+whatever is stored regardless of `seen` (since #213, `some(@[])` is a
+`ValuesArg`'s supplied-empty state, so `seen` no longer enters into it); a
+`FlagArg` reads
 `seen`-or-differs-from-its-coded-default, so a tier-less write is visible
 once it actually changes the value and invisible only in the narrow case
 where it reproduces the default exactly. See
@@ -826,11 +862,11 @@ can't go through `accept`'s string.
 ```nim
 if validate and not self.validator.isNil:
   case how
-  of arExtend: self.validator.validate(value, self.value)  # check against what's there
-  of arReplace: self.validator.validate(value)             # those values are going away
+  of arExtend: self.validator.validate(value, self.history)  # check against what's there
+  of arReplace: self.validator.validate(value)               # those values are going away
 if how == arReplace:
   self.clear
-self.value.add(value)
+self.store(value)
 ```
 
 Checking *before* clearing is load-bearing: conversion and validation both
@@ -889,13 +925,13 @@ the export: Nim attaches an override to `backend`'s method family because
 `docs/adr/0046-arg-value-source-contract.md`.
 
 `get`/`get(otherwise)` and `put` (issue #29, ADR 0044) are plain generic
-procs over `ValueArg`/`FlagArg`, not methods on `Arg` -- so neither is part
-of the custom-`Arg` contract above, and neither dispatches through a
-subtype's `accept` override. `put` writes `self.value` directly through the
-same `arbitration`/`putImpl` path every built-in `ValueArg`/`FlagArg` uses;
-a custom `Arg` subtype has no `value` field for it to reach and so cannot
-be driven through `put` at all -- `parse`, through its own `accept`
-override, remains the only write path into it.
+procs over `ValueArg`/`ValuesArg`/`FlagArg`, not methods on `Arg` -- so
+neither is part of the custom-`Arg` contract above, and neither dispatches
+through a subtype's `accept` override. `put` writes `self.value` directly
+through the same `arbitration`/`putImpl` path every built-in
+`ValueArg`/`FlagArg` uses; a custom `Arg` subtype has no `value` field for
+it to reach and so cannot be driven through `put` at all -- `parse`, through
+its own `accept` override, remains the only write path into it.
 
 ### Flags
 
@@ -947,11 +983,9 @@ typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
 blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
 this for `"Set to the opposite of the default"`/`"Increment by 1"`).
 
-`defineArg`/`defineFlag`/`defineFlagArg` are separately-named templates
-rather than overloads of one name (see `docs/gotchas.md` for why). The
-public `defineArg`/`defineFlag`/`defineSetFlag` in `argumint.nim` carry the
-documentation and delegate to `argtypes`'s withheld `defineValueArg`/
-`defineFlagArg`/`defineSetFlagArg`, which generate the methods.
+The public `defineArg`/`defineFlag`/`defineSetFlag` in `argumint.nim` carry
+the documentation and delegate to `argtypes`'s withheld `defineFlagArg`/
+`defineSetFlagArg`, which generate the methods.
 
 `defineSetFlag*[E: enum](elemType: typedesc[E])` (over `defineSetFlagArg`
 in `argtypes`) is a ready-built extension on top of this same mechanism,
@@ -1023,7 +1057,7 @@ spec construction already rejected a default that did.
 `flag*` itself also runs `clamp.apply(default) != default` once, at spec
 construction, before returning -- since `FlagArg.value` is seeded directly
 from `default` with no separate substitution tier the way `ValueArg`'s
-default has (contrast the previous section's `defineArg[T]`, where the
+default has (contrast the previous section's `ValueArg`, where the
 default is stored separately and never even passed through `Validator`), a
 default that doesn't already satisfy its own clamp is a `SpecDefect`, not
 something silently corrected at runtime.
@@ -1198,8 +1232,8 @@ cascaded the same way for consistency (see
 `docs/adr/0018-config-source.md`'s "Corrected claim" section for the
 Config Source case specifically).
 
-Converters `toT*[T](arg: ValueArg[T, false]): T` and `toSeqT*[T](arg:
-ValueArg[T, true]): seq[T]` return the field's value transparently at
+Converters `toT*[T](arg: ValueArg[T]): T` and `toSeqT*[T](arg:
+ValuesArg[T]): seq[T]` return the field's value transparently at
 use-sites — code reads `spec.dest` rather than `spec.dest.value`.
 
 Both are one-line delegations to `get*`, the explicit accessor that reads
@@ -1213,15 +1247,14 @@ from an expansion in the caller's module, which works for the same reason
 `defineArg`/`defineFlag` can (`docs/gotchas.md`). None of the three branch
 on `seen` alone as originally specified by ADR 0040 — ADR 0044 (issue #29)
 changed each once a tier-less `put`/`parse` could leave provenance and the
-stored value disagreeing on purpose: a scalar `ValueArg` tests only
-whether `rawValue` holds anything; a multi `ValueArg` tests that *or*
-`seen`, so an explicitly Seen-but-empty seq still reads as itself instead
-of falling back; a `FlagArg` tests `seen` *or* `rawValue != rawDefault`,
-so a tier-less write is visible once it actually changes the value. The
-no-arg `get` is the same template called with the Arg's coded default as
-`otherwise` (`arg.get(otherwise = arg.rawDefault[0])` for scalar), so the
-library holds exactly one substitution rule per Arg kind rather than a
-second copy of it; `FlagArg`'s no-arg `get` returns `value` outright, its
+stored value disagreeing on purpose: a `ValueArg` or `ValuesArg` tests
+only whether `rawValue` is `some` (a `ValuesArg` holding `some(@[])` was
+supplied empty, and reads as itself); a `FlagArg` tests `seen` *or*
+`rawValue != rawDefault`, so a tier-less write is visible once it actually
+changes the value. The no-arg `get` is the same template called with the
+Arg's coded default as `otherwise` (`arg.get(otherwise = arg.rawDefault)`),
+so the library holds exactly one substitution rule per Arg kind rather than
+a second copy of it; `FlagArg`'s no-arg `get` returns `value` outright, its
 coded default being its starting value rather than a substitution tier.
 See `docs/adr/0040-explicit-value-accessor.md` and
 `docs/adr/0044-put-typed-write-accessor.md`.

@@ -263,7 +263,7 @@ suite "get(otherwise) evaluation":
     let unsupplied = (port: opt("--port=<n>", default = 80, help = ""))
     unsupplied.parse(usage = "[--port=<n>]", args = @[], command = "app")
 
-    proc read(a: ValueArg[int, false]): ValueArg[int, false] =
+    proc read(a: ValueArg[int]): ValueArg[int] =
       inc reads
       a
 

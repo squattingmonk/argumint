@@ -60,6 +60,21 @@ suite "replace never arbitrates -- it may demote, unlike put/parse":
     check tags.get == @["x"]
     check tags.get(otherwise = @["z"]) == @["x"]
 
+  test "a tier-less replace with an empty seq reads back empty, not as the default":
+    # Supplied-empty and never-supplied are told apart without `seen`.
+    let tags = opts("--tag=<t>", default = @["d"], help = "")
+    tags.replace(newSeq[string]())
+    check tags.seenBy == byNone
+    check tags.get == newSeq[string]()
+    check tags.get(otherwise = @["z"]) == newSeq[string]()
+
+  test "clear after a replace brings back the default":
+    let tags = opts("--tag=<t>", default = @["d"], help = "")
+    tags.replace(newSeq[string]())
+    tags.clear
+    check tags.get == @["d"]
+    check tags.get(otherwise = @["z"]) == @["z"]
+
 suite "replace validates by default, against the new batch's own history":
   test "a batch with no duplicates among itself passes a unique Validator even if it repeats an old value":
     let tags = opts("--tag=<t>", validator = unique[string](), help = "")

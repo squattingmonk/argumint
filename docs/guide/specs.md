@@ -177,7 +177,8 @@ if spec.verbose: ...              # a flag as a condition
 
 The conversion can't happen when Nim has to work out a generic type from the
 `Arg` itself. It picks the `Arg`'s own type instead, and you get an error
-that mentions `ValueArg`. Use `get` to ask for the value explicitly:
+that mentions `ValueArg` or `ValuesArg`. Use `get` to ask for the value
+explicitly:
 
 ```nim
 spec.tags.get.join(",")               # join is generic

@@ -176,56 +176,6 @@ proc help*[T](self: Validator[T]): string =
   ## instead, when it's non-empty.
   self.styledHelp.plain
 
-proc candidateValues[T](self: Validator[T]): seq[T] =
-  ## Every value `self` would accept, or `@[]` if `self` isn't enumerable.
-  ## Stays in `T`-space so `vkAll`'s re-validation step below can call
-  ## `validate` directly -- this module has no access to argumint.nim's
-  ## string converters, so stringifying earlier would lose that ability.
-  case self.kind
-  of vkChoice:
-    result = self.choices
-  of vkRange, vkCheck, vkCheckSeen:
-    discard # not enumerable -- a range/predicate can't list its own domain
-  of vkAny:
-    # OR semantics: any candidate satisfying any child is valid, so the
-    # union of every child's own candidates is correct.
-    for v in self.validators:
-      for c in v.candidateValues():
-        if c notin result: result.add c
-  of vkAll:
-    # Intersect enumerable children's candidates, then re-validate each
-    # survivor against every child (including non-enumerable ones like
-    # `check(isEven)`) so they still filter the set.
-    var base: seq[T]
-    var haveBase = false
-    for v in self.validators:
-      let c = v.candidateValues()
-      if c.len == 0: continue
-      if not haveBase:
-        base = c
-        haveBase = true
-      else:
-        base = base.filterIt(it in c)
-    if not haveBase:
-      return @[]
-    for candidate in base:
-      var ok = true
-      for v in self.validators:
-        try:
-          v.validate(candidate)
-        except ValidationError:
-          ok = false
-          break
-      if ok:
-        result.add candidate
-
-proc completions*[T](self: Validator[T]): seq[string] =
-  ## Every value `self` would accept, stringified (`$`), or `@[]` if `self`
-  ## isn't enumerable (a `range`/`check`/`checkSeen`, or an `all`/`any`
-  ## composite with no enumerable branch) -- callers should treat an empty
-  ## result as "no candidates," not as an error.
-  self.candidateValues().mapIt($it)
-
 proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
   ## `ValidationError`. `seen` is the values already accumulated for the
@@ -280,7 +230,58 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()
       except ValidationError:
         discard
     if not passed:
-      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {self.help()}")
+      let help = self.help() # Outside `fmt`: see docs/gotchas.md, openSym.
+      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {help}")
+
+proc candidateValues[T](self: Validator[T]): seq[T] =
+  ## Every value `self` would accept, or `@[]` if `self` isn't enumerable.
+  ## Stays in `T`-space so `vkAll`'s re-validation step below can call
+  ## `validate` directly -- this module has no access to argumint.nim's
+  ## string converters, so stringifying earlier would lose that ability.
+  case self.kind
+  of vkChoice:
+    result = self.choices
+  of vkRange, vkCheck, vkCheckSeen:
+    discard # not enumerable -- a range/predicate can't list its own domain
+  of vkAny:
+    # OR semantics: any candidate satisfying any child is valid, so the
+    # union of every child's own candidates is correct.
+    for v in self.validators:
+      for c in v.candidateValues():
+        if c notin result: result.add c
+  of vkAll:
+    # Intersect enumerable children's candidates, then re-validate each
+    # survivor against every child (including non-enumerable ones like
+    # `check(isEven)`) so they still filter the set.
+    var base: seq[T]
+    var haveBase = false
+    for v in self.validators:
+      let c = v.candidateValues()
+      if c.len == 0: continue
+      if not haveBase:
+        base = c
+        haveBase = true
+      else:
+        base = base.filterIt(it in c)
+    if not haveBase:
+      return @[]
+    for candidate in base:
+      var ok = true
+      for v in self.validators:
+        try:
+          v.validate(candidate)
+        except ValidationError:
+          ok = false
+          break
+      if ok:
+        result.add candidate
+
+proc completions*[T](self: Validator[T]): seq[string] =
+  ## Every value `self` would accept, stringified (`$`), or `@[]` if `self`
+  ## isn't enumerable (a `range`/`check`/`checkSeen`, or an `all`/`any`
+  ## composite with no enumerable branch) -- callers should treat an empty
+  ## result as "no candidates," not as an error.
+  self.candidateValues().mapIt($it)
 
 when isMainModule:
   import std/[unittest]

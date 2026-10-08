@@ -22,9 +22,8 @@
 # and calls it, rather than with `test_argumint.nim`'s suite.
 #
 # A third, of exactly the `FlagOp` kind: the four string-to-scalar
-# converters (`toInt`/`toFloat`/`toBool`/`toChar`), the `flagOps` and
-# `valueTypes` registries, `getFlagOps`, `isValueType` and
-# `requireValueType` are all private to
+# conversions (`toInt`/`toFloat`/`toBool`/`toChar`), `fromString`, the
+# `flagOps` registry and `getFlagOps` are all private to
 # `src/argumint/argtypes.nim` -- not merely withheld from this facade -- so
 # no importer can name them. Their mirrors live in that file's own embedded
 # suite alongside `FlagOp`'s.
@@ -61,9 +60,14 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(Validator[int])
     check nameable(FlagClamp[int])
     # The return types of all five spec constructors -- see issue #27.
-    check nameable(ValueArg[string, false])
-    check nameable(ValueArg[string, true])
+    check nameable(ValueArg[string])
+    check nameable(ValuesArg[string])
     check nameable(FlagArg[bool])
+
+  test "the untyped base under `ValueArg`/`ValuesArg` stays out of the facade":
+    # Exported from `argumint/argtypes` for the facade only. Mirrored by
+    # `test_argumint.nim`'s "Library-internal names ..." suite.
+    check not nameable(ValueArgBase)
 
   test "`Option` itself is exported, not just `some`/`none`":
     # `opt*`/`opts*`/`flag*`'s `env` param is `Option[EnvSource]` and
@@ -173,13 +177,13 @@ suite "Types nameable after a bare `import argumint`":
     # constructors, accessors, and registration templates can reach them --
     # see `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
-    # `declared` rather than `compiles` for the three method generators:
+    # `declared` rather than `compiles` for the two method generators:
     # their `flagHandler` argument is an untyped block, which has no
     # spelling that fits inside a `compiles(...)` expression.
-    check not declared(defineValueArg)
     check not declared(defineFlagArg)
     check not declared(defineSetFlagArg)
-    check not compiles(initValueArg[string, false](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
+    check not compiles(initValueArg[string](Optional, "-n", "x", "", "Options", false, noValidator[string]()))
+    check not compiles(initValuesArg[string](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
     check not compiles(initFlagArg[bool]("-v", [], false, "", "Options", false, noClamp[bool](), none(EnvSource), noConfigKey()))
     check not compiles(checkFlagOp[int]("+="))
     check not compiles(splitFlagSpellings("-v"))
@@ -191,14 +195,12 @@ suite "Types nameable after a bare `import argumint`":
     # embedded suite -- see the third exception in this file's header.
     check not compiles(getFlagOps("int"))
     check not compiles(flagOps)
-    check not compiles(isValueType(int))
-    check not compiles(valueTypes)
-    check not declared(requireValueType)
+    check not compiles(fromString[int]("5"))
 
-  test "the string-to-scalar converters stay private to `argumint/argtypes`":
-    # They fire for `acceptImpl`'s `let tmp: T = c.value` and for
-    # `parseFlagOpsString`, and nowhere else. Exporting them would put
-    # `let n: int = "5"` in scope for everyone who imports argumint.
+  test "the string-to-scalar conversions stay private to `argumint/argtypes`":
+    # `fromString` calls them by name, and nothing else does. Exporting them
+    # as converters would put `let n: int = "5"` in scope for everyone who
+    # imports argumint.
     # Mirrored in `argtypes.nim`'s own embedded suite, not in
     # `test_argumint.nim` -- see the third exception in this file's header.
     check not compiles(toInt("5"))
@@ -438,19 +440,29 @@ suite "What naming the core types buys a caller":
   test "a house-style `opt`/`flag` factory can be written":
     # The `EnvSource` case ADR 0030 accepted, one level up: these are the
     # *return* types of all five constructors -- see issue #27.
-    proc appOpt(variants, help: string): ValueArg[string, false] =
+    proc appOpt(variants, help: string): ValueArg[string] =
       opt(variants, help = help, group = "App")
 
     proc appFlag(variants, help: string): FlagArg[bool] =
       flag(variants, help = help, group = "App")
 
-    let spec = (name: appOpt("--name=<s>", "who"), loud: appFlag("-l", "loud"))
-    spec.parse(usage = "[options]", args = @["--name", "Ada", "-l"], command = "prog")
+    proc appPort(variants, help: string): ValueArg[int] =
+      opt[int](variants, help = help, group = "App")
+
+    proc appPorts(variants, help: string): ValuesArg[int] =
+      opts[int](variants, help = help, group = "App")
+
+    let spec = (name: appOpt("--name=<s>", "who"), loud: appFlag("-l", "loud"),
+                port: appPort("--port=<n>", "port"), extra: appPorts("--extra=<n>", "extra"))
+    spec.parse(usage = "[options]",
+               args = @["--name", "Ada", "-l", "--port", "80", "--extra", "81"], command = "prog")
     check spec.name == "Ada"
     check spec.loud
+    check spec.port.get == 80
+    check spec.extra.get == @[81]
 
   test "an arg can be forward-declared and assigned later":
-    var pending: ValueArg[string, false]
+    var pending: ValueArg[string]
     check pending.isNil
     pending = opt("--late=<s>", default = "d", help = "")
     check not pending.isNil
@@ -458,12 +470,12 @@ suite "What naming the core types buys a caller":
   test "args can be collected in a typed seq built conditionally":
     # Inference covers this only when the seq is initialized in one
     # statement, which rules out building it in pieces.
-    var common: seq[ValueArg[string, false]]
+    var common: seq[ValueArg[string]]
     common.add opt("-a=<a>", help = "a")
     if true:
       common.add opt("-b=<b>", help = "b")
     check common.len == 2
 
   test "a generic helper can take an arg as a parameter":
-    proc describe[T](a: ValueArg[T, false]): string = a.help.short
+    proc describe[T](a: ValueArg[T]): string = a.help.short
     check describe(opt("-x=<x>", help = "ex")) == "ex"

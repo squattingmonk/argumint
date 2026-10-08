@@ -33,13 +33,14 @@ tagged `kind: Flag` despite not being a domain specialization of Flag.)
 _Avoid_: Argument (ambiguous with a raw command-line string)
 
 **Value Type**:
-A type an Arg's value can have: one registered with `defineArg` (directly,
-or through `defineFlag`/`defineSetFlag`), with a converter from string. The
-built-ins (`string`, `bool`, `int`, `float`, `char`) are registered by
-argumint. An alias of a Value Type is the same type, but a type that only
-converts to one (`int8`, `range[0..10]`) isn't. Using any other type in
-`arg`/`args`/`opt`/`opts` is a compile error (issue #167).
-A type must be registered before its first use.
+A type an Arg's value can have: one with a converter from string in scope
+where the Arg is built, or any enum, which is parsed by name when it has
+no converter. The built-ins (`string`, `bool`, `int`, `float`, `char`) need
+no converter. An alias of a Value Type is the same type, but a type that
+only converts to one (`int8`, `range[0..10]`) isn't. Using any other type
+in `arg`/`args`/`opt`/`opts` is a compile error. A Value Type needs no
+registration; only using it for a Flag does (`defineArg` with a handler,
+`defineFlag`, `defineSetFlag`).
 _Avoid_: custom type (when meaning any Value Type; the built-ins are Value
 Types too), registered type
 
@@ -561,21 +562,19 @@ makes an Arg Seen at that tier exactly as the command line would, and
 whatever tier is current, so it leaves an unsupplied Arg's `seenBy` at
 `byNone` -- still unseen by this entry's own definition. That no longer
 means unreadable, though, and how far it doesn't varies by Arg kind.
-A scalar `ValueArg`'s `get`/`get(otherwise)` test whether a value is
-stored, not `seen` -- unconditionally, since a scalar has no renderable
-"Seen but nothing stored" state to fall back to `seen` for. A multi
-`ValueArg` tests stored-or-`seen`: an explicitly Seen Arg with a genuinely
-empty seq (reachable today only by writing `seenBy` directly, not through
-`put`/`parse`) reads as its own `@[]` rather than substituting the coded
-default or `otherwise`, distinguishing "never supplied" from "supplied as
-empty" -- a distinction only a seq-shaped value can make. A `FlagArg`
+A `ValueArg`'s or `ValuesArg`'s `get`/`get(otherwise)` test whether a
+value is stored, not `seen`. A `ValuesArg` holding an empty seq was
+supplied as empty (a `replace(@[])` stores one) and reads as its own `@[]`
+rather than substituting the coded default or `otherwise`, distinguishing
+"never supplied" from "supplied as empty" -- a distinction only a
+seq-shaped value can make. A `FlagArg`
 tests `seen` or "differs from the coded default": a tier-less write is
 visible once it actually moves the value, and stays invisible only in the
 narrow case where it happens to reproduce the default exactly, since a
 Flag's `T` has no representable empty state at all. `put` is the typed
 write surface -- `parse` minus the string conversion, for a caller already
 holding a `T` -- and arbitrates identically. `replace` is the one write
-that does not arbitrate: it overwrites a multi `ValueArg`'s whole value
+that does not arbitrate: it overwrites a `ValuesArg`'s whole value
 seq and its `seenBy` together in a single atomic call, so it may demote a
 stronger tier on purpose, and a tier-less call keeps the Arg's existing
 provenance rather than extending at it. See
