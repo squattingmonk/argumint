@@ -283,8 +283,8 @@ renderer (that's the Help Formatter), help view
 
 **Help Group**:
 The heading an Arg is listed under in Help, set by its `group` parameter
-(`Commands`, `Arguments`, or `Options` by default, or any user-chosen
-name). Help Groups appear in a fixed order -- Commands, Arguments,
+(any user-chosen name). Left empty, it's `Commands`, `Arguments`, or
+`Options`, by the Arg's kind. Help Groups appear in a fixed order -- Commands, Arguments,
 Options, then user-defined groups in declaration order -- and a group whose
 Args are all hidden isn't shown.
 _Avoid_: group (alone) for a set of one Arg's Variants -- see FlagOp Alias

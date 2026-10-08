@@ -21,6 +21,8 @@ proc addArg(spec: Spec, arg: Arg, varName: string) =
   if arg.variants.len < 1:
     raise newException(SpecDefect, fmt"arg {varName} must have at least one variant")
   spec.args.add(arg)
+  # Filled in on the Arg itself, so everything reading `group` agrees.
+  arg.group = arg.group.groupOr(arg.kind)
   if spec.groups.hasKeyOrPut(arg.group, @[arg]):
     spec.groups[arg.group].add(arg)
 

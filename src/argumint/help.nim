@@ -51,7 +51,8 @@ type
       ## Their resolved help plus `[...]` annotations; lay it out with `wrap`
 
 const ContinuationIndent = "    "
-const CanonicalGroups = ["Commands", "Arguments", "Options"]
+const CanonicalGroups = [ArgKind.Command.defaultGroup,
+  ArgKind.Positional.defaultGroup, ArgKind.Optional.defaultGroup] # and Flag
 
 proc annotations(arg: Arg, action = ""): seq[StyledText] =
   ## The `[...]` bracket's parts, in display order: validator, default, env,
@@ -728,6 +729,19 @@ when isMainModule:
         foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
         bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
       check spec.helpGroups.toSeq[0].args.mapIt(it.name) == @["--foo"]
+
+    test "an Arg with an empty group lands in its kind's canonical group":
+      let
+        spec = plainSpec((
+          c: CommandArg(kind: Command, variants: @["c"], spec: plainSpec(())),
+          v: Arg(kind: Flag, variants: @["-v"]),
+          x: Arg(kind: Optional, variants: @["-x"]),
+          y: Arg(kind: Positional, variants: @["<y>"]),
+          z: Arg(kind: Optional, variants: @["-z"], group: "Extra")))
+        groups = spec.helpGroups.toSeq.mapIt((it.name, it.args.mapIt(it.name)))
+      check groups == @[("Commands", @["c"]), ("Arguments", @["<y>"]),
+                        ("Options", @["-v", "-x"]), ("Extra", @["-z"])]
+      check spec.args.allIt(it.group.len > 0)
 
     test "a group is not shown when all of its args are hidden":
       let spec = plainSpec((

@@ -278,7 +278,7 @@ converter toT*[T](arg: FlagArg[T]): T =
 # ------------------------------------------------------------------------------
 
 proc arg*[T: not seq](variants: string, default: T = default(T),
-    help: HelpText = "", group = "Arguments", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     complete = PathCompletion.Files): ValueArg[T, false] =
   ## Creates a positional argument with a value of type `T`. If given, `default`
@@ -290,7 +290,8 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
   ##   `false`).
   ## - `help` is a short description of the argument used in help messages.
-  ## - `group` determines how arguments are grouped in help messages.
+  ## - `group` determines how arguments are grouped in help messages; empty
+  ##   means `Arguments`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -307,7 +308,7 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   result.complete = complete
 
 proc arg*(variants: string, default: string = "", help: HelpText = "",
-    group = "Arguments", hidden = false,
+    group = "", hidden = false,
     validator: Validator[string] = noValidator[string](),
     complete = PathCompletion.Files): ValueArg[string, false] =
   ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
@@ -316,7 +317,7 @@ proc arg*(variants: string, default: string = "", help: HelpText = "",
   arg[string](variants, default, help, group, hidden, validator, complete)
 
 proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
-    help: HelpText = "", group = "Arguments", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     complete = PathCompletion.Files): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
@@ -327,7 +328,8 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ## - `default` is the default value(s) of the argument if not given by the
   ##   user; defaults to an empty seq.
   ## - `help` is a short description of the argument used in help messages.
-  ## - `group` determines how arguments are grouped in help messages.
+  ## - `group` determines how arguments are grouped in help messages; empty
+  ##   means `Arguments`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -344,7 +346,7 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   result.complete = complete
 
 proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
-    group = "Arguments", hidden = false,
+    group = "", hidden = false,
     validator: Validator[string] = noValidator[string](),
     complete = PathCompletion.Files): ValueArg[string, true] =
   ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
@@ -353,7 +355,7 @@ proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
   args[string](variants, default, help, group, hidden, validator, complete)
 
 proc opt*[T: not seq](variants: string, default: T = default(T),
-    help: HelpText = "", group = "Options", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
@@ -368,7 +370,8 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
   ##   `false`).
   ## - `help` is a short description of the option used in help messages.
-  ## - `group` determines how options are grouped in help messages.
+  ## - `group` determines how options are grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -403,7 +406,7 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   result.complete = complete
 
 proc opt*(variants: string, default: string = "", help: HelpText = "",
-    group = "Options", hidden = false,
+    group = "", hidden = false,
     validator: Validator[string] = noValidator[string](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
@@ -414,7 +417,7 @@ proc opt*(variants: string, default: string = "", help: HelpText = "",
   opt[string](variants, default, help, group, hidden, validator, env, configKey, complete)
 
 proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
-    help: HelpText = "", group = "Options", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
@@ -428,7 +431,8 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ## - `default` is the default value(s) of the option if not given by the
   ##   user; defaults to an empty seq.
   ## - `help` is a short description of the option used in help messages.
-  ## - `group` determines how options are grouped in help messages.
+  ## - `group` determines how options are grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
@@ -461,7 +465,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   result.complete = complete
 
 proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
-    group = "Options", hidden = false, validator: Validator[string] = noValidator[string](),
+    group = "", hidden = false, validator: Validator[string] = noValidator[string](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey(),
     complete = PathCompletion.Files): ValueArg[string, true] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
@@ -488,7 +492,7 @@ proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[
   result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
 
 proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
-    default: T = default(T), help: HelpText = "", group = "Options",
+    default: T = default(T), help: HelpText = "", group = "",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
@@ -511,7 +515,8 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
   ##   `docs/adr/0027-flag-op-declarations.md`.
   ## - `default` is the default value of the flag if not given by the user;
   ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`).
-  ## - `group` determines how flags are grouped in help messages.
+  ## - `group` determines how flags are grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
@@ -543,7 +548,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
     env = env, cfgKey = configKey)
 
 proc flag*[T](variants: string = "", ops: string, default: T = default(T),
-    help: HelpText = "", group = "Options", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     clamp: FlagClamp[T] = noClamp[T](), env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Convenience overload: `ops` as a comma-separated string of
@@ -558,7 +563,7 @@ proc flag*[T](variants: string = "", ops: string, default: T = default(T),
   flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
 
 proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[],
-    default: bool = false, help: HelpText = "", group = "Options",
+    default: bool = false, help: HelpText = "", group = "",
     hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]` -- lets `T` default to `bool`
@@ -567,7 +572,7 @@ proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[],
   flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
 proc flag*(variants: string = "", ops: string, default: bool = false,
-    help: HelpText = "", group = "Options", hidden = false,
+    help: HelpText = "", group = "", hidden = false,
     clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =
   ## Bare-call convenience for `flag[bool]`'s `ops: string` overload --
@@ -576,7 +581,7 @@ proc flag*(variants: string = "", ops: string, default: bool = false,
   flag[bool](variants, ops, default, help, group, hidden, clamp, env, configKey)
 
 proc command*[S](variants: string, spec: S, help: HelpText = "",
-    prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
+    prolog = "", epilog = "", usage = "", group = "", hidden = false,
     before: proc(spec: S, info: HookInfo) = nil,
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil): CommandArg =
@@ -590,7 +595,8 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## - `epilog` is the end matter for help messages generated for this command.
   ## - `usage` is the usage string that controls how the command's args can be
   ##   invoked.
-  ## - `group` determines how this command is grouped in help messages.
+  ## - `group` determines how this command is grouped in help messages;
+  ##   empty means `Commands`.
   ## - `hidden`, if `true`, keeps the command out of help messages and shell
   ##   completion; it still parses
   ## - `before` fires once this command's own `spec`'s values are parsed
@@ -611,7 +617,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## given, so it only needs to be specified once regardless of how deeply
   ## nested this command is.
   result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma),
-    help: help, group: group, hidden: hidden)
+    help: help, group: group.groupOr(ArgKind.Command), hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
     result.spec.before = (info: HookInfo) => before(spec, info)
@@ -621,7 +627,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
     result.spec.after = (info: HookInfo) => after(spec, info)
 
 proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
-    prolog = "", epilog = "", usage = "", group = "Commands", hidden = false,
+    prolog = "", epilog = "", usage = "", group = "", hidden = false,
     before: proc(spec: S, opts: O, info: HookInfo) = nil,
     action: proc(spec: S, opts: O, info: HookInfo) = nil,
     after: proc(spec: S, opts: O, info: HookInfo) = nil): CommandArg =
@@ -640,7 +646,8 @@ proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
   ## - `epilog` is the end matter for help messages generated for this command.
   ## - `usage` is the usage string that controls how the command's args can be
   ##   invoked.
-  ## - `group` determines how this command is grouped in help messages.
+  ## - `group` determines how this command is grouped in help messages;
+  ##   empty means `Commands`.
   ## - `hidden`, if `true`, keeps the command out of help messages and shell
   ##   completion; it still parses
   ## - `before` fires once this command's own `spec`'s values are parsed
@@ -666,41 +673,44 @@ proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
     after = if after.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = after(spec, options, info)))
 
 proc help*(variants = "-h, --help", help: HelpText = "Display this help message",
-    group = "Options", hidden = false, formatter: HelpFormatter = formatColumn): HelpArg =
+    group = "", hidden = false, formatter: HelpFormatter = formatColumn): HelpArg =
   ## Creates a flag which, when matched, displays an auto-generated help message
   ## for the spec in whose context it was called.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-o` or `--option`.
   ## - `help` is a short description of the flag used in help messages.
-  ## - `group` determines how the flag is grouped in help messages.
+  ## - `group` determines how the flag is grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help,
-    group: group, hidden: hidden, formatter: formatter)
+    group: group.groupOr(Flag), hidden: hidden, formatter: formatter)
 
 proc message*(variants: string, text: string, help: HelpText = "",
-    group = "Options", hidden = false): MessageArg =
+    group = "", hidden = false): MessageArg =
   ## Creates a flag which, when matched, displays `text` and exits
   ## successfully instead of parsing further arguments.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-o` or `--option`.
   ## - `text` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
-  ## - `group` determines how the flag is grouped in help messages.
+  ## - `group` determines how the flag is grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   MessageArg(kind: Flag, variants: variants.split(Comma), message: text,
-    help: help, group: group, hidden: hidden)
+    help: help, group: group.groupOr(Flag), hidden: hidden)
 
 proc version*(variants: string, version: string,
     help: HelpText = "Display version information",
-    group = "Options", hidden = false): MessageArg =
+    group = "", hidden = false): MessageArg =
   ## Thin wrapper around `message` for the common case of a version flag.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-v` or `--version`.
   ## - `version` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
-  ## - `group` determines how the flag is grouped in help messages.
+  ## - `group` determines how the flag is grouped in help messages; empty
+  ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
   message(variants, version, help, group, hidden)

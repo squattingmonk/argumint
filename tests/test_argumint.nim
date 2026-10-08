@@ -1225,6 +1225,48 @@ suite "parse(tuple)":
       let spec = (bad: arg("bad", help = ""))
       spec.parse(args = @[], command = "prog")
 
+suite "Help groups":
+  test "an opt with an empty group is listed under Options":
+    let spec = (
+      name: opt("--name=<n>", default = "", help = "A name", group = ""),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(args = @["--help"], command = "demo",
+                 settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check helpText.splitLines.filterIt(it.endsWith(":")) == @["Usage:", "Options:"]
+    check "  --name=<n>  A name" in helpText
+
+  test "each constructor fills in its kind's group, before any spec is built":
+    for group in ["", "Extra"]:
+      let want = (pos: if group == "": "Arguments" else: group,
+                  opt: if group == "": "Options" else: group,
+                  cmd: if group == "": "Commands" else: group)
+      check arg("<a>", group = group).group == want.pos
+      check args("<a>", group = group).group == want.pos
+      check arg[int]("<a>", group = group).group == want.pos
+      check args[int]("<a>", group = group).group == want.pos
+      check opt("--o=<v>", group = group).group == want.opt
+      check opts("--o=<v>", group = group).group == want.opt
+      check opt[int]("--o=<v>", group = group).group == want.opt
+      check opts[int]("--o=<v>", group = group).group == want.opt
+      check flag("-f", group = group).group == want.opt
+      check flag[int]("-f", group = group).group == want.opt
+      check flag("-f", ops = "--go=true", group = group).group == want.opt
+      check flag[int]("-f", ops = "--go+=2", group = group).group == want.opt
+      check help(group = group).group == want.opt
+      check message("-m", "text", group = group).group == want.opt
+      check version("-V", "1.0", group = group).group == want.opt
+      check command("c", (x: flag("-x"),), group = group).group == want.cmd
+    check arg("<a>").group == "Arguments"
+    check opt("--o=<v>").group == "Options"
+    check flag("-f").group == "Options"
+    check help().group == "Options"
+    check command("c", (x: flag("-x"),)).group == "Commands"
+
 suite "Messages":
   test "help() raises HelpError with the generated help text":
     let spec = (

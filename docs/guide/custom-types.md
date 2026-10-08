@@ -287,7 +287,7 @@ The constructor sets the fields every `Arg` has:
 - `variants` holds its names, written the same way as for `arg` or `opt`.
 - `help` describes it in help.
 - `group` is the heading it appears under in help. `opt` uses `"Options"`,
-  and `arg` uses `"Arguments"`.
+  and `arg` uses `"Arguments"`. Leave it empty to get the one for its kind.
 
 `accept` stores one value. `c.value` is the text, and `self.subject(c)`
 names the `Arg` in an error the way argumint does, including where the value

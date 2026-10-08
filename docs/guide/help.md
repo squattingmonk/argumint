@@ -105,7 +105,8 @@ Output:
 
 The built-in groups come first, in the order above, and then your own groups
 in the order you first use them. Within a group, `Arg`s are listed in the
-order you declared them.
+order you declared them. An empty `group` puts an `Arg` in the built-in
+group for its kind.
 
 `hidden = true` leaves an `Arg` out of these lists, and out of
 [shell completion](completion.md), but the user can still give it, as with

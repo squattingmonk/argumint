@@ -197,8 +197,12 @@ User calls `arg`, `opt`, `flag`, `command`, `help` (the Arg constructors,
 (`specbuild.nim`) assembles them into a `Spec` (`backend.nim`). Each arg is
 indexed into `spec.arguments` (positional, keyed by `<name>` or `NAME`),
 `spec.options` (optional/flag, keyed by `-o`/`--option`), or `spec.commands`
-(subcommands, keyed by the command word). If no `usage` string is given, one
-is auto-generated from the declared args (see "autoFillUsage" below).
+(subcommands, keyed by the command word), and filed under its Help Group in
+`spec.groups`. An empty `group` becomes its kind's `defaultGroup`: the Arg
+constructors fill it in, and `addArg` fills it in again on the Arg itself
+for a custom `Arg` that didn't, so everything reading `group` agrees. If no
+`usage` string is given, one is auto-generated from the declared args (see
+"autoFillUsage" below).
 
 Match Accumulation is per-`Arg` lifetime, not per-parse, so a spec tuple is
 single-use — parsing one twice appends to the same `ValueArg.value` and

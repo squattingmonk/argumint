@@ -498,7 +498,7 @@ proc initValueArg*[T: not seq; multi: static bool](kind: ArgKind, variants: stri
   ## silently.
   requireValueType(T)
   ValueArg[T, multi](kind: kind, variants: variants.split(Comma), default: default,
-    help: help, group: group, hidden: hidden, validator: validator, env: env, cfgKey: cfgKey)
+    help: help, group: group.groupOr(kind), hidden: hidden, validator: validator, env: env, cfgKey: cfgKey)
 
 proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: T,
     help: HelpText, group: string, hidden: bool, clamp: FlagClamp[T],
@@ -511,7 +511,7 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
   ## would let a caller build a `FlagArg` whose `ops` and `aliases` tables
   ## disagree.
   result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default,
-    help: help, group: group, hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
+    help: help, group: group.groupOr(Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     ops: newOrderedTable[string, FlagOp[T]](), aliases: newTable[string, seq[string]]())
   # Implicit (blank-op) group: every bare spelling in `variants` shares
   # (op: "", arg: default) and forms one alias group automatically, since
@@ -728,13 +728,13 @@ when isMainModule:
       check "*=" in gradeOps
 
       let rankFlag = initFlagArg[set[Rank]]("", [(variants: @["--rank"], op: "+=", value: {rHigh}, help: "")],
-        default = {}, help = "", group = "Options", hidden = false, clamp = noClamp[set[Rank]](),
+        default = {}, help = "", group = "", hidden = false, clamp = noClamp[set[Rank]](),
         env = none(EnvSource), cfgKey = noConfigKey())
       rankFlag.parse("--rank")
       check rankFlag.value == {rHigh}
 
       let gradeFlag = initFlagArg[set[Grade]]("", [(variants: @["--grade"], op: "+=", value: {gGood}, help: "")],
-        default = {}, help = "", group = "Options", hidden = false, clamp = noClamp[set[Grade]](),
+        default = {}, help = "", group = "", hidden = false, clamp = noClamp[set[Grade]](),
         env = none(EnvSource), cfgKey = noConfigKey())
       gradeFlag.parse("--grade")
       check gradeFlag.value == {gGood}
