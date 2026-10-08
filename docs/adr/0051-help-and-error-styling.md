@@ -124,6 +124,14 @@ reads the same everywhere.
   `styledHelp` procs stay withheld; `validators`/`flagclamp` are
   re-exported `except styledHelp`. **Update:** ADR 0057
   withdraws `markup` from `help` in favour of `HelpContext.markup`.
+  **Update (#209):** `import argumint` also exports `StyledText`, `styled`
+  and `&`, so a custom Arg can override `validatorHelp` without a
+  submodule. Both forms of `styled` are kept: `StyleRole` is already
+  public, and the role form lets a custom Arg style its values the way the
+  built-in validators do. Building Styled Text is the supported use.
+  `StyledText`'s public `spans` field is still reachable through it, but
+  `Span` can't be named and the layout helpers (`Row`, wrapping, `join`)
+  stay in `argumint/help`.
 - `rows` and `annotations` take `keepTicks`. A custom formatter that renders
   with `spec.settings.style` should pass `keepTicks = style.isNil`; one that
   ignores the setting renders plain, as before. **Update:** ADR 0057

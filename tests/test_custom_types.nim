@@ -9,7 +9,8 @@
 #
 # Issue #51 split the templates' bodies (`argumint/argtypes`) from their
 # public names (`argumint.nim`); that boundary is exactly what this file
-# guards. See `docs/adr/0043-facade-machinery-seam.md`.
+# guards. See `docs/adr/0043-facade-machinery-seam.md`. It also covers a
+# hand-written `ref object of Arg`, which needs the same bare import.
 
 import std/[os, osproc, strutils, unittest]
 
@@ -168,6 +169,36 @@ suite "registering a custom type through a bare `import argumint`":
     check spec.at.get == Point(x: 5, y: 5)
     expect ValidationError:
       spec.parse(args = @["--at", "1,2"], command = "prog")
+
+# A custom Arg describing the values it takes in help, the way a validator
+# does (#209).
+type PortArg = ref object of Arg
+  port: int
+
+method accept(self: PortArg, c: Contribution, how: Arbitration) =
+  self.port = parseInt(c.value)
+
+method clear(self: PortArg) =
+  procCall clear(Arg(self))
+  self.port = 0
+
+method validatorHelp(self: PortArg): StyledText =
+  styled("(1-") & styled(srLiteral, "65535") & styled(")")
+
+suite "a custom Arg through a bare `import argumint`":
+  test "can describe its values in help with `validatorHelp`":
+    let spec = (
+      port: PortArg(kind: Optional, variants: @["--port=<n>"], help: "Port",
+                    group: "Options"),
+      help: help(),
+    )
+    var helpText = ""
+    try:
+      spec.parse(args = @["--help"], command = "prog",
+                 settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check "--port=<n>  Port [(1-65535)]" in helpText
 
 type Unregistered = enum
   uOne, uTwo
