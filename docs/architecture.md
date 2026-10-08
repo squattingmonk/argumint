@@ -1437,6 +1437,31 @@ but `pendingOptionalArgs` doesn't, so a hidden option's values still
 complete once its name is typed — see
 `docs/adr/0065-hidden-args-are-not-completed.md`.
 
+### Options after a positional
+
+An option matcher scans ahead past positionals (§3), so parsing accepts
+`[options] <file>` as `in.txt -b`. But the walk that consumes `in.txt`
+first ends in the state after `<file>`, which has no option transitions,
+so `candidateWords` alone offers nothing there. The graph's shape doesn't
+help either: once `fsmgraph` drops the shortcuts, the `[options]` copy
+only rejoins the walked path through a consuming `Argument` transition,
+and a state further back may lead to a Usage Line the typed words have
+already ruled out (`-h` after `deploy staging`).
+
+So `completeArgs*` also probes. For each option of every spec level the
+frontier reached (`levelOptions`), `accepts` appends it to the typed words
+(with `=x` for an Optional-kind option, since the walk never checks a
+value) and asks whether `collectFrontier` still finds a live branch; if
+so, the option is offered, deduplicated against `candidateWords`'s own.
+The pending-value case uses the same probe, so a typed Optional-kind
+option still completes its values after a positional. Only the frontier's
+own level is probed, so a parent's options aren't offered past a
+subcommand (#171). An empty frontier probes nothing: words the parser
+already rejects stay rejected whatever is appended. Not covered: an
+option given before its place in the line, such as `-v` after `a` under
+`<x> <y> [-v]`, since `a -v` has no live branch until `<y>` is typed
+(#197).
+
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated only for an Arg's own name (option/flag/command
