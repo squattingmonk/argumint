@@ -5,6 +5,10 @@
 > every `MessageError` now goes to stdout through one shared branch. The
 > "Error/output plumbing" bullet below describes the structure before that
 > change; the rest of this ADR stands.
+>
+> **Amended by [ADR 0066](0066-completion-falls-back-to-paths.md)**: the
+> scripts add file or directory names when `__complete` asks for them, and
+> `completeArgs` is no longer exported.
 
 TODO.md listed "Shell completion generation (bash/zsh/fish) from a Spec" as
 future work with no further detail. This records the design settled before

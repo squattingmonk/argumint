@@ -85,6 +85,10 @@ to be defined in `argumint.nim`, so `newSpec` → `parse` was the one broken
 half of an otherwise-complete pair — naming a `Spec` is worth little if the
 primary operation on it still needs `import argumint/fsm`.
 
+**Update:** `completeArgs*` and `CompletionCandidate` are no longer
+exported, since `__complete`'s output is completion's only interface — see
+`docs/adr/0066-completion-falls-back-to-paths.md`.
+
 ### `Spec` is opaque
 
 `prolog`, `epilog`, `usage`, `args`, `commands`, `arguments`, `options`,

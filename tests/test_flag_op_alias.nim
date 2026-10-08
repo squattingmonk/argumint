@@ -124,7 +124,7 @@ suite "FlagOp Alias exclusivity (issue #8)":
     # spelling now, not just a distinct non-aliased variant. A non-deduped
     # duplicate is otherwise functionally invisible -- either alternative
     # matches "--up" the same way -- so this checks the FSM's dot graph
-    # directly rather than parse()/completeArgs() output.
+    # directly rather than parse()/resolveCompletion() output.
     let spec = (
       direction: flag[int](ops = [flagOp("--up", "=", 1), flagOp("--down", "=", -1)], default = 0, help = ""),
     )

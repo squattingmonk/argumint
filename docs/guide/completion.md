@@ -40,6 +40,7 @@ let
     logLevel: opt("--log-level=<level>", default = "info",
                   validator = choice(["debug", "info", "warn", "error"]),
                   help = "How much to log"),
+    config: opt("--config=<file>", help = "Settings to load"),
     deploy: command("deploy", deploySpec, action = deploy,
                     help = "Deploy the site"),
     completion: command("completion", completionSpec, action = printCompletion,
@@ -96,13 +97,18 @@ $ site __complete ""
 -h	Display this help message
 --help	Display this help message
 --log-level	How much to log
+--config	Settings to load
 deploy	Deploy the site
 completion	Print a shell completion script
+:
 $ site __complete --log-level ""
 debug	
 info	
 warn	
 error	
+:
+$ site __complete --config ""
+:files
 $ site __complete deploy ""
 -h	Display this help message
 --help	Display this help message
@@ -110,34 +116,52 @@ $ site __complete deploy ""
 --force	Deploy even if checks fail
 staging	
 production	
+:
 $ site __complete deploy s
 staging	
+:
 ```
 
-Each line is a word, a tab, and a description, which may be empty. The shell
-offers only the words that start with what the user typed.
+Each line is a word, a tab, and a description, which may be empty. The last
+line says which file names the shell should add: `:files`, `:dirs` for
+directories only, or `:` for none. The shell offers only the words that start
+with what the user typed.
 
 fish and zsh show each description beside its word. bash shows only the words,
 since it has nowhere to put a description. A `help` longer than one paragraph is
 cut to its first, joined onto one line. A [flag](flags.md#flag-operations) whose
 operations do different things adds the operation, as help does.
 
-Values come only from a `choice`
+Values come from a `choice`
 [validator](args-and-options.md#validating-values). A validator built with
 `any` offers the values of every `choice` in it, and one built with `all`
-offers the ones that pass every check. Other values aren't completed, and the
-shell doesn't fall back to file names, so Tab offers nothing for an argument
-like `<file>`.
+offers the ones that pass every check.
+
+Any other value, such as `--config` above or an argument like `<file>`, gets
+file names, along with directories to look in. Options are still offered
+beside them, and typing `-` narrows the list to options. To offer only
+directories, or no file names at all, pass `complete` to `arg`, `args`, `opt`
+or `opts`:
+
+```nim
+  dest: arg("<dest>", complete = Dirs, help = "Directory to deploy into"),
+  name: opt("--name=<name>", complete = None, help = "Name for the release"),
+```
+
+`complete` is `Files` unless you say otherwise. A `choice` validator's values
+replace file names, since no file name would pass it.
 
 An option, command, or argument declared with `hidden = true` isn't offered,
-even when what the user typed matches it, though it still parses. Once the
-user has typed it, completion carries on as usual, so a hidden option's
-values are still offered. See [Groups](help.md#groups).
+even when what the user typed matches it, though it still parses. A hidden
+argument gets no file names either. Once the user has typed a hidden option,
+completion carries on as usual, so its values or file names are still
+offered. See [Groups](help.md#groups).
 
 `parse` and `parseOrQuit` answer a completion request themselves, so
 `__complete` can't be the name of a command. `parseOrQuit` prints the words
 and exits with `0`. `parse` raises a `CompletionError` with the words as its
-message. See [Error Handling](errors.md).
+message, ending with the line that names the file names to add. See
+[Error Handling](errors.md).
 
 ## Expensive Setup
 

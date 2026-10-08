@@ -83,13 +83,14 @@ export backend.newSpecSettings, envvar.env, envvar.toEnvSource, backend.appName,
 export backend.subject
 export specbuild.newSpec
 
-# The two operations on a built `Spec` that live in `argumint/fsm` rather
-# than here. `parseOrQuit*(Spec)` was already reachable (it's defined
-# below), so without these `newSpec` -> `parse` was the one broken half of
-# an otherwise-complete pair. `completeArgs*` is what makes the exported
-# `CompletionCandidate` usable.
+# `parse` lives in `argumint/fsm` rather than here. `parseOrQuit*(Spec)` was
+# already reachable (it's defined below), so without it `newSpec` -> `parse`
+# was the one broken half of an otherwise-complete pair. Completion's only
+# interface is `__complete`'s output, so `resolveCompletion` stays withheld --
+# see `docs/adr/0066-completion-falls-back-to-paths.md`.
 export fsm.parse
-export completion.completeArgs, completion.Shell, completion.CompletionCandidate
+export completion.Shell
+export backend.PathCompletion
 
 # The write side of an Arg (#47): `arg.parse(v, seenBy = some(byCli))`
 # pre-seeds a value, `arg.clear()` returns one to its coded default, and
@@ -274,7 +275,8 @@ converter toT*[T](arg: FlagArg[T]): T =
 
 proc arg*[T: not seq](variants: string, default: T = default(T),
     help: HelpText = "", group = "Arguments", hidden = false,
-    validator: Validator[T] = noValidator[T]()): ValueArg[T, false] =
+    validator: Validator[T] = noValidator[T](),
+    complete = PathCompletion.Files): ValueArg[T, false] =
   ## Creates a positional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `arg[int]("<n>")`.
@@ -292,20 +294,27 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  initValueArg[T, false](kind = Positional, variants = variants, default = @[default],
+  ## - `complete` is which paths shell completion offers for the value when
+  ##   `validator` lists no values of its own: `Files` (the default, with
+  ##   directories to descend into), `Dirs`, or `None` -- see
+  ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
+  result = initValueArg[T, false](kind = Positional, variants = variants, default = @[default],
     help = help, group = group, hidden = hidden, validator = validator)
+  result.complete = complete
 
 proc arg*(variants: string, default: string = "", help: HelpText = "",
     group = "Arguments", hidden = false,
-    validator: Validator[string] = noValidator[string]()): ValueArg[string, false] =
+    validator: Validator[string] = noValidator[string](),
+    complete = PathCompletion.Files): ValueArg[string, false] =
   ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `arg("<name>")`). See `arg[T]` above
   ## for full parameter docs.
-  arg[string](variants, default, help, group, hidden, validator)
+  arg[string](variants, default, help, group, hidden, validator, complete)
 
 proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
     help: HelpText = "", group = "Arguments", hidden = false,
-    validator: Validator[T] = noValidator[T]()): ValueArg[T, true] =
+    validator: Validator[T] = noValidator[T](),
+    complete = PathCompletion.Files): ValueArg[T, true] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -322,22 +331,29 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
-  initValueArg[T, true](kind = Positional, variants = variants, default = default,
+  ## - `complete` is which paths shell completion offers for the value when
+  ##   `validator` lists no values of its own: `Files` (the default, with
+  ##   directories to descend into), `Dirs`, or `None` -- see
+  ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
+  result = initValueArg[T, true](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
+  result.complete = complete
 
 proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "Arguments", hidden = false,
-    validator: Validator[string] = noValidator[string]()): ValueArg[string, true] =
+    validator: Validator[string] = noValidator[string](),
+    complete = PathCompletion.Files): ValueArg[string, true] =
   ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `args("<src>")`). See `args[T]` above
   ## for full parameter docs.
-  args[string](variants, default, help, group, hidden, validator)
+  args[string](variants, default, help, group, hidden, validator, complete)
 
 proc opt*[T: not seq](variants: string, default: T = default(T),
     help: HelpText = "", group = "Options", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
-    configKey: ConfigKey = noConfigKey()): ValueArg[T, false] =
+    configKey: ConfigKey = noConfigKey(),
+    complete = PathCompletion.Files): ValueArg[T, false] =
   ## Creates an optional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `opt[int]("-n")`.
@@ -373,25 +389,32 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   neither a CLI nor an env value is given -- consulted below env in Value
   ##   Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  initValueArg[T, false](kind = Optional, variants = variants, default = @[default],
+  ## - `complete` is which paths shell completion offers for the value when
+  ##   `validator` lists no values of its own: `Files` (the default, with
+  ##   directories to descend into), `Dirs`, or `None` -- see
+  ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
+  result = initValueArg[T, false](kind = Optional, variants = variants, default = @[default],
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
+  result.complete = complete
 
 proc opt*(variants: string, default: string = "", help: HelpText = "",
     group = "Options", hidden = false,
     validator: Validator[string] = noValidator[string](),
     env: Option[EnvSource] = none(EnvSource),
-    configKey: ConfigKey = noConfigKey()): ValueArg[string, false] =
+    configKey: ConfigKey = noConfigKey(),
+    complete = PathCompletion.Files): ValueArg[string, false] =
   ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opt("--name")`). See `opt[T]` above
   ## for full parameter docs.
-  opt[string](variants, default, help, group, hidden, validator, env, configKey)
+  opt[string](variants, default, help, group, hidden, validator, env, configKey, complete)
 
 proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
     help: HelpText = "", group = "Options", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
-    configKey: ConfigKey = noConfigKey()): ValueArg[T, true] =
+    configKey: ConfigKey = noConfigKey(),
+    complete = PathCompletion.Files): ValueArg[T, true] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -424,17 +447,23 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   given on the command line or via env -- consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  initValueArg[T, true](kind = Optional, variants = variants, default = default,
+  ## - `complete` is which paths shell completion offers for the value when
+  ##   `validator` lists no values of its own: `Files` (the default, with
+  ##   directories to descend into), `Dirs`, or `None` -- see
+  ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
+  result = initValueArg[T, true](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
+  result.complete = complete
 
 proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "Options", hidden = false, validator: Validator[string] = noValidator[string](),
-    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): ValueArg[string, true] =
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey(),
+    complete = PathCompletion.Files): ValueArg[string, true] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
   ## for full parameter docs.
-  opts[string](variants, default, help, group, hidden, validator, env, configKey)
+  opts[string](variants, default, help, group, hidden, validator, env, configKey, complete)
 
 proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[T] =
   ## Declares one explicit FlagOp Alias group for `flag*`'s `ops` param --

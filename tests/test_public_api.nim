@@ -30,6 +30,10 @@
 # suite alongside `FlagOp`'s.
 
 import std/[os, sequtils, unittest]
+{.push warning[UnusedImport]: off.}
+import std/[dirs, files, options]
+  # Only to show `PathCompletion`'s values don't collide with them (#200).
+{.pop.}
 
 import argumint
 
@@ -53,7 +57,7 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(Shell)
     check nameable(ConfigKey)
     check nameable(ConfigSource)
-    check nameable(CompletionCandidate)
+    check nameable(PathCompletion)
     check nameable(Validator[int])
     check nameable(FlagClamp[int])
     # The return types of all five spec constructors -- see issue #27.
@@ -151,6 +155,11 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
     check not compiles(splitEnvValue("a:b", none(string), ":"))
 
+  test "completion's frontier stays out of the facade (#200)":
+    # `__complete`'s output is the interface -- see ADR 0066.
+    check not declared(resolveCompletion)
+    check not declared(CompletionCandidate)
+
   test "the value-display helpers stay out of the facade":
     # Exported from `display` for `validators`/`argtypes` only. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
@@ -213,6 +222,17 @@ suite "Types nameable after a bare `import argumint`":
     check not nameable(Transition)
     check not nameable(Matcher)
     check not nameable(MatcherKind)
+
+suite "`PathCompletion` values beside std modules (#200)":
+  test "Files, Dirs and None compile unqualified":
+    let spec = (
+      a: arg("<a>", complete = Files),
+      b: opt("--b=<b>", complete = Dirs),
+      c: args("<c>", complete = None),
+    )
+    check spec.a.Arg.complete == PathCompletion.Files
+    check spec.b.Arg.complete == PathCompletion.Dirs
+    check spec.c.Arg.complete == PathCompletion.None
 
 suite "`Spec` is an opaque handle":
   setup:
