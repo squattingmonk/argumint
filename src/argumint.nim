@@ -270,7 +270,7 @@ converter toT*[T](arg: FlagArg[T]): T =
 # Arg constructors
 # ------------------------------------------------------------------------------
 
-proc arg*[T: not seq](variants: string, default: T = default(T),
+proc arg*[T: not seq](variants: string, default: T = zeroValue[T](),
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     complete = PathCompletion.Files): ValueArg[T] =
@@ -281,7 +281,7 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value of the argument if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
-  ##   `false`).
+  ##   `false`), or a range type's lowest value if that excludes zero.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages; empty
   ##   means `Arguments`.
@@ -309,7 +309,7 @@ proc arg*(variants: string, default: string = "", help: HelpText = "",
   ## for full parameter docs.
   arg[string](variants, default, help, group, hidden, validator, complete)
 
-proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
+proc args*[T: not seq](variants: string, default: seq[T] = @[],
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     complete = PathCompletion.Files): ValuesArg[T] =
@@ -347,7 +347,7 @@ proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
   ## for full parameter docs.
   args[string](variants, default, help, group, hidden, validator, complete)
 
-proc opt*[T: not seq](variants: string, default: T = default(T),
+proc opt*[T: not seq](variants: string, default: T = zeroValue[T](),
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
@@ -361,7 +361,7 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   may optionally include a help var (e.g., `--option=<value>`).
   ## - `default` is the default value of the option if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
-  ##   `false`).
+  ##   `false`), or a range type's lowest value if that excludes zero.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages; empty
   ##   means `Options`.
@@ -409,7 +409,7 @@ proc opt*(variants: string, default: string = "", help: HelpText = "",
   ## for full parameter docs.
   opt[string](variants, default, help, group, hidden, validator, env, configKey, complete)
 
-proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
+proc opts*[T: not seq](variants: string, default: seq[T] = @[],
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
@@ -485,7 +485,7 @@ proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[
   result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
 
 proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
-    default: T = default(T), help: HelpText = "", group = "",
+    default: T = zeroValue[T](), help: HelpText = "", group = "",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Constructs a new flag, an optional argument that does not take a value and
@@ -507,7 +507,8 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
   ##   reachable, even if their `(op, value)` coincidentally match -- see
   ##   `docs/adr/0027-flag-op-declarations.md`.
   ## - `default` is the default value of the flag if not given by the user;
-  ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`).
+  ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`), or a
+  ##   range type's lowest value if that excludes zero.
   ## - `group` determines how flags are grouped in help messages; empty
   ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
@@ -540,7 +541,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
     help = help, group = group, hidden = hidden, clamp = clamp,
     env = env, cfgKey = configKey)
 
-proc flag*[T](variants: string = "", ops: string, default: T = default(T),
+proc flag*[T](variants: string = "", ops: string, default: T = zeroValue[T](),
     help: HelpText = "", group = "", hidden = false,
     clamp: FlagClamp[T] = noClamp[T](), env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey()): FlagArg[T] =

@@ -724,9 +724,12 @@ leaves `seenBy` at `byNone`) and, for `ValuesArg`, from "supplied empty"
 (`some(@[])`).
 
 `initValueArg`/`initValuesArg` refuse to compile for a type that isn't a
-Value Type: one that isn't a built-in (checked with `sameType`, so `Natural`
-isn't `int`), isn't an enum, and has no converter from string in scope where
-the generic is instantiated. The error names the converter to write.
+Value Type: one that isn't a `BuiltInValue` (any number type, `string`,
+`bool` or `char`; range types included, `distinct` ones not), isn't an enum,
+and has no converter from string in scope where the generic is
+instantiated. The check is the `ValueType` concept, tested with `isnot`
+rather than used as a constraint, so the error can name the converter to
+write.
 
 Both leaf type names are exported from `argtypes` and re-exported by the
 facade, on the same terms as `Spec` — nameable, state private — so an arg
@@ -754,16 +757,22 @@ is unreachable from a bare `import argumint`, mirrored by a positive in
 if present — validation always happens against the scalar element type,
 never `seq[T]`, since it runs before the value is stored/appended. `parse`
 has already arbitrated the declared Value Precedence tier by then (see
-below). `fromString` calls the built-in conversions (`toInt`, `toFloat`,
+below). `fromString` calls the built-in conversions (`toNumber[T]`,
 `toBool`, `toChar`; strings pass through) by name, parses an enum with no
 converter of its own with `parseEnum`, and otherwise writes `let x: T = s`,
 which finds the user's converter where the generic is instantiated.
-`parseFlagOpsString` uses it too.
+`parseFlagOpsString` uses it too. `toNumber` parses into a `BiggestInt`,
+`BiggestUInt` or `float` and checks `T`'s `low`/`high`, raising
+`OutOfRangeError` (a `ValueError` reading `expected a value in
+-128..127`), which `acceptImpl` reports as `for -n, got "300" but expected a
+value in -128..127`. A finite value too large for `float32`, whose bounds
+are infinite, is out of range too, and so is `nan` for a float range type.
 
 `describe`'s `defaultStr` renders `[default: <value>]` in help text (via
 `display.showValue`, which quotes a string or char and `$`s the rest;
-suppressed when the scalar default equals `T`'s zero value —
-`default(T)` — since that's the fallback used when no default was given).
+suppressed when the scalar default equals `zeroValue[T]()` — `default(T)`,
+or the lowest value of a range type that excludes zero — since that's the
+fallback `arg*`/`opt*`/`flag*` use when no default was given).
 The base `Arg.defaultStr` (commands, flags, message args) returns `""`, so
 flags never show a default.
 

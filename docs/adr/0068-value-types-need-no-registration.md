@@ -2,6 +2,9 @@
 
 Supersedes the one-argument `defineArg(T)`, and #167's registry.
 
+> **Note (#247):** every integer and float type, and range types, are now
+> Value Types too, so decision 16's exact-type check is gone (ADR 0069).
+
 A type could be an Arg's value only once `defineArg(T)` had generated the
 `ValueArg[T, multi]` methods for it: `accept`, `defaultStr`,
 `validatorHelp`, `completions` and the rest. Generic methods don't dispatch,

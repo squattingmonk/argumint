@@ -270,7 +270,7 @@ that doesn't convert is an error:
 ```console
 $ ./notes list -n two
 Parsing error:
-  - expected int for -n but got "two"
+  - expected an integer for -n but got "two"
 
 Usage:
   notes list [options]

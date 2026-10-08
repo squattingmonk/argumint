@@ -64,7 +64,9 @@ default is that type's zero value. With neither, the value is a `string`.
 These types work out of the box:
 
 - `string`
-- `int` and `float`
+- every integer and float type: `int`, `int8` to `int64`, `uint` to
+  `uint64`, `float`, `float32` and `float64`
+- range types, like `Natural`, `Positive` and `range[1..10]`
 - `bool`, which accepts `true`/`false`, `yes`/`no`, `y`/`n`, `on`/`off`, and
   `1`/`0`. For an option that's simply present or absent, use a
   [flag](flags.md) instead.
@@ -75,7 +77,7 @@ A value that doesn't convert is reported with the usage:
 ```console
 $ ./copy a.txt out -r x
 Parsing error:
-  - expected int for -r but got "x"
+  - expected an integer for -r but got "x"
 
 Usage:
   copy [options] <src>... <dest>
@@ -148,6 +150,41 @@ Options:
 
 A `choice` validator replaces the list with its own values, so
 `validator = choice([red, green])` offers only those two.
+
+A range type keeps a number within bounds, the job a `range` validator
+otherwise does (see [Validating Values](#validating-values)). A value outside
+it is an error:
+
+```nim
+import argumint
+
+type Level = range[1..5]
+
+let spec = (
+  level: opt[Level]("-l, --level=<n>", help = "Level"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo spec.level.get
+```
+
+```console
+$ ./level -l 3
+3
+$ ./level -l 9
+Parsing error:
+  - for -l, got "9" but expected a value in 1..5
+
+Usage:
+  level [options]
+  level (-h | --help)
+```
+
+With no `default`, `level` holds `1`, its lowest value, since `0` is outside
+it. Unlike a `range` validator, a range type doesn't show its bounds in
+help. `echo` needs `.get` here: Nim won't turn the `Arg` into a `Level` and
+then into an `int` in one step.
 
 Any other type needs a `converter` from `string`. For how to write one, what
 else a type needs, how to use one for a flag, and how to write your own kind

@@ -30,7 +30,7 @@ Usage:
   demo (-h | --help)
 $ ./demo --num x
 Parsing error:
-  - expected int for --num but got "x"
+  - expected an integer for --num but got "x"
 
 Usage:
   demo [--num=<n>]
