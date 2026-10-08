@@ -252,12 +252,27 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
     of bash:
       fmt"""
       _{binaryName}_complete() {{
+        # Words before the cursor, minus `=`/`:` -- see architecture.md §6.
+        local cur="${{COMP_WORDS[COMP_CWORD]}}"
+        local -a args=()
+        local i w
+        for ((i = 1; i < COMP_CWORD; i++)); do
+          w="${{COMP_WORDS[i]}}"
+          if [[ ($w == "=" || $w == ":") && ${{COMP_WORDS[i-1]}} == -* ]]; then
+            continue
+          fi
+          args+=("$w")
+        done
+        # A bare separator: complete the value from scratch.
+        if [[ ($cur == "=" || $cur == ":") && ${{COMP_WORDS[COMP_CWORD-1]}} == -* ]]; then
+          cur=""
+        fi
         # `__complete` prints "value<TAB>help" per line (see docs/adr/0022) --
         # bash's own COMPREPLY has no slot to render a description into, so
         # strip everything from the first tab onward before feeding compgen.
         local words
-        words=$({binaryName} __complete "${{COMP_WORDS[@]:1}}" | cut -f1)
-        COMPREPLY=($(compgen -W "$words" -- "${{COMP_WORDS[COMP_CWORD]}}"))
+        words=$({binaryName} __complete "${{args[@]}}" "$cur" | cut -f1)
+        COMPREPLY=($(compgen -W "$words" -- "$cur"))
       }}
       complete -F _{binaryName}_complete {binaryName}
       """
@@ -265,18 +280,26 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
       fmt"""
       #compdef {binaryName}
       _{binaryName}_complete() {{
-        # `$words` here is zsh's own current-command-line array (set by the
-        # completion system), not a variable this function declares.
-        #
-        # `__complete` prints "value<TAB>help" per line (see docs/adr/0022) --
-        # split each into parallel candidate/description arrays so zsh's own
-        # completion menu can show the description next to each candidate.
+        # `$words`/`$CURRENT`/`$PREFIX` are zsh's own -- see architecture.md §6.
+        local -a args=("${{(@)words[2,CURRENT-1]}}")
+        local cur="$PREFIX"
+        # Split `--opt=value`, as the fish script does.
+        if [[ $cur == -*[=:]* ]]; then
+          args+=("${{cur%%[=:]*}}")
+          compset -P 1 '*[=:]'
+          cur="$PREFIX"
+        fi
+        # `__complete` prints "value<TAB>help" per line (see docs/adr/0022),
+        # or one blank line for none; the display string replaces the word.
         local -a lines candidates descriptions
-        lines=("${{(@f)$({binaryName} __complete "${{words[@]:1}}")}}")
-        local line
+        lines=("${{(@f)$({binaryName} __complete "${{args[@]}}" "$cur")}}")
+        local line word help
         for line in "${{lines[@]}}"; do
-          candidates+=("${{line%%$'\t'*}}")
-          descriptions+=("${{line#*$'\t'}}")
+          [[ -z $line ]] && continue
+          word="${{line%%$'\t'*}}"
+          help="${{line#*$'\t'}}"
+          candidates+=("$word")
+          descriptions+=("$word${{help:+  -- $help}}")
         done
         compadd -d descriptions -a candidates
       }}
@@ -285,10 +308,9 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
     of fish:
       fmt"""
       function __{binaryName}_complete
-        # `commandline -opc`, unlike bash's $COMP_WORDS or zsh's $words,
-        # includes the invoked command name itself as its first element --
-        # drop it the same way the bash/zsh branches above do via
-        # `[@]:1`, or it leaks into every __complete call as a bogus
+        # `commandline -opc` includes the invoked command name itself as its
+        # first element -- drop it, as the bash/zsh branches above skip their
+        # first word, or it leaks into every __complete call as a bogus
         # leading word.
         set -l tokens (commandline -opc)
         set -l cur (commandline -ct)

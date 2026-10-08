@@ -1462,6 +1462,8 @@ option given before its place in the line, such as `-v` after `a` under
 `<x> <y> [-v]`, since `a -v` has no live branch until `<y>` is typed
 (#197).
 
+### Candidates and shell adapters
+
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated only for an Arg's own name (option/flag/command
@@ -1494,3 +1496,14 @@ description slot at all — strips it before building its word list. See ADR
 included — with `echo` rather than `quit(e.msg, QuitSuccess)`: `quit`'s
 non-nimscript/js implementation writes to stderr, not stdout, which a shell
 adapter's `$(...)` capture can't see (ADR 0050).
+
+Each adapter forwards only the words before the cursor, plus the one being
+completed, and hands `__complete` an option and its value as separate
+words. fish and zsh keep `--opt=value` as one word, so their scripts split
+it by hand; zsh's moves `--opt=` into `IPREFIX` with `compset -P`, so only
+the value is replaced. bash splits it itself, on `COMP_WORDBREAKS`, into
+`--opt`, `=` and `value`, so its script drops a `=` or `:` word that
+follows an option, and completes a bare separator as an empty value, since
+readline replaces only the text after it. zsh's `compadd -d` shows each
+display string in place of its word, so the script writes
+`word  -- help` there, or the bare word (#198).

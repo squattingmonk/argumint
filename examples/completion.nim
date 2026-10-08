@@ -38,9 +38,9 @@
 #
 # In a live fish or zsh shell (not bash, which has no way to render one),
 # each candidate's own `help = "..."` text shows up alongside it in the
-# completion menu -- e.g. TAB-completing `completion <TAB>` shows
-# "deploy  Deploy to an environment" and "completion  Print a completion
-# script for the given shell", not just the bare words. See
+# completion menu -- e.g. TAB-completing `completion <TAB>` shows "deploy"
+# beside "Deploy to an environment" and "completion" beside "Print a
+# completion script for the given shell", not just the bare words. See
 # docs/adr/0022-completion-candidate-help-text.md.
 
 import std/strformat
