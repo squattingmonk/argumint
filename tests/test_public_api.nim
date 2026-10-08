@@ -22,9 +22,8 @@
 # and calls it, rather than with `test_argumint.nim`'s suite.
 #
 # A third, of exactly the `FlagOp` kind: the four string-to-scalar
-# converters (`toInt`/`toFloat`/`toBool`/`toChar`), the `flagOps` and
-# `valueTypes` registries, `getFlagOps`, `isValueType` and
-# `requireValueType` are all private to
+# conversions (`toInt`/`toFloat`/`toBool`/`toChar`), `fromString`, the
+# `flagOps` registry and `getFlagOps` are all private to
 # `src/argumint/argtypes.nim` -- not merely withheld from this facade -- so
 # no importer can name them. Their mirrors live in that file's own embedded
 # suite alongside `FlagOp`'s.
@@ -173,10 +172,9 @@ suite "Types nameable after a bare `import argumint`":
     # constructors, accessors, and registration templates can reach them --
     # see `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
-    # `declared` rather than `compiles` for the three method generators:
+    # `declared` rather than `compiles` for the two method generators:
     # their `flagHandler` argument is an untyped block, which has no
     # spelling that fits inside a `compiles(...)` expression.
-    check not declared(defineValueArg)
     check not declared(defineFlagArg)
     check not declared(defineSetFlagArg)
     check not compiles(initValueArg[string, false](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
@@ -191,14 +189,18 @@ suite "Types nameable after a bare `import argumint`":
     # embedded suite -- see the third exception in this file's header.
     check not compiles(getFlagOps("int"))
     check not compiles(flagOps)
-    check not compiles(isValueType(int))
-    check not compiles(valueTypes)
-    check not declared(requireValueType)
+    check not compiles(fromString[int]("5"))
 
-  test "the string-to-scalar converters stay private to `argumint/argtypes`":
-    # They fire for `acceptImpl`'s `let tmp: T = c.value` and for
-    # `parseFlagOpsString`, and nowhere else. Exporting them would put
-    # `let n: int = "5"` in scope for everyone who imports argumint.
+  test "the `ValueOps` a `ValueArg` dispatches through stay out of the facade":
+    # Exported from `argumint/backend` for `argtypes.initValueArg` only.
+    # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
+    check not nameable(ValueOps)
+    check not compiles(Arg().setValueOps(nil))
+
+  test "the string-to-scalar conversions stay private to `argumint/argtypes`":
+    # `fromString` calls them by name, and nothing else does. Exporting them
+    # as converters would put `let n: int = "5"` in scope for everyone who
+    # imports argumint -- see ADR 0068.
     # Mirrored in `argtypes.nim`'s own embedded suite, not in
     # `test_argumint.nim` -- see the third exception in this file's header.
     check not compiles(toInt("5"))

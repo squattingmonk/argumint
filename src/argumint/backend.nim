@@ -100,6 +100,26 @@ type
       ## right after `accept` stores the value, so provenance can never outrun
       ## the value it describes. `byNone` is the zero value, so an unsupplied
       ## Arg is correct with no code on the default path. See `seen*` and ADR 0039.
+    valueOps: ValueOps
+      ## How a `ValueArg` implements the base methods below; `nil` for every
+      ## other Arg. Set through `setValueOps`.
+
+  ValueOps* = ref object
+    ## A `ValueArg[T, multi]`'s implementations of `accept`, `clear` and the
+    ## other base methods that read its fields, built for its `T` by
+    ## `argtypes.initValueArg`. Stands in for per-type methods, since generic
+    ## methods don't dispatch -- see
+    ## `docs/adr/0068-value-types-need-no-registration.md`. Each proc takes
+    ## the `ValueArg` as a plain `Arg` and does what the base method of the
+    ## same name documents; `accumulates` is whether it's multi-value.
+    accept*: proc (self: Arg, c: Contribution, how: Arbitration) {.nimcall.}
+    clear*: proc (self: Arg) {.nimcall.}
+    defaultStr*: proc (self: Arg): string {.nimcall.}
+    validatorHelp*: proc (self: Arg): StyledText {.nimcall.}
+    completions*: proc (self: Arg): seq[string] {.nimcall.}
+    envSource*: proc (self: Arg): Option[EnvSource] {.nimcall.}
+    configKey*: proc (self: Arg): ConfigKey {.nimcall.}
+    accumulates*: bool
 
   CommandArg* = ref object of Arg
     spec*: Spec
@@ -488,10 +508,17 @@ proc showsMessage*(info: HookInfo): bool =
       return true
   false
 
+proc setValueOps*(self: Arg, ops: ValueOps) =
+  ## Gives `self` the `ValueOps` its base methods call through. Only
+  ## `argtypes.initValueArg` calls it; the facade doesn't re-export it.
+  self.valueOps = ops
+
 method clear*(self: Arg) {.base.} =
   ## Removes the `seenBy` provenance of an arg. Value-carrying args should use
   ## this method to also remove their value, restoring any default.
   self.seenBy = byNone
+  if not self.valueOps.isNil:
+    self.valueOps.clear(self)
 
 proc arbitration*(self: Arg, tier: Option[SeenBy]): Option[Arbitration] =
   ## The tier rule: what a contribution at `tier` does to `self`, or `none`
@@ -512,8 +539,11 @@ method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
   ## whether `c` extends what is there or replaces it. An override checks `c`
   ## first (against the stored history on `arExtend`, against none on
   ## `arReplace`), then on `arReplace` calls `clear` before storing, so a
-  ## value that fails leaves `self` untouched. The base stores nothing.
-  if how == arReplace:
+  ## value that fails leaves `self` untouched. The base stores nothing,
+  ## unless `self` is a `ValueArg`.
+  if not self.valueOps.isNil:
+    self.valueOps.accept(self, c, how)
+  elif how == arReplace:
     self.clear
 
 proc parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
@@ -552,24 +582,25 @@ method defaultStr*(self: Arg): string {.base.} =
   ## Returns `self`'s default value formatted for display in help text (e.g.
   ## via `[default: <value>]`), or an empty string if there's nothing worth
   ## showing. The base case (commands, flags, and message args) has no
-  ## notion of a displayable default; `ValueArg` overrides this per-type via
-  ## `defineArg`.
-  ""
+  ## notion of a displayable default; a `ValueArg` shows its own.
+  if self.valueOps.isNil: "" else: self.valueOps.defaultStr(self)
 
-method accumulates*(self: Arg): bool {.base.} = false
+method accumulates*(self: Arg): bool {.base.} =
   ## Whether `self` builds its value from more than one match (see Match
   ## Accumulation in CONTEXT.md): `args`/`opts` append, flags compose.
   ## `autoFillUsage` writes an accumulating Positional Argument as
   ## `<name>...`, though a usage string that says otherwise still wins, and
   ## a fallback tier gives one that doesn't at most one value (ADR 0005). A
   ## custom subtype that keeps several values overrides it.
+  not self.valueOps.isNil and self.valueOps.accumulates
 
-method completions*(self: Arg): seq[string] {.base.} = @[]
+method completions*(self: Arg): seq[string] {.base.} =
   ## Returns every value `self` would accept as a *value* (not a variant
   ## spelling), for shell-completion purposes -- or `@[]` if unenumerable or
   ## not applicable. The base case (commands, flags, message args -- none of
-  ## which carry a `Validator`) has nothing to show; `ValueArg` overrides
-  ## this per-type via `defineArg` (`argumint.nim`).
+  ## which carry a `Validator`) has nothing to show; a `ValueArg` lists its
+  ## Validator's values, or its enum's.
+  if self.valueOps.isNil: @[] else: self.valueOps.completions(self)
 
 method validatorHelp*(self: Arg): StyledText {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.
@@ -577,8 +608,10 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## or there's nothing meaningful to show. A `desc` gets Help Markup, ticks
   ## and all: help drops them for styled output. The base case (commands and
   ## message args, neither of which has a validator) has nothing to show;
-  ## `ValueArg` and `FlagArg` override this per-type via `defineArg`.
-  discard
+  ## a `ValueArg` describes its Validator, or lists its enum's values, and a
+  ## `FlagArg` describes its clamp.
+  if not self.valueOps.isNil:
+    result = self.valueOps.validatorHelp(self)
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## Returns `variant`'s Flag Operation Description (e.g. "Increase by 5"),
@@ -594,8 +627,8 @@ method envSource*(self: Arg): Option[EnvSource] {.base.} =
   ## Returns the Env Source configured to supply this arg's value -- the
   ## environment variable's name plus any per-Arg delimiter override -- or
   ## `none` if this arg has no environment-variable tier. Base case
-  ## (positional args, commands, message args) has none; `ValueArg`/
-  ## `FlagArg` override this per-type via `defineArg`/`defineFlagArg`.
+  ## (positional args, commands, message args) has none; a `ValueArg` or
+  ## `FlagArg` returns its own.
   ##
   ## One method rather than a name/delimiter pair, so the two can't
   ## disagree: a delimiter override with no variable to apply it to is a
@@ -603,7 +636,7 @@ method envSource*(self: Arg): Option[EnvSource] {.base.} =
   ## the arg is required or optional in the usage grammar -- see
   ## `docs/adr/0004-required-options-env-fallback.md` and
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  none(EnvSource)
+  if self.valueOps.isNil: none(EnvSource) else: self.valueOps.envSource(self)
 
 proc envName*(self: Arg): string =
   ## The name of the environment variable configured to supply this arg's
@@ -620,9 +653,9 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## Value Precedence's Config Source tier, or `noConfigKey()` if none
   ## configured.
   ## Base case (positional args, commands, message args) has no notion of
-  ## one; `ValueArg`/`FlagArg` override this per-type via
-  ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
-  noConfigKey()
+  ## one; a `ValueArg` or `FlagArg` returns its own. See
+  ## `docs/adr/0018-config-source.md`.
+  if self.valueOps.isNil: noConfigKey() else: self.valueOps.configKey(self)
 
 proc subjectParts*(arg: Arg, c: Contribution): tuple[name, source: string] =
   ## `subject`'s two halves, for a caller that styles them apart: the name,

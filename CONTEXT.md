@@ -33,13 +33,14 @@ tagged `kind: Flag` despite not being a domain specialization of Flag.)
 _Avoid_: Argument (ambiguous with a raw command-line string)
 
 **Value Type**:
-A type an Arg's value can have: one registered with `defineArg` (directly,
-or through `defineFlag`/`defineSetFlag`), with a converter from string. The
-built-ins (`string`, `bool`, `int`, `float`, `char`) are registered by
-argumint. An alias of a Value Type is the same type, but a type that only
-converts to one (`int8`, `range[0..10]`) isn't. Using any other type in
-`arg`/`args`/`opt`/`opts` is a compile error (issue #167).
-A type must be registered before its first use.
+A type an Arg's value can have: one with a converter from string in scope
+where the Arg is built, or any enum, which is parsed by name when it has
+no converter. The built-ins (`string`, `bool`, `int`, `float`, `char`) need
+no converter. An alias of a Value Type is the same type, but a type that
+only converts to one (`int8`, `range[0..10]`) isn't. Using any other type
+in `arg`/`args`/`opt`/`opts` is a compile error. A Value Type needs no
+registration; only using it for a Flag does (`defineArg` with a handler,
+`defineFlag`, `defineSetFlag`).
 _Avoid_: custom type (when meaning any Value Type; the built-ins are Value
 Types too), registered type
 

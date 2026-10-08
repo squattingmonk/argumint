@@ -1737,9 +1737,8 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     # Exported from `argtypes` only so the facade's generic constructors,
     # accessors, and registration templates can reach it; never
     # re-exported -- see issue #51 and the ADR on the facade/machinery
-    # seam. `declared` for the three method generators, whose untyped
+    # seam. `declared` for the two method generators, whose untyped
     # `flagHandler` block has no spelling that fits inside `compiles(...)`.
-    check declared(defineValueArg)
     check declared(defineFlagArg)
     check declared(defineSetFlagArg)
     checkFlagOp[int]("+=")  # the supported case raises nothing
@@ -1752,6 +1751,12 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     let verbose = initFlagArg[bool]("-v, --verbose", [], false, "", "Options", false,
       noClamp[bool](), none(EnvSource), noConfigKey())
     check verbose.ops.len == 2
+    check name.accumulates == false # through the `ValueOps` it was given
+
+  test "the `ValueOps` a `ValueArg` dispatches through exist in `argumint/backend`":
+    let arg = Arg()
+    arg.setValueOps ValueOps(accumulates: true)
+    check arg.accumulates
 
   test "the read accessors behind `get` exist in `argumint/argtypes`":
     let

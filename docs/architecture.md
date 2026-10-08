@@ -93,20 +93,21 @@ split.
 
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
 below the `argumint.nim` facade, and holds the `ValueArg`/`FlagArg` data model
-plus **everything that touches their private fields**: the
-`defineValueArg`/`defineFlagArg`/`defineSetFlagArg` method generators, the
-`flagOps` `CacheTable` and `valueTypes` `CacheSeq` they write, `acceptImpl`,
-the `initValueArg`/`initFlagArg` constructors, the `rawValue`/`rawDefault`
-read accessors, and the flag mini-language parsers. Every public name over
-that machinery — `arg`/`args`/`opt`/`opts`/`flag`/`flagOp`,
-`get`/`toT`/`toSeqT`, `defineArg`/`defineFlag`/`defineSetFlag` — stays in
-`argumint.nim` with its documentation and delegates. The split is forced
-rather than stylistic: `privateAccess` does not survive instantiation in
-another module, so anything generic or templated that reads a private field
-has to live beside the type (see `docs/gotchas.md`). `argtypes` is exported
-for the facade's benefit and withheld from its re-export list, exactly like
-`specbuild`'s `beginSpec`/`finishSpec`; it is an implementation-detail module,
-not a promised import path.
+plus **everything that touches their private fields**: the `ValueOps` procs a
+`ValueArg` dispatches through, `fromString` and `acceptImpl`, the
+`defineFlagArg`/`defineSetFlagArg` method generators and the `flagOps`
+`CacheTable` they write, the `initValueArg`/`initFlagArg` constructors, the
+`rawValue`/`rawDefault` read accessors, and the flag mini-language parsers.
+Every public name over that machinery —
+`arg`/`args`/`opt`/`opts`/`flag`/`flagOp`, `get`/`toT`/`toSeqT`,
+`defineArg`/`defineFlag`/`defineSetFlag` — stays in `argumint.nim` with its
+documentation and delegates. The split is forced rather than stylistic:
+`privateAccess` does not survive instantiation in another module, so anything
+generic or templated that reads a private field has to live beside the type
+(see `docs/gotchas.md`). `argtypes` is exported for the facade's benefit and
+withheld from its re-export list, exactly like `specbuild`'s
+`beginSpec`/`finishSpec`; it is an implementation-detail module, not a
+promised import path.
 
 `tokens.nim` sits directly above `backend` and below `complaints`/`fsm`, and
 holds `RawToken`/`Classification` plus every operation that decides what one
@@ -688,14 +689,10 @@ Because `multi` is a `static bool`, `ValueArg[T, false]` and `ValueArg[T,
 true]` are distinct concrete types to the compiler, so `toT`/`toSeqT` can be
 overloaded per-arity without ambiguity.
 
-`initValueArg` refuses to compile for a type no `defineArg` has registered
-yet: `defineValueArg` adds each type to the `valueTypes` `CacheSeq`, and
-`requireValueType` checks `T` against it with `sameType`. Without that check,
-an unregistered `ValueArg[T]` fell back to `Arg`'s base methods and silently
-ignored every value. Being a compile-time registry, it sees only registrations
-already compiled, so `defineArg` has to come before a type's first use, as
-`flagOps` already required; see `docs/gotchas.md` for why it isn't an overload
-(issue #167).
+`initValueArg` refuses to compile for a type that isn't a Value Type: one
+that isn't a built-in (checked with `sameType`, so `Natural` isn't `int`),
+isn't an enum, and has no converter from string in scope where the generic
+is instantiated. The error names the converter to write (ADR 0068).
 
 Both type names are exported from `argtypes` and re-exported by the facade,
 on the same terms as `Spec` — nameable, state private — so an arg can cross
@@ -717,59 +714,73 @@ None of those names is re-exported; `tests/test_public_api.nim` asserts each
 is unreachable from a bare `import argumint`, mirrored by a positive in
 `tests/test_argumint.nim`.
 
-`defineValueArg[T]` (`argtypes.nim`, the machinery behind the facade's
-one-argument `defineArg[T]`) is a template that generates a `method accept`
-for a given `T` (both arities) by calling `acceptImpl`, which converts the
-raw string via an implicit `converter` (`toInt`, `toFloat`, `toBool`,
-`toChar`; strings pass through), then hands the `T` to `storeImpl`, which
-runs the arg's `Validator[T]` (`validators.nim`) if present — validation
-always happens against the scalar element type, never `seq[T]`, since it
-runs before the value is stored/appended. `parse` has already arbitrated
-the declared Value Precedence tier by then (see below).
-`defineValueArg[T]` also generates a per-arity `method defaultStr`, used
-by `genHelp` to render `[default: <value>]` in help text (via
+Generic methods don't dispatch, so a `ValueArg` has no methods of its own
+(ADR 0068). Every `Arg` carries a private `ValueOps` table (`backend.nim`),
+`nil` except on a `ValueArg`, and the base methods -- `accept`, `clear`,
+`accumulates`, `defaultStr`, `validatorHelp`, `completions`, `envSource`,
+`configKey` -- call through it when it's set. `initValueArg` fills it with
+generic procs (`acceptOp`, `clearOp`, ...) instantiated for its `T` and
+arity, each downcasting the `Arg` back to its `ValueArg[T, multi]`. A
+custom `Arg` subtype has no table, so its own overrides apply as before.
+
+`acceptImpl` converts the raw string with `fromString[T]`, then hands the
+`T` to `storeImpl`, which runs the arg's `Validator[T]` (`validators.nim`)
+if present — validation always happens against the scalar element type,
+never `seq[T]`, since it runs before the value is stored/appended. `parse`
+has already arbitrated the declared Value Precedence tier by then (see
+below). `fromString` calls the built-in conversions (`toInt`, `toFloat`,
+`toBool`, `toChar`; strings pass through) by name, parses an enum with no
+converter of its own with `parseEnum`, and otherwise writes `let x: T = s`,
+which finds the user's converter where the generic is instantiated.
+`parseFlagOpsString` uses it too.
+
+`defaultStrOp` renders `[default: <value>]` in help text (via
 `display.showValue`, which quotes a string or char and `$`s the rest;
 suppressed when the scalar default equals `T`'s zero value —
 `default(T)` — since that's the fallback used when no default was given).
 The base `Arg.defaultStr` (commands, flags, message args) returns `""`, so
-flags never show a default.
-`defineValueArg[T]` also generates a per-arity `method clear`, which
-empties the value seq and, via `procCall`, the base's provenance -- empty
-*is* the default-applies state (ADR 0008), so there is nothing to restore.
-`defineValueArg[T]` likewise generates a per-arity `method
-validatorHelp`, which calls `self.validator.styledHelp` when a
-validator is present — `Validator[T].styledHelp` returns a short styled
-description per kind, or every kind's own `desc` with Help Markup applied
-instead when one was given (`Validator[T].desc` is a single field shared by
-every kind, declared *before* the `case kind` discriminator rather than
-inside a specific `of` branch — a field name can't be redeclared across two
-separate `of` branches even with an identical type in each, but a field
-declared ahead of the `case` is implicitly shared by all branches). `genHelp`
-combines `validatorHelp` and `defaultStr` into one bracket, `;`-separated
-(e.g. `[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
-below) also generates a `method validatorHelp` for `FlagArg[T]` -- reusing
-the same extension point, even though a Flag never carries a `Validator` --
+flags never show a default. `clearOp` empties the value seq after the base
+`clear` drops the provenance -- empty *is* the default-applies state (ADR
+0008), so there is nothing to restore.
+
+`completionsOp` lists the values of the arg's `describedBy`: its
+`Validator`, or for an enum argumint parses, a `choice` of the enum's values
+(gaps and all, via `std/enumutils`) -- replaced by the arg's own validator
+when that lists values of its own, and filtered by it with `all` otherwise.
+A bad enum value's `ParseError` lists the same values. `validatorHelpOp`
+describes the same Validator, except that a validator with no help of its
+own leaves just the enum's values.
+`Validator[T].styledHelp` returns a short styled description per kind, or
+every kind's own `desc` with Help Markup applied instead when one was given
+(`Validator[T].desc` is a single field shared by every kind, declared
+*before* the `case kind` discriminator rather than inside a specific `of`
+branch — a field name can't be redeclared across two separate `of` branches
+even with an identical type in each, but a field declared ahead of the
+`case` is implicitly shared by all branches). `genHelp` combines
+`validatorHelp` and `defaultStr` into one bracket, `;`-separated (e.g.
+`[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
+below) generates a `method validatorHelp` for `FlagArg[T]` -- reusing the
+same extension point, even though a Flag never carries a `Validator` --
 delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag
 Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
 
-Every one of these generated methods, plus `acceptImpl`'s own exception
-handlers, calls into `validators.nim`/`backend.nim`/`std/strutils` by their
-bare (unqualified) names -- `argumint.nim`'s top-of-file `export`
-statements are what make that resolve correctly for a caller registering
-their own custom type via `defineArg`/`defineFlag`/`defineSetFlag`, not
-just for code living inside the library itself. The templates now live in
-`argtypes` while the public names stay in the facade, so both files carry
-`{.experimental: "openSym".}` and the re-export list is unchanged. See
+All of this generic code is instantiated in the user's module, so its
+unqualified calls resolve there (`docs/gotchas.md`). The methods
+`defineFlagArg` generates call into `validators.nim`/`backend.nim` by bare
+name too; `argumint.nim`'s top-of-file `export` statements are what make
+that resolve for a caller registering a flag type via
+`defineArg`/`defineFlag`/`defineSetFlag`. Both `argtypes` and the facade
+carry `{.experimental: "openSym".}`. See
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 
-The four string-to-scalar converters `acceptImpl` relies on (`toInt`,
-`toFloat`, `toBool`, `toChar`) stay **private to `argtypes`** — their only
-other consumer, `parseFlagOpsString`, lives there too. Exporting them would
-put `let n: int = "5"` in scope for everyone who imports argumint; a
-converter for a user's own `T` is declared in the user's own module and
-found at `acceptImpl`'s instantiation site, which is where it needs to be.
+The four string-to-scalar conversions stay **private to `argtypes`**, and
+are plain procs rather than converters: exporting them as converters would
+put `let n: int = "5"` in scope for everyone who imports argumint (ADR 0068
+lists what else would compile). A converter for a user's own `T` is
+declared in the user's own module and found where `opt` is instantiated,
+which is where it needs to be.
 
 ### The write side: `parse`, `arbitration`, `clear`, `action`
 
@@ -947,11 +958,9 @@ typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
 blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
 this for `"Set to the opposite of the default"`/`"Increment by 1"`).
 
-`defineArg`/`defineFlag`/`defineFlagArg` are separately-named templates
-rather than overloads of one name (see `docs/gotchas.md` for why). The
-public `defineArg`/`defineFlag`/`defineSetFlag` in `argumint.nim` carry the
-documentation and delegate to `argtypes`'s withheld `defineValueArg`/
-`defineFlagArg`/`defineSetFlagArg`, which generate the methods.
+The public `defineArg`/`defineFlag`/`defineSetFlag` in `argumint.nim` carry
+the documentation and delegate to `argtypes`'s withheld `defineFlagArg`/
+`defineSetFlagArg`, which generate the methods.
 
 `defineSetFlag*[E: enum](elemType: typedesc[E])` (over `defineSetFlagArg`
 in `argtypes`) is a ready-built extension on top of this same mechanism,
@@ -1023,7 +1032,7 @@ spec construction already rejected a default that did.
 `flag*` itself also runs `clamp.apply(default) != default` once, at spec
 construction, before returning -- since `FlagArg.value` is seeded directly
 from `default` with no separate substitution tier the way `ValueArg`'s
-default has (contrast the previous section's `defineArg[T]`, where the
+default has (contrast the previous section's `ValueArg`, where the
 default is stored separately and never even passed through `Validator`), a
 default that doesn't already satisfy its own clamp is a `SpecDefect`, not
 something silently corrected at runtime.

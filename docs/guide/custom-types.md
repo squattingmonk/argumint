@@ -3,25 +3,25 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-argumint converts values to `string`, `int`, `float`, `bool`, and `char` on
-its own. For any other type, you tell it how to read one from the command
-line, and the type then works anywhere a built-in one does: as an argument,
-an option, or a flag, with defaults, validators, and help.
+argumint converts values to `string`, `int`, `float`, `bool`, `char`, and any
+enum on its own (see [Your Own Types](args-and-options.md#your-own-types)).
+For any other type, you tell it how to read one from the command line, and the
+type then works anywhere a built-in one does: as an argument, an option, or a
+flag, with defaults, validators, and help.
 
 If your values don't fit one type at all, you can write your own kind of
 `Arg` instead. See [Your Own Arg](#your-own-arg).
 
 ## A Value Type
 
-A value type needs a `converter` from `string`. Pass the type to
-`defineArg`, and argumint uses the converter for every value of that type:
+A value type needs a `converter` from `string`, and argumint uses it for every
+value of that type:
 
 ```nim
 import std/times
 import argumint
 
 converter toDateTime(value: string): DateTime = parse(value, "yyyy-MM-dd")
-defineArg(DateTime)
 
 let spec = (
   since: opt("--since=<date>", default = dateTime(2026, mJan, 1),
@@ -50,12 +50,20 @@ error, with a message of its own in place of the converter's.
 `times.parse` raises a `ValueError` for a bad date, so `toDateTime` needs no
 checks of its own.
 
-Call `defineArg` once per type, at the top level of a module, where the
-converter is in scope, and before anything uses the type. The module that
-defines the type is the safest place. Using a type in an `arg` or `opt` before
-its `defineArg` call, or with none, is a compile error that names the call to
-add. The same goes for a type like `int8` or `range[0..10]`, which converts to
-`int` but isn't `int`. A plain alias, like `type Port = int`, needs nothing.
+The converter has to be in scope where the `Arg` is built, at the `arg` or
+`opt` call, and declared above it. If the type comes from another module,
+that module has to export its converter (`converter toDateTime*`). So does a
+library that calls `opt` inside a generic proc of its own, since the converter
+is looked for where that proc is used.
+
+Using a type with no converter in an `arg` or `opt` is a compile error that
+names the converter to write. The same goes for a type like `int8` or
+`range[0..10]`, which converts to `int` but isn't `int`. A plain alias, like
+`type Port = int`, needs nothing.
+
+An enum can have a converter too, if its names aren't what the user should
+type. argumint then uses the converter instead of reading names, and lists no
+values in help or completion, since it can't tell what the converter accepts.
 
 ### Without a Default
 
@@ -134,8 +142,6 @@ converter toPoint(value: string): Point =
   Point(x: parseInt(parts[0]), y: parseInt(parts[1]))
 
 proc `$`(p: Point): string = $p.x & "," & $p.y
-
-defineArg(Point)
 
 let spec = (
   at: opt("--at=<point>", default = Point(x: 1, y: 1), help = "Where to draw"),
@@ -217,9 +223,8 @@ branch every name needs `ops`: `flag[DateTime]("--day")` is rejected too. A
 flag's operation value has the flag's own type, so a `DateTime` flag can't
 add a `Duration`.
 
-The block replaces a separate `defineArg(DateTime)`, so the type also works
-for an `arg` or `opt`. The `ops` string form uses your converter, so
-`ops = "--new-year=2026-01-01"` works too.
+The converter is still what makes the type work for an `arg` or `opt`, and the
+`ops` string form uses it too, so `ops = "--new-year=2026-01-01"` works.
 
 `defineFlag` does the same, and also takes a description of the `""`
 operation, which is what a flag's own names do. For an example, and for

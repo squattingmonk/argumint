@@ -134,29 +134,22 @@ export console.wantsColor
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------
-# Registering a custom type. Each of these is the public, documented name for
-# one of `argumint/argtypes`'s method generators -- see
+# Registering a custom flag type. A value type needs no registration (ADR
+# 0068); each of these is the public, documented name for one of
+# `argumint/argtypes`'s method generators -- see
 # `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 # ------------------------------------------------------------------------------
 
-template defineArg*[T](typeName: typedesc[T]): untyped =
-  ## Defines parse methods for arguments with a value of type `T`. Use this
-  ## version if you want to write your own converter to parse a string into a
-  ## `T`. `T` needs `$` and `==`, and `<=` for a `range` validator. A type
-  ## with no zero value, like one marked `{.requiresInit.}`, isn't supported.
-  ## See the [Custom Types](guide/custom-types.html) guide page.
-  defineValueArg typeName
-
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
-  ## Defines parse methods for arguments with a value of type `T`.
-  ## `flagHandler` is a code block that is executed to handle an operation on a
-  ## `FlagArg[T]` value. Without this block, a `T` cannot be used for a flag.
-  ## Within the scope of the handler, the following variables are defined:
+  ## Lets a Value Type `T` be used for a flag. `flagHandler` is a code block
+  ## that is executed to handle an operation on a `FlagArg[T]` value. Within
+  ## the scope of the handler, the following variables are defined:
   ## - `value: var T`: the flag's value, which can be modified by the handler
   ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
   ## - `arg: T`: an argument to the operation
   ## Blank-op (`""`) variants show no auto-generated description in help
-  ## text; use `defineFlag` to supply one. `T` needs the same as above.
+  ## text; use `defineFlag` to supply one. `T` needs `$` and `==`. See the
+  ## [Custom Types](guide/custom-types.html) guide page.
   ##
   ## Register `T` under its own name, not an alias of it.
   defineFlagArg(typeName, "", flagHandler)

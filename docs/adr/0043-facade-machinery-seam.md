@@ -1,5 +1,10 @@
 # Public names stay in `argumint.nim`; private-field machinery lives in a withheld submodule
 
+> **Note (#213):** `defineValueArg` and the one-argument `defineArg` are
+> gone; a `ValueArg` dispatches through a `ValueOps` table that
+> `initValueArg` fills (ADR 0068). `ValueOps` and `setValueOps` live in
+> `backend` and are withheld the same way.
+
 Splitting `argumint.nim` divides each public feature in two. The rule for
 where the halves go:
 

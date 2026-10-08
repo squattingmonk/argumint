@@ -1,5 +1,10 @@
 # `accept` is the override point; `parse` arbitrates for every Arg
 
+> **Note (#213):** `ValueArg` no longer overrides `accept` with a generated
+> method: the base `accept` calls through the `ValueOps` table
+> `initValueArg` gives it (ADR 0068). A custom `Arg` subtype has none, and
+> still overrides `accept` as described here.
+
 `Arg.parse(value, variant, seenBy)` was two things at once: the public
 write surface (ADR 0041) and the method a custom `Arg` overrode to store a
 value. Both halves had a cost.
