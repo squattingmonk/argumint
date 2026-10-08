@@ -50,6 +50,10 @@ method envSource(self: CustomArg): Option[EnvSource] = self.envSrc
 
 method configKey(self: CustomArg): ConfigKey = self.cfg
 
+# `vals` keeps every value, so it says so: a fallback tier gives a
+# single-value Arg only one (#189).
+method accumulates(self: CustomArg): bool = true
+
 method lookup(self: EmptySource, key: ConfigKey): Option[seq[string]] =
   some(newSeq[string]())
 

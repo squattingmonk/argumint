@@ -520,9 +520,11 @@ method defaultStr*(self: Arg): string {.base.} =
 
 method accumulates*(self: Arg): bool {.base.} = false
   ## Whether `self` builds its value from more than one match (see Match
-  ## Accumulation in CONTEXT.md): `args`/`opts` append, flags compose. Only a
-  ## hint for `autoFillUsage`, which writes an accumulating Positional Argument
-  ## as `<name>...`; a usage string that says otherwise still wins.
+  ## Accumulation in CONTEXT.md): `args`/`opts` append, flags compose.
+  ## `autoFillUsage` writes an accumulating Positional Argument as
+  ## `<name>...`, though a usage string that says otherwise still wins, and
+  ## a fallback tier gives one that doesn't at most one value (ADR 0005). A
+  ## custom subtype that keeps several values overrides it.
 
 method completions*(self: Arg): seq[string] {.base.} = @[]
   ## Returns every value `self` would accept as a *value* (not a variant
@@ -584,6 +586,25 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
   noConfigKey()
 
+proc subjectParts*(arg: Arg, c: Contribution): tuple[name, source: string] =
+  ## `subject`'s two halves, for a caller that styles them apart: the name,
+  ## and where the value came from (`" (env: PORT)"`, or `""` for the
+  ## command line).
+  let (kind, label) =
+    if c.tier == some(byEnv): ("env", arg.envName)
+    elif c.tier == some(byConfig): ("configKey", arg.configKey.join)
+    else: ("", "")
+  if label.len == 0:
+    return (arg.name(c.variant), "")
+  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
+  # complaint names the bare option (`--port`) -- so trim with the same PEG
+  # spec construction already keys `spec.options` by. Leaves a Positional
+  # (`<src>`) or Command untouched, since neither matches it.
+  var bare = arg.name
+  if bare =~ OptionalVariantFormat:
+    bare = matches[0]
+  (bare, " ($#: $#)" % [kind, label])
+
 proc subject*(arg: Arg, c: Contribution): string =
   ## How to name `arg` in a parse-failure message about `c`. The command line
   ## names the Variant the user actually typed; a fallback tier names `arg`
@@ -594,20 +615,8 @@ proc subject*(arg: Arg, c: Contribution): string =
   ## carries one. Exported for the same reason as `name` (`docs/adr/0017`):
   ## the generated `accept` methods resolve it by bare name in the caller's
   ## module.
-  let (kind, label) =
-    if c.tier == some(byEnv): ("env", arg.envName)
-    elif c.tier == some(byConfig): ("configKey", arg.configKey.join)
-    else: ("", "")
-  if label.len == 0:
-    return arg.name(c.variant)
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
-  "$# ($#: $#)" % [bare, kind, label]
+  let (name, source) = arg.subjectParts(c)
+  name & source
 
 method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## Returns whether `a` and `b` are aliases for `self`. Overridden by

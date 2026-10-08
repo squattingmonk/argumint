@@ -6,7 +6,7 @@
 ## never wording anything itself, then words and renders it once the walk is
 ## over (`finalComplaints`/`failureMessage`/`raiseParseFailure`). See
 ## `docs/architecture.md` §3b.
-import std/[algorithm, sequtils, strformat, strutils, tables, unicode]
+import std/[algorithm, options, sequtils, strformat, strutils, tables, unicode]
 
 import ./[backend, errors, style, tokens, usage]
 
@@ -192,12 +192,17 @@ proc missingOption*(r: var Report, variant: string, aboutMessageArg = false) =
   r.messages.add complaint("missing option", styledOption(variant),
     aboutMessageArg = aboutMessageArg)
 
-proc unexpected*(r: var Report, arg: Arg) =
+proc unexpected*(r: var Report, arg: Arg, tier = none(SeenBy)) =
   ## Records a Value Precedence fallback tier oversupplying `arg` beyond
   ## what the walk actually consumed -- see `docs/adr/0005-env-supplied-
   ## multi-value-options-and-flags.md` and `docs/adr/0018-config-source.md`.
+  ## `tier` names where the values came from, as conversion errors do.
   let kind = if arg.kind == Flag: "unexpected flag" else: "unexpected option"
-  r.messages.add complaint(kind, styledOption(arg.name), names = true)
+  let (name, source) = arg.subjectParts(Contribution(tier: tier))
+  var subject = styledOption(name)
+  if source.len > 0:
+    subject = subject & styled(source)
+  r.messages.add complaint(kind, subject, names = true)
 
 proc note*(r: var Report, msg: string) =
   ## Records a bare, kindless sentence -- the shape a conversion/validation

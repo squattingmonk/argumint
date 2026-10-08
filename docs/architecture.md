@@ -644,7 +644,11 @@ used for a genuinely excess CLI token — rather than a silent truncation to
 a prefix of the values. An Arg whose matcher was never consulted at all
 this walk (reachable only through a different, unmatched Usage Line of
 the same spec) has no walk-derived count to bound it by, so every
-available value from whichever tier resolves is applied. For `flag`, each
+available value from whichever tier resolves is applied. Whatever the
+count, an Arg that doesn't `accumulate` (an `opt`, not an `opts` or flag)
+takes at most one value from a tier, so several are always the same
+`ParseError`, naming the source (`--url (env: URL)`) the way conversion
+errors do (#189). For `flag`, each
 value (from either tier) names one of the Arg's own declared Variants
 (matching `self.ops`' keys exactly) and is applied via *that* Variant's
 own Flag Operation, not forced through `=`. The one-loop-two-tiers shape

@@ -132,6 +132,25 @@ turns splitting off, which any value that can contain the delimiter needs,
 like the URL above. To change the delimiter for every variable, pass
 `envDelim` to `newSpecSettings`.
 
+Had `url` named its variable without turning splitting off, the URL would
+split into three values:
+
+```nim
+url: opt("--url=<url>", env = "URL", help = "Server to use"),
+```
+
+An `opt` keeps only one value, so that's an error rather than a URL cut
+short:
+
+```console
+$ URL=http://example.com:80 ./search
+Parsing error:
+  - unexpected option: --url (env: URL)
+
+Usage:
+  search [options]
+```
+
 ### Flags from a Variable
 
 A flag's variable holds the names of the flag to apply, as if the user had
