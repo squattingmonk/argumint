@@ -562,7 +562,7 @@ defineFlagArg string, "":
   of "=": value = arg
   else: raise newException(SpecDefect, fmt"string flags only support = operations")
 
-defineFlagArg bool, "Toggle the value":
+defineFlagArg bool, "Set to the opposite of the default":
   ## Handles a flag value for a bool. If `op` is blank, `arg` must be the
   ## default value of the flag, which will be inverted.
   case op

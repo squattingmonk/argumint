@@ -941,7 +941,7 @@ from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"` (`+=`),
 no generic wording since its meaning is type-specific — `defineArg[T](
 typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
 blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
-this for `"Toggle the value"`/`"Increment by 1"`).
+this for `"Set to the opposite of the default"`/`"Increment by 1"`).
 
 `defineArg`/`defineFlag`/`defineFlagArg` are separately-named templates
 rather than overloads of one name (see `docs/gotchas.md` for why). The

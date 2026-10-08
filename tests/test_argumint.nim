@@ -1225,7 +1225,7 @@ suite "Messages":
     check "Reset to silent" in helpText
     check "Set to 0" notin helpText
 
-  test "a bool flag's blank-op variants show \"Toggle the value\" when grouped with a divergent peer":
+  test "a bool flag's blank-op variants show \"Set to the opposite of the default\" when grouped with a divergent peer":
     let spec = (
       moored: flag("-m, --moored", ops = [flagOp("--docked", "=", true)], default = false, help = "Ship status"),
       help: help(),
@@ -1236,7 +1236,8 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     check "Ship status" in helpText
-    check "Toggle the value" in helpText
+    check "Set to the opposite of the default" in helpText
+    check "Toggle" notin helpText
 
   test "same-op variants collapse into a single ungrouped row (no divergence to disambiguate)":
     let spec = (
