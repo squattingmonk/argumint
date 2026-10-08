@@ -132,6 +132,15 @@ turns splitting off, which any value that can contain the delimiter needs,
 like the URL above. To change the delimiter for every variable, pass
 `envDelim` to `newSpecSettings`.
 
+fish exports a list variable with its items separated by spaces, so
+`set -x TAGS web prod` gives `TAGS=web prod`. A fish user can write
+`set -x TAGS web:prod` instead, which needs nothing from you. To accept
+fish's list as two values too, split on a space: `env("TAGS", " ")` for one
+option, `newSpecSettings(envDelim = " ")` for every variable, or
+`-d:argumint.envDelim=" "` at build time. fish still separates the items of
+a variable whose name ends in `PATH` with `:`, which the default already
+splits.
+
 Had `url` named its variable without turning splitting off, the URL would
 split into three values:
 

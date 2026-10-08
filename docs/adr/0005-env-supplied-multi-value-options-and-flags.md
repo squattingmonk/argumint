@@ -1,5 +1,9 @@
 # An env var can supply more than one value to a repeated Option/Flag
 
+> **Partly superseded by
+> [ADR 0064](0064-no-record-separator-env-split.md)**: an env value is no
+> longer split on `\x1e`. The rest of this ADR stands.
+
 Extends ADR 0004.
 
 ADR 0004 let a required Option/Flag's env var satisfy the requirement, but

@@ -99,9 +99,8 @@ type
       ## Max width of the help text's variants column before wrapping; 0 means
       ## unlimited
     envDelim*: string
-      ## Delimiter an env-configured Option/Flag's raw env value is split on
-      ## (after `\x1e` and any per-Arg `EnvSource.delim` override, see
-      ## `envvar.splitEnvValue`)
+      ## Delimiter an env-configured Option/Flag's raw env value is split on,
+      ## unless it has its own `EnvSource.delim` (see `envvar.splitEnvValue`)
     configSources*: seq[ConfigSource]
       ## Value Precedence's Config Source tier, consulted in order -- a later
       ## source's hit for the same Arg fully replaces an earlier one's, never
@@ -291,11 +290,12 @@ proc newSpecSettings*(width = 0,
   ## - `maxVariantsWidth` caps the variants column's width before it wraps
   ##   onto extra indented lines (`0` for unlimited).
   ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
-  ##   is split on to supply more than one value (`\x1e` is always tried
-  ##   first, since that's how fish auto-joins a list variable) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
-  ##   single Option/Flag can override this delimiter (or opt out of
-  ##   splitting entirely) via `env*`'s two-arg form -- see
+  ##   is split on to supply more than one value (`" "` suits a list fish
+  ##   exports) -- see
+  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md` and
+  ##   `docs/adr/0064-no-record-separator-env-split.md`. A single Option/Flag
+  ##   can override this delimiter (or opt out of splitting entirely) via
+  ##   `env*`'s two-arg form -- see
   ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   ## - `configSources` is Value Precedence's Config Source tier -- an
   ##   ordered list of `ConfigSource`s (e.g. `iniConfigSource(path)`,

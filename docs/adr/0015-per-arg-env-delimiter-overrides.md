@@ -1,5 +1,10 @@
 # Per-Arg env delimiter overrides via `EnvSource`
 
+> **Partly superseded by
+> [ADR 0064](0064-no-record-separator-env-split.md)**: tier 2 (`\x1e`) is
+> gone, so a value splits on the Arg's own delimiter, else on
+> `Spec.settings.envDelim`. The rest of this ADR stands.
+
 `Spec.settings.envDelim` (ADR 0014) is one setting shared across an entire
 Spec tree. There was no way for a single Option/Flag whose env value has a
 different natural delimiter than the rest of the spec (e.g. a token that

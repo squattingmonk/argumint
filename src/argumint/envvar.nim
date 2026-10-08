@@ -22,16 +22,13 @@ type
     name*: string
     delim*: Option[string]
       ## `none` inherits `Spec.settings.envDelim`; `some("")` means never split
-      ## this Arg's value at all, even on `\x1e`
+      ## this Arg's value at all
 
 # Overridable at compile time -- see `docs/adr/0053-compile-time-defaults.md`.
 const
   DefaultEnvDelim* {.strdefine: "argumint.envDelim".} = ":"
     ## `newSpecSettings`'s default `envDelim`, the `PATH`-style convention.
     ## Set with `-d:argumint.envDelim`; empty means env values aren't split.
-  EnvListSep* = "\x1e"
-    ## Tried before `Spec.settings.envDelim` and any non-empty per-Arg
-    ## `EnvSource.delim` override -- see `splitEnvValue`
 
 converter toEnvSource*(name: string): Option[EnvSource] =
   ## Lets `opt*`/`opts*`/`flag*`'s `env` param be given a plain env var
@@ -43,33 +40,25 @@ proc env*(name: string, delim: string): Option[EnvSource] =
   ## Names an environment variable to supply an arg's value, overriding
   ## the delimiter its raw value is split on for this arg only, instead of
   ## inheriting `Spec.settings.envDelim`. `delim = ""` means never split this
-  ## arg's env value at all, even on `\x1e` -- see
+  ## arg's env value at all -- see
   ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
   some(EnvSource(name: name, delim: some(delim)))
 
 proc splitEnvValue*(value: string, delimOverride: Option[string], envDelim: string): seq[string] =
   ## Splits a raw env var's value into the (possibly several) values it
-  ## supplies to Value Precedence's environment-variable tier. Resolves in
-  ## order, most-specific first -- see
-  ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`:
-  ## 1. `delimOverride` (the matched Arg's own `EnvSource.delim`) is
-  ##    `some("")` -- never split; `value` is the only element.
-  ## 2. `EnvListSep` (`\x1e`) is present in `value` -- split on it, since
-  ##    that's how fish auto-joins a native list variable's elements for
-  ##    any variable name when exporting it to a subprocess, regardless of
-  ##    any configured delimiter.
-  ## 3. `delimOverride` is `some(d)`, `d != ""` -- split on `d`.
-  ## 4. Otherwise -- split on `envDelim` (`Spec.settings.envDelim`, the
-  ##    `PATH`-style `:` convention by default).
+  ## supplies to Value Precedence's environment-variable tier: on
+  ## `delimOverride` (the matched Arg's own `EnvSource.delim`) if set,
+  ## otherwise on `envDelim` (`Spec.settings.envDelim`, the `PATH`-style `:`
+  ## convention by default). An empty delimiter never splits; `value` is the
+  ## only element. See `docs/adr/0015-per-arg-env-delimiter-overrides.md`
+  ## and `docs/adr/0064-no-record-separator-env-split.md`.
   ##
   ## Empty segments (a stray leading/trailing/doubled delimiter) are kept
   ## as literal values, not dropped, so an env value is never treated
   ## differently from one typed on the command line -- see
   ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`.
-  if delimOverride == some(""): @[value]
-  elif EnvListSep in value: value.split(EnvListSep)
-  elif delimOverride.isSome: value.split(delimOverride.get)
-  else: value.split(envDelim)
+  # `split("")` returns `@[value]`, so an empty delimiter needs no case.
+  value.split(delimOverride.get(envDelim))
 
 proc lookupEnv*(source: EnvSource, envDelim: string): Option[seq[string]] =
   ## The values `source`'s variable supplies, split per `splitEnvValue`, or
@@ -90,15 +79,11 @@ when isMainModule:
     test "a per-Arg delim overrides envDelim":
       check splitEnvValue("a,b:c", some(","), ":") == @["a", "b:c"]
 
-    test "\\x1e beats both envDelim and a non-empty per-Arg delim":
-      check splitEnvValue("a:b\x1ec", none(string), ":") == @["a:b", "c"]
-      check splitEnvValue("a,b\x1ec", some(","), ":") == @["a,b", "c"]
+    test "an empty per-Arg delim never splits":
+      check splitEnvValue("a:b", some(""), ":") == @["a:b"]
 
-    test "an empty per-Arg delim never splits, even on \\x1e":
-      check splitEnvValue("a:b\x1ec", some(""), ":") == @["a:b\x1ec"]
-
-    test "an empty envDelim still splits on \\x1e":
-      check splitEnvValue("a:b\x1ec", none(string), "") == @["a:b", "c"]
+    test "an empty envDelim never splits":
+      check splitEnvValue("a:b", none(string), "") == @["a:b"]
 
     test "empty segments are kept":
       check splitEnvValue(":a::", none(string), ":") == @["", "a", "", ""]
