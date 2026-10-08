@@ -94,21 +94,28 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
   ## next-word spellings (option/flag variants, command variants, or an
   ## enumerable positional's `completions()`), keeping only ones starting
   ## with `prefix` and deduplicating while preserving first-seen (== FSM
-  ## priority/declaration) order.
+  ## priority/declaration) order. A `hidden` Arg is never offered -- see
+  ## `docs/adr/0065-hidden-args-are-not-completed.md`.
   var seen: HashSet[string]
   for (state, pc) in frontier:
     for tr in state.transitions:
       let candidates =
         case tr.matcher.kind
-        of mkOption: describeVariants(tr.matcher.opt, pc.cursor.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
+        of mkOption:
+          if tr.matcher.opt.hidden: newSeq[CompletionCandidate]()
+          else: describeVariants(tr.matcher.opt, pc.cursor.spec.bareVariants(tr.matcher.opt, tr.matcher.variant))
         of mkOptions:
           collect:
             for opt in tr.matcher.opts:
-              for c in describeVariants(opt, pc.cursor.spec.bareVariants(opt)): c
-        of mkCommand: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
+              if not opt.hidden:
+                for c in describeVariants(opt, pc.cursor.spec.bareVariants(opt)): c
+        of mkCommand:
+          if tr.matcher.cmd.hidden: newSeq[CompletionCandidate]()
+          else: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
         of mkArgument:
           collect:
-            for v in tr.matcher.arg.completions(): (v, "")
+            if not tr.matcher.arg.hidden:
+              for v in tr.matcher.arg.completions(): (v, "")
         of mkOptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
         of mkShortcut: newSeq[CompletionCandidate]()
       result.addUnseen(seen, candidates, prefix)

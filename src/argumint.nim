@@ -285,7 +285,8 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   ##   `false`).
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -314,7 +315,8 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   user; defaults to an empty seq.
   ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -347,7 +349,8 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   `false`).
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -399,7 +402,8 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   user; defaults to an empty seq.
   ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -475,7 +479,8 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
   ## - `default` is the default value of the flag if not given by the user;
   ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`).
   ## - `group` determines how flags are grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
   ##   silently adjusting this flag's value after every Flag Operation --
   ##   never raises, unlike a `Validator` (which never applies to a Flag in
@@ -553,7 +558,8 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## - `usage` is the usage string that controls how the command's args can be
   ##   invoked.
   ## - `group` determines how this command is grouped in help messages.
-  ## - `hidden`, if `true`, prevents the command from appearing in help messages
+  ## - `hidden`, if `true`, keeps the command out of help messages and shell
+  ##   completion; it still parses
   ## - `before` fires once this command's own `spec`'s values are parsed
   ## - `action` fires after `before`, but only if this command is the dynamic
   ##   leaf (no nested command was also matched)
@@ -602,7 +608,8 @@ proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
   ## - `usage` is the usage string that controls how the command's args can be
   ##   invoked.
   ## - `group` determines how this command is grouped in help messages.
-  ## - `hidden`, if `true`, prevents the command from appearing in help messages
+  ## - `hidden`, if `true`, keeps the command out of help messages and shell
+  ##   completion; it still parses
   ## - `before` fires once this command's own `spec`'s values are parsed
   ## - `action` fires after `before`, but only if this command is the dynamic
   ##   leaf (no nested command was also matched)
@@ -633,7 +640,8 @@ proc help*(variants = "-h, --help", help: HelpText = "Display this help message"
   ##   presented to the user. These must take the form `-o` or `--option`.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   HelpArg(kind: Flag, variants: variants.split(Comma), help: help,
     group: group, hidden: hidden, formatter: formatter)
 
@@ -646,7 +654,8 @@ proc message*(variants: string, text: string, help: HelpText = "",
   ## - `text` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   MessageArg(kind: Flag, variants: variants.split(Comma), message: text,
     help: help, group: group, hidden: hidden)
 
@@ -659,7 +668,8 @@ proc version*(variants: string, version: string,
   ## - `version` is the message to display when the flag is matched.
   ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages.
-  ## - `hidden`, if `true`, prevents the arg from appearing in help messages
+  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
+  ##   completion; it still parses
   message(variants, version, help, group, hidden)
 
 # ------------------------------------------------------------------------------

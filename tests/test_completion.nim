@@ -181,6 +181,47 @@ suite "Env-var fallback during completion":
     finally:
       delEnv("ARGUMINT_TEST_COMPLETION_PORT")
 
+suite "Hidden args aren't offered (#199)":
+  let spec = (
+    secret: flag("--secret", hidden = true, help = "Hidden"),
+    key: opt("--key=<k>", hidden = true, validator = choice(["a", "b"]), help = "Hidden opt"),
+    old: command("old", (x: flag("-x"),), hidden = true, help = "Old"),
+    new: command("new", (x: flag("-x"),), help = "New"),
+    help: help(),
+  )
+  let built = newSpec(spec)
+
+  for (words, expected) in [
+    (@[""], @["-h", "--help", "new"]),
+    (@["--s"], newSeq[string]()),
+    (@["o"], newSeq[string]()),
+    (@["old", ""], @["-x"]),
+    (@["--key", ""], @["a", "b"]),
+  ]:
+    test "completing " & $words & " offers " & $expected:
+      check built.completeArgs(words, "prog").values == expected
+
+  test "a hidden option named in the usage line isn't offered":
+    let spec = (
+      secret: flag("--secret", hidden = true),
+      loud: flag("--loud"),
+    )
+    check newSpec(spec, usage = "[--secret] [--loud]").completeArgs(@[""], "prog").values == @["--loud"]
+
+  test "a hidden positional's choices aren't offered":
+    let spec = (
+      mode: arg("<mode>", hidden = true, validator = choice(["fast", "slow"])),
+    )
+    check newSpec(spec).completeArgs(@[""], "prog").values == newSeq[string]()
+
+  test "hidden args still parse":
+    spec.parse(args = @["--secret", "--key", "a", "new"], command = "prog")
+    check spec.secret
+    check spec.key == "a"
+    check spec.new.seen
+    spec.parse(args = @["old", "-x"], command = "prog")
+    check spec.old.seen
+
 suite "Completion candidates carry help text":
   test "an option's completion candidate carries its help text":
     let spec = (
