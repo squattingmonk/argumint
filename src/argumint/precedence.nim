@@ -23,11 +23,16 @@ type
     ## Owns one Value Precedence fallback tier's bookkeeping. `probe`
     ## resolves and caches an Arg's available values the first time it's
     ## consulted during the walk, then hands out one value per subsequent
-    ## call; `applyFallbacks`'s post-walk sweep reads `consumed`/`values`
+    ## call, or marks the Arg `covered` for the Options Catch-all;
+    ## `applyFallbacks`'s post-walk sweep reads `consumed`/`covered`/`values`
     ## back to apply whatever the walk consumed (or complain about
     ## oversupply).
     values: Table[Arg, seq[string]]
     consumed: Table[Arg, int]
+    covered: HashSet[Arg]
+      ## Args the Options Catch-all reached this walk. It repeats without
+      ## limit, so it takes any number of values -- marked, not consumed, so
+      ## a nested command's own slots still get theirs (#188).
     tried: HashSet[Arg]
       ## Ensures `resolve` runs at most once per Arg for the life of this
       ## cursor, including caching a miss -- unlike an env lookup, a
@@ -75,12 +80,14 @@ proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[stri
     else: none(seq[string])
 
 proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
-    settings: SpecSettings): bool =
+    settings: SpecSettings, catchAll: bool): bool =
   ## Lets `t`'s value stand in for a missing CLI value during the walk --
   ## `resolve` is called at most once per `arg` for the life of `cursor`
   ## (see `ValueCursor.tried`). Returning `false` just lets the walk fail
   ## normally; the actual value-setting happens later, in
-  ## `applyFallbacks`'s post-walk sweep.
+  ## `applyFallbacks`'s post-walk sweep. A `catchAll` probe marks `arg`
+  ## covered instead of taking a value, and succeeds only the first time, so
+  ## the catch-all's loop ends.
   if arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, settings)
@@ -88,16 +95,19 @@ proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
       cursor.values[arg] = found.get
   if arg notin cursor.values:
     return false
+  if catchAll:
+    return not cursor.covered.containsOrIncl(arg)
   let consumed = cursor.consumed.getOrDefault(arg, 0)
   if consumed < cursor.values[arg].len:
     cursor.consumed[arg] = consumed + 1
     return true
 
-proc probe*(tiers: var Tiers, arg: Arg): bool =
+proc probe*(tiers: var Tiers, arg: Arg, catchAll = false): bool =
   ## Tries each fallback tier in precedence order -- env, then Config
   ## Source -- for a CLI token `match`'s `Option` arm couldn't find.
+  ## `catchAll` is for a matcher the Options Catch-all reached.
   for t in FallbackTier:
-    if tiers.cursors[t].probe(t, arg, tiers.settings):
+    if tiers.cursors[t].probe(t, arg, tiers.settings, catchAll):
       return true
 
 proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
@@ -107,8 +117,9 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## walk actually visited `arg`'s matcher and pulled values from this tier
   ## (`arg in cursor.consumed`), apply everything the tier had available,
   ## or complain if the walk didn't consume all of it (more values than
-  ## the grammar had positions for). If the matcher was visited but
-  ## `resolve` found nothing (`arg in cursor.tried` but not
+  ## the grammar had positions for) -- unless the catch-all covered it
+  ## (`cursor.covered`), which has room for any number. If the matcher was
+  ## visited but `resolve` found nothing (`arg in cursor.tried` but not
   ## `cursor.consumed`), there's nothing to apply -- and, per
   ## `ValueCursor.tried`'s own contract, `resolve` must not be called
   ## again here even though it would return the same answer, since it may
@@ -122,11 +133,10 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## telling the caller whether to fall through to the next-lower tier.
   if arg in cursor.applied:
     return true
-  if arg in cursor.consumed:
+  let covered = arg in cursor.covered
+  if covered or arg in cursor.consumed:
     result = true
-    let consumed = cursor.consumed[arg]
-    let total = cursor.values[arg].len
-    if consumed < total:
+    if not covered and cursor.consumed[arg] < cursor.values[arg].len:
       if arg notin cursor.complained:
         cursor.complained.incl arg
         report.unexpected(arg)

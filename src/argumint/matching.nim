@@ -187,8 +187,9 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
 
     # No CLI token matched; let the configured env var, then a Config
     # Source, stand in instead -- see architecture.md's "Env var / Config
-    # Source mechanics" and `docs/adr/0018-config-source.md`.
-    if pc.tiers.probe(m.opt):
+    # Source mechanics" and `docs/adr/0018-config-source.md`. An empty
+    # `m.variant` means the catch-all reached it.
+    if pc.tiers.probe(m.opt, catchAll = m.variant == ""):
       return true
 
     # Unconditional on purpose -- a `m.opt notin pc.matches` guard can't tell
