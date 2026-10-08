@@ -3,9 +3,10 @@
 # This is the caller's-eye view of `docs/adr/0017-argumint-reexports-for-
 # custom-arg-types.md`: `defineArg`/`defineFlag`/`defineSetFlag` expand into
 # this file, generating methods whose bodies call into `validators`,
-# `backend`, and `std/strutils` by bare name. Every other test that
-# registers a type (`tests/test_argumint.nim`) also imports the internals,
-# which would mask a broken re-export -- so this file must not.
+# `backend`, and `std/strutils` by bare name, and `opt` finds a value type's
+# converter here (ADR 0068). Every other test that registers a type
+# (`tests/test_argumint.nim`) also imports the internals, which would mask a
+# broken re-export -- so this file must not.
 #
 # Issue #51 split the templates' bodies (`argumint/argtypes`) from their
 # public names (`argumint.nim`); that boundary is exactly what this file
@@ -16,6 +17,7 @@ import std/[os, osproc, strutils, unittest]
 
 import argumint
 
+# A value type with a hand-written converter, and set-flag support below.
 type Rank = enum
   rLow, rMid, rHigh
 
@@ -25,16 +27,12 @@ converter toRank(value: string): Rank = parseEnum[Rank](value)
 # generated `defaultStr` must still call argumint's (`display.showValue`).
 proc showValue[T](value: T): string = "decoy"
 
-# The one-argument overload: a value type with a hand-written converter and
-# no flag support at all.
-defineArg Rank
-
 type Size = enum
   small, medium, large
 
 converter toSize(value: string): Size = parseEnum[Size](value)
 
-# The two-argument overload: flag support, blank op left undescribed.
+# `defineArg`: flag support, blank op left undescribed.
 defineArg(Size):
   case op
   of "=": value = arg
@@ -55,6 +53,8 @@ defineFlag(Mood, "Cycle to the next mood"):
 
 defineSetFlag(Rank)
 
+# A type with no `<=`, so no `range` validator: it must still be a value
+# type (#206).
 type Point = object
   x, y: int
 
@@ -62,19 +62,13 @@ converter toPoint(value: string): Point =
   let parts = value.split(',')
   Point(x: parseInt(parts[0]), y: parseInt(parts[1]))
 
-# A type with no `<=`, so no `range` validator: registering it must still
-# compile (#206).
-defineArg Point
-
 suite "registering a custom type through a bare `import argumint`":
-  test "the one-argument `defineArg` gives a value type its parse method":
+  test "a value type's converter parses it with no registration":
     let spec = (rank: arg[Rank]("<rank>", help = ""), help: help())
     spec.parse(args = @["rHigh"], command = "prog")
     check spec.rank.get == rHigh
 
-  test "both `defineArg` overloads coexist in one file":
-    # The split overload set -- one arity in each of two modules before
-    # issue #51, both in the facade after it -- has to resolve either way.
+  test "a value type and a flag type parse side by side":
     let spec = (
       rank: arg[Rank]("<rank>", help = ""),
       size: opt[Size]("--size=<s>", default = small, help = ""),
@@ -200,36 +194,36 @@ suite "a custom Arg through a bare `import argumint`":
       helpText = e.msg
     check "--port=<n>  Port [(1-65535)]" in helpText
 
-type Unregistered = enum
-  uOne, uTwo
+type Unconvertible = distinct int
 
 proc checkErrors(code: string): string =
-  ## What `nim check` says about `code`, after a prelude declaring `Hue`.
+  ## What `nim check` says about `code`, after a prelude declaring `Hue`, a
+  ## type with no converter.
   let
     dir = getTempDir() / "argumint_t167_" & $getCurrentProcessId()
     src = dir / "snippet.nim"
   createDir(dir)
   defer: removeDir(dir)
-  writeFile(src, "import std/strutils\nimport argumint\ntype Hue = enum hRed, hBlue\n" & code)
+  writeFile(src, "import std/strutils\nimport argumint\ntype Hue = distinct int\n" & code)
   let src2 = currentSourcePath().parentDir.parentDir / "src"
   execCmdEx(quoteShellCommand([getCurrentCompilerExe(), "check", "--hints:off",
     "--path:" & src2, src])).output
 
-suite "a type never registered with `defineArg` (#167)":
+suite "a type with no converter from string (#167, #213)":
   test "doesn't compile in `arg`, `args`, `opt` or `opts`":
-    check not compiles(arg("<unreg>", default = uTwo))
-    check not compiles(args[Unregistered]("<unreg>"))
-    check not compiles(opt("--unreg=<unreg>", default = uTwo))
-    check not compiles(opts[Unregistered]("--unreg=<unreg>"))
+    check not compiles(arg("<unconv>", default = Unconvertible(1)))
+    check not compiles(args[Unconvertible]("<unconv>"))
+    check not compiles(opt("--unconv=<unconv>", default = Unconvertible(1)))
+    check not compiles(opts[Unconvertible]("--unconv=<unconv>"))
 
-  test "nor does a type that only converts to a registered one":
+  test "nor does a type that only converts to a built-in one":
     # These used to compile and then ignore every value given.
     check not compiles(opt[int8]("--small=<n>"))
     check not compiles(opt[float32]("--single=<n>"))
     check not compiles(opt[Natural]("--count=<n>"))
     check not compiles(opt[range[0..10]]("--level=<n>"))
 
-  test "an alias of a registered type is the same type":
+  test "an alias of a value type is the same type":
     type
       Port = int
       RankAlias = Rank
@@ -238,15 +232,14 @@ suite "a type never registered with `defineArg` (#167)":
     check spec.port.get == 80
     check spec.rank.get == rMid
 
-  test "the compile error names the `defineArg` call to add":
-    check "Hue is not a value type: call `defineArg(Hue)` before using it" in
-      checkErrors("let a = opt(\"--hue=<hue>\", default = hBlue)\n")
+  test "the compile error names the converter to define":
+    check "Hue is not a value type: define `converter toHue(value: string): Hue` where its Arg is built" in
+      checkErrors("let a = opt(\"--hue=<hue>\", default = Hue(1))\n")
 
-  test "`defineArg` has to come before the type's first use":
+  test "the converter has to come before the Arg is built":
     check "Hue is not a value type" in checkErrors(
-      "converter toHue(s: string): Hue = parseEnum[Hue](s)\n" &
-      "let a = opt(\"--hue=<hue>\", default = hBlue)\n" &
-      "defineArg(Hue)\n")
+      "let a = opt(\"--hue=<hue>\", default = Hue(1))\n" &
+      "converter toHue(s: string): Hue = Hue(parseInt(s))\n")
 
   test "every built-in value type still works directly":
     let spec = (

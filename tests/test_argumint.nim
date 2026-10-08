@@ -9,9 +9,10 @@ import argumint/configsource/ini
 import argumint/configsource/json
 import argumint/display
 
-privateAccess(ValueArg[string, false]) ## White-box assertions on the arg
-privateAccess(ValueArg[string, true])  ## types exported by issue #27 -- type
-privateAccess(FlagArg[bool])           ## public, state private.
+privateAccess(ValueArgBase)      ## White-box assertions on the arg
+privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
+privateAccess(ValuesArg[string]) ## public, state private.
+privateAccess(FlagArg[bool])
 
 template restoringEnv(keys: openArray[string], body: untyped) =
   ## Runs `body`, then puts each of `keys` back as it was, set or not.
@@ -1680,11 +1681,12 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       name = opt("-n, --name=<s>", default = "x", help = "")
       tags = opts("--tag=<t>", default = @["a"], help = "")
       verbose = flag("-v, --verbose", help = "")
-    check name.default == @["x"]
-    check name.value.len == 0
+    check name.default == "x"
+    check name.value.isNone
     check name.validator.isNil
     check seq[string](name.cfgKey).len == 0
     check tags.default == @["a"]
+    check tags.value.isNone
     check not verbose.value
     check verbose.ops.len == 2      # one per variant
     check verbose.aliases.len == 2  # only populated for a multi-variant flag
@@ -1737,9 +1739,8 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     # Exported from `argtypes` only so the facade's generic constructors,
     # accessors, and registration templates can reach it; never
     # re-exported -- see issue #51 and the ADR on the facade/machinery
-    # seam. `declared` for the three method generators, whose untyped
+    # seam. `declared` for the two method generators, whose untyped
     # `flagHandler` block has no spelling that fits inside `compiles(...)`.
-    check declared(defineValueArg)
     check declared(defineFlagArg)
     check declared(defineSetFlagArg)
     checkFlagOp[int]("+=")  # the supported case raises nothing
@@ -1747,19 +1748,37 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       checkFlagOp[int]("*=")
     check splitFlagSpellings("-v, --verbose") == @["-v", "--verbose"]
     check parseFlagOpsString[int]("--boost+=5") == @[(variants: @["--boost"], op: "+=", value: 5, help: "")]
-    let name = initValueArg[string, false](Optional, "-n, --name=<s>", @["x"], "", "Options", false, noValidator[string]())
+    let name = initValueArg[string](Optional, "-n, --name=<s>", "x", "", "Options", false, noValidator[string]())
     check name.variants == @["-n", "--name=<s>"]
+    let tags = initValuesArg[string](Optional, "--tag=<t>", @["x"], "", "Options", false, noValidator[string]())
+    check tags.variants == @["--tag=<t>"]
     let verbose = initFlagArg[bool]("-v, --verbose", [], false, "", "Options", false,
       noClamp[bool](), none(EnvSource), noConfigKey())
     check verbose.ops.len == 2
+
+  test "the untyped base under `ValueArg`/`ValuesArg` exists in `argumint/argtypes`":
+    let base: ValueArgBase = opt("--num=<n>", default = 1)
+    check not base.multi
+    check ValueArgBase(opts[int]("--num=<n>")).multi
+
+  test "a `ValueArg`/`ValuesArg` constructor sets every hook on its base":
+    # A hook left unset compiles, then crashes the first time a base method
+    # calls it.
+    for base in [ValueArgBase(opt("--num=<n>", default = 1)),
+                 ValueArgBase(opts[int]("--num=<n>"))]:
+      for name, field in base[].fieldPairs:
+        when (field is proc):
+          checkpoint name & ", multi = " & $base.multi
+          check not field.isNil
 
   test "the read accessors behind `get` exist in `argumint/argtypes`":
     let
       name = opt("-n, --name=<s>", default = "x", help = "")
       tags = opts("--tag=<t>", default = @["a"], help = "")
       verbose = flag("-v", help = "")
-    check name.rawValue.len == 0
-    check name.rawDefault == @["x"]
+    check name.rawValue.isNone
+    check name.rawDefault == "x"
+    check tags.rawValue.isNone
     check tags.rawDefault == @["a"]
     check not verbose.rawValue
 

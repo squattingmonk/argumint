@@ -12,8 +12,11 @@ suite "a value type through another library's generic":
     check parseOpt(1.0, @["--val", "2.5"]) == 2.5
     check parseOpt("a", @["--val", "b"]) == "b"
 
-  test "a type the library registered works":
+  test "an enum the library declares works":
     check parseOpt(sLight, @["--val", "sDark"]) == sDark
 
-  test "a type nobody registered is still rejected":
+  test "a type whose converter the library exports works":
+    check parseOpt(Grade(1), @["--val", "3"]) == Grade(3)
+
+  test "a type with no converter is still rejected":
     check not compiles(parseOpt(3'i8, @[]))

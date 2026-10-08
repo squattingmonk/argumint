@@ -201,17 +201,14 @@ Usage:
 
 ## Your Own Flag Types
 
-To use your own type for a flag, write a `converter` from `string` and call
-`defineFlag` with a `case` on the operation:
+To use your own type for a flag, call `defineFlag` with a `case` on the
+operation:
 
 ```nim
-import std/strutils
 import argumint
 
 type Level = enum
   debug, info, warn, error
-
-converter toLevel(value: string): Level = parseEnum[Level](value)
 
 defineFlag(Level, "Show less"):
   case op
@@ -252,9 +249,9 @@ Options:
   -h, --help     Display this help message
 ```
 
-`defineFlag` also does what `defineArg` does, so the type works for an `arg`
-or `opt` too. The string form of `ops` uses the converter to read each value.
-For more, see [Custom Types](custom-types.md#flags).
+The string form of `ops` reads each value the way an `opt` would: an enum by
+name, and any other type with its `converter` from `string`. For more, see
+[Custom Types](custom-types.md#flags).
 
 ### Sets of Enum Values
 

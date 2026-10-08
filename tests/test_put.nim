@@ -138,19 +138,16 @@ suite "ValueArg's read accessors test the stored value, not seen":
     check port.seenBy == byNone
     check not port.seen
 
-  test "a multi ValueArg explicitly marked Seen with nothing stored reads as its own empty seq, not otherwise":
-    # Unlike the scalar case above, "Seen with nothing stored" is a
-    # renderable state for a multi Arg -- @[] -- so it's distinguished from
-    # "never touched" instead of falling back. There's no write call that
-    # produces this today (`put`/`parse` always append at least one value
-    # once a tier is declared); it's reached by claiming the tier directly,
-    # the same way `ConfigSource`/env resolution would if a tier ever
-    # legitimately supplied zero values for a multi Arg.
+  test "a multi ValueArg marked seen with nothing stored falls back, like a scalar one":
+    # The stored value alone decides, as above: supplied-empty is
+    # `some(@[])`, which only a write like `replace(@[])` stores (see
+    # `tests/test_replace.nim`). A tier claimed with nothing stored isn't
+    # supplied-empty.
     let tags = opts("--tag=<t>", default = @["x"], help = "")
     tags.seenBy = byCli
     check tags.seen
-    check tags.get == newSeq[string]()
-    check tags.get(otherwise = @["z"]) == newSeq[string]()
+    check tags.get == @["x"]
+    check tags.get(otherwise = @["z"]) == @["z"]
 
 suite "FlagArg's read accessors also see a tier-less write that changes the value":
   test "a tier-less put is visible via get(otherwise) once it moves the value off the default":

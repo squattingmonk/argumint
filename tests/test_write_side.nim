@@ -328,6 +328,13 @@ suite "a history-aware Validator sees the right history per branch":
       tags.parse("a", seenBy = some(byCli))
     check tags.get == @["a"]
 
+  test "a scalar Arg extending checks against the value it holds":
+    let name = opt("--name=<s>", validator = unique[string](), help = "")
+    name.parse("a", seenBy = some(byCli))
+    expect ValidationError:
+      name.parse("a", seenBy = some(byCli))
+    check name.get == "a"
+
 suite "clear returns an Arg to its coded-default state":
   test "a scalar ValueArg clears both value and provenance":
     let port = opt("--port=<n>", default = 80, help = "")

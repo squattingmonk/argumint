@@ -9,6 +9,11 @@
 > through `import argumint` must now `import std/strutils`. The other
 > re-exports stand.
 
+> **Note (#213):** a value type no longer generates methods: `ValueArg` and
+> `ValuesArg` inherit ordinary methods from the untyped `ValueArgBase`, and
+> the one-argument `defineArg` is gone (ADR 0068). Only the flag-registering
+> templates still expand into the caller's file.
+
 `defineArg`/`defineFlag`/`defineFlagArg`/`defineSetFlag` — the public
 mechanism for registering a custom Positional Argument/Option/Flag type —
 generate methods whose bodies call `self.validator.help()`,

@@ -7,6 +7,10 @@
 > writing as. The decision here, that the two type *names* are exported
 > while their state stays private, is unaffected.
 
+> **Note (#213):** `ValueArg[T, false]` and `ValueArg[T, true]` are now
+> `ValueArg[T]` and `ValuesArg[T]`, both exported on the same terms; their
+> untyped base, `ValueArgBase`, stays withheld (ADR 0068).
+
 `docs/adr/0030-core-types-exported-spec-opaque.md` made a `Spec` nameable so
 it could cross a proc or module boundary. It drew its export list around the
 types a caller *receives* from `newSpec*` and reads off `HookInfo`, and did

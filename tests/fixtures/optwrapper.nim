@@ -6,11 +6,17 @@ import std/strutils
 
 import argumint
 
-type Shade* = enum
-  sLight, sDark
+type
+  Shade* = enum
+    sLight, sDark
+  Grade* = distinct int
 
-converter toShade(value: string): Shade = parseEnum[Shade](value)
-defineArg(Shade)
+proc `==`*(a, b: Grade): bool {.borrow.}
+proc `$`*(g: Grade): string = "grade " & $int(g)
+
+# Exported: a generic's converter is looked up where the generic is
+# instantiated, which for `parseOpt` is the caller's module.
+converter toGrade*(value: string): Grade = Grade(parseInt(value))
 
 proc parseOpt*[T](default: T, args: seq[string]): T =
   ## Parses `args` against a single `--val=<val>` option of type `T`.

@@ -117,7 +117,7 @@ export backend.envSource, backend.configKey, backend.envName
 # the public names below are written against all stay withheld -- see
 # `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
 # which holds that line.
-export argtypes.ValueArg, argtypes.FlagArg, argtypes.FlagOpGroup
+export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOpGroup
 
 # Enough to pick a built-in Help Formatter or declare Long-Form Help Text;
 # writing your own formatter needs `import argumint/help` (ADR 0048/0049/0057).
@@ -134,29 +134,21 @@ export console.wantsColor
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------
-# Registering a custom type. Each of these is the public, documented name for
-# one of `argumint/argtypes`'s method generators -- see
-# `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
+# Registering a custom flag type. A Value Type needs no registration; each of
+# these is the public, documented name for one of `argumint/argtypes`'s method
+# generators -- see `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 # ------------------------------------------------------------------------------
 
-template defineArg*[T](typeName: typedesc[T]): untyped =
-  ## Defines parse methods for arguments with a value of type `T`. Use this
-  ## version if you want to write your own converter to parse a string into a
-  ## `T`. `T` needs `$` and `==`, and `<=` for a `range` validator. A type
-  ## with no zero value, like one marked `{.requiresInit.}`, isn't supported.
-  ## See the [Custom Types](guide/custom-types.html) guide page.
-  defineValueArg typeName
-
 template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
-  ## Defines parse methods for arguments with a value of type `T`.
-  ## `flagHandler` is a code block that is executed to handle an operation on a
-  ## `FlagArg[T]` value. Without this block, a `T` cannot be used for a flag.
-  ## Within the scope of the handler, the following variables are defined:
+  ## Lets `T` be used for a flag. `flagHandler` is a code block that is
+  ## executed to handle an operation on a `FlagArg[T]` value. Within the
+  ## scope of the handler, the following variables are defined:
   ## - `value: var T`: the flag's value, which can be modified by the handler
   ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
   ## - `arg: T`: an argument to the operation
   ## Blank-op (`""`) variants show no auto-generated description in help
-  ## text; use `defineFlag` to supply one. `T` needs the same as above.
+  ## text; use `defineFlag` to supply one. `T` needs `$` and `==`. See the
+  ## [Custom Types](guide/custom-types.html) guide page.
   ##
   ## Register `T` under its own name, not an alias of it.
   defineFlagArg(typeName, "", flagHandler)
@@ -187,7 +179,7 @@ template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
 # Type write accessors for args.
 # ------------------------------------------------------------------------------
 
-proc put*[T: not seq, multi: static bool](arg: ValueArg[T, multi], value: T, seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
+proc put*[T: not seq](arg: ValueArg[T] | ValuesArg[T], value: T, seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
   ## Sets (or, in the case of a multi-value arg, adds) `arg`'s value to `value`,
   ## optionally running its validator if `validate` is true; on validation
   ## failure, raises a `ValidationError`. Unlike `parse`, there's no matched
@@ -203,7 +195,7 @@ proc put*[T](arg: FlagArg[T], value: T, seenBy: Option[SeenBy] = none(SeenBy)) =
   ## existing provenance.
   putImpl(arg, value, seenBy)
 
-proc replace*[T: not seq](arg: ValueArg[T, true], values: seq[T], seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
+proc replace*[T: not seq](arg: ValuesArg[T], values: seq[T], seenBy: Option[SeenBy] = none(SeenBy), validate = true) =
   ## Replaces all values of `arg` with the values in `values`, optionally
   ## running the validator if `validate` is true; on validation failure, raises
   ## a `ValidationError`. The arg's value provenance is set to `seenBy` if
@@ -218,7 +210,7 @@ proc replace*[T: not seq](arg: ValueArg[T, true], values: seq[T], seenBy: Option
 # Convenience functions that allow easy unpacking of values from args.
 # ------------------------------------------------------------------------------
 
-template get*[T](arg: ValueArg[T, false], otherwise: T): T =
+template get*[T](arg: ValueArg[T], otherwise: T): T =
   ## Returns `arg`'s parsed value if it holds one, and `otherwise` if it
   ## doesn't -- `arg`'s coded default is ignored, replaced by `otherwise` for
   ## this call site only. Tests the stored value rather than `seen`, so a
@@ -227,46 +219,46 @@ template get*[T](arg: ValueArg[T, false], otherwise: T): T =
   ## unevaluated on the supplied path; ADR 0040, amended for `put`.
   block:
     let a = arg
-    if a.rawValue.len > 0: a.rawValue[0] else: otherwise
+    if a.rawValue.isSome: a.rawValue.get else: otherwise
 
-template get*[T](arg: ValueArg[T, true], otherwise: seq[T]): seq[T] =
-  ## Returns `arg`'s accumulated values if it holds any, and `otherwise` if
-  ## it doesn't. See `get*(ValueArg[T, false], T)`.
+template get*[T](arg: ValuesArg[T], otherwise: seq[T]): seq[T] =
+  ## Returns `arg`'s accumulated values if it holds any, even none, and
+  ## `otherwise` if it doesn't. See `get*(ValueArg[T], T)`.
   block:
     let a = arg
-    if a.seen or a.rawValue.len > 0: a.rawValue else: otherwise
+    if a.rawValue.isSome: a.rawValue.get else: otherwise
 
-proc get*[T](arg: ValueArg[T, false]): T =
+proc get*[T](arg: ValueArg[T]): T =
   ## Returns `arg`'s parsed value, substituting its coded default if no Value
   ## Precedence tier supplied one -- the same answer the implicit conversion
   ## gives, spelled explicitly for the places that conversion can't reach
   ## (see `docs/adr/0040-explicit-value-accessor.md`).
-  arg.get(otherwise = arg.rawDefault[0])
+  arg.get(otherwise = arg.rawDefault)
 
-proc get*[T](arg: ValueArg[T, true]): seq[T] =
+proc get*[T](arg: ValuesArg[T]): seq[T] =
   ## Returns `arg`'s accumulated values, substituting its coded default seq if
-  ## no Value Precedence tier supplied any. See `get*(ValueArg[T, false])`.
+  ## no Value Precedence tier supplied any. See `get*(ValueArg[T])`.
   arg.get(otherwise = arg.rawDefault)
 
 template get*[T](arg: FlagArg[T], otherwise: T): T =
   ## Returns `arg`'s value if a Value Precedence tier supplied it, and
-  ## `otherwise` if none did. See `get*(ValueArg[T, false], T)`.
+  ## `otherwise` if none did. See `get*(ValueArg[T], T)`.
   block:
     let a = arg
     if a.seen or arg.rawValue != arg.rawDefault: a.rawValue else: otherwise
 
 proc get*[T](arg: FlagArg[T]): T =
-  ## Returns `arg`'s value. See `get*(ValueArg[T, false])`.
+  ## Returns `arg`'s value. See `get*(ValueArg[T])`.
   arg.rawValue
 
-converter toT*[T](arg: ValueArg[T, false]): T =
-  ## Converts a `ValueArg[T, false]` to a `T`, substituting a default value if
+converter toT*[T](arg: ValueArg[T]): T =
+  ## Converts a `ValueArg[T]` to a `T`, substituting a default value if
   ## no value was set by the user. Delegates to `get*`, which is the same
   ## read spelled explicitly.
   arg.get
 
-converter toSeqT*[T](arg: ValueArg[T, true]): seq[T] =
-  ## Converts a `ValueArg[T, true]` to a `seq[T]`, substituting a default
+converter toSeqT*[T](arg: ValuesArg[T]): seq[T] =
+  ## Converts a `ValuesArg[T]` to a `seq[T]`, substituting a default
   ## value if no value was set by the user. Delegates to `get*`.
   arg.get
 
@@ -281,7 +273,7 @@ converter toT*[T](arg: FlagArg[T]): T =
 proc arg*[T: not seq](variants: string, default: T = default(T),
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
-    complete = PathCompletion.Files): ValueArg[T, false] =
+    complete = PathCompletion.Files): ValueArg[T] =
   ## Creates a positional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `arg[int]("<n>")`.
@@ -304,14 +296,14 @@ proc arg*[T: not seq](variants: string, default: T = default(T),
   ##   `validator` lists no values of its own: `Files` (the default, with
   ##   directories to descend into), `Dirs`, or `None` -- see
   ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
-  result = initValueArg[T, false](kind = Positional, variants = variants, default = @[default],
+  result = initValueArg[T](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
   result.complete = complete
 
 proc arg*(variants: string, default: string = "", help: HelpText = "",
     group = "", hidden = false,
     validator: Validator[string] = noValidator[string](),
-    complete = PathCompletion.Files): ValueArg[string, false] =
+    complete = PathCompletion.Files): ValueArg[string] =
   ## Bare-call convenience for `arg[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `arg("<name>")`). See `arg[T]` above
   ## for full parameter docs.
@@ -320,7 +312,7 @@ proc arg*(variants: string, default: string = "", help: HelpText = "",
 proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
     help: HelpText = "", group = "", hidden = false,
     validator: Validator[T] = noValidator[T](),
-    complete = PathCompletion.Files): ValueArg[T, true] =
+    complete = PathCompletion.Files): ValuesArg[T] =
   ## Creates a positional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -342,14 +334,14 @@ proc args*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   `validator` lists no values of its own: `Files` (the default, with
   ##   directories to descend into), `Dirs`, or `None` -- see
   ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
-  result = initValueArg[T, true](kind = Positional, variants = variants, default = default,
+  result = initValuesArg[T](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
   result.complete = complete
 
 proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "", hidden = false,
     validator: Validator[string] = noValidator[string](),
-    complete = PathCompletion.Files): ValueArg[string, true] =
+    complete = PathCompletion.Files): ValuesArg[string] =
   ## Bare-call convenience for `args[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `args("<src>")`). See `args[T]` above
   ## for full parameter docs.
@@ -360,7 +352,7 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
-    complete = PathCompletion.Files): ValueArg[T, false] =
+    complete = PathCompletion.Files): ValueArg[T] =
   ## Creates an optional argument with a value of type `T`. If given, `default`
   ## can be used to infer `T`; otherwise, `T` defaults to `string` (see the
   ## bare-call overload below) unless set explicitly -- e.g. `opt[int]("-n")`.
@@ -401,7 +393,7 @@ proc opt*[T: not seq](variants: string, default: T = default(T),
   ##   `validator` lists no values of its own: `Files` (the default, with
   ##   directories to descend into), `Dirs`, or `None` -- see
   ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
-  result = initValueArg[T, false](kind = Optional, variants = variants, default = @[default],
+  result = initValueArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
   result.complete = complete
@@ -411,7 +403,7 @@ proc opt*(variants: string, default: string = "", help: HelpText = "",
     validator: Validator[string] = noValidator[string](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
-    complete = PathCompletion.Files): ValueArg[string, false] =
+    complete = PathCompletion.Files): ValueArg[string] =
   ## Bare-call convenience for `opt[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opt("--name")`). See `opt[T]` above
   ## for full parameter docs.
@@ -422,7 +414,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
     validator: Validator[T] = noValidator[T](),
     env: Option[EnvSource] = none(EnvSource),
     configKey: ConfigKey = noConfigKey(),
-    complete = PathCompletion.Files): ValueArg[T, true] =
+    complete = PathCompletion.Files): ValuesArg[T] =
   ## Creates an optional argument which takes multiple values of type `T`.
   ## If given, `default` can be used to infer `T`; otherwise, `T` defaults to
   ## `string` (see the bare-call overload below) unless set explicitly.
@@ -460,7 +452,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
   ##   `validator` lists no values of its own: `Files` (the default, with
   ##   directories to descend into), `Dirs`, or `None` -- see
   ##   `docs/adr/0066-completion-falls-back-to-paths.md`.
-  result = initValueArg[T, true](kind = Optional, variants = variants, default = default,
+  result = initValuesArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
   result.complete = complete
@@ -468,7 +460,7 @@ proc opts*[T: not seq](variants: string, default: seq[T] = newSeq[T](),
 proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "", hidden = false, validator: Validator[string] = noValidator[string](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey(),
-    complete = PathCompletion.Files): ValueArg[string, true] =
+    complete = PathCompletion.Files): ValuesArg[string] =
   ## Bare-call convenience for `opts[string]` -- lets `T` default to `string`
   ## without an explicit bracket (e.g. `opts("--src")`). See `opts[T]` above
   ## for full parameter docs.

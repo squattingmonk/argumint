@@ -104,21 +104,16 @@ default rather than adding to it, so `--size 7 --size 8` gives `@[7, 8]`.
 
 ## Your Own Types
 
-Any type can be a value type if you write a `converter` from `string` and call
-`defineArg`:
+An enum works as a value type with nothing extra:
 
 ```nim
-import std/strutils
 import argumint
 
 type Color = enum
-  red, green, blue
-
-converter toColor(value: string): Color = parseEnum[Color](value)
-defineArg(Color)
+  red, green, darkBlue = "dark-blue"
 
 let spec = (
-  color: opt("-c, --color=<color>", default = green, help = "Colour to use"),
+  color: opt("-c, --color=<color>", default = green, help = "Colour"),
   help: help(),
 )
 
@@ -126,21 +121,37 @@ spec.parseOrQuit()
 echo spec.color
 ```
 
+argumint reads a value by its name, or by its own string if it has one, like
+`dark-blue`. Case doesn't matter after the first letter, and underscores are
+ignored, so `gREEN` and `g_reen` work too. Help, shell completion, and the
+error for a wrong value all list the values:
+
 ```console
-$ ./paint -c blue
-blue
+$ ./paint -c dark-blue
+dark-blue
 $ ./paint -c purple
 Parsing error:
-  - expected Color for -c but got "purple"
+  - for -c, got "purple" but expected one of red, green, dark-blue
 
 Usage:
   paint [options]
   paint (-h | --help)
+$ ./paint --help
+Usage:
+  paint [options]
+  paint (-h | --help)
+
+Options:
+  -c, --color=<color>  Colour [choices: red, green, dark-blue; default: green]
+  -h, --help           Display this help message
 ```
 
-The converter raises a `ValueError` for a value it can't convert, and argumint
-reports it. For what else a type needs, how to use it for a flag, and how to
-write your own kind of `Arg`, see [Custom Types](custom-types.md).
+A `choice` validator replaces the list with its own values, so
+`validator = choice([red, green])` offers only those two.
+
+Any other type needs a `converter` from `string`. For how to write one, what
+else a type needs, how to use one for a flag, and how to write your own kind
+of `Arg`, see [Custom Types](custom-types.md).
 
 ## Validating Values
 

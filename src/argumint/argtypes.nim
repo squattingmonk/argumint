@@ -1,8 +1,9 @@
-## The `ValueArg`/`FlagArg` data model and every piece of machinery that
-## touches their private fields: the method-generating `defineValueArg`/
-## `defineFlagArg`/`defineSetFlagArg` templates, the `flagOps` and
-## `valueTypes` registries they write, the `initValueArg`/`initFlagArg`
-## constructors, and the `rawValue`/`rawDefault` read accessors.
+## The `ValueArg`/`ValuesArg`/`FlagArg` data model and every piece of
+## machinery that touches their private fields: `ValueArgBase` and the hooks
+## its methods call, `fromString`, the method-generating `defineFlagArg`/
+## `defineSetFlagArg` templates and the `flagOps` registry they write, the
+## `initValueArg`/`initValuesArg`/`initFlagArg` constructors, and the
+## `rawValue`/`rawDefault` read accessors.
 ##
 ## Everything here is exported so `argumint.nim` can reach it, and none of
 ## it is re-exported by that facade -- the public names (`arg`/`opt`/
@@ -18,25 +19,53 @@
 
 {.experimental: "openSym".}
 
-import std/[macros, macrocache, options, pegs, sequtils, strformat, strutils, tables]
+import std/[enumutils, macros, macrocache, options, pegs, sequtils, strformat, strutils, tables, typetraits]
 
 import ./[backend, configsource, display, errors, flagclamp, style, validators]
 
 type
-  ValueArg*[T: not seq, multi: static bool] = ref object of Arg
-    ## What `arg*`/`args*`/`opt*`/`opts*` return. `multi` is `false` for the
-    ## scalar arity and `true` for the multi-value one, making them distinct
-    ## concrete types. Nameable so an arg can cross a proc or module
-    ## boundary; its fields stay private, same shape as `Spec` -- see
-    ## `docs/adr/0033-value-arg-flag-arg-exported.md`.
-    value: seq[T]
-      ## Empty until `storeImpl` writes to it; see `toT`/`toSeqT`.
-    default: seq[T]
-    validator: Validator[T]
+  Description = tuple[defaultStr: string, validatorHelp: StyledText, completions: seq[string]]
+    ## What `describe` computes for help and completion, all at once.
+
+  ValueArgBase* = ref object of Arg
+    ## The untyped base of `ValueArg[T]` and `ValuesArg[T]`. Not generic, so
+    ## its methods are ordinary methods that dispatch; the few that touch
+    ## typed storage call a hook its leaf's constructor filled in. A new base
+    ## method needs a hook only if it touches typed storage. See
+    ## `docs/architecture.md`, Value Conversion.
     env: Option[EnvSource]
     cfgKey: ConfigKey
-      ## Not named `configKey` -- that's the base `Arg` method name; see
-      ## `defineValueArg`.
+      ## Not named `configKey` -- that's the base `Arg` method name.
+    multi: bool
+      ## Whether this is a `ValuesArg`; what `accumulates` returns.
+    write: proc (self: ValueArgBase, c: Contribution, how: Arbitration) {.nimcall.}
+      ## Converts, validates and stores `c`: `accept`'s body.
+    reset: proc (self: ValueArgBase) {.nimcall.}
+      ## Empties the typed storage, so the default shows through.
+    describe: proc (self: ValueArgBase): Description {.nimcall.}
+      ## `defaultStr`, `validatorHelp` and `completions`, computed when help
+      ## or completion asks rather than on every run.
+
+  ValueArg*[T: not seq] = ref object of ValueArgBase
+    ## What `arg*`/`opt*` return: one value of type `T`. Nameable so an arg
+    ## can cross a proc or module boundary; its fields stay private, same
+    ## shape as `Spec` -- see `docs/adr/0033-value-arg-flag-arg-exported.md`.
+    value: Option[T]
+      ## `none` until a tier or a write supplies a value; see `toT`.
+    default: T
+    validator: Validator[T]
+
+  ValuesArg*[T: not seq] = ref object of ValueArgBase
+    ## What `args*`/`opts*` return: any number of values of type `T`.
+    ## Nameable on the same terms as `ValueArg`.
+    value: Option[seq[T]]
+      ## `none` until a tier or a write supplies a value, so `some(@[])`
+      ## (supplied empty) reads back empty; see `toSeqT`.
+    default: seq[T]
+    validator: Validator[T]
+
+  AnyValueArg[T] = ValueArg[T] | ValuesArg[T]
+    ## Either arity, for the logic they share.
 
   FlagOp[T] = tuple[op: string, arg: T, desc: string]
 
@@ -69,51 +98,89 @@ const flagOps = CacheTable"flagOps"
   ## read through `flagOpsKey`.
 
 # ------------------------------------------------------------------------------
-# These converters allow the methods below to convert implicitly from strings to
-# other data types. They stay private: their only consumers are `acceptImpl` and
-# `parseFlagOpsString` below, and exporting them would put `let n: int = "5"`
-# in scope for anyone who imports argumint.
+# String conversion. Every string-to-`T` conversion goes through `fromString`,
+# which calls these by name: a converter used implicitly in a generic is only
+# found where the generic is used (docs/gotchas.md). They stay private, and
+# aren't converters at all, so `let n: int = "5"` doesn't compile for anyone
+# who imports argumint.
 # ------------------------------------------------------------------------------
 
-converter toInt(value: string): int =
+proc toInt(value: string): int =
   ## Parses a string value into an int. Negative numbers may be passed as
   ## arguments by prefixing them with a space, so whitespace characters are
   ## stripped to allow this.
   value.strip.parseInt
 
-converter toFloat(value: string): float =
+proc toFloat(value: string): float =
   ## Parses a string value into a float. Negative numbers may be passed as
   ## arguments by prefixing them with a space, so whitespace characters are
   ## stripped to allow this.
   value.strip.parseFloat
 
-converter toBool(value: string): bool =
+proc toBool(value: string): bool =
   ## Parses a string value into a bool. Supports on/off, yes/no, y/n, YES/NO,
   ## Y/N, true/false, TRUE/FALSE, and 1/0.
   value.parseBool
 
-converter toChar(value: string): char =
+proc toChar(value: string): char =
   ## Converts a string value to a char. The value must be 1 character long.
   if value.len != 1:
     raise newException(ValueError, fmt"cannot convert {value} to char")
   value[0]
 
+macro sameType(T, U: typedesc): bool =
+  ## Whether `T` and `U` are the same type, aliases included. Not `is`:
+  ## `Natural is int`.
+  newLit(sameType(T.getTypeInst[1], U.getTypeInst[1]))
+
+template isBuiltIn(T: typedesc): bool =
+  ## Whether `T` is one of the types `fromString` converts by name.
+  sameType(T, string) or sameType(T, int) or sameType(T, float) or
+    sameType(T, bool) or sameType(T, char)
+
+template hasConverter(T: typedesc): bool =
+  ## Whether a converter from string to `T` is in scope where the generic
+  ## using this is instantiated (docs/gotchas.md).
+  compiles((let converted: T = ""))
+
+template parsesByName(T: typedesc): bool =
+  ## Whether `fromString` parses `T` with `parseEnum`: an enum with no
+  ## converter of its own where its Arg is built.
+  T is enum and not hasConverter(T)
+
+template isValueType(T: typedesc): bool =
+  ## Whether `fromString` can convert to `T`: see CONTEXT.md, Value Type.
+  isBuiltIn(T) or T is enum or hasConverter(T)
+
+proc fromString[T](value: string): T =
+  ## `value` as a `T`: a built-in by name, an enum with no converter by
+  ## `parseEnum`, and anything else through the user's converter, found
+  ## where the Arg is built. Raises `ValueError` if it can't convert.
+  when sameType(T, string): value
+  elif sameType(T, int): toInt(value)
+  elif sameType(T, float): toFloat(value)
+  elif sameType(T, bool): toBool(value)
+  elif sameType(T, char): toChar(value)
+  elif parsesByName(T): parseEnum[T](value)
+  else:
+    let converted: T = value
+    converted
+
 # ------------------------------------------------------------------------------
 # Read accessors. `argumint.nim`'s `get*`/`toT*`/`toSeqT*` are written against
-# these: a template rather than a proc so reading a multi-value `ValueArg`
-# doesn't copy the seq, and so `get*` stays the lazy template ADR 0040 needs.
-# Reads only -- writes go through `initValueArg`/`initFlagArg` below, which
-# can't leave `ops` and `aliases` disagreeing the way an exported mutator
-# could.
+# these: a template rather than a proc so reading a `ValuesArg` doesn't copy
+# the seq, and so `get*` stays the lazy template ADR 0040 needs. Reads only --
+# writes go through the constructors below, which can't leave `ops` and
+# `aliases` disagreeing the way an exported mutator could.
 # ------------------------------------------------------------------------------
 
-template rawValue*[T; multi: static bool](arg: ValueArg[T, multi]): untyped =
-  ## `arg`'s stored values, with no default substitution. Empty until a
-  ## Value Precedence tier supplies one.
+template rawValue*[T](arg: AnyValueArg[T]): untyped =
+  ## `arg`'s stored value, with no default substitution: `none` until a
+  ## Value Precedence tier or a write supplies one.
   arg.value
 
-template rawDefault*[T; multi: static bool](arg: ValueArg[T, multi]): untyped =
-  ## `arg`'s coded default values.
+template rawDefault*[T](arg: AnyValueArg[T]): untyped =
+  ## `arg`'s coded default.
   arg.default
 
 template rawValue*[T](arg: FlagArg[T]): untyped =
@@ -125,10 +192,30 @@ template rawDefault*[T](arg: FlagArg[T]): untyped =
   arg.default
 
 # ------------------------------------------------------------------------------
-# Parsing methods
+# Writing a value. The two arities differ only in `history` and `store`; the
+# rest is written once over `AnyValueArg`.
 # ------------------------------------------------------------------------------
 
-proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: Option[SeenBy], validate: bool) =
+proc history[T](self: ValueArg[T]): seq[T] =
+  ## What a Validator checks a new value against when it extends: the value
+  ## already held, if any.
+  if self.value.isSome: result.add self.value.get
+
+proc history[T](self: ValuesArg[T]): seq[T] =
+  ## What a Validator checks a new value against when it extends: every
+  ## value already held.
+  if self.value.isSome: result = self.value.get
+
+proc store[T](self: ValueArg[T], value: T) =
+  ## Holds `value` in place of any other.
+  self.value = some(value)
+
+proc store[T](self: ValuesArg[T], value: T) =
+  ## Appends `value`, in place: see the ORC entry in docs/gotchas.md.
+  if self.value.isSome: self.value.get.add value
+  else: self.value = some(@[value])
+
+proc replaceImpl*[T: not seq](self: ValuesArg[T], values: seq[T], seenBy: Option[SeenBy], validate: bool) =
   ## Validates every candidate in `values` against the prefix of `values`
   ## already accepted -- `self`'s own prior values never enter that history,
   ## since they're about to be discarded -- then, only if all of them pass,
@@ -141,32 +228,30 @@ proc replaceImpl*[T: not seq](self: ValueArg[T, true], values: seq[T], seenBy: O
       for idx, value in values:
         self.validator.validate(value, values[0..<idx])
   except ValidationError as e:
-    raise newPlainError(ValidationError, fmt"for {self.name()}, {e.msg}")
-  self.value = values
+    let name = self.name() # Outside `fmt`: see docs/gotchas.md, openSym.
+    raise newPlainError(ValidationError, fmt"for {name}, {e.msg}")
+  self.value = some(values)
   self.seenBy = seenBy.get(otherwise = self.seenBy)
 
-proc storeImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, c: Contribution, how: Arbitration, validate: bool) =
+proc storeImpl[T](self: AnyValueArg[T], value: T, c: Contribution, how: Arbitration, validate: bool) =
   ## Stores an already-arbitrated `value`: runs the Validator against the
-  ## history `how` implies (`self.value` when extending, none when
-  ## replacing, since those values are about to be discarded), then clears on
-  ## `arReplace` and sets (or, for a multi Arg, appends). Raises a
-  ## `ValidationError` naming `self` via `subject(c)`, leaving `self`
-  ## untouched.
+  ## history `how` implies (`history` when extending, none when replacing,
+  ## since those values are about to be discarded), then clears on
+  ## `arReplace` and stores. Raises a `ValidationError` naming `self` via
+  ## `subject(c)`, leaving `self` untouched.
   try:
     if validate and not self.validator.isNil:
       case how
-      of arExtend: self.validator.validate(value, self.value)
+      of arExtend: self.validator.validate(value, self.history)
       of arReplace: self.validator.validate(value)
   except ValidationError as e:
-    raise newPlainError(ValidationError, fmt"for {self.subject(c)}, {e.msg}")
+    let subject = self.subject(c) # Outside `fmt`: see docs/gotchas.md, openSym.
+    raise newPlainError(ValidationError, fmt"for {subject}, {e.msg}")
   if how == arReplace:
     self.clear
-  when multi:
-    self.value.add(value)
-  else:
-    self.value = @[value]
+  self.store(value)
 
-proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T, seenBy: Option[SeenBy], validate: bool) =
+proc putImpl*[T](self: AnyValueArg[T], value: T, seenBy: Option[SeenBy], validate: bool) =
   ## `parse`'s arbitration for a value already typed `T` -- backs `put`
   ## (`argumint.nim`). No Variant was typed, so an error names `self`'s
   ## first one.
@@ -177,16 +262,101 @@ proc putImpl*[T: not seq, multi: static bool](self: ValueArg[T, multi], value: T
   if how.get == arReplace:
     self.seenBy = seenBy.get
 
-proc acceptImpl[T: not seq, multi: static bool](self: ValueArg[T, multi], c: Contribution, how: Arbitration) =
+proc enumValues[T: enum](): seq[T] =
+  ## Every value of `T`, gaps and all.
+  when T is HoleyEnum:
+    for value in enumutils.items(T): result.add value
+  else:
+    for value in T: result.add value
+
+proc describedBy[T](self: AnyValueArg[T]): Validator[T] =
+  ## The Validator completion and a conversion error describe `self` with.
+  ## An enum argumint parses lists its values, filtered by `self`'s own
+  ## Validator, unless that lists values of its own.
+  when parsesByName(T):
+    let values = choice(enumValues[T]())
+    if self.validator.isNil: values
+    elif self.validator.completions.len > 0: self.validator
+    else: all(values, self.validator)
+  else:
+    self.validator
+
+proc helpDescribedBy[T](self: AnyValueArg[T]): Validator[T] =
+  ## `describedBy` for help: the enum's values alone when `self`'s Validator
+  ## has nothing to say, rather than `all`'s dangling " and ".
+  when parsesByName(T):
+    if not self.validator.isNil and self.validator.styledHelp.len == 0:
+      return choice(enumValues[T]())
+  self.describedBy
+
+proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
   ## Converts `c.value` into a `T`, then stores it. Raises `ParseError` if it
-  ## can't convert. Generic methods are deprecated, so `defineValueArg`
-  ## generates an `accept` per type that calls this.
+  ## can't convert.
   try:
-    let converted: T = c.value
-    self.storeImpl(converted, c, how, validate = true)
+    self.storeImpl(fromString[T](c.value), c, how, validate = true)
   except ValueError:
-    let got = c.value.quoted # Outside `fmt`: see docs/gotchas.md, openSym.
-    raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {self.subject(c)} but got {got}")
+    # Outside `fmt`: see docs/gotchas.md, openSym.
+    let (got, subject) = (c.value.quoted, self.subject(c))
+    when parsesByName(T):
+      let values = self.describedBy.completions.join(", ")
+      raise newPlainError(ParseError, fmt"for {subject}, got {got} but expected one of {values}")
+    else:
+      raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {subject} but got {got}")
+
+proc defaultText[T](self: ValueArg[T]): string =
+  ## `self`'s default as help shows it, or "" if it's still `T`'s zero value
+  ## (e.g. "", 0, or false) -- the fallback used when no default was given
+  ## (see `arg*`). Requires `T` to support `default(T)` and `==`, which
+  ## nearly every type does; a `{.requiresInit.}` object would be a rare
+  ## exception that fails to compile here.
+  if self.default != default(T): display.showValue(self.default) else: ""
+
+proc defaultText[T](self: ValuesArg[T]): string =
+  ## `self`'s defaults comma-joined, or "" if there are none.
+  self.default.mapIt(display.showValue(it)).join(", ")
+
+# The hooks each constructor gives its `ValueArgBase`, instantiated for its
+# leaf type `A`: see `ValueArgBase`.
+
+proc writeHook[A](self: ValueArgBase, c: Contribution, how: Arbitration) =
+  ## Converts, validates and stores `c`: see `acceptImpl`.
+  A(self).acceptImpl(c, how)
+
+proc resetHook[A](self: ValueArgBase) =
+  ## Back to `none`: the coded default is substituted at read time, never
+  ## stored (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
+  A(self).value = typeof(A(self).value).default
+
+proc describeHook[A](self: ValueArgBase): Description =
+  ## What help and completion show for `self`: see `describedBy`.
+  let
+    arg = A(self)
+    forHelp = arg.helpDescribedBy
+    forCompletion = arg.describedBy
+  result.defaultStr = arg.defaultText
+  if not forHelp.isNil: result.validatorHelp = forHelp.styledHelp
+  if not forCompletion.isNil: result.completions = forCompletion.completions
+
+method accept(self: ValueArgBase, c: Contribution, how: Arbitration) =
+  self.write(self, c, how)
+
+method clear(self: ValueArgBase) =
+  ## Removes `self`'s `seenBy` provenance and its value, so its coded
+  ## default shows through.
+  procCall clear(Arg(self))
+  self.reset(self)
+
+method accumulates(self: ValueArgBase): bool = self.multi
+
+method envSource(self: ValueArgBase): Option[EnvSource] = self.env
+
+method configKey(self: ValueArgBase): ConfigKey = self.cfgKey
+
+method defaultStr(self: ValueArgBase): string = self.describe(self).defaultStr
+
+method validatorHelp(self: ValueArgBase): StyledText = self.describe(self).validatorHelp
+
+method completions(self: ValueArgBase): seq[string] = self.describe(self).completions
 
 macro defineFlagOps(typeName, body: untyped) =
   body.expectLen 1
@@ -237,93 +407,6 @@ proc checkFlagOp*[T](op: string) =
     let escapedOp = strutils.escape(op)
     raise newException(SpecDefect, fmt"{escapedOp} is not a supported operation for {$typeOf(T)} flags")
 
-const valueTypes = CacheSeq"valueTypes"
-  ## Every type registered with `defineArg` so far, read by
-  ## `requireValueType`. A registry rather than an overload: see
-  ## docs/gotchas.md.
-
-macro registerValueType(T: typedesc) =
-  valueTypes.add T.getTypeInst[1]
-
-macro isValueType(T: typedesc): bool =
-  ## Whether `T` is a registered type or an alias of one. `sameType`, so a
-  ## type that merely converts to one (`int8`, `range[0..10]`) isn't.
-  let t = T.getTypeInst[1]
-  result = newLit(false)
-  for registered in valueTypes:
-    if sameType(t, registered):
-      return newLit(true)
-
-template requireValueType(T: typedesc) =
-  ## Stops compilation unless `T` was registered with `defineArg`.
-  when not isValueType(T):
-    {.error: $T & " is not a value type: call `defineArg(" & $T & ")` before using it (with a converter from string)".}
-
-template defineValueArg*[T](typeName: typedesc[T]): untyped =
-  ## Generates the `ValueArg[T, false]`/`ValueArg[T, true]` methods for `T`.
-  ## The machinery behind `argumint.nim`'s one-argument `defineArg*`; see
-  ## there for the user-facing docs.
-  registerValueType(typeName)
-
-  method accept(self: ValueArg[T, false], c: Contribution, how: Arbitration) =
-    self.acceptImpl(c, how)
-
-  method accept(self: ValueArg[T, true], c: Contribution, how: Arbitration) =
-    self.acceptImpl(c, how)
-
-  method accumulates(self: ValueArg[T, true]): bool = true
-
-  method defaultStr(self: ValueArg[T, false]): string =
-    ## Returns `self`'s default value stringified, or "" if it's still `T`'s
-    ## zero value (e.g. "", 0, or false) -- the fallback used when no
-    ## default was given (see `arg*`). Requires `T` to support `default(T)`
-    ## and `==`, which nearly every type does; a `{.requiresInit.}` object
-    ## would be a rare exception that fails to compile here.
-    if self.default.len > 0 and self.default[0] != default(T):
-      display.showValue(self.default[0])
-    else:
-      ""
-
-  method defaultStr(self: ValueArg[T, true]): string =
-    ## Returns `self`'s default values comma-joined, or "" if there are none.
-    if self.default.len > 0:
-      self.default.mapIt(display.showValue(it)).join(", ")
-    else:
-      ""
-
-  method validatorHelp(self: ValueArg[T, false]): StyledText =
-    if not self.validator.isNil: result = self.validator.styledHelp
-
-  method validatorHelp(self: ValueArg[T, true]): StyledText =
-    if not self.validator.isNil: result = self.validator.styledHelp
-
-  method completions(self: ValueArg[T, false]): seq[string] =
-    if self.validator.isNil: @[] else: self.validator.completions()
-
-  method completions(self: ValueArg[T, true]): seq[string] =
-    if self.validator.isNil: @[] else: self.validator.completions()
-
-  method envSource(self: ValueArg[T, false]): Option[EnvSource] = self.env
-
-  method envSource(self: ValueArg[T, true]): Option[EnvSource] = self.env
-
-  method configKey(self: ValueArg[T, false]): ConfigKey = self.cfgKey
-
-  method configKey(self: ValueArg[T, true]): ConfigKey = self.cfgKey
-
-  method clear(self: ValueArg[T, true]) =
-    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
-    ## coded default's state -- it's substituted at read time, never stored
-    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
-    procCall clear(Arg(self))
-    self.value.setLen 0
-
-  method clear(self: ValueArg[T, false]) =
-    ## Empties `self`'s value and its `seenBy` provenance. Empty *is* the
-    ## coded default's state -- it's substituted at read time, never stored
-    ## (see `docs/adr/0008-validators-dont-run-against-defaults.md`).
-    procCall clear(Arg(self))
-    self.value.setLen 0
 
 proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## Sets the value of `self` directly, arbitrating against `seenBy` like
@@ -343,9 +426,8 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
     self.value = self.clamp.apply(self.value)
 
 template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
-  ## Generates the `FlagArg[T]` methods for `T` (and, via `defineValueArg`,
-  ## its `ValueArg` ones). The machinery behind `argumint.nim`'s
-  ## two-argument `defineArg*` and its `defineFlag*`; see there for the
+  ## Generates the `FlagArg[T]` methods for `T`. The machinery behind
+  ## `argumint.nim`'s `defineArg*` and `defineFlag*`; see there for the
   ## user-facing docs.
   ##
   ## `variantDesc`'s locals below are named `vOp`/`vArg`/`vDesc` rather than
@@ -410,8 +492,6 @@ template defineFlagArg*[T](typeName: typedesc[T], blankDesc: string, flagHandler
     procCall clear(Arg(self))
     self.value = self.default
 
-  defineValueArg typeName
-
 template defineSetFlagArg*[E: enum](elemType: typedesc[E]): untyped =
   ## Registers flag support for `set[E]`. The machinery behind
   ## `argumint.nim`'s `defineSetFlag*`; see there for the user-facing docs
@@ -468,16 +548,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOpGroup[T]] =
     let op = matches[1]
     checkFlagOp[T](op)
     try:
-      var arg: T
-      # Built-in types call our converters explicitly rather than relying
-      # on implicit conversion -- see docs/gotchas.md.
-      when T is string: arg = matches[2]
-      elif T is int: arg = toInt(matches[2])
-      elif T is float: arg = toFloat(matches[2])
-      elif T is bool: arg = toBool(matches[2])
-      elif T is char: arg = toChar(matches[2])
-      else: arg = matches[2]
-      result.add (variants: @[matches[0]], op: op, value: arg, help: "")
+      result.add (variants: @[matches[0]], op: op, value: fromString[T](matches[2]), help: "")
     except ValueError as e:
       raise newException(SpecDefect, fmt"unexpected flag value for {matches[0]}: {e.msg}")
 
@@ -487,18 +558,36 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOpGroup[T]] =
 # on the far side of the module boundary (see docs/gotchas.md).
 # ------------------------------------------------------------------------------
 
-proc initValueArg*[T: not seq; multi: static bool](kind: ArgKind, variants: string, default: seq[T],
+template requireValueType(T: typedesc) =
+  ## Stops compilation unless `fromString` can convert to `T`.
+  when not isValueType(T):
+    {.error: $T & " is not a value type: define `converter to" & $T & "(value: string): " &
+      $T & "` where its Arg is built".}
+
+template initAnyValueArg(A: typedesc, isMulti: bool): untyped =
+  ## The body `initValueArg`/`initValuesArg` share, reading their params.
+  A(kind: kind, variants: variants.split(Comma), default: default,
+    help: help, group: group.groupOr(kind), hidden: hidden, validator: validator,
+    env: env, cfgKey: cfgKey, multi: isMulti,
+    write: writeHook[A], reset: resetHook[A], describe: describeHook[A])
+
+proc initValueArg*[T: not seq](kind: ArgKind, variants: string, default: T,
     help: HelpText, group: string, hidden: bool, validator: Validator[T],
-    env = none(EnvSource), cfgKey = noConfigKey()): ValueArg[T, multi] =
-  ## Builds a `ValueArg[T, multi]`, splitting `variants` on commas. Behind
-  ## `arg*`/`args*` (`kind = Positional`, no `env`/`cfgKey`) and
-  ## `opt*`/`opts*` (`kind = Optional`). Call it with named arguments: the
-  ## object constructor this replaced named every field, and `help`/`group`
-  ## are adjacent same-typed parameters that a positional call could swap
-  ## silently.
+    env = none(EnvSource), cfgKey = noConfigKey()): ValueArg[T] =
+  ## Builds a `ValueArg[T]`, splitting `variants` on commas. Behind `arg*`
+  ## (`kind = Positional`, no `env`/`cfgKey`) and `opt*` (`kind =
+  ## Optional`). Call it with named arguments: `help`/`group` are adjacent
+  ## same-typed parameters that a positional call could swap silently.
   requireValueType(T)
-  ValueArg[T, multi](kind: kind, variants: variants.split(Comma), default: default,
-    help: help, group: group.groupOr(kind), hidden: hidden, validator: validator, env: env, cfgKey: cfgKey)
+  initAnyValueArg(ValueArg[T], false)
+
+proc initValuesArg*[T: not seq](kind: ArgKind, variants: string, default: seq[T],
+    help: HelpText, group: string, hidden: bool, validator: Validator[T],
+    env = none(EnvSource), cfgKey = noConfigKey()): ValuesArg[T] =
+  ## Builds a `ValuesArg[T]`, behind `args*` and `opts*`. See
+  ## `initValueArg`.
+  requireValueType(T)
+  initAnyValueArg(ValuesArg[T], true)
 
 proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: T,
     help: HelpText, group: string, hidden: bool, clamp: FlagClamp[T],
@@ -547,9 +636,9 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOpGroup[T]], default: 
         result.aliases[v] = opGroup.variants.filterIt(it != v)
 
 # ------------------------------------------------------------------------------
-# Here is where we define the datatypes supported out of the box. These call
-# `defineValueArg`/`defineFlagArg` directly rather than `argumint.nim`'s public
-# templates, which sit on the far side of the import edge.
+# Here is where we define the flag types supported out of the box. These call
+# `defineFlagArg` directly rather than `argumint.nim`'s public templates, which
+# sit on the far side of the import edge.
 #
 # Registering here rather than in the facade is also what guarantees `flag*`'s
 # bare-bool overload sees a populated `flagOps`: import order, not the textual
@@ -593,9 +682,9 @@ defineFlagArg char, "":
   else: raise newException(SpecDefect, "char flags only support = operations")
 
 when isMainModule:
-  ## Direct regression tests for the `defineValueArg`/`defineFlagArg`/
-  ## `defineSetFlagArg` macro machinery above, one per hygiene workaround
-  ## documented in `docs/gotchas.md` -- each instantiates `ValueArg`/`FlagArg`
+  ## Direct regression tests for the `defineFlagArg`/`defineSetFlagArg`
+  ## macro machinery and `ValueArgBase`'s hooks above, one per hygiene
+  ## workaround documented in `docs/gotchas.md` -- each instantiates `ValueArg`/`FlagArg`
   ## directly and drives the generated methods by hand, bypassing `Spec`/
   ## `parse*` entirely, so a regression here fails right at the template
   ## instead of three layers downstream at some other test's `spec.parse()`
@@ -615,8 +704,8 @@ when isMainModule:
     gPoor, gFair, gGood
 
   # Regression test for the template-hygiene gotcha in docs/gotchas.md --
-  # exercises defineFlagArg/defineValueArg together; a corruption would fail
-  # to compile, not fail an assertion.
+  # exercises defineFlagArg; a corruption would fail to compile, not fail an
+  # assertion.
   defineFlagArg(Rank, "Bump to the next rank"):
     case op
     of "": value = Rank((ord(value) + 1) mod 3)
@@ -647,16 +736,14 @@ when isMainModule:
       check registeredInt
       check "+=" in getFlagOps("int")
 
-    test "the `valueTypes` registry, `isValueType` and `requireValueType` exist but are private to this module":
-      # Same reasoning: `initValueArg` is their only reader.
-      const registered = valueTypes.len > 0
-      check registered
-      check isValueType(int)
-      check not isValueType(int8)
-      check compiles(requireValueType(int))
-      check not compiles(requireValueType(int8))
+    test "`fromString` exists but is private to this module":
+      # Same reasoning: `acceptImpl` and `parseFlagOpsString` are its only
+      # callers.
+      check fromString[int](" 5 ") == 5
+      check fromString[Rank]("rMid") == rMid
+      check fromString[Grade]("gFair") == gFair
 
-    test "the string-to-scalar converters exist but are private to this module":
+    test "the string-to-scalar conversions exist but are private to this module":
       # `tests/test_public_api.nim` asserts a bare `import argumint` leaves
       # `let n: int = "5"` failing to compile. Their mirror lives here for
       # the same reason `FlagOp`'s does: they're private to this module, so
@@ -668,11 +755,16 @@ when isMainModule:
       expect ValueError:
         discard toChar("cc")
 
-  suite "defineValueArg/defineFlagArg macro machinery":
-    test "a ValueArg's generated parse/defaultStr work when constructed directly, bypassing arg()":
-      let a = ValueArg[Rank, false](kind: Positional, variants: @["<rank>"])
+  proc rankArgs(): ValuesArg[Rank] =
+    initValuesArg[Rank](kind = Positional, variants = "<rank>", default = @[],
+      help = "", group = "", hidden = false, validator = noValidator[Rank]())
+
+  suite "ValueArgBase hooks and defineFlagArg machinery":
+    test "a ValueArg's parse/defaultStr work when built directly, bypassing arg()":
+      let a = initValueArg[Rank](kind = Positional, variants = "<rank>", default = rLow,
+        help = "", group = "", hidden = false, validator = noValidator[Rank]())
       a.parse("rHigh")
-      check a.value[0] == rHigh
+      check a.value == some(rHigh)
       check a.defaultStr() == ""
 
     test "a FlagArg's generated parse()/variantDesc() are correct -- % (not fmt) inside a defineFlagArg-generated method, and defineFlagArg's blankDesc wiring":
@@ -741,8 +833,8 @@ when isMainModule:
       check rankFlag.value == {rHigh} # unaffected by gradeFlag's own +=
 
     test "repeated parse() calls on a multi-value ValueArg don't corrupt earlier elements (ORC regression)":
-      let a = ValueArg[Rank, true](kind: Positional, variants: @["<rank>"])
+      let a = rankArgs()
       a.parse("rLow")
       a.parse("rMid")
       a.parse("rHigh")
-      check a.value == @[rLow, rMid, rHigh]
+      check a.value == some(@[rLow, rMid, rHigh])

@@ -4,9 +4,10 @@
 ## `configKey*`, ...) a custom `Arg` subtype must override to plug into
 ## parsing, env fallback, and Config Source lookup -- see
 ## `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`. `ValueArg`/
-## `FlagArg` (`argumint.nim`) are the built-in implementations of that
-## interface. The graph-construction/simplification operations that build
-## and mutate `State`/`Matcher` values live in `argumint/fsmgraph`, not here.
+## `ValuesArg`/`FlagArg` (`argumint/argtypes`) are the built-in
+## implementations of that interface. The graph-construction/simplification
+## operations that build and mutate `State`/`Matcher` values live in
+## `argumint/fsmgraph`, not here.
 ##
 ## Alongside the model sit the pieces that belong beside it rather than in
 ## spec construction (`argumint/specbuild`): the constructors for the types
@@ -552,8 +553,8 @@ method defaultStr*(self: Arg): string {.base.} =
   ## Returns `self`'s default value formatted for display in help text (e.g.
   ## via `[default: <value>]`), or an empty string if there's nothing worth
   ## showing. The base case (commands, flags, and message args) has no
-  ## notion of a displayable default; `ValueArg` overrides this per-type via
-  ## `defineArg`.
+  ## notion of a displayable default; `ValueArg`/`ValuesArg` override it
+  ## through their untyped base (`argumint/argtypes`).
   ""
 
 method accumulates*(self: Arg): bool {.base.} = false
@@ -568,8 +569,8 @@ method completions*(self: Arg): seq[string] {.base.} = @[]
   ## Returns every value `self` would accept as a *value* (not a variant
   ## spelling), for shell-completion purposes -- or `@[]` if unenumerable or
   ## not applicable. The base case (commands, flags, message args -- none of
-  ## which carry a `Validator`) has nothing to show; `ValueArg` overrides
-  ## this per-type via `defineArg` (`argumint.nim`).
+  ## which carry a `Validator`) has nothing to show; `ValueArg`/`ValuesArg`
+  ## override it through their untyped base (`argumint/argtypes`).
 
 method validatorHelp*(self: Arg): StyledText {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.
@@ -577,7 +578,8 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## or there's nothing meaningful to show. A `desc` gets Help Markup, ticks
   ## and all: help drops them for styled output. The base case (commands and
   ## message args, neither of which has a validator) has nothing to show;
-  ## `ValueArg` and `FlagArg` override this per-type via `defineArg`.
+  ## `ValueArg`/`ValuesArg` override it through their untyped base, and
+  ## `FlagArg` per type via `defineFlagArg` (`argumint/argtypes`).
   discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
@@ -595,7 +597,8 @@ method envSource*(self: Arg): Option[EnvSource] {.base.} =
   ## environment variable's name plus any per-Arg delimiter override -- or
   ## `none` if this arg has no environment-variable tier. Base case
   ## (positional args, commands, message args) has none; `ValueArg`/
-  ## `FlagArg` override this per-type via `defineArg`/`defineFlagArg`.
+  ## `ValuesArg` override it through their untyped base, and `FlagArg` per
+  ## type via `defineFlagArg`.
   ##
   ## One method rather than a name/delimiter pair, so the two can't
   ## disagree: a delimiter override with no variable to apply it to is a
@@ -620,8 +623,9 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## Value Precedence's Config Source tier, or `noConfigKey()` if none
   ## configured.
   ## Base case (positional args, commands, message args) has no notion of
-  ## one; `ValueArg`/`FlagArg` override this per-type via
-  ## `defineArg`/`defineFlagArg`. See `docs/adr/0018-config-source.md`.
+  ## one; `ValueArg`/`ValuesArg` override it through their untyped base,
+  ## and `FlagArg` per type via `defineFlagArg`. See
+  ## `docs/adr/0018-config-source.md`.
   noConfigKey()
 
 proc subjectParts*(arg: Arg, c: Contribution): tuple[name, source: string] =
