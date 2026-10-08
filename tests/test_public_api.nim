@@ -266,11 +266,15 @@ suite "`Spec` is an opaque handle":
     # Formatter-author names, like `genHelp`; mirrored by `tests/test_help.nim`.
     check not declared(Row)
     check not declared(Span)
-    check not declared(StyledText)
     check not declared(usageLines)
     check not declared(proseLines)
     check not declared(wrapProse)
     check not declared(Prose)
+
+  test "a custom Arg can build `StyledText` for `validatorHelp`":
+    # See ADR 0051's note (#209); `Span` stays out, above.
+    check nameable(StyledText)
+    check compiles(styled("a") & styled(srLiteral, "b"))
 
   test "`HelpContext` is nameable, but only `argumint/help` can use one":
     # Like `HelpFormatter`, whose signature names it: a formatter can be

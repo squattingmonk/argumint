@@ -125,9 +125,11 @@ export backend.HelpText, backend.toHelpText
 export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
   help.formatParagraph
 
-# Styling configuration; Styled Text itself needs `argumint/help` (ADR 0051).
+# Styling configuration, and enough Styled Text for a custom Arg's
+# `validatorHelp`; the span model needs `argumint/help` (ADR 0051).
 export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
   style.defaultTheme, style.ansiStyler, style.autoStyler
+export style.StyledText, style.styled, style.`&`
 export terminal.ForegroundColor, terminal.Style
 
 # ------------------------------------------------------------------------------

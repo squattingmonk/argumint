@@ -259,7 +259,7 @@ method clear(self: VarsArg) =
   self.vars.clear
 
 let spec = (
-  defines: vars("-D, --define=<var>", help = "Set a variable (name=value)"),
+  defines: vars("-D, --define=<var>", help = "Set a variable"),
   help: help(),
 )
 
@@ -308,3 +308,25 @@ Override any of these to do more:
   `toEnvSource("NAME")` or `configKey("server", "port")`.
 - `defaultStr` is shown in help as `[default: ...]`.
 - `completions` lists values for [shell completion](completion.md).
+- `validatorHelp` describes the values it takes. Help shows it in brackets
+  after the help text, the way it shows a validator's.
+
+`validatorHelp` returns styled text. Build it with `styled`, giving a
+[style role](help.md#colour) to any part that should stand out, and join the
+parts with `&`:
+
+```nim
+method validatorHelp(self: VarsArg): StyledText =
+  styled("as ") & styled(srMetavar, "name=value")
+```
+
+```console
+$ ./build --help
+Usage:
+  build [options]
+  build (-h | --help)
+
+Options:
+  -D, --define=<var>  Set a variable [as name=value]
+  -h, --help          Display this help message
+```
