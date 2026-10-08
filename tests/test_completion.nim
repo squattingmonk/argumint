@@ -3,7 +3,7 @@
 # `docs/adr/0012-fsm-driven-shell-completion.md` and
 # `docs/adr/0022-completion-candidate-help-text.md`.
 
-import std/[os, sequtils, strutils, unittest]
+import std/[os, osproc, sequtils, strutils, unittest]
 
 import argumint
 
@@ -428,3 +428,48 @@ suite "genCompletionScript":
 
   test "zsh renders help text via compadd -d":
     check "compadd -d" in built.completionScript(zsh, "mycli")
+
+proc bashComplete(script: string, words: seq[string], cword: int): tuple[forwarded, reply: seq[string]] =
+  ## Runs `script`'s bash function on `words` (`COMP_WORDS`, binary name
+  ## first) with the cursor on `words[cword]`. A stub `mycli` records what
+  ## the script forwards to `__complete` and offers `debug` and `info`.
+  let path = getTempDir() / "argumint_test_complete.bash"
+  writeFile(path, script & [
+    """mycli() { shift; printf 'FWD:%s\n' "$@" >&2; printf 'debug\t\ninfo\t\n'; }""",
+    "COMP_WORDS=(" & words.mapIt(quoteShell(it)).join(" ") & ")",
+    "COMP_CWORD=" & $cword,
+    "_mycli_complete",
+    """printf 'REPLY:%s\n' "${COMPREPLY[@]}"""",
+  ].join("\n") & "\n")
+  defer: removeFile(path)
+  let (output, code) = execCmdEx("bash " & quoteShell(path) & " 2>&1")
+  doAssert code == 0, output
+  for line in output.splitLines:
+    if line.startsWith("FWD:"): result.forwarded.add line[4 .. ^1]
+    elif line.startsWith("REPLY:") and line.len > 6: result.reply.add line[6 .. ^1]
+
+suite "bash script forwards what the user typed (#198)":
+  let script = newSpec((
+    logLevel: opt("--log-level=<level>", validator = choice(["debug", "info"])),
+  ), usage = "[options]").completionScript(bash, "mycli")
+
+  # bash's COMP_WORDBREAKS splits `--log-level=de` into `--log-level`, `=`,
+  # `de`.
+  for (words, cword, forwarded, reply) in [
+    (@["mycli", "--log-level", "="], 2, @["--log-level", ""], @["debug", "info"]),
+    (@["mycli", "--log-level", "=", "de"], 3, @["--log-level", "de"], @["debug"]),
+    (@["mycli", "--log-level", ":"], 2, @["--log-level", ""], @["debug", "info"]),
+    (@["mycli", "--log-level", ":", "de"], 3, @["--log-level", "de"], @["debug"]),
+    (@["mycli", "--log-level", ""], 2, @["--log-level", ""], @["debug", "info"]),
+    (@["mycli", "--log-level", "=", "info", ""], 4, @["--log-level", "info", ""], @["debug", "info"]),
+    (@["mycli", "d", "cat"], 1, @["d"], @["debug"]),
+    (@["mycli", "a", "=", ""], 3, @["a", "=", ""], @["debug", "info"]),
+    (@["mycli", "a", "="], 2, @["a", "="], newSeq[string]()),
+  ]:
+    test "completing " & $words & " at " & $cword & " forwards " & $forwarded:
+      # On Windows, `bash` may be WSL's, which can't read a Windows path.
+      if defined(windows) or findExe("bash").len == 0: skip()
+      else:
+        let got = bashComplete(script, words, cword)
+        check got.forwarded == forwarded
+        check got.reply == reply
