@@ -57,22 +57,77 @@ type
     ## A `TextStyle` per role. Start from a copy of `defaultTheme`: a bare
     ## `var` of this type isn't initialized with `fgDefault`.
 
+# Overridable at compile time, one define per role -- see
+# `docs/adr/0053-compile-time-defaults.md`. Each default is the stock look.
+const
+  ThemePlain {.strdefine: "argumint.theme.plain".} = ""
+  ThemeHeader {.strdefine: "argumint.theme.header".} = "bright"
+  ThemeProgram {.strdefine: "argumint.theme.program".} = "bright"
+  ThemeCommand {.strdefine: "argumint.theme.command".} = "cyan+bright"
+  ThemeOption {.strdefine: "argumint.theme.option".} = "cyan+bright"
+  ThemePositional {.strdefine: "argumint.theme.positional".} = "cyan"
+  ThemeMetavar {.strdefine: "argumint.theme.metavar".} = "cyan"
+  ThemeEnv {.strdefine: "argumint.theme.env".} = "yellow"
+  ThemeLiteral {.strdefine: "argumint.theme.literal".} = "green"
+  ThemeUrl {.strdefine: "argumint.theme.url".} = "blue+underscore"
+  ThemeAnnotation {.strdefine: "argumint.theme.annotation".} = "dim"
+  ThemeError {.strdefine: "argumint.theme.error".} = "red+bright"
+  ThemeInvalid {.strdefine: "argumint.theme.invalid".} = "yellow+bright"
+
+func tryParseEnum[T: enum](s: string, value: var T): bool =
+  ## `parseEnum` without raising, so a caller can raise outside the `try`
+  ## -- see docs/gotchas.md.
+  try:
+    value = parseEnum[T](s)
+    true
+  except ValueError:
+    false
+
+func themeStyle(role: StyleRole, value: string): TextStyle =
+  ## Parses an `argumint.theme.*` define's value: a colour and attributes
+  ## joined with `+`, named without their `fg`/`style` prefix. Empty is plain.
+  result = TextStyle() # `result` skips field defaults -- see docs/gotchas.md.
+  if value.len == 0:
+    return
+  let define = "-d:argumint.theme." & ($role)[2..^1].toLowerAscii
+  var hasColour = false
+  for word in value.split('+'):
+    let word = word.strip
+    var colour: ForegroundColor
+    var attr: Style
+    if word.len == 0:
+      raise newException(ValueError,
+        define & ": empty word in '" & value & "'")
+    elif tryParseEnum("fg" & word, colour):
+      if hasColour:
+        raise newException(ValueError,
+          define & ": more than one colour in '" & value & "'")
+      result.fg = colour
+      hasColour = true
+    elif tryParseEnum("style" & word, attr):
+      result.attrs.incl attr
+    else:
+      raise newException(ValueError,
+        define & ": unknown colour or style '" & word & "'")
+
 const defaultTheme*: Theme = [
-  srPlain: TextStyle(),
-  srHeader: TextStyle(attrs: {styleBright}),
-  srProgram: TextStyle(attrs: {styleBright}),
-  srCommand: TextStyle(fg: fgCyan, attrs: {styleBright}),
-  srOption: TextStyle(fg: fgCyan, attrs: {styleBright}),
-  srPositional: TextStyle(fg: fgCyan),
-  srMetavar: TextStyle(fg: fgCyan),
-  srEnv: TextStyle(fg: fgYellow),
-  srLiteral: TextStyle(fg: fgGreen),
-  srUrl: TextStyle(fg: fgBlue, attrs: {styleUnderscore}),
-  srAnnotation: TextStyle(attrs: {styleDim}),
+  srPlain: themeStyle(srPlain, ThemePlain),
+  srHeader: themeStyle(srHeader, ThemeHeader),
+  srProgram: themeStyle(srProgram, ThemeProgram),
+  srCommand: themeStyle(srCommand, ThemeCommand),
+  srOption: themeStyle(srOption, ThemeOption),
+  srPositional: themeStyle(srPositional, ThemePositional),
+  srMetavar: themeStyle(srMetavar, ThemeMetavar),
+  srEnv: themeStyle(srEnv, ThemeEnv),
+  srLiteral: themeStyle(srLiteral, ThemeLiteral),
+  srUrl: themeStyle(srUrl, ThemeUrl),
+  srAnnotation: themeStyle(srAnnotation, ThemeAnnotation),
   srTick: TextStyle(),
-  srError: TextStyle(fg: fgRed, attrs: {styleBright}),
-  srInvalid: TextStyle(fg: fgYellow, attrs: {styleBright})]
-  ## The built-in look `autoStyler` uses.
+  srError: themeStyle(srError, ThemeError),
+  srInvalid: themeStyle(srInvalid, ThemeInvalid)]
+  ## The built-in look `autoStyler` uses. Each role but `srTick` (dropped
+  ## when styled) can be changed at build time with
+  ## `-d:argumint.theme.<role>=<style>`, e.g. `option=magenta+bright`.
 
 proc add*(t: var StyledText, span: Span) =
   ## Appends `span`, merging it into the last span if they share a role.
@@ -489,7 +544,13 @@ when isMainModule:
       check lines.render() == "-x\nok"
 
   suite "ansiStyler":
-    let styler = ansiStyler(defaultTheme)
+    # Not `defaultTheme`, which `-d:argumint.theme.*` can change.
+    let styler = block:
+      var theme = defaultTheme
+      theme[srPlain] = TextStyle()
+      theme[srPositional] = TextStyle(fg: fgCyan)
+      theme[srAnnotation] = TextStyle(attrs: {styleDim})
+      ansiStyler(theme)
 
     test "a role with no style is left plain":
       check styler(srPlain, "x") == "x"
@@ -505,6 +566,76 @@ when isMainModule:
       theme[srPlain] = TextStyle(fg: fgRed)
       check ansiStyler(theme)(srPlain, "x") ==
         ansiForegroundColorCode(fgRed) & "x" & ansiResetCode
+
+  suite "theme defines":
+    test "a colour and attributes are joined with +":
+      check themeStyle(srOption, "magenta+bright+underscore") ==
+        TextStyle(fg: fgMagenta, attrs: {styleBright, styleUnderscore})
+
+    test "attributes alone keep the terminal's colour":
+      check themeStyle(srAnnotation, "dim") == TextStyle(attrs: {styleDim})
+
+    test "default is a colour":
+      check themeStyle(srOption, "default+bright") ==
+        TextStyle(fg: fgDefault, attrs: {styleBright})
+
+    test "an empty value is plain":
+      check themeStyle(srEnv, "") == TextStyle()
+
+    test "case and spaces around words don't matter":
+      check themeStyle(srOption, "Magenta + BRIGHT") ==
+        TextStyle(fg: fgMagenta, attrs: {styleBright})
+
+    test "a bad value names the define and the word":
+      proc failure(value: string): string =
+        try:
+          discard themeStyle(srOption, value)
+        except ValueError as e:
+          return e.msg
+      check failure("bold") ==
+        "-d:argumint.theme.option: unknown colour or style 'bold'"
+      check failure("true") ==
+        "-d:argumint.theme.option: unknown colour or style 'true'"
+      check failure("red+blue") ==
+        "-d:argumint.theme.option: more than one colour in 'red+blue'"
+      check failure("cyan++bright") ==
+        "-d:argumint.theme.option: empty word in 'cyan++bright'"
+      check failure("+") == "-d:argumint.theme.option: empty word in '+'"
+
+    test "the stock look, unless a define overrides it":
+      # See `tests/test_compile_defines.nim` for them set.
+      when not defined(argumint.theme.plain):
+        check defaultTheme[srPlain] == TextStyle()
+      when not defined(argumint.theme.header):
+        check defaultTheme[srHeader] == TextStyle(attrs: {styleBright})
+      when not defined(argumint.theme.program):
+        check defaultTheme[srProgram] == TextStyle(attrs: {styleBright})
+      when not defined(argumint.theme.command):
+        check defaultTheme[srCommand] ==
+          TextStyle(fg: fgCyan, attrs: {styleBright})
+      when not defined(argumint.theme.option):
+        check defaultTheme[srOption] ==
+          TextStyle(fg: fgCyan, attrs: {styleBright})
+      when not defined(argumint.theme.positional):
+        check defaultTheme[srPositional] == TextStyle(fg: fgCyan)
+      when not defined(argumint.theme.metavar):
+        check defaultTheme[srMetavar] == TextStyle(fg: fgCyan)
+      when not defined(argumint.theme.env):
+        check defaultTheme[srEnv] == TextStyle(fg: fgYellow)
+      when not defined(argumint.theme.literal):
+        check defaultTheme[srLiteral] == TextStyle(fg: fgGreen)
+      when not defined(argumint.theme.url):
+        check defaultTheme[srUrl] ==
+          TextStyle(fg: fgBlue, attrs: {styleUnderscore})
+      when not defined(argumint.theme.annotation):
+        check defaultTheme[srAnnotation] == TextStyle(attrs: {styleDim})
+      check defaultTheme[srTick] == TextStyle()
+      when not defined(argumint.theme.error):
+        check defaultTheme[srError] ==
+          TextStyle(fg: fgRed, attrs: {styleBright})
+      when not defined(argumint.theme.invalid):
+        check defaultTheme[srInvalid] ==
+          TextStyle(fg: fgYellow, attrs: {styleBright})
 
   suite "markup":
     proc roles(t: StyledText): seq[(StyleRole, string)] =

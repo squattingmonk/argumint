@@ -29,7 +29,8 @@ On top of the seam sits a data layer for the common case: `TextStyle`
 (a `std/terminal` `ForegroundColor` plus a `set[Style]`; no background),
 `Theme = array[StyleRole, TextStyle]`, `defaultTheme`, and
 `ansiStyler(theme)`. True colour, backgrounds, and hyperlinks are reachable
-only by writing a `Styler`.
+only by writing a `Styler`. (**Update:** ADR 0053's addendum lets a build
+change `defaultTheme` with `-d:argumint.theme.<role>` defines.)
 
 Styling rides on the span model of #91 (ADR 0048's consequences): every
 measurement happens on plain span text before `render` applies the styler,

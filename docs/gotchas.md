@@ -692,3 +692,15 @@ or anything else that generates methods inside a template.
   `arg.envSource` resolved to it and failed with `undeclared field:
   'envSource'`. The env tier's module is `envvar.nim` for this reason.
   Check a new module's name against the methods it will sit beside.
+
+- **Raising inside a `try` that catches the same type crashes the compiler
+  at compile time.** In code run while evaluating a `const`, a `raise
+  newException(ValueError, ...)` in the body of a `try`/`except ValueError`
+  stops the compiler with `FieldDefect: field 'strVal' is not accessible`
+  instead of reporting the message (2.2). `style.themeStyle` therefore
+  asks `tryParseEnum` whether a word parsed and raises outside the `try`.
+
+- **`result` skips an object's field defaults.** In a `func` returning
+  `TextStyle`, `result` starts zeroed, so `fg` holds ordinal 0 -- not its
+  declared `fgDefault`, and not a valid `ForegroundColor` at all (`fgBlack`
+  is 30). Assign `result = TextStyle()` before setting fields.

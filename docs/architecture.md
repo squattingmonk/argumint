@@ -1049,7 +1049,7 @@ getter's first read by `resolvedWidth` (`console.nim`) and kept (ADR
 0058): `detectWidth()` (`COLUMNS`, else the terminal's width, else
 `DefaultWidth = 80`), capped at `DefaultMaxWidth = 100` (ADR 0052). All
 the `newSpecSettings` defaults can be set with `-d:argumint.*` defines (ADR
-0053).
+0053), `theme` with one per Style Role building `defaultTheme`.
 `Spec.settings.maxVariantsWidth` (default `DefaultMaxVariantsWidth = 30`)
 caps Column Style's "variants" column (e.g. `-v, --verbose, --quiet`) so
 one arg with many aliases can't inflate the shared column width for every
