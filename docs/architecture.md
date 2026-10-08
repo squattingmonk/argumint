@@ -723,6 +723,17 @@ generic procs (`acceptOp`, `clearOp`, ...) instantiated for its `T` and
 arity, each downcasting the `Arg` back to its `ValueArg[T, multi]`. A
 custom `Arg` subtype has no table, so its own overrides apply as before.
 
+So `Arg` has two ways to dispatch, and which one a new kind of Arg uses
+depends on whether it's generic. A concrete type (a custom `Arg` in user
+code, or a non-generic one added to the library) overrides the base methods
+as usual. A type generic over its value, like `ValueArg[T, multi]`, can't,
+and goes through a table filled by its constructor. `FlagArg[T]` is the
+exception: its methods are generated per type by `defineFlagArg`, because
+flags are registered anyway. Adding a base method a `ValueArg` answers
+takes a `ValueOps` field, an `*Op` proc, the `isNil` check in the base
+method, and filling it in `initValueArg`; `tests/test_argumint.nim` fails
+if the last is forgotten, which would otherwise crash at the first call.
+
 `acceptImpl` converts the raw string with `fromString[T]`, then hands the
 `T` to `storeImpl`, which runs the arg's `Validator[T]` (`validators.nim`)
 if present — validation always happens against the scalar element type,

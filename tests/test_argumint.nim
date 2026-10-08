@@ -1758,6 +1758,19 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     arg.setValueOps ValueOps(accumulates: true)
     check arg.accumulates
 
+  test "`initValueArg` fills every proc in the `ValueOps` it gives a `ValueArg`":
+    # A proc left out compiles, then crashes the first time a base method
+    # calls it (ADR 0068).
+    privateAccess(Arg)
+    for arity in [false, true]:
+      let arg =
+        if arity: Arg(opts[int]("--num=<n>"))
+        else: Arg(opt("--num=<n>", default = 1))
+      for name, field in arg.valueOps[].fieldPairs:
+        when field isnot bool: # every field but `accumulates`
+          checkpoint name & ", multi = " & $arity
+          check not field.isNil
+
   test "the read accessors behind `get` exist in `argumint/argtypes`":
     let
       name = opt("-n, --name=<s>", default = "x", help = "")
