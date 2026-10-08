@@ -222,6 +222,64 @@ suite "Hidden args aren't offered (#199)":
     spec.parse(args = @["old", "-x"], command = "prog")
     check spec.old.seen
 
+suite "Options after a positional (#197)":
+  let deploySpec = (
+    env: arg("<env>", validator = choice(["staging", "production"]), help = "Where to deploy"),
+    force: flag("-f, --force", help = "Deploy even if checks fail"),
+    help: help(),
+  )
+  let site = newSpec((
+    logLevel: opt("--log-level=<level>", validator = choice(["debug", "info"]), help = "How much to log"),
+    deploy: command("deploy", deploySpec, help = "Deploy the site"),
+    help: help(),
+  ))
+
+  for (words, expected) in [
+    (@["deploy", ""], @["-h", "--help", "-f", "--force", "staging", "production"]),
+    (@["deploy", "staging", ""], @["-f", "--force"]),
+    (@["deploy", "staging", "-"], @["-f", "--force"]),
+    (@["deploy", "staging", "-f", ""], @["-f", "--force"]),
+    (@["--log-level", "debug", "deploy", "staging", ""], @["-f", "--force"]),
+    (@["deploy", "staging", "--log-level", ""], newSeq[string]()),
+  ]:
+    test "completing " & $words & " offers " & $expected:
+      check site.completeArgs(words, "site").values == expected
+
+  let file = newSpec((
+    brief: flag("-b"),
+    n: opt("-n=<n>", validator = choice(["1", "2"])),
+    file: arg("<file>"),
+  ), usage = "[options] <file>")
+
+  for (words, expected) in [
+    (@["in.txt", ""], @["-b", "-n"]),
+    (@["in.txt", "-n", ""], @["1", "2"]),
+    (@["in.txt", "-b", ""], @["-b", "-n"]),
+  ]:
+    test "under [options] <file>, completing " & $words & " offers " & $expected:
+      check file.completeArgs(words, "prog").values == expected
+
+  let xvy = (
+    v: flag("-v"),
+    x: arg("<x>"),
+    y: arg("<y>"),
+  )
+
+  for (usage, words, expected) in [
+    ("<x> [-v] <y>", @["a", "b", ""], @["-v"]),
+    ("<x> [-v] <y>", @["a", "-v", "b", ""], newSeq[string]()),
+    ("[-v] <x> <y>", @["a", ""], @["-v"]),
+  ]:
+    test "under " & usage & ", completing " & $words & " offers " & $expected:
+      check newSpec(xvy, usage = usage).completeArgs(words, "prog").values == expected
+
+  test "a hidden option isn't offered after a positional":
+    let spec = (
+      secret: flag("--secret", hidden = true),
+      file: arg("<file>"),
+    )
+    check newSpec(spec, usage = "[options] <file>").completeArgs(@["in.txt", ""], "prog").values == newSeq[string]()
+
 suite "Completion candidates carry help text":
   test "an option's completion candidate carries its help text":
     let spec = (

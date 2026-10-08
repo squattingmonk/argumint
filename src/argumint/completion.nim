@@ -167,6 +167,31 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
       else:
         collectFrontier(tr.next, fresh, acc, seen)
 
+proc frontierAfter(spec: Spec, words: seq[string], command: string): Frontier =
+  ## Every live branch once `words` are consumed -- see `collectFrontier`.
+  var seen: HashSet[State]
+  let pc = ParseContext(cursor: initCursor(spec, words), command: command,
+    tiers: initTiers(spec.settings))
+  collectFrontier(spec.fsm, pc, result, seen)
+
+iterator levelOptions(frontier: Frontier): (string, Arg) =
+  ## Each bare option spelling, and its Arg, of every spec level `frontier`
+  ## reached.
+  var levels: seq[Spec]
+  for (_, pc) in frontier:
+    if pc.cursor.spec notin levels:
+      levels.add pc.cursor.spec
+  for level in levels:
+    for variant, arg in level.options:
+      yield (variant, arg)
+
+proc accepts(spec: Spec, words: seq[string], command, variant: string, arg: Arg): bool =
+  ## Whether parsing would accept `variant` after `words` -- see
+  ## architecture.md §6, "Options after a positional".
+  # Any value will do: the walk never converts or validates one.
+  let probe = if arg.kind == Optional: variant & "=x" else: variant
+  spec.frontierAfter(words & probe, command).len > 0
+
 proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
   ## Returns shell-completion candidates for `words` -- everything typed
   ## after the `__complete` marker (see `parse*`). The last element of
@@ -184,12 +209,14 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
   # short-circuit to that Arg's completions() (see architecture.md §6).
   if priorWords.len > 0:
     let committed = priorWords[0 ..< priorWords.high]
-    var frontier: Frontier
-    var seen: HashSet[State]
-    var pc = ParseContext(cursor: initCursor(spec, committed), command: command,
-      tiers: initTiers(spec.settings))
-    collectFrontier(spec.fsm, pc, frontier, seen)
-    let pending = frontier.pendingOptionalArgs(priorWords[^1])
+    let name = priorWords[^1]
+    let frontier = spec.frontierAfter(committed, command)
+    var pending = frontier.pendingOptionalArgs(name)
+    if pending.len == 0:
+      for (variant, arg) in frontier.levelOptions:
+        if variant == name and arg.kind == Optional and
+            spec.accepts(committed, command, variant, arg):
+          pending.add arg
     if pending.len > 0:
       var seenValues: HashSet[string]
       for arg in pending:
@@ -198,13 +225,18 @@ proc completeArgs*(spec: Spec, words: seq[string], command: string): seq[Complet
         result.addUnseen(seenValues, candidates, wordBeingCompleted)
       return result
 
-  # Case (a): ordinary "what word can come next" completion.
-  var frontier: Frontier
-  var seen: HashSet[State]
-  var pc = ParseContext(cursor: initCursor(spec, priorWords), command: command,
-    tiers: initTiers(spec.settings))
-  collectFrontier(spec.fsm, pc, frontier, seen)
+  # Case (a): ordinary "what word can come next" completion, plus any
+  # option accepted after a positional (see `accepts`).
+  let frontier = spec.frontierAfter(priorWords, command)
   result = frontier.candidateWords(wordBeingCompleted)
+  var seen: HashSet[string]
+  for c in result:
+    seen.incl c.value
+  for (variant, arg) in frontier.levelOptions:
+    # The prefix and `seen` checks only spare `accepts` a walk.
+    if not arg.hidden and variant.startsWith(wordBeingCompleted) and
+        variant notin seen and spec.accepts(priorWords, command, variant, arg):
+      result.addUnseen(seen, describeVariants(arg, @[variant]), wordBeingCompleted)
 
 proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
