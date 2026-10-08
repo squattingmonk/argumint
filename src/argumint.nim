@@ -169,13 +169,15 @@ template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: u
 template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
   ## Registers flag support for `set[E]`. Call once per concrete enum `E`
   ## before declaring `flag[set[E]](...)`, the same way a custom scalar flag
-  ## type opts in via `defineArg`/`defineFlag`. Each variant's value names a
-  ## single element of `E`:
-  ## - `=` sets the value to a set containing only the given element.
-  ## - `+=` includes the given element in the set (union).
-  ## - `-=` excludes the given element from the set (difference).
-  ## - `*=` keeps the given element only if it's already present, dropping
-  ##   everything else (intersection).
+  ## type opts in via `defineArg`/`defineFlag`. Each variant's value is a
+  ## `set[E]`:
+  ## - `=` sets the value to the given set.
+  ## - `+=` adds the given set (union).
+  ## - `-=` removes the given set (difference).
+  ## - `*=` keeps only what's also in the given set (intersection).
+  ##
+  ## The string form of `ops` (`"--cheese+=cheese"`) takes a single element
+  ## name, which is converted to a one-element set.
   defineSetFlagArg elemType
 
 # ------------------------------------------------------------------------------
