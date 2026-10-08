@@ -88,3 +88,19 @@ applies whatever Operation that Variant declares (for a bare, blank-op
 arbitrary value). There is no compatibility shim for this -- it's a
 deliberate, one-time behavior change to Flag's env semantics, not an
 additive feature.
+
+## Addendum: a single-value Arg takes one value
+
+The slot count above let a single-value Option take several values
+whenever the grammar had room: an optional slot or the Options Catch-all
+that the walk could skip, or the same Option named twice. An optional
+`[--url=<url>]` with `URL=http://x:80` silently kept `80`, the truncation
+this ADR meant to rule out (#189).
+
+Now an Arg that doesn't accumulate (an `opt`, not an `opts` or a flag)
+takes at most one value from a tier, whatever its slot. Several values are
+a `ParseError` naming the source, `unexpected option: --url (env: URL)`.
+`--port=<port> --port=<port>` no longer takes two env values with the last
+winning: the first was always discarded, and the rule is now one a user
+can predict without reading the grammar. A custom Arg subtype that keeps
+several values overrides `accumulates` to say so.

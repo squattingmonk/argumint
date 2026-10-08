@@ -20,6 +20,8 @@ type
     cfg: ConfigKey
     recorded: seq[string]
     configRecorded: seq[string]
+    single: bool
+      ## Keeps one value, like an `opt`; otherwise accumulates, like `opts`.
 
   FakeSource = ref object of ConfigSource
     data: seq[(ConfigKey, seq[string])]
@@ -31,6 +33,7 @@ type
 
 method envSource(self: TestArg): options.Option[EnvSource] = self.env
 method configKey(self: TestArg): ConfigKey = self.cfg
+method accumulates(self: TestArg): bool = not self.single
 method accept(self: TestArg, c: Contribution, how: Arbitration) =
   ## Records per tier, so the fallback sweep's two paths stay
   ## distinguishable once each tier writes through `parse`.
@@ -49,13 +52,14 @@ method lookup(self: CountingSource, key: ConfigKey): options.Option[seq[string]]
   self.lookups.inc
   some(@["x"])
 
-proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = noConfigKey()): TestArg =
+proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = noConfigKey(),
+    single = false): TestArg =
   ## `env`/`delim` stay separate params for the call sites' benefit; they
   ## assemble into the single `EnvSource` the contract now hands back.
   let source =
     if env.len == 0: none(EnvSource)
     else: some(EnvSource(name: env, delim: delim))
-  TestArg(kind: Optional, variants: @[name], env: source, cfg: cfg)
+  TestArg(kind: Optional, variants: @[name], env: source, cfg: cfg, single: single)
 
 proc tiersWith(sources: seq[ConfigSource] = @[]): Tiers =
   initTiers(SpecSettings(envDelim: ":", configSources: sources))
@@ -185,6 +189,16 @@ suite "applyFallbacks (env tier)":
     var report = initReport(reportSpec, "")
     applyFallbacks(tiers, @[args], report)
     check "  - unexpected option: --foo" in report.failureMessage
+
+  test "complains about a single-value arg given two values, naming the variable":
+    putEnv("ARGUMINT_TEST_SINGLE", "a:b")
+    defer: delEnv("ARGUMINT_TEST_SINGLE")
+    let arg = newTestArg("--foo", "ARGUMINT_TEST_SINGLE", single = true)
+    var tiers = tiersWith()
+    var report = initReport(reportSpec, "")
+    applyFallbacks(tiers, @[@[Arg arg]], report) # never visited by a walk
+    check "  - unexpected option: --foo (env: ARGUMINT_TEST_SINGLE)" in report.failureMessage
+    check arg.recorded.len == 0
 
   test "an arg reachable from two spec levels only complains once":
     # The oversupply branch applies nothing, so `seenBy` stays `byNone` and

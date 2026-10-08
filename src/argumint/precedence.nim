@@ -128,30 +128,40 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## via a different, unmatched Usage Line -- `arg notin cursor.tried`)
   ## does this resolve fresh and apply every available value -- recording
   ## that in `cursor.tried` too, so an Arg reachable from two spec levels
-  ## still only resolves once. Returns whether this tier had anything at
-  ## all for `arg` -- a real application, or an oversupply complaint --
-  ## telling the caller whether to fall through to the next-lower tier.
+  ## still only resolves once. Either way, an Arg that doesn't `accumulate`
+  ## takes at most one value (ADR 0005). Returns whether this tier had
+  ## anything at all for `arg` -- a real application, or an oversupply
+  ## complaint -- telling the caller whether to fall through to the
+  ## next-lower tier.
   if arg in cursor.applied:
     return true
-  let covered = arg in cursor.covered
-  if covered or arg in cursor.consumed:
-    result = true
-    if not covered and cursor.consumed[arg] < cursor.values[arg].len:
-      if arg notin cursor.complained:
-        cursor.complained.incl arg
-        report.unexpected(arg)
-    else:
-      cursor.applied.incl arg
-      for v in cursor.values[arg]:
-        arg.parse(v, seenBy = some(t.seenBy))
+  # How many values the walk made room for; the catch-all, or a never-
+  # visited Arg, has room for all of them.
+  var values: seq[string]
+  var room = int.high
+  if arg in cursor.covered or arg in cursor.consumed:
+    values = cursor.values[arg]
+    if arg notin cursor.covered:
+      room = cursor.consumed[arg]
   elif arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, settings)
-    if found.isSome:
-      result = true
-      cursor.applied.incl arg
-      for v in found.get:
-        arg.parse(v, seenBy = some(t.seenBy))
+    if found.isNone:
+      return false
+    values = found.get
+  else:
+    return false
+  result = true
+  if not arg.accumulates:
+    room = min(room, 1)
+  if values.len > room:
+    if arg notin cursor.complained:
+      cursor.complained.incl arg
+      report.unexpected(arg, some(t.seenBy))
+  else:
+    cursor.applied.incl arg
+    for v in values:
+      arg.parse(v, seenBy = some(t.seenBy))
 
 proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report) =
   ## Sweeps every spec level actually entered during this parse (the chain

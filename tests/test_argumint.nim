@@ -2041,17 +2041,8 @@ suite "Fallback tiers (env and Config Source)":
       expect ParseError:
         spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @[], command = "prog")
 
-    test tier & ": an option required twice has both occurrences satisfied by two values":
+    test tier & ": a single-value option named twice still takes only one value":
       let settings = t.supply("9090", "9091")
-      defer: clearFallback()
-      let spec = (
-        port: opt("--port=<port>", default = 0, env = envFor(t), configKey = keyFor(t), help = ""),
-      )
-      spec.parse(usage = "--port=<port> --port=<port>", settings = settings, args = @[], command = "prog")
-      check spec.port == 9091 # scalar Match Accumulation: last value wins
-
-    test tier & ": an option required twice errors when given one more value than it has slots for":
-      let settings = t.supply("9090", "9091", "9092")
       defer: clearFallback()
       let spec = (
         port: opt("--port=<port>", default = 0, env = envFor(t), configKey = keyFor(t), help = ""),
@@ -2077,16 +2068,56 @@ suite "Fallback tiers (env and Config Source)":
       spec.parse(usage = "[--tag=<tag>]...", settings = settings, args = @[], command = "prog")
       check spec.tags == @["foo", "bar", "baz"]
 
-    test tier & ": an Arg whose position is never reached this walk still gets every value applied":
-      let settings = t.supply("1234", "5678")
-      defer: clearFallback()
-      let spec = (
+    # The walk accepts after `<a>`, so `--port`'s matcher is never visited.
+    proc unwalkedPortSpec(t: FallbackTier): auto =
+      (
         a: arg("<a>", help = ""),
         b: arg("<b>", help = ""),
         port: opt("--port=<port>", default = 0, env = envFor(t), configKey = keyFor(t), help = ""),
       )
-      spec.parse(usage = "<a>\n[options] <b>", settings = settings, args = @["foo"], command = "prog")
-      check spec.port == 5678 # neither line 2 nor [options] was ever walked; every value still applies
+
+    test tier & ": an Arg whose position is never reached this walk still gets its value":
+      let settings = t.supply("1234")
+      defer: clearFallback()
+      let spec = unwalkedPortSpec(t)
+      spec.parse(usage = "<a> [<b> --port=<port>]", settings = settings, args = @["foo"], command = "prog")
+      check spec.port == 1234
+
+    test tier & ": two values for a never-reached single-value Arg are an error":
+      let settings = t.supply("1234", "5678")
+      defer: clearFallback()
+      let spec = unwalkedPortSpec(t)
+      expect ParseError:
+        spec.parse(usage = "<a> [<b> --port=<port>]", settings = settings, args = @["foo"], command = "prog")
+
+    # #189: a single-value Arg never takes more than one value from a tier,
+    # whatever its slot.
+    let source = if t == ftEnv: "env: " & FallbackVar else: "configKey: fallback"
+    for (usage, values, args, fits, url) in [
+      ("[--url=<url>]", @["a", "b"], newSeq[string](), false, ""),
+      ("--url=<url>", @["a", "b"], newSeq[string](), false, ""),
+      ("[options]", @["a", "b"], newSeq[string](), false, ""),
+      ("[options]", @["a", "b"], @["-v"], false, ""),
+      ("[options]", @["plain"], @["-v"], true, "plain"),
+      ("[options]", @["a", "b"], @["--url=y"], true, "y"),
+    ]:
+      test tier & ": a single-value opt given " & $values & " under " & usage & " with " & $args:
+        let settings = t.supply(values)
+        defer: clearFallback()
+        let spec = (
+          url: opt("--url=<url>", env = envFor(t), configKey = keyFor(t), help = ""),
+          verbose: flag("-v", help = ""),
+        )
+        var msg = ""
+        try:
+          spec.parse(usage = usage, settings = settings, args = args, command = "prog")
+        except ParseError as e:
+          msg = e.msg
+        if fits:
+          check msg == ""
+          check spec.url == url
+        else:
+          check ("unexpected option: --url (" & source & ")") in msg
 
     test tier & ": a top-level option's value still applies when a nested command is also invoked":
       let settings = t.supply("9090")
