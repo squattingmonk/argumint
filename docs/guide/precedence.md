@@ -87,7 +87,7 @@ $ PORT=9000 ./serve
 port=9000
 $ PORT=abc ./serve
 Parsing error:
-  - expected int for -p (env: PORT) but got "abc"
+  - expected an integer for -p (env: PORT) but got "abc"
 
 Usage:
   serve [options]

@@ -216,13 +216,6 @@ suite "a type with no converter from string (#167, #213)":
     check not compiles(opt("--unconv=<unconv>", default = Unconvertible(1)))
     check not compiles(opts[Unconvertible]("--unconv=<unconv>"))
 
-  test "nor does a type that only converts to a built-in one":
-    # These used to compile and then ignore every value given.
-    check not compiles(opt[int8]("--small=<n>"))
-    check not compiles(opt[float32]("--single=<n>"))
-    check not compiles(opt[Natural]("--count=<n>"))
-    check not compiles(opt[range[0..10]]("--level=<n>"))
-
   test "an alias of a value type is the same type":
     type
       Port = int

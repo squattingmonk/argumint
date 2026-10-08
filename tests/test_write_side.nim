@@ -231,7 +231,7 @@ suite "a bad value names the source it came from (#145)":
     putEnv("ARGUMINT_WRITE_PORT", "x")
     defer: delEnv("ARGUMINT_WRITE_PORT")
     let spec = (port: opt("--port=<n>", default = 80, env = "ARGUMINT_WRITE_PORT", help = ""))
-    check "expected int for --port (env: ARGUMINT_WRITE_PORT) but got \"x\"" in failure(proc () =
+    check "expected an integer for --port (env: ARGUMINT_WRITE_PORT) but got \"x\"" in failure(proc () =
       spec.parse(usage = "[--port=<n>]", args = @[], command = "app",
                  settings = newSpecSettings(style = nil)))
 
@@ -256,14 +256,14 @@ suite "a bad value names the source it came from (#145)":
   test "a Config Key names itself":
     let spec = (port: opt("--port=<n>", default = 80,
                           configKey = configKey("server", "port"), help = ""))
-    check "expected int for --port (configKey: server.port) but got \"x\"" in failure(proc () =
+    check "expected an integer for --port (configKey: server.port) but got \"x\"" in failure(proc () =
       spec.parse(usage = "[--port=<n>]", args = @[], command = "app",
                  settings = newSpecSettings(style = nil, configSources = @[ConfigSource MemSource(
                    data: @[(configKey("server", "port"), @["x"])])])))
 
   test "the command line names the Variant typed":
     let spec = (port: opt("-p, --port=<n>", default = 80, help = ""))
-    check "expected int for -p but got \"x\"" in failure(proc () =
+    check "expected an integer for -p but got \"x\"" in failure(proc () =
       spec.parse(usage = "[-p=<n>]", args = @["-p", "x"], command = "app",
                  settings = newSpecSettings(style = nil)))
 
@@ -271,16 +271,16 @@ suite "a bad value names the source it came from (#145)":
     let port = opt("--port=<n>", default = 80, validator = range(1..10),
                    env = "PORT", configKey = configKey("port"), help = "")
     check failure(proc () = port.parse("x", seenBy = some(byEnv))) ==
-      "expected int for --port (env: PORT) but got \"x\""
+      "expected an integer for --port (env: PORT) but got \"x\""
     check failure(proc () = port.put(99, seenBy = some(byConfig))) ==
       "for --port (configKey: port), got 99 but expected a value in 1..10"
 
   test "a write declaring no tier, or the command line, names the Arg":
     let port = opt("--port=<n>", default = 80, env = "PORT", help = "")
     check failure(proc () = port.parse("x")) ==
-      "expected int for --port=<n> but got \"x\""
+      "expected an integer for --port=<n> but got \"x\""
     check failure(proc () = port.parse("x", seenBy = some(byCli))) ==
-      "expected int for --port=<n> but got \"x\""
+      "expected an integer for --port=<n> but got \"x\""
 
 suite "a write that raises leaves the Arg exactly as it was":
   # `accept` clears only once its value has passed every check, and `parse`

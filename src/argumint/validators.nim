@@ -176,7 +176,7 @@ proc help*[T](self: Validator[T]): string =
   ## instead, when it's non-empty.
   self.styledHelp.plain
 
-proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = newSeq[T]()) =
+proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
   ## `ValidationError`. `seen` is the values already accumulated for the
   ## same Arg so far (not including `value`), consulted only by
@@ -262,7 +262,11 @@ proc candidateValues[T](self: Validator[T]): seq[T] =
         base = c
         haveBase = true
       else:
-        base = base.filterIt(it in c)
+        # Not `filterIt`: it warns for a range excluding zero (docs/gotchas.md).
+        var kept: seq[T]
+        for value in base:
+          if value in c: kept.add value
+        base = kept
     if not haveBase:
       return @[]
     for candidate in base:

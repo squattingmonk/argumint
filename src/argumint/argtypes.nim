@@ -19,7 +19,7 @@
 
 {.experimental: "openSym".}
 
-import std/[enumutils, macros, macrocache, options, pegs, sequtils, strformat, strutils, tables, typetraits]
+import std/[enumutils, fenv, macros, macrocache, math, options, pegs, sequtils, strformat, strutils, tables, typetraits]
 
 import ./[backend, configsource, display, errors, flagclamp, style, validators]
 
@@ -105,17 +105,17 @@ const flagOps = CacheTable"flagOps"
 # who imports argumint.
 # ------------------------------------------------------------------------------
 
-proc toInt(value: string): int =
-  ## Parses a string value into an int. Negative numbers may be passed as
-  ## arguments by prefixing them with a space, so whitespace characters are
-  ## stripped to allow this.
-  value.strip.parseInt
-
-proc toFloat(value: string): float =
-  ## Parses a string value into a float. Negative numbers may be passed as
-  ## arguments by prefixing them with a space, so whitespace characters are
-  ## stripped to allow this.
-  value.strip.parseFloat
+type
+  BuiltInValue = SomeNumber | string | bool | char
+    ## The types `fromString` converts by name.
+  ValueType = concept v
+    ## What `fromString` can convert to: see CONTEXT.md, Value Type. Not a
+    ## constraint, only checked with `isnot`: a failed match as a constraint
+    ## says `concept predicate failed`, not which converter to write.
+    v is BuiltInValue or v is enum or compiles((let converted: typeof(v) = ""))
+  OutOfRangeError = object of ValueError
+    ## A number `fromString` read but `T` can't hold, e.g. `expected a value
+    ## in -128..127`.
 
 proc toBool(value: string): bool =
   ## Parses a string value into a bool. Supports on/off, yes/no, y/n, YES/NO,
@@ -128,43 +128,76 @@ proc toChar(value: string): char =
     raise newException(ValueError, fmt"cannot convert {value} to char")
   value[0]
 
-macro sameType(T, U: typedesc): bool =
-  ## Whether `T` and `U` are the same type, aliases included. Not `is`:
-  ## `Natural is int`.
-  newLit(sameType(T.getTypeInst[1], U.getTypeInst[1]))
+proc outOfRange(bounds: string): ref OutOfRangeError =
+  newException(OutOfRangeError, "expected a value in " & bounds)
 
-template isBuiltIn(T: typedesc): bool =
-  ## Whether `T` is one of the types `fromString` converts by name.
-  sameType(T, string) or sameType(T, int) or sameType(T, float) or
-    sameType(T, bool) or sameType(T, char)
+proc isInteger(value: string): bool =
+  ## Whether `value` is written as an integer, whatever its size.
+  let digits = if value.startsWith('-') or value.startsWith('+'): value[1..^1] else: value
+  digits.len > 0 and digits.allCharsInSet(Digits)
 
-template hasConverter(T: typedesc): bool =
-  ## Whether a converter from string to `T` is in scope where the generic
-  ## using this is instantiated (docs/gotchas.md).
-  compiles((let converted: T = ""))
+proc toNumber[T: SomeNumber](value: string): T =
+  ## Parses a string value into a `T`, raising `OutOfRangeError` if `T`
+  ## can't hold it. Negative numbers may be passed as arguments by prefixing
+  ## them with a space, so whitespace characters are stripped to allow this.
+  let value = value.strip
+  let bounds = $low(T) & ".." & $high(T)
+  when T is SomeFloat:
+    let parsed = value.parseFloat
+    if parsed < low(T) or parsed > high(T) or (T is system.range and parsed.isNaN):
+      raise outOfRange(bounds)
+    elif parsed.classify notin {fcInf, fcNegInf} and T(parsed).classify in {fcInf, fcNegInf}:
+      # Finite, but too large for `float32`, whose bounds are infinite.
+      let largest = $maximumPositiveValue(T)
+      raise outOfRange("-" & largest & ".." & largest)
+    T(parsed)
+  else:
+    try:
+      let parsed = when T is SomeSignedInt: value.parseBiggestInt
+                   else: value.parseBiggestUInt
+      if parsed < typeof(parsed)(low(T)) or parsed > typeof(parsed)(high(T)):
+        raise outOfRange(bounds)
+      T(parsed)
+    except OutOfRangeError:
+      raise
+    except ValueError:
+      # Too large for a `BiggestInt`, or negative for an unsigned type.
+      if value.isInteger: raise outOfRange(bounds)
+      raise
 
 template parsesByName(T: typedesc): bool =
   ## Whether `fromString` parses `T` with `parseEnum`: an enum with no
-  ## converter of its own where its Arg is built.
-  T is enum and not hasConverter(T)
-
-template isValueType(T: typedesc): bool =
-  ## Whether `fromString` can convert to `T`: see CONTEXT.md, Value Type.
-  isBuiltIn(T) or T is enum or hasConverter(T)
+  ## converter of its own where its Arg is built (docs/gotchas.md).
+  T is enum and not compiles((let converted: T = ""))
 
 proc fromString[T](value: string): T =
   ## `value` as a `T`: a built-in by name, an enum with no converter by
   ## `parseEnum`, and anything else through the user's converter, found
-  ## where the Arg is built. Raises `ValueError` if it can't convert.
-  when sameType(T, string): value
-  elif sameType(T, int): toInt(value)
-  elif sameType(T, float): toFloat(value)
-  elif sameType(T, bool): toBool(value)
-  elif sameType(T, char): toChar(value)
+  ## where the Arg is built. Raises `ValueError` if it can't convert, and
+  ## `OutOfRangeError` if it's a number `T` can't hold.
+  when T is BuiltInValue:
+    when T is string: value
+    elif T is bool: toBool(value)
+    elif T is char: toChar(value)
+    else: toNumber[T](value)
   elif parsesByName(T): parseEnum[T](value)
   else:
     let converted: T = value
     converted
+
+proc typeNoun(T: typedesc): string =
+  ## What a value that isn't a `T` was expected to be.
+  when T is SomeInteger: "an integer"
+  elif T is SomeFloat: "a number"
+  else: $T
+
+proc zeroValue*[T](): T =
+  ## The value an Arg given no default holds: `default(T)`, unless that's
+  ## outside a range type, where it's the lowest value.
+  when T is SomeNumber:
+    when low(T) > 0 or high(T) < 0: low(T) else: default(T)
+  else:
+    default(T)
 
 # ------------------------------------------------------------------------------
 # Read accessors. `argumint.nim`'s `get*`/`toT*`/`toSeqT*` are written against
@@ -294,6 +327,10 @@ proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
   ## can't convert.
   try:
     self.storeImpl(fromString[T](c.value), c, how, validate = true)
+  except OutOfRangeError as e:
+    # Outside `fmt`: see docs/gotchas.md, openSym.
+    let (got, subject, expected) = (c.value.quoted, self.subject(c), e.msg)
+    raise newPlainError(ParseError, fmt"for {subject}, got {got} but {expected}")
   except ValueError:
     # Outside `fmt`: see docs/gotchas.md, openSym.
     let (got, subject) = (c.value.quoted, self.subject(c))
@@ -301,15 +338,16 @@ proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
       let values = self.describedBy.completions.join(", ")
       raise newPlainError(ParseError, fmt"for {subject}, got {got} but expected one of {values}")
     else:
-      raise newPlainError(ParseError, fmt"expected {$typeOf(T)} for {subject} but got {got}")
+      let what = typeNoun(T)
+      raise newPlainError(ParseError, fmt"expected {what} for {subject} but got {got}")
 
 proc defaultText[T](self: ValueArg[T]): string =
-  ## `self`'s default as help shows it, or "" if it's still `T`'s zero value
-  ## (e.g. "", 0, or false) -- the fallback used when no default was given
-  ## (see `arg*`). Requires `T` to support `default(T)` and `==`, which
-  ## nearly every type does; a `{.requiresInit.}` object would be a rare
-  ## exception that fails to compile here.
-  if self.default != default(T): display.showValue(self.default) else: ""
+  ## `self`'s default as help shows it, or "" if it's still `zeroValue` (e.g.
+  ## "", 0, or false) -- the fallback used when no default was given (see
+  ## `arg*`). Requires `T` to support `default(T)` and `==`, which nearly
+  ## every type does; a `{.requiresInit.}` object would be a rare exception
+  ## that fails to compile here.
+  if self.default != zeroValue[T](): display.showValue(self.default) else: ""
 
 proc defaultText[T](self: ValuesArg[T]): string =
   ## `self`'s defaults comma-joined, or "" if there are none.
@@ -560,7 +598,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOpGroup[T]] =
 
 template requireValueType(T: typedesc) =
   ## Stops compilation unless `fromString` can convert to `T`.
-  when not isValueType(T):
+  when T isnot ValueType:
     {.error: $T & " is not a value type: define `converter to" & $T & "(value: string): " &
       $T & "` where its Arg is built".}
 
@@ -748,8 +786,8 @@ when isMainModule:
       # `let n: int = "5"` failing to compile. Their mirror lives here for
       # the same reason `FlagOp`'s does: they're private to this module, so
       # no importer can name them at all.
-      check toInt(" 5 ") == 5
-      check toFloat(" 2.5 ") == 2.5
+      check toNumber[int](" 5 ") == 5
+      check toNumber[float](" 2.5 ") == 2.5
       check toBool("yes")
       check toChar("c") == 'c'
       expect ValueError:

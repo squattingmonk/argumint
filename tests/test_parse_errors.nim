@@ -325,13 +325,13 @@ suite "one message shape":
   test "a conversion failure gains the bullet and the usage block":
     let msg = failure:
       baseSpec().parse(args = @["--port", "abc"], command = "app", usage = "[options]")
-    check msg.complaints == @["expected int for --port but got \"abc\""]
+    check msg.complaints == @["expected an integer for --port but got \"abc\""]
     check "Usage:\n  app [options]" in msg
 
   test "a conversion failure shows non-ASCII input as typed":
     let msg = failure:
       baseSpec().parse(args = @["--port", "café"], command = "app", usage = "[options]")
-    check msg.complaints == @["expected int for --port but got \"café\""]
+    check msg.complaints == @["expected an integer for --port but got \"café\""]
 
   test "a validation failure gets the same shape, keeping its own type":
     let spec = (num: opt("--num=<n>", default = 1, validator = range(1..10), help = ""),

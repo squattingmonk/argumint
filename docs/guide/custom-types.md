@@ -3,8 +3,9 @@
 [Guide](index.md) ·
 [API reference](https://squattingmonk.github.io/argumint/argumint.html)
 
-argumint converts values to `string`, `int`, `float`, `bool`, `char`, and any
-enum on its own (see [Your Own Types](args-and-options.md#your-own-types)).
+argumint converts values to `string`, `bool`, `char`, every number type,
+range types, and any enum on its own (see
+[Your Own Types](args-and-options.md#your-own-types)).
 For any other type, you tell it how to read one from the command line, and the
 type then works anywhere a built-in one does: as an argument, an option, or a
 flag, with defaults, validators, and help.
@@ -57,9 +58,11 @@ library that calls `opt` inside a generic proc of its own, since the converter
 is looked for where that proc is used.
 
 Using a type with no converter in an `arg` or `opt` is a compile error that
-names the converter to write. The same goes for a type like `int8` or
-`range[0..10]`, which converts to `int` but isn't `int`. A plain alias, like
-`type Port = int`, needs nothing.
+names the converter to write. A `distinct` type needs one even if it's
+`distinct int`. A plain alias, like `type Port = int`, needs nothing, and nor
+does a number or range type like `int8` or `range[0..10]`. A range type can
+stand in for a `range` validator: see
+[Your Own Types](args-and-options.md#your-own-types).
 
 An enum can have a converter too, if its names aren't what the user should
 type. argumint then uses the converter instead of reading names, and lists no
@@ -68,8 +71,9 @@ values in help or completion, since it can't tell what the converter accepts.
 ### Without a Default
 
 Without a `default`, an `Arg` holds the type's zero value, the same as a
-`var` you never assigned. For `int` that's `0`, but for `DateTime` it's a
-value that isn't a real date:
+`var` you never assigned, or a range type's lowest value if zero is outside
+it. For `int` that's `0`, but for `DateTime` it's a value that isn't a real
+date:
 
 ```nim
 let spec = (

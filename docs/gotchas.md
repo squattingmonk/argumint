@@ -169,7 +169,7 @@ to), or anything else that generates methods inside a template.
 
 - **A `ValueArg[T]`'s help default requires `T` to support both `default(T)`
   and `==`** (`defaultText`, behind its `defaultStr`, compares
-  `self.default` against `default(T)` to decide whether a default is
+  `self.default` against `zeroValue[T]()` to decide whether a default is
   "meaningfully set"). Nearly every type does, but a `{.requiresInit.}`
   object would fail to compile here if used as an `arg`/`opt` value type.
   Not considered worth guarding against, but worth knowing if `opt` ever
@@ -389,8 +389,10 @@ to), or anything else that generates methods inside a template.
   `range[0..10]` found `int`'s overload and slipped through. `valueTypes`
   (`argtypes.nim`) is a `CacheSeq` instead, global to the compile, checked
   with `sameType`: exact, though an alias still matches (issue #167). The
-  registry is gone since #213 (ADR 0068), but `initValueArg` still checks
-  for a built-in with `sameType` rather than `is`, since `Natural is int`.
+  registry is gone since #213 (ADR 0068). Since #247 the check is a
+  concept, `ValueType`, tested with `isnot` inside the constructors rather
+  than used as a constraint: a failed constraint reports `concept predicate
+  failed`, not the converter to write.
 
 - **This same `openSym` mechanism also bit a non-generated, ordinary
   generic proc**: `command*[S]`'s body has always written the object
@@ -721,3 +723,21 @@ to), or anything else that generates methods inside a template.
   `TextStyle`, `result` starts zeroed, so `fg` holds ordinal 0 -- not its
   declared `fgDefault`, and not a valid `ForegroundColor` at all (`fgBlack`
   is 30). Assign `result = TextStyle()` before setting fields.
+
+- **Two tuples that differ only in a range type share one C type.**
+  `(n: @[1],)` and `(n: @[Natural(2)],)` in one program fail in the C
+  compiler with `incompatible pointer type`, on every Nim 2.x tried (2.0.8
+  to 2.2.12, ORC and refc), whatever the fields are named. A spec is a
+  tuple, so two specs alike but for `opt[int]` and `opt[Natural]` hit it.
+  Upstream: nim-lang/Nim#24714. `tests/test_number_types.nim` builds each
+  spec as `(n: Arg(...),)` to avoid it.
+
+- **`newSeq[T]()` warns for a range type that excludes zero**
+  (`UnsafeDefault`, `UnsafeSetLen`, `ProveInit`), and so does anything
+  built on it, like `filterIt`. Every Value Type instantiates the value
+  path in the user's module, so these warnings reach the user. Defaults are
+  `@[]`/`[]`, and `candidateValues` filters with a loop.
+
+- **`$` on a float gives different text at compile time.** In a `const`,
+  `$maximumPositiveValue(float32)` is `3.40282347e+38`; at run time it's
+  `3.4028235e+38`. `toNumber` builds its bounds text with `let`.

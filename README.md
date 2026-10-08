@@ -103,7 +103,8 @@ larger program step by step.
   file`, `-ffile`, `-f=file`, `-f:file`, `--file file`, `--file=file`, and
   `--file:file`.
 - **[Typed values](docs/guide/args-and-options.md#types-and-defaults):**
-  `string`, `int`, `float`, `bool`, and `char` out of the box, and
+  `string`, `bool`, `char`, enums, every integer and float type, and range
+  types like `Natural` out of the box, and
   [your own types](docs/guide/custom-types.md) with a converter.
 - **[Validators](docs/guide/args-and-options.md#validating-values):** limit a
   value to a set of choices or a range, or write your own check, and combine
