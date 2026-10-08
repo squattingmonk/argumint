@@ -336,6 +336,10 @@ The roles start with `sr`. See `StyleRole` in the
 [API reference](https://squattingmonk.github.io/argumint/argumint.html) for
 the full list. Pass `style = nil` for plain text everywhere.
 
+Someone building your program, such as a packager, can change
+`defaultTheme`'s colours without touching your code. See
+[Changing the Defaults at Compile Time](specs.md#changing-the-defaults-at-compile-time).
+
 For anything a theme can't do, like true colour, write your own `Styler`: a
 proc that takes a role and a piece of text, and returns the text to print.
 argumint calls it once for each piece of the message, such as an option's

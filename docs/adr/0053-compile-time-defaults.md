@@ -78,4 +78,28 @@ or write their own detection around it.
 - Tests that pin a default compare against its constant, and the stock
   values are pinned only when their define isn't set, so the suite passes
   under any valid define. `tests/test_compile_defines.nim` is built with all
-  five set via its own `.nims`.
+  five set via its own `.nims`. (**Update:** and three theme defines, per the
+  addendum below.)
+
+## Addendum: the theme, one define per role
+
+Since ADR 0067, `theme` is a `newSpecSettings` default too, so by this ADR's
+rule it gets defines: `-d:argumint.theme.<role>=<style>`, one per Style Role
+(named without `sr`, lowercased) except `srTick`, whose spans are dropped
+whenever output is styled. The value is a colour and attributes joined with
+`+`, named without their `fg`/`style` prefix, e.g. `magenta+bright`; it
+replaces that role's whole style, and an empty value is plain.
+`defaultTheme` is built from the defines, whose own defaults spell out the
+stock look, so a program copying `defaultTheme` to change one role keeps the
+packager's choice for the rest. A `theme` passed to `newSpecSettings` still
+wins, and so does an explicit `style`.
+
+A bad value (an unknown word, two colours, or a bare define, which reads as
+`true`) fails the build with a message naming the define and the word, as
+the width checks do.
+
+One define per role was chosen over one string listing them all
+(`-d:argumint.theme="option=magenta+bright,env=yellow"`): a `config.nims`
+setting several roles reads better as one line each. Backgrounds and true
+colour stay out of scope, since `TextStyle` holds neither; they still need a
+custom `Styler`.

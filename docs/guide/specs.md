@@ -135,6 +135,24 @@ without touching its code. Pass a `-d:` define to `nim c`, or put
 - The width and delimiter defines are safe for anyone building the program,
   such as a packager.
 
+The colours help and errors use can be changed the same way, one define per
+part of the message:
+
+```nim
+switch("define", "argumint.theme.option=magenta+bright")
+switch("define", "argumint.theme.annotation=italic")
+```
+
+The value is a colour, attributes, or both, joined with `+`. The colours are
+`black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` and
+`default`. The attributes include `bright`, `dim`, `italic` and `underscore`.
+An empty value turns that part plain. The parts are `header`, `program`,
+`command`, `option`, `positional`, `metavar`, `env`, `literal`, `url`,
+`annotation`, `error`, `invalid` and `plain`, the names of the `StyleRole`s
+without `sr`. These change `defaultTheme`, so a `theme` the program passes
+still wins (see [Colour](help.md#colour)). They are safe for a packager to
+set.
+
 A value outside the allowed range fails the build with a message naming the
 define. A setting passed to `newSpecSettings` still wins over its define.
 

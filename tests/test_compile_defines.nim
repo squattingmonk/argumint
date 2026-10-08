@@ -24,3 +24,14 @@ suite "defaults set with -d: defines":
 
   test "with nothing detected, the width falls back to the defined DefaultWidth":
     check chooseWidth("", 0) == 72
+
+  test "a theme define replaces its role's style in defaultTheme":
+    check defaultTheme[srOption] ==
+      TextStyle(fg: fgMagenta, attrs: {styleBright})
+    check defaultTheme[srEnv] == TextStyle()
+    check defaultTheme[srAnnotation] ==
+      TextStyle(attrs: {styleItalic, styleDim})
+
+  test "roles without a define keep the stock look":
+    check defaultTheme[srCommand] ==
+      TextStyle(fg: fgCyan, attrs: {styleBright})
