@@ -1,5 +1,9 @@
 # Completion annotates a Flag Operation Description the way help does
 
+> **Note (#248):** a proc op given no `help` has an empty Flag Operation
+> Description (ADR 0070). The rule below is unchanged: an empty one differs
+> from any other, so the flag's other ops still show theirs.
+
 A Flag whose Flag Operations do different things has a Flag Operation
 Description per Variant: a `flagOp*` call's own `help`, or a generated
 "Increase by 5". Help and completion both showed it, but differently.

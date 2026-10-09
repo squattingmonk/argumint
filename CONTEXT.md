@@ -40,8 +40,8 @@ every integer and float type (`int8` to `int64`, `uint` to `uint64`,
 `float32`), and range types (`Natural`, `Positive`, `range[1..10]`). An
 alias of a Value Type is the same type, but a `distinct` one isn't. Using
 any other type in `arg`/`args`/`opt`/`opts` is a compile error. A Value
-Type needs no registration; only using it for a Flag does (`defineArg` with
-a handler, `defineFlag`, `defineSetFlag`).
+Type needs no registration. A Flag's type needn't be a Value Type at all,
+except to read the string form of its `ops`.
 _Avoid_: custom type (when meaning any Value Type; the built-ins are Value
 Types too), registered type
 
@@ -74,36 +74,41 @@ relationship.)
 _Avoid_: Boolean option, switch
 
 **Flag Operation**:
-The atomic unit of Flag behavior: a single Variant paired with a
-predetermined operation (set, increment, decrement, toggle, etc.) and,
-where applicable, a fixed value. A Flag is the shared value slot that one
-or more independent Flag Operations mutate — the Flag Operation, not the
-Flag itself, determines what happens when a particular Variant is seen.
-Authored one of two ways: *implicit* — a bare spelling in `flag*`'s own
-`variants` string, always the type's blank-op behavior (e.g. `bool`
-toggles, `int` increments by 1) applied against the Flag's own coded
-`default` — or *explicit* — one or more spellings passed to `flag*`'s
-`ops` param via `flagOp*`, which always states its own op and value
-directly rather than falling back to a type's implicit behavior.
-`ops` also accepts a plain comma-separated `<flag><op><value>` string as
-convenience sugar for the common case (a builtin-convertible value, one
-spelling per entry) — see `docs/adr/0028-flag-ops-string-convenience.md`
-— but this is a syntactic shortcut for the same explicit path, not a third
-authoring path. See FlagOp Alias for how either path groups the Variants
-that share one Flag Operation.
-_Avoid_: FlagOp (code-level name for the internal per-Variant tuple; fine
-in prose when referring to the `flagOp*` constructor specifically),
-variant behavior
+The atomic unit of Flag behavior: what happens to a Flag's value when one
+particular Variant is seen. A Flag is the shared value slot that one or
+more independent Flag Operations mutate — the Flag Operation, not the Flag
+itself, determines what happens. Authored one of two ways: *implicit* — a
+bare spelling in `flag*`'s own `variants` string, which runs the type's
+Implicit Operation — or *explicit*, with `flagOp*` or `flagOpIt*`: either a
+named op (`=`, `+=`, `-=` or `*=`) with a value of the Flag's own type, or
+a proc of the author's own. A named op uses the type's own operator, so it
+works on any type that has one; on a number it stops at the type's bounds
+rather than overflowing. `ops` also accepts a comma-separated
+`<flag><op><value>` string as shorthand for named ops with one spelling
+each — see `docs/adr/0028-flag-ops-string-convenience.md` — but this is a
+syntactic shortcut for the same explicit path, not a third authoring path.
+See FlagOp Alias for how either path groups the Variants that share one
+Flag Operation.
+_Avoid_: blank op, op handler, variant behavior; FlagOp (the type
+`flagOp*` returns; fine in prose when referring to it)
+
+**Implicit Operation**:
+The Flag Operation a Flag's bare Variants run, fixed by its type: a `bool`
+is set to the opposite of its default, an integer increases by 1, and an
+enum moves to its next declared value, each stopping at its type's last
+value. No other type has one, so a Flag of any other type declares each of
+its Flag Operations explicitly.
+_Avoid_: blank op, blank-op behavior
 
 **FlagOp Alias**:
 The set of a Flag's own Variants that share one Flag Operation --
 declared together, not discovered after the fact by comparing op/value.
 Every spelling in `flag*`'s own `variants` string is automatically one
-such set, since they can only ever share the type's single implicit
-op/value pair; every spelling passed to one `flagOp*` call is another,
-declared explicitly. Two different `flagOp*` calls are always independent
-sets, never merged into one alias set, even if their op/value happen to
-coincide -- see `docs/adr/0027-flag-op-declarations.md` for why. Determines
+such set, since they all run the type's Implicit Operation; every spelling
+passed to one `flagOp*` or `flagOpIt*` call is another, declared
+explicitly. Two different calls are always independent sets, never merged
+into one alias set, even if they happen to do the same thing -- see
+`docs/adr/0027-flag-op-declarations.md` for why. Determines
 which Variants are mutually exclusive alternatives of each other versus
 independently reachable: a `choice`-style Usage Line dedupes among FlagOp
 Aliases (so `--verbose | -v` collapses to one required position) but keeps
@@ -123,8 +128,10 @@ _Avoid_: Flag Operation Class, Op class, variant class (earlier working
 terms for this same concept)
 
 **Flag Operation Description**:
-A short text saying what one Flag Operation does: a `flagOp*` call's own
-`help`, else one generated from the op and value ("Increase by 5"). Shown
+A short text saying what one Flag Operation does: a `flagOp*` or
+`flagOpIt*` call's own `help`, else one generated from a named op and its
+value ("Increase by 5") or from the Implicit Operation ("Move to the next
+value"), else none, since a proc has nothing to generate one from. Shown
 only when a Flag's Flag Operations are described differently, since there
 is nothing to tell apart otherwise: help and completion both print it
 after the Flag's Help Text, under the `action:` label. `Arg.variantDesc`

@@ -86,9 +86,15 @@ suite "an enum with no converter":
   test "with gaps in its values still lists every one":
     let spec = (level: opt("--level=<level>", default = low, help = "Level"),
                 help: help())
-    check "[choices: low, high;" in spec.helpOf
+    check "[choices: low, high]" in spec.helpOf
     spec.parse(args = @["--level", "high"], command = "prog")
     check spec.level.get == high
+
+  test "with gaps and no default holds its first value":
+    let spec = (level: opt[Level]("--level=<level>"), color: opt[Color]("--color=<c>"))
+    spec.parse(args = @[], command = "prog")
+    check spec.level.get == low
+    check spec.color.get == red
 
   test "works in multi-value `args` and `opts`":
     let spec = (colors: args[Color]("<color>"), levels: opts[Level]("--level=<l>"))
@@ -173,10 +179,8 @@ suite "a type with a converter":
     check spec.b.get
     check spec.c.get == 'y'
 
-defineSetFlag(Color)
-
-suite "`defineSetFlag`":
-  test "still converts the string form of `ops`":
+suite "a set flag":
+  test "converts each element in the string form of `ops`":
     let spec = (colors: flag[set[Color]](ops = "--warm+=red, --cool+=dark-blue", default = {}),)
     spec.parse(args = @["--warm", "--cool"], command = "prog")
     check spec.colors.get == {red, darkBlue}

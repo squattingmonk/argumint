@@ -94,14 +94,14 @@ split.
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
 below the `argumint.nim` facade, and holds the `ValueArg`/`ValuesArg`/
 `FlagArg` data model plus **everything that touches their private fields**:
-`ValueArgBase` and the hooks its methods call, `fromString` and `acceptImpl`,
-the `defineFlagArg`/`defineSetFlagArg` method generators and the `flagOps`
-`CacheTable` they write, the `initValueArg`/`initValuesArg`/`initFlagArg`
-constructors, the `rawValue`/`rawDefault` read accessors, and the flag
-mini-language parsers. Every public name over that machinery —
-`arg`/`args`/`opt`/`opts`/`flag`/`flagOp`, `get`/`toT`/`toSeqT`,
-`defineArg`/`defineFlag`/`defineSetFlag` — stays in `argumint.nim` with its
-documentation and delegates. The split is forced
+`ValueArgBase`, `FlagArgBase` and the hooks their methods call, `fromString`
+and `acceptImpl`, the Flag Operations (`namedOp`, `opError`, `describeOp`,
+the Implicit Operations), the `initValueArg`/`initValuesArg`/`initFlagArg`/
+`initFlagOp` constructors, the `rawValue`/`rawDefault` read accessors, and
+the parsers for a flag's spellings and the string form of its `ops`. Every
+public name over that machinery — `arg`/`args`/`opt`/`opts`/`flag`,
+`flagOp`/`flagOpIt`, `get`/`toT`/`toSeqT` — stays in `argumint.nim` with
+its documentation and delegates. The split is forced
 rather than stylistic: `privateAccess` does not survive instantiation in
 another module, so anything generic or templated that reads a private field
 has to live beside the type (see `docs/gotchas.md`). `argtypes` is exported
@@ -685,7 +685,8 @@ Arg                     methods: the custom-Arg contract
 ├── ValueArgBase        not generic; ordinary methods
 │   ├── ValueArg[T]     arg*/opt*: Option[T], a T default, a Validator[T]
 │   └── ValuesArg[T]    args*/opts*: Option[seq[T]], a seq[T] default, the same
-└── FlagArg[T]          flag*: methods generated per type by defineFlagArg
+└── FlagArgBase         not generic; ordinary methods
+    └── FlagArg[T]      flag*: a T value and default, a FlagClamp[T]
 ```
 
 `ValueArgBase` holds what isn't typed -- `env`, `cfgKey`, and whether it's
@@ -791,21 +792,19 @@ branch — a field name can't be redeclared across two separate `of` branches
 even with an identical type in each, but a field declared ahead of the
 `case` is implicitly shared by all branches). `genHelp` combines
 `validatorHelp` and `defaultStr` into one bracket, `;`-separated (e.g.
-`[choices: "foo", "bar"; default: "foo"]`). `defineFlagArg` (see "Flags"
-below) generates a `method validatorHelp` for `FlagArg[T]` -- reusing the
-same extension point, even though a Flag never carries a `Validator` --
-delegating to its `FlagClamp[T].styledHelp` if one is attached (see "Flag
-Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
+`[choices: "foo", "bar"; default: "foo"]`). `FlagArgBase` (see "Flags"
+below) answers `validatorHelp` too -- reusing the same extension point,
+even though a Flag never carries a `Validator` -- through its `describe`
+hook, which returns its `FlagClamp[T].styledHelp` if one is attached (see
+"Flag Clamp" below). `FlagArg` still has no `defaultStr` override, so a flag's
 coded default never appears in help output regardless of whether it has a
 clamp.
 
 All of this generic code is instantiated in the user's module, so its
-unqualified calls resolve there (`docs/gotchas.md`). The methods
-`defineFlagArg` generates call into `validators.nim`/`backend.nim` by bare
-name too; `argumint.nim`'s top-of-file `export` statements are what make
-that resolve for a caller registering a flag type via
-`defineArg`/`defineFlag`/`defineSetFlag`. Both `argtypes` and the facade
-carry `{.experimental: "openSym".}`. See
+unqualified calls resolve there (`docs/gotchas.md`); `argumint.nim`'s
+top-of-file `export` statements are what make that resolve for a caller
+that imports nothing else. Both `argtypes` and the facade carry
+`{.experimental: "openSym".}`. See
 `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
 
 The four string-to-scalar conversions stay **private to `argtypes`**, and
@@ -944,73 +943,69 @@ its own `accept` override, remains the only write path into it.
 
 ### Flags
 
-Flags don't take user converters — instead `defineArg[T](typeName,
-flagHandler)` registers per-type flag operations (e.g. `=`, `+=`, `-=` for
-`int`) via the `defineFlagOps` macro, stored in the `flagOps` `CacheTable`
-and looked up by `getFlagOps` at spec-construction time to validate that a
-Flag Operation's requested op is actually supported for that type. Both
-the table and `getFlagOps` are fully private to `argtypes.nim` -- their
-only reader, `checkFlagOp`, lives beside them -- but the table itself still
-crosses into a user's module in both directions: the built-in registrations
-at the bottom of `argtypes.nim` write it, and so does a user's own
-`defineArg` call in their own file, because `defineFlagOps` is a macro
-whose body *runs* in argtypes' scope rather than expanding into the
-caller's. Registering the built-ins there is also what guarantees
-`flag*`'s bare-bool overload sees a populated table — import order now does
-what a textual declaration-order rule inside `argumint.nim` used to (see
-`docs/gotchas.md`).
+`FlagArg[T]` follows the same two-class pattern as the values above:
+`FlagArgBase` holds what isn't typed -- `env`, `cfgKey`, and an ordered
+table from each Variant to its `BoundOp` -- and two hooks, `reset` (restore
+the default) and `describe` (the clamp's help). No flag type is
+registered; there's no `flagOps` table and nothing generated per type (ADR
+0070).
 
-A Flag's Variants are declared one of two ways (see `docs/adr/
-0027-flag-op-declarations.md`): bare spellings in `flag*`'s own `variants`
-string always share the type's implicit blank-op behavior against the
-Flag's own `default`, and `initFlagArg` rejects them when the type
-registered no blank op; `flagOp*(variants, op, value, help = "")` builds one
-explicit `FlagOpGroup[T]`, passed to `flag*`'s `ops: varargs[FlagOpGroup[T]]`
-param, with `op`/`value` mandatory. Both routes to an explicit group --
-`flagOp*` on its own `op` param, and `parseFlagOpsString` on each parsed
-`<op>` -- validate against `getFlagOps(flagOpsKey(T))` through one shared
-`checkFlagOp[T]` (`argtypes.nim`), so they reject the same ops with the
-same message from either side of the seam -- and so `getFlagOps` needs no
-export. `flag*` flattens every declared group (the one implicit group, plus
-each explicit `flagOp*` group) into `FlagArg[T].ops: OrderedTableRef[
-string, FlagOp[T]]` (`FlagOp[T] = tuple[op, arg, desc]`, unchanged), keyed
-by bare variant name, and builds `FlagArg[T].aliases` directly from each
-group's own spellings -- no cross-group `(op, value)` comparison, since two
-separately-declared groups are always independently reachable even if their
-op/value happen to coincide.
+A **Flag Operation is a closure** on the flag's value, `proc (value: var
+T)`, carried by the public `FlagOp[T]` with its spellings and Flag
+Operation Description. `initFlagArg` binds each one to the flag:
+`bindOp[T]` wraps it in a `proc (self: FlagArgBase)` that downcasts to
+`FlagArg[T]`, runs the op on `value`, then the clamp. The bound closure
+captures only the op's own closure, never the flag, so there's no
+reference cycle. `bindOp` is a proc of its own rather than inline in
+`initFlagArg`'s loop, because a closure built in a loop body shares the
+loop's variables (`docs/gotchas.md`). Its `BoundOp` also stores the
+description and a group number, one per `FlagOp`; the base's methods read
+nothing else:
 
-`defineArg`/`defineFlag` also generate a `method variantDesc` per type,
-used by `genHelp` (via the `variantsByDesc` helper) and completion
-(`describeVariants`) to show a flag variant's Flag Operation Description.
-It returns `""` unless the descriptions differ across the flag's ops, so
-neither caller checks that itself (ADR 0063). Each description is `desc`
-(a `flagOp*` call's own `help` argument, if given), else generic wording
-from `op`/`arg` — `"Set to {arg}"` (`=`), `"Increase by {arg}"` (`+=`),
-`"Decrease by {arg}"` (`-=`), all type-generic. Blank op (`""`) has
-no generic wording since its meaning is type-specific — `defineArg[T](
-typeName, flagHandler)` leaves it as `""`, while `defineFlag[T](typeName,
-blankDesc, flagHandler)` lets a type's author supply it (`bool`/`int` use
-this for `"Set to the opposite of the default"`/`"Increment by 1"`).
+- `accept` looks up the Variant (`c.value`, on every tier), raising
+  `ParseError` for one the flag doesn't have, clears on `arReplace`, and
+  runs the bound op.
+- `aliases` compares group numbers: the bare spellings in `flag*`'s own
+  `variants` are one group, and each `flagOp` another, even if two do the
+  same thing (`docs/adr/0027-flag-op-declarations.md`).
+- `variantDesc` returns the stored description, or `""` unless the flag's
+  descriptions differ (ADR 0063). `genHelp` (via `variantsByDesc`) and
+  completion (`describeVariants`) show it as is.
+- `accumulates` is always true; `envSource`/`configKey` read the fields.
 
-The public `defineArg`/`defineFlag`/`defineSetFlag` in `argumint.nim` carry
-the documentation and delegate to `argtypes`'s withheld `defineFlagArg`/
-`defineSetFlagArg`, which generate the methods.
+Where the closures come from:
 
-`defineSetFlag*[E: enum](elemType: typedesc[E])` (over `defineSetFlagArg`
-in `argtypes`) is a ready-built extension on top of this same mechanism,
-registering flag support for `set[E]`: each
-variant's value names one element of `E`, and `=`/`+=`/`-=`/`*=` set/
-include/exclude/intersect it (`value = value * arg` for `*=`). Call it once
-per concrete enum before declaring `flag[set[E]](...)`, the same opt-in
-discipline as `Priority`/`Level`/`Speed`. Plain `set[int]` isn't supported
-(Nim's `set` needs a bounded ordinal) — enum element types only.
+- **Named ops** (`=`, `+=`, `-=`, `*=`): `namedOp[T](op, value)`. On a
+  number, `+=`/`-=`/`*=` go through `stepped`, which does the arithmetic in
+  `T`'s base type with `addSat`/`subSat`/`mulSat` -- each checks the bounds
+  before the operation, so nothing overflows -- then clamps to
+  `low(T)..high(T)`, so a range type stops at its own bounds. On any other
+  type, `x op= value` uses `op=` if it compiles and `x = x op value`
+  otherwise, which is what makes sets and a `distinct` type with borrowed
+  operators work with no special case. `opError[T](op)` says why `T` can't
+  do an op, or `""`; the facade's `flagOp` evaluates it at compile time
+  (`op` is a `static string`) and turns it into `{.error.}`, and
+  `parseFlagOpsString` raises it as `SpecDefect`, so both say the same
+  thing. `describeOp` generates the description ("Increase by 5", "Add
+  red, ham"), values through `display.showValue`.
+- **Procs**: `flagOp(variants, apply, help)` stores the user's closure as
+  is; `flagOpIt[T]` is a template building one from an expression in `it`.
+  Neither generates a description.
+- **Implicit Operations**: `implicitOp[T](default)` gives `bool` "set to
+  the opposite of `default`", integers `stepped(+1)` and enums `next`
+  (walking `enumutils.items` for an enum with gaps), each stopping at the
+  type's last value. Any other `T` returns an op with no `apply`, and
+  `initFlagArg` raises `SpecDefect` if `variants` has bare spellings.
 
-Since a `flagOp*` call's `value: T` is always a real, already-typed Nim
-value rather than text parsed out of a variants string, there's no
-string-parsing escape hatch to speak of anymore -- a multi-element `set[E]`
-variant with no natural short string spelling is just
-`flagOp("--warm", "=", {red, orange, yellow})`, no different from any other
-`flagOp` call.
+The string form of `ops` (`parseFlagOpsString`, ADR 0028) matches each
+entry against `FlagOpVariantFormat`, which accepts only the four named ops;
+an entry it rejects is matched against `UnknownFlagOpFormat` to report the
+op it did find. Values go through `fromString[T]`, or for a `set[E]`
+through `fromString[E]` into a one-element set.
+
+`flag*` runs `initFlagArg`, which flattens every group (the implicit one,
+then each `FlagOp` in order) into the table, raising `SpecDefect` on a
+duplicate Variant.
 
 ### Flag Clamp
 
@@ -1020,11 +1015,11 @@ dependency on `backend`/`argumint`, deliberately structured to mirror
 `docs/adr/0016-flag-clamp.md` for why the two are kept separate. It's a
 `case`-discriminated `ref object` with two kinds, built via two
 constructors: `clamp[T](bounds: Slice[T], desc = none(string))` (requires
-`T` to support `<`, duck-typed at the point `apply` is called, same as
-`Validator.range`) and `adjust[T](proc: proc(v: T): T, desc = none(string))`
-(any `T`). Not named `range` -- that collides ambiguously with `validators.range`
-the instant both modules are imported into the same file, which
-`argumint.nim` does; Nim doesn't disambiguate two identical-signature
+`T` to support `<`, checked where `clamp` is called, so a flag of a type
+without it still works unclamped) and `adjust[T](proc: proc(v: T): T, desc =
+none(string))` (any `T`). Not named `range` -- that collides ambiguously
+with `validators.range` the instant both modules are imported into the
+same file, which `argumint.nim` does; Nim doesn't disambiguate two identical-signature
 generic procs by the caller's expected return type, so this needed a
 distinct name, not just a preference. Named simply `clamp` -- confirmed by
 scratch compile that it doesn't collide with `system.clamp`/
@@ -1050,13 +1045,12 @@ naming, and applies to registering *any* custom Arg type, not just a
 and `docs/gotchas.md`.
 
 `flag*`'s `clamp: FlagClamp[T] = nil` param stores directly onto
-`FlagArg[T].clamp`. `defineFlagArg`'s generated `parse*` -- the one method
-that calls `self.value.handleFlag(op, arg)`, whatever tier the Variant came
-from -- calls `self.value = self.clamp.apply(self.value)` immediately
-afterward when a clamp is present. So the clamp runs once per Flag
-Operation actually applied: a tier supplying several Variants calls `parse*`
-once per value, and each call clamps.
-`defineFlagArg` also generates a `method clear`, which restores `value` from
+`FlagArg[T].clamp`. Each bound Flag Operation (`bindOp`, "Flags" above)
+calls `self.value = self.clamp.apply(self.value)` right after its own
+closure, whatever tier the Variant came from. So the clamp runs once per
+Flag Operation actually applied: a tier supplying several Variants calls
+`parse` once per value, and each call clamps.
+`FlagArgBase.clear` calls the `reset` hook, which restores `value` from
 the private `FlagArg[T].default` field the constructor retained -- a Flag has
 no empty state to fall back to the way a `ValueArg` does, and its operations
 mutate `value` in place, so without that field its construction-time state
@@ -1252,11 +1246,11 @@ to the Arg itself — `join`, `in`, `some`, a `case` selector). The
 `otherwise` stays unevaluated on the supplied path; each binds `arg` to a
 local so the operand is evaluated exactly once. They read `ValueArg`'s
 private `value` field (via `rawValue`/`rawDefault`, `argumint/argtypes`)
-from an expansion in the caller's module, which works for the same reason
-`defineArg`/`defineFlag` can (`docs/gotchas.md`). None of the three branch
-on `seen` alone as originally specified by ADR 0040 — ADR 0044 (issue #29)
-changed each once a tier-less `put`/`parse` could leave provenance and the
-stored value disagreeing on purpose: a `ValueArg` or `ValuesArg` tests
+from an expansion in the caller's module, which works because the
+accessors are declared beside the type (`docs/gotchas.md`). None of the three
+branch on `seen` alone as originally specified by ADR 0040 — ADR 0044 (issue
+#29) changed each once a tier-less `put`/`parse` could leave provenance and
+the stored value disagreeing on purpose: a `ValueArg` or `ValuesArg` tests
 only whether `rawValue` is `some` (a `ValuesArg` holding `some(@[])` was
 supplied empty, and reads as itself); a `FlagArg` tests `seen` *or*
 `rawValue != rawDefault`, so a tier-less write is visible once it actually

@@ -1,5 +1,8 @@
 # Every number type, and range types, are Value Types
 
+> **Note (#248):** flags need no registering either now, so the last
+> consequence below no longer holds (ADR 0070).
+
 Amends ADR 0068, decision 16.
 
 ADR 0068 made a type a Value Type if it's a built-in (`string`, `int`,

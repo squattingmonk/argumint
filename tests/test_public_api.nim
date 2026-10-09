@@ -10,7 +10,7 @@
 # "Library-internal names ... unreachable" suite, which does import the
 # internals. Neither half means much alone; add to both together.
 #
-# One exception: `FlagOp` is private to `src/argumint/argtypes.nim` itself,
+# One exception: `BoundOp` is private to `src/argumint/argtypes.nim` itself,
 # not merely withheld from this facade, so no importer can name it. Its
 # mirror lives in that file's own embedded "the export boundary drawn in
 # issue #27" suite instead.
@@ -21,12 +21,11 @@
 # therefore pairs with `tests/test_help.nim`, which imports that submodule
 # and calls it, rather than with `test_argumint.nim`'s suite.
 #
-# A third, of exactly the `FlagOp` kind: the four string-to-scalar
-# conversions (`toInt`/`toFloat`/`toBool`/`toChar`), `fromString`, the
-# `flagOps` registry and `getFlagOps` are all private to
-# `src/argumint/argtypes.nim` -- not merely withheld from this facade -- so
-# no importer can name them. Their mirrors live in that file's own embedded
-# suite alongside `FlagOp`'s.
+# A third, of exactly the `BoundOp` kind: the string-to-scalar conversions
+# (`toBool`/`toChar`, and `toNumber` behind the rest) and `fromString` are
+# private to `src/argumint/argtypes.nim` -- not merely withheld from this
+# facade -- so no importer can name them. Their mirrors live in that file's
+# own embedded suite alongside `BoundOp`'s.
 
 import std/[os, sequtils, unittest]
 {.push warning[UnusedImport]: off.}
@@ -64,10 +63,11 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(ValuesArg[string])
     check nameable(FlagArg[bool])
 
-  test "the untyped base under `ValueArg`/`ValuesArg` stays out of the facade":
+  test "the untyped bases under `ValueArg`/`ValuesArg` and `FlagArg` stay out of the facade":
     # Exported from `argumint/argtypes` for the facade only. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
     check not nameable(ValueArgBase)
+    check not nameable(FlagArgBase)
 
   test "`Option` itself is exported, not just `some`/`none`":
     # `opt*`/`opts*`/`flag*`'s `env` param is `Option[EnvSource]` and
@@ -174,27 +174,24 @@ suite "Types nameable after a bare `import argumint`":
     # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
     # field into `argumint/argtypes`, keeping every public name here. Those
     # bookends are exported from that module only so this facade's generic
-    # constructors, accessors, and registration templates can reach them --
+    # constructors, accessors, `flagOp` and `flagOpIt` can reach them --
     # see `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
-    # `declared` rather than `compiles` for the two method generators:
-    # their `flagHandler` argument is an untyped block, which has no
-    # spelling that fits inside a `compiles(...)` expression.
-    check not declared(defineFlagArg)
-    check not declared(defineSetFlagArg)
     check not compiles(initValueArg[string](Optional, "-n", "x", "", "Options", false, noValidator[string]()))
     check not compiles(initValuesArg[string](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
     check not compiles(initFlagArg[bool]("-v", [], false, "", "Options", false, noClamp[bool](), none(EnvSource), noConfigKey()))
-    check not compiles(checkFlagOp[int]("+="))
+    check not compiles(opError[int]("+="))
+    check not compiles(namedOp("=", 1))
+    check not compiles(describeOp("=", 1))
+    check not compiles(initFlagOp[int]("-v", proc (value: var int) = discard, ""))
     check not compiles(splitFlagSpellings("-v"))
     check not compiles(parseFlagOpsString[int]("--n+=1"))
     check not compiles(Comma)
     check not compiles(FlagOpVariantFormat)
-    # Fully private to `argtypes`, not merely withheld: `checkFlagOp` is
-    # their only reader and it lives there too. Mirrored in that file's own
-    # embedded suite -- see the third exception in this file's header.
-    check not compiles(getFlagOps("int"))
-    check not compiles(flagOps)
+    check not compiles(UnknownFlagOpFormat)
+    # Fully private to `argtypes`, not merely withheld. Mirrored in that
+    # file's own embedded suite -- see the third exception in this file's
+    # header.
     check not compiles(fromString[int]("5"))
 
   test "the string-to-scalar conversions stay private to `argumint/argtypes`":
@@ -211,11 +208,11 @@ suite "Types nameable after a bare `import argumint`":
       let n: int = "5"
       discard n)
 
-  test "`FlagOp` stays unexported":
-    # `FlagArg.ops` is private, so naming `FlagArg[T]` never requires
-    # naming its element type. `FlagOpGroup` is the public half.
-    check not nameable(FlagOp[int])
-    check nameable(FlagOpGroup[int])
+  test "`BoundOp` stays unexported":
+    # `FlagArg`'s ops are private, so naming `FlagArg[T]` never requires
+    # naming their element type. `FlagOp` is the public half.
+    check not nameable(BoundOp)
+    check nameable(FlagOp[int])
 
   test "the FSM plumbing types stay unexported":
     # Implementation, not API: their operations live in `argumint/fsmgraph`,

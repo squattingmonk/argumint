@@ -110,8 +110,9 @@ larger program step by step.
   value to a set of choices or a range, or write your own check, and combine
   them with `all` and `any`. Help lists each limit for you.
 - **[Flags that do more than switch on](docs/guide/flags.md):** count how often
-  a flag is given, or give several names to one value, each setting, adding
-  to, or subtracting from it. A clamp keeps the result in bounds.
+  a flag is given, step through an enum, or give several names to one value,
+  each setting it, adding to it, or running your own code on it. A clamp keeps
+  the result in bounds.
 - **[Commands](docs/guide/commands.md):** nested to any depth, each with its
   own spec and any number of names, and `before`, `action`, and `after` hooks
   to run your code.

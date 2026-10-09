@@ -31,9 +31,10 @@ proc noClamp*[T](): FlagClamp[T] = nil
 
 proc clamp*[T](bounds: Slice[T], desc = none(string)): FlagClamp[T] =
   ## Returns a `FlagClamp` that pins a Flag's value to `bounds` after every
-  ## Flag Operation, silently -- never raises. Requires `T` to support `<`
-  ## (duck-typed at the point `apply` is actually called, same as
-  ## `argumint/validators`' own `range`). Not named `range` -- that name
+  ## Flag Operation, silently -- never raises. Requires `T` to support `<`,
+  ## checked here, so a flag of a type without it works unclamped (see
+  ## `docs/adr/0070-flag-operations-are-closures.md`). Not named `range` --
+  ## that name
   ## collides ambiguously with `argumint/validators`' `range` the moment
   ## both modules are imported together (identical `(Slice[T], desc = "")`
   ## shape). `clamp` itself doesn't collide with `system.clamp`/
@@ -42,6 +43,8 @@ proc clamp*[T](bounds: Slice[T], desc = none(string)): FlagClamp[T] =
   ## scratch compile, not assumed. See `docs/adr/0016-flag-clamp.md`. `desc`
   ## is `some("")` to suppress help output entirely, or `some("...")` to
   ## override the auto-generated text -- see `help*` below and issue #12.
+  when not compiles(bounds.a < bounds.b):
+    {.error: "`clamp` needs `<` for " & $T & "; use `adjust` instead".}
   FlagClamp[T](kind: fckRange, bounds: bounds, desc: desc)
 
 proc adjust*[T](adjustProc: proc (v: T): T, desc = none(string)): FlagClamp[T] =
@@ -59,7 +62,10 @@ proc apply*[T](self: FlagClamp[T], value: T): T =
   ## Returns `value` adjusted by `self` -- pinned to `self`'s bounds
   ## (`clamp`) or passed through `self`'s proc (`adjust`).
   case self.kind
-  of fckRange: math.clamp(value, self.bounds)
+  of fckRange:
+    # Unreachable without `<`, which `clamp` requires: see ADR 0070.
+    when compiles(math.clamp(value, self.bounds)): math.clamp(value, self.bounds)
+    else: value
   of fckAdjust: self.adjustProc(value)
 
 proc styledHelp*[T](self: FlagClamp[T]): StyledText =

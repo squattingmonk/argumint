@@ -1,5 +1,11 @@
 # Flag Clamp is a new mechanism, not a Validator extension
 
+> **Note (#248):** Flag Operations are now closures, with no
+> `defineFlagArg`; the clamp runs after each one. Named ops and Implicit
+> Operations on a number now stop at its type's bounds, an implicit clamp
+> by this ADR's rule: adjust silently, never raise. A declared clamp still
+> narrows it, and a range type needs no registration (ADR 0070).
+
 `flag[int]("-v, --verbose, --quiet=0, --boost+=5, --dampen-=2", ...)`
 (`examples/verbosity.nim`) let a Flag's shared value drift to any `int`
 forever. We wanted authors to be able to pin it to a range (e.g. `0..10`)

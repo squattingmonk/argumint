@@ -1,10 +1,9 @@
 # Nim implementation gotchas
 
 Compiler/language quirks discovered while building argumint that cost real
-debugging time. Read this before touching `defineArg`/`defineFlag`
-(`src/argumint.nim`), `defineFlagArg`/`defineSetFlagArg` and `ValueArgBase`'s
-hooks (`src/argumint/argtypes.nim`, the machinery those public names delegate
-to), or anything else that generates methods inside a template.
+debugging time. Read this before touching the constructors and `flagOp`/
+`flagOpIt` (`src/argumint.nim`), the hooks and Flag Operations behind them
+(`src/argumint/argtypes.nim`), or the validator combinators.
 
 - **`args*`/`opts*` are separate procs from `arg*`/`opt*`, not overloads of
   them.** Prototyping a second same-named overload of `arg*`/`opt*` with its
@@ -12,7 +11,7 @@ to), or anything else that generates methods inside a template.
   scalar call `arg("<name>", help = "...")` to the *seq* overload instead (or,
   in one variant, fail to compile at all) — both broke the common
   no-`default`-given scalar case. Distinct names sidestep overload resolution
-  entirely; this mirrors the `defineArg`/`defineFlag` naming split below.
+  entirely.
 
 - **A generic proc's defaulted parameter can be rescued for a bracket-less
   call by a sibling non-generic overload -- but only if none of its *other*
@@ -25,7 +24,7 @@ to), or anything else that generates methods inside a template.
   before overload resolution ever gets to prefer a matching non-generic
   sibling proc, confirmed via scratch compile regardless of declaration
   order. The fix is narrower than "avoid all `T`-dependent parameters",
-  though: `flag*`'s `ops: varargs[FlagOpGroup[T]] = @[]` is never
+  though: `flag*`'s `ops: varargs[FlagOp[T]] = @[]` is never
   poisonous, because its default is a *call* (or literal seq/array
   construction), not a bare `nil`. Swapping
   `nil` for a call-based equivalent -- `noValidator[T](): Validator[T] =
@@ -35,104 +34,16 @@ to), or anything else that generates methods inside a template.
   bare-string form, `flag*`'s bare-bool form) then correctly resolves the
   bracket-less call to the concrete overload. See
   `docs/adr/0024-flag-arg-opt-default-t-and-bare-call.md`.
-  One more wrinkle specific to `flag*`: its bare-bool overload's body calls
-  `flag[bool](...)` eagerly, which needs `"bool"` already registered in the
-  compile-time `flagOps` table before that instantiation is elaborated.
-  This used to be a *textual* ordering rule inside `src/argumint.nim` --
-  the overload had to sit after the `defineFlag bool, ...` call rather than
-  beside `flag*[T]` with the other constructors. Since issue #51 moved the
-  built-in registrations into `src/argumint/argtypes.nim`, module import
-  order guarantees it instead: `argumint.nim` imports `argtypes`, so every
-  built-in type is registered before a single line of the facade is
-  elaborated. The constraint is stronger, not weaker -- but it's now
-  invisible in the facade's layout, so don't move the registrations back.
-
-- **`defineArg`/`defineFlag`/`defineFlagArg` are separately-named
-  templates, not one template overloaded three ways**, even though
-  `defineArg[T](typeName, flagHandler)` and `defineFlag[T](typeName,
-  blankDesc, flagHandler)` look like arity-overloads of each other. Two
-  generic templates sharing a name, each forwarding an `untyped` param down
-  to a nested `{.inject.}` proc, corrupt each other's hygiene in this Nim
-  version — `op`/`arg` end up "undeclared identifier" inside `flagHandler`,
-  even in whichever overload actually resolves. Distinct names avoid it
-  entirely — don't collapse them back into overloads of `defineArg`.
-  Relatedly, inside `defineFlagArg` the generated `variantDesc` method
-  destructures its local `(op, arg, desc)` as `(vOp, vArg, vDesc)` — reusing
-  the plain names collides with the `{.inject.}`ed `op`/`arg` from the
-  sibling-generated `parse*` method, since `inject` makes those visible
-  across the whole template expansion, not just inside `flagHandler`.
-
-- **Never name a template parameter after a field the template body reads
-  off one of its other parameters.** The `backend.arbitrate*` template (a
-  proc, `arbitration`, since #144) took the tier as `tier: Option[SeenBy]`
-  and read `self.seenBy`. Naming that parameter `seenBy` instead compiled
-  fine everywhere the template expanded inside an ordinary proc, and failed
-  *only* where it expanded inside another template — `defineFlagArg`'s
-  generated `parse*` method — with:
-
-  ```
-  Error: undeclared field: 'seenBy`gensym141' for type argumint.FlagArg
-  ```
-
-  The parameter is gensym'd, and in the nested-template expansion the field
-  access `self.seenBy` binds to that gensym'd local rather than to the
-  field. The error names a symbol that appears nowhere in the source, and
-  the call site it points at looks correct, so this costs real time to
-  find. Renaming the parameter is the whole fix — `procCall`ing the base
-  method to dodge the expansion is not, since a `return` inside a template
-  exits whichever proc it expanded into, so the base method's early-out
-  stops short of the override's own body (verified: a weaker tier still
-  applied its Flag Operation).
-
-- **`std/strformat`'s `fmt"..."` cannot resolve *any* local identifier** —
-  not `self`, not a plain `let`, not a generic type param like `T` — when
-  used inside a `method`/`proc` that is itself generated inside a template
-  (as every method in `defineArg`/`defineFlag`/`defineFlagArg` is); it fails
-  with "undeclared identifier" even for names clearly in scope. Use `%`
-  (`strutils`) or `&` concatenation instead — e.g. `FlagArg.accept`'s
-  unknown-Variant `ParseError` is built with `"$# is not a known variant
-  for the flag $#" % [c.value.quoted, self.subject(c)]`, not `fmt"..."`.
-
-- **`defineSetFlag`'s body must build the `set[E]` type expression from its
-  `elemType: typedesc[E]` *parameter*, not from the bare generic symbol
-  `E`**, when passing it into `defineArg(set[...]): ...`. `defineArg`
-  forwards that type expression through further templates down to
-  `defineFlagOps`, a `macro` with an `untyped` parameter — `untyped`
-  parameters carry raw, unresolved AST, and `E` used there resolves to
-  *`defineSetFlag`'s own generic-parameter symbol* (`repr` literally `"E"`),
-  not the concrete type the caller instantiated; `elemType`, being an
-  ordinary parameter bound at the call site (`defineSetFlag(Color)`), carries
-  the concrete type through correctly. `defineFlagOps` keys its `flagOps`
-  `CacheTable` on `typeName.repr` (e.g. `"set[Color]"`) rather than `$typeName`
-  for the same reason — `system.$`/`macros.$` doesn't support compound AST
-  node kinds like the `nnkBracketExpr` a generic instantiation produces;
-  `repr` does.
 
 - **`$T` in a generic names whichever alias instantiated it first.** Nim
   caches one instance for `float`, `float64` and `type Meters = float`, so
   `$T` inside it prints the spelling that reached it first anywhere in the
   compile: `flag[float]` gives `"float"`, `flag(default = 1.0)` gives
-  `"float64"`. Don't key anything on `$T`; `flagOpsKey` (`argtypes.nim`)
-  falls back to the alias-free `getType` name instead (issue #212). A
-  regression test has to control which spelling comes first, so it takes a
-  file per order: `tests/test_flag_float_spelled.nim` and
-  `tests/test_flag_float_inferred.nim`.
-
-- **Nesting `defineArg(set[elemType]): case op ... value = arg ...` inside
-  another template's body** (`defineSetFlag`, rather than calling `defineArg`
-  directly at top level the way `Priority`/`Level`/`Speed` do) makes the
-  injected `value` from `defineFlagArg`'s `handleFlag` proc get shadowed by
-  an unrelated same-named symbol already in scope — here, `macrocache.value`,
-  since `macrocache` is imported at the top of the file. The compiler warns
-  "a new symbol 'value' has been injected... however macrocache.value(...)
-  captured at the proc declaration will be used instead" and then fails with
-  "'value' cannot be assigned to". Fixed with a module-level
-  `{.experimental: "openSym".}` (top of `src/argumint/argtypes.nim`, and of
-  `src/argumint.nim`, which holds the public `defineSetFlag`), which makes Nim
-  prefer the later-injected symbol over one merely visible at the enclosing
-  template's definition scope. Only needed because of this extra layer of
-  template nesting — the directly-called `Priority`/`Level`/`Speed` pattern
-  doesn't hit it.
+  `"float64"`. Don't key anything on `$T`. The `flagOps` registry once was,
+  and lost `float`'s ops under `float64` (issue #212); it's gone since #248,
+  but a message naming `T`, like `opError`'s, can show either spelling. The
+  regression tests take a file per order: `tests/test_flag_float_spelled.nim`
+  and `tests/test_flag_float_inferred.nim`.
 
 - **Appending to an `Option[seq[T]]` field via `self.value =
   some(self.value.get & @[tmp])` silently corrupted earlier elements under
@@ -337,26 +248,25 @@ to), or anything else that generates methods inside a template.
   shares any value name with `ArgKind` -- see the `mk`-prefix rename note
   in the entry below.
 
-- **A generated method's unqualified calls resolve against whatever module
-  *instantiates* the generic/template, not against `argumint.nim`'s own
-  imports.** Under this project's module-level `{.experimental: "openSym".}`
-  (see the `macrocache.value` entry above), any `defineArg`/`defineFlag`/
-  `defineFlagArg`/`defineSetFlag` instantiation -- for *any* custom type,
-  single-layer or nested inside another template -- generates methods
-  calling `self.validator.help()`/`self.validator.completions()`
-  (`validators.nim`) and `self.name(...)` (`backend.nim`), and each of
-  those resolves against the *calling file's* imports at instantiation
-  time. `argumint.nim` defends against this today by re-exporting exactly
-  what's needed (`export validators`, `export flagclamp`, `export
-  backend.name` -- see
-  `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`), so
-  `import argumint` alone is enough for a caller registering a custom type.
-  Adding a *new* generated method that calls some other unqualified symbol
-  from a module not yet re-exported will reintroduce this exact failure
-  mode (a confusing "type mismatch"/"undeclared field" error, not an
-  obviously import-related one) for that new symbol -- the fix is another
-  narrow or wholesale `export` in `argumint.nim`, matching whichever pattern
-  that ADR uses, not a per-caller workaround.
+- **A generic's unqualified calls resolve against whatever module
+  *instantiates* it, not against `argumint.nim`'s own imports.** Both
+  `argumint.nim` and `argtypes.nim` set `{.experimental: "openSym".}`, and
+  need it: without it, `initAnyValueArg`'s `default: default` reads
+  `system.default` rather than its caller's parameter (tried in #248). Under
+  it, the value path's generic procs call `self.validator.help()`/
+  `self.validator.completions()` (`validators.nim`) and `self.name(...)`
+  (`backend.nim`), and each of those resolves against the *calling file's*
+  imports at instantiation time. `argumint.nim` defends against this by
+  re-exporting exactly what's needed (`export validators`, `export
+  flagclamp`, `export backend.name` -- see
+  `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`), so `import
+  argumint` alone is enough for a caller using a custom type. A *new*
+  generic calling some other unqualified symbol from a module not yet
+  re-exported will reintroduce this exact failure mode (a confusing "type
+  mismatch"/"undeclared field" error, not an obviously import-related one)
+  for that new symbol -- the fix is another narrow or wholesale `export` in
+  `argumint.nim`, matching whichever pattern that ADR uses, not a
+  per-caller workaround.
 
   Two corollaries, both hit in #164:
   - **A name inside `fmt`'s braces in a generic proc is looked up in the
@@ -364,7 +274,7 @@ to), or anything else that generates methods inside a template.
     where it's written. `acceptImpl`'s conversion error therefore computes
     `let got = c.value.quoted` first and interpolates `{got}`.
   - **A caller's own proc with the same name wins** over the library's
-    withheld one. A generated method calling bare `showValue` picked up a
+    withheld one. A generic calling bare `showValue` picked up a
     caller's `proc showValue[T]`, so `defaultStr` calls
     `display.showValue` fully qualified. `tests/test_custom_types.nim`
     keeps a decoy in scope to catch a regression.
@@ -472,13 +382,13 @@ to), or anything else that generates methods inside a template.
 - **`varargs[T]` needs an explicit call-based default (`= @[]`), not none
   at all, or a bracket-less call to a sibling non-generic overload hits
   `docs/adr/0024`'s "cannot instantiate T" gotcha again.** `flag*[T](...,
-  ops: varargs[FlagOpGroup[T]], ...)` with no default on `ops` broke
+  ops: varargs[FlagOp[T]], ...)` with no default on `ops` broke
   `flag("--verbose")` (meant to resolve to the non-generic bare-bool
   overload) the same way a bare `nil` default on a `T`-dependent parameter
   did in that ADR -- a parameter whose *type* depends on an
   otherwise-unconstrained `T`, with nothing telling the compiler what to
   do about it, poisons overload resolution before it gets a chance to
-  prefer the matching sibling overload. `ops: varargs[FlagOpGroup[T]] =
+  prefer the matching sibling overload. `ops: varargs[FlagOp[T]] =
   @[]` (a call-based default, same shape as that ADR's proven-safe
   `noClamp[T]()`/`initTable[string, T]()` pattern) fixes it -- confirmed
   via scratch compile. Note `varargs`, not `seq`: a plain array literal
@@ -519,15 +429,14 @@ to), or anything else that generates methods inside a template.
   such problem: it reaches the private field wherever it's expanded. That
   asymmetry is the whole shape of `src/argumint/argtypes.nim`: the
   `ValueArg`/`FlagArg` types live there together with every template and
-  generic that touches their private fields (`defineFlagArg`/
-  `defineSetFlagArg`, `ValueArgBase`'s hooks, `rawValue`/`rawDefault`,
-  `acceptImpl`), while the public names those back -- `arg`/`opt`/`flag`,
-  `get`, `defineArg`/`defineFlag`/`defineSetFlag` -- stay in
-  `src/argumint.nim` and delegate through non-generic bookends
-  (`initValueArg`/`initValuesArg`/`initFlagArg`) or through those same
-  same-module templates. Reads go through accessors; writes go through
-  `init*`, which builds a `FlagArg` whole rather than exposing mutators
-  that could leave its `ops` and `aliases` tables disagreeing.
+  generic that touches their private fields (the hooks, `initFlagOp`,
+  `rawValue`/`rawDefault`, `acceptImpl`), while the public names those
+  back -- `arg`/`opt`/`flag`, `get`, `flagOp`/`flagOpIt` -- stay in
+  `src/argumint.nim` and delegate through bookends
+  (`initValueArg`/`initValuesArg`/`initFlagArg`/`initFlagOp`). Reads go
+  through accessors; writes go through `init*`, which builds a `FlagArg`
+  whole rather than exposing mutators that could leave its Flag Operations
+  half-bound.
 
   The failure mode here is nastier than an ordinary compile error, which is
   why the bookends exist rather than a hopeful `privateAccess`: the
@@ -741,3 +650,10 @@ to), or anything else that generates methods inside a template.
 - **`$` on a float gives different text at compile time.** In a `const`,
   `$maximumPositiveValue(float32)` is `3.40282347e+38`; at run time it's
   `3.4028235e+38`. `toNumber` builds its bounds text with `let`.
+
+- **A closure built in a loop body shares the loop's variables**, even a
+  `let` declared inside the body: three closures returning `i` from `for i
+  in [1, 2, 3]` all return 3. Build each one in a proc of its own, which
+  gets its own environment per call. `bindOp` (`argtypes.nim`) is that proc
+  for `initFlagArg`'s loop over its Flag Operations; the "two ops built in
+  one loop" test in that file's own suite pins it.

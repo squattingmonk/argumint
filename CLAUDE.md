@@ -68,11 +68,11 @@ registration.
   compilation, runtime matching, value conversion, and subcommands actually
   work, file by file) is in `docs/architecture.md`. Read that when you need
   to trace a bug through the pipeline or extend one of these phases.
-- **Nim/compiler gotchas** hit while building this (template hygiene
-  collisions, `fmt` failing inside generated methods, ORC seq-append
+- **Nim/compiler gotchas** hit while building this (generics resolving
+  names in the caller's module, closures in loops, ORC seq-append
   corruption, overload-resolution ambiguities) are in `docs/gotchas.md`.
-  Check it before fighting a confusing compile error in `defineArg`/
-  `defineFlag`/`defineFlagArg` or the validator combinators.
+  Check it before fighting a confusing compile error in a constructor,
+  `flagOp`/`flagOpIt`, or the validator combinators.
 
 Parsing happens in two distinct phases at a high level, detailed fully in
 `docs/architecture.md`:

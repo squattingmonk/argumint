@@ -5,6 +5,11 @@
 > that fill in its hooks live in `argtypes` and are withheld the same way
 > (ADR 0068).
 
+> **Note (#248):** `defineArg`, `defineFlag`, `defineSetFlag` and the
+> generators behind them are gone. `flagOp`/`flagOpIt` are the public names
+> for `initFlagOp`, `namedOp`, `describeOp` and `opError`, and `FlagArgBase`
+> is withheld like `ValueArgBase` (ADR 0070).
+
 Splitting `argumint.nim` divides each public feature in two. The rule for
 where the halves go:
 

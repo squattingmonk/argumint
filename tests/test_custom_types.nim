@@ -1,23 +1,22 @@
-# Registering a custom Arg type from a file that imports *only* `argumint`.
+# Custom types from a file that imports *only* `argumint`.
 #
 # This is the caller's-eye view of `docs/adr/0017-argumint-reexports-for-
-# custom-arg-types.md`: `defineArg`/`defineFlag`/`defineSetFlag` expand into
-# this file, generating methods whose bodies call into `validators`,
-# `backend`, and `std/strutils` by bare name, and `opt` finds a value type's
-# converter here (ADR 0068). Every other test that registers a type
+# custom-arg-types.md`: `opt` finds a value type's converter here (ADR
+# 0068), and `flagOp`/`flagOpIt` build Flag Operations from this file's own
+# procs and operators. Every other test of custom types
 # (`tests/test_argumint.nim`) also imports the internals, which would mask a
 # broken re-export -- so this file must not.
 #
-# Issue #51 split the templates' bodies (`argumint/argtypes`) from their
-# public names (`argumint.nim`); that boundary is exactly what this file
-# guards. See `docs/adr/0043-facade-machinery-seam.md`. It also covers a
-# hand-written `ref object of Arg`, which needs the same bare import.
+# Issue #51 split the machinery (`argumint/argtypes`) from its public names
+# (`argumint.nim`); that boundary is exactly what this file guards. See
+# `docs/adr/0043-facade-machinery-seam.md`. It also covers a hand-written
+# `ref object of Arg`, which needs the same bare import.
 
 import std/[os, osproc, strutils, unittest]
 
 import argumint
 
-# A value type with a hand-written converter, and set-flag support below.
+# A value type with a hand-written converter, and a set flag below.
 type Rank = enum
   rLow, rMid, rHigh
 
@@ -32,26 +31,10 @@ type Size = enum
 
 converter toSize(value: string): Size = parseEnum[Size](value)
 
-# `defineArg`: flag support, blank op left undescribed.
-defineArg(Size):
-  case op
-  of "=": value = arg
-  of "+=": value = Size(min(ord(value) + ord(arg) + 1, ord(large)))
-  else: raise newException(SpecDefect, "size flags only support = and +=")
-
 type Mood = enum
   calm, brisk, wild
 
 converter toMood(value: string): Mood = parseEnum[Mood](value)
-
-# `defineFlag`: same as above, plus a description for the blank op.
-defineFlag(Mood, "Cycle to the next mood"):
-  case op
-  of "": value = Mood((ord(value) + 1) mod 3)
-  of "=": value = arg
-  else: raise newException(SpecDefect, "mood flags only support blank and =")
-
-defineSetFlag(Rank)
 
 # A type with no `<=`, so no `range` validator: it must still be a value
 # type (#206).
@@ -86,9 +69,10 @@ suite "registering a custom type through a bare `import argumint`":
     check name == "ada"
     check rank == rLow
 
-  test "a custom flag type applies its ops, declared via `flagOp`":
+  test "a custom flag type applies a proc, declared via `flagOpIt`":
     let spec = (
-      size: flag[Size](ops = [flagOp("-b, --bigger", "+=", small, "Bump the size")],
+      size: flag[Size](ops = [flagOpIt[Size]("-b, --bigger", (if it < large: succ(it) else: it),
+                                             "Bump the size")],
         default = small, help = ""),
       help: help())
     spec.parse(args = @["--bigger"], command = "prog")
@@ -101,13 +85,11 @@ suite "registering a custom type through a bare `import argumint`":
     spec.parse(args = @["--huge"], command = "prog")
     check spec.size.get == large
 
-  test "an op the type never registered raises SpecDefect":
-    # The `getFlagOps` read path, reached from the facade's `flagOp*`.
-    expect SpecDefect:
-      discard flagOp("--shrink", "-=", small)
+  test "an op the type can't do doesn't compile":
+    check not compiles(flagOp("--shrink", "-=", small))
 
-  test "`defineFlag`'s blankDesc reaches the generated help text":
-    # A blank-op variant only shows its description when it diverges from a
+  test "an enum's Implicit Operation reaches the generated help text":
+    # A bare variant only shows its description when it diverges from a
     # sibling, so `--wild` is here to give `-m, --mood` something to differ
     # from -- same shape as `test_argumint.nim`'s bool/int coverage.
     let spec = (
@@ -115,10 +97,10 @@ suite "registering a custom type through a bare `import argumint`":
       help: help())
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "Cycle to the next mood" in helpText
+    check "Move to the next value" in helpText
     check "Set to wild" in helpText
 
   test "a caller's same-named helper doesn't replace the default's rendering":
@@ -133,7 +115,7 @@ suite "registering a custom type through a bare `import argumint`":
     check "Rank [default: rHigh]" in helpText
     check showValue(1) == "decoy" # the decoy is really in scope here
 
-  test "`defineSetFlag` registers set support for the same enum":
+  test "a set of the same enum is a flag type with no registration":
     let spec = (
       ranks: flag[set[Rank]](ops = [flagOp("--mid", "+=", {rMid}), flagOp("--high", "+=", {rHigh})],
         default = {}, help = ""),

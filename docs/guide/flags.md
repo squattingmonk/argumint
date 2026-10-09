@@ -31,6 +31,7 @@ verbose=3 force=true color=false
 - A `bool` flag is the opposite of its default once it's given. Giving it
   again doesn't flip it back.
 - An `int` flag adds 1 each time it's given, so `-vvv` gives 3.
+- An enum flag moves to the next value each time it's given.
 
 A flag can also be set by an environment variable or a config file, whose
 value is one of the flag's names. See [Value Precedence](precedence.md).
@@ -50,12 +51,18 @@ let spec = (
 )
 ```
 
-These types work out of the box:
+A flag can have any type. The names you give `flag` itself work for three
+kinds of type:
 
-- `bool` and `int`, whose names work as shown at the top of this page.
-- `float`, `string` and `char`, which need [operations](#flag-operations) to
-  say what each name does. Giving one a name of its own, as in
-  `flag[float]("--speed")`, raises a `SpecDefect` when the spec is built.
+- A `bool` becomes the opposite of its default.
+- An integer of any size, like `int` or `uint8`, adds 1. It stops at the
+  largest value the type can hold, so a `uint8` flag stops at 255.
+- An enum moves to its next value, stopping at the last one.
+
+A flag of any other type, like `float` or `string`, needs
+[operations](#flag-operations) to say what each name does. Giving one a name
+of its own, as in `flag[float]("--speed")`, raises a `SpecDefect` when the
+spec is built.
 
 ## Flag Operations
 
@@ -87,7 +94,7 @@ Usage:
   talk (-h | --help)
 
 Options:
-  -v, --verbose  How much to say [action: Increment by 1]
+  -v, --verbose  How much to say [action: Increase by 1]
   -q, --quiet    How much to say [action: Set to 0]
   --loud         How much to say [action: Increase by 5]
   -h, --help     Display this help message
@@ -98,9 +105,16 @@ Pass `help` to a `flagOp` to replace its description, as in
 
 These operations are built in:
 
-- `=` sets the value. It works for every built-in type.
-- `+=` adds to the value, and `-=` subtracts from it. They work for `int` and
-  `float`.
+- `=` sets the value. It works for every type.
+- `+=` adds to the value, `-=` subtracts from it, and `*=` multiplies it.
+  They work for any type with `+`, `-` or `*`, like numbers and
+  [sets](#sets-of-enum-values). Using one on a type without it, like `+=` on
+  a `string`, is a compile error.
+
+On an integer, `+=`, `-=` and `*=` stop at the smallest and largest values
+the type can hold, rather than wrapping around. A range type, like
+`range[0..10]`, stops at its own bounds. For other bounds, see
+[Keeping Values in Bounds](#keeping-values-in-bounds).
 
 The operations run in the order the user typed the names, so the same names in
 a different order can give a different value:
@@ -138,9 +152,11 @@ $ ./play --fast
 speed=2.0
 ```
 
-Each entry has only one name, and its value has to convert from a string. For
-an operation with more than one name, or a value you can't write as a string,
-use `flagOp`.
+Each entry has only one name, and one of the operations above. Its value is
+read the way an `opt` would read it: an enum by name, and any other type with
+its `converter` from `string`. For an operation with more than one name, a
+value you can't write as a string, or an [operation of your
+own](#your-own-flag-operations), use `flagOp`.
 
 ## Flags in a Usage String
 
@@ -199,10 +215,10 @@ Usage:
   move (--up | --down)
 ```
 
-## Your Own Flag Types
+## Your Own Flag Operations
 
-To use your own type for a flag, call `defineFlag` with a `case` on the
-operation:
+An operation can be code of your own. `flagOpIt` takes an expression for the
+flag's new value, in which `it` is the value it has now:
 
 ```nim
 import argumint
@@ -210,15 +226,11 @@ import argumint
 type Level = enum
   debug, info, warn, error
 
-defineFlag(Level, "Show less"):
-  case op
-  of "": (if value < high(Level): inc value)
-  of "=": value = arg
-  else: discard
-
 let spec = (
   level: flag("-q, --quieter", default = info, help = "Log level",
-    ops = [flagOp("--debug", "=", debug)]),
+    ops = [flagOp("--debug", "=", debug),
+           flagOpIt[Level]("-v, --louder", (if it > debug: pred(it) else: it),
+                           "Show more")]),
   help: help(),
 )
 
@@ -226,37 +238,40 @@ spec.parseOrQuit()
 echo spec.level
 ```
 
-Inside the `case`, `value` is the flag's value, `op` is the operation, and
-`arg` is the operation's value. The `""` branch is what the flag's own names
-do, and the second argument to `defineFlag` describes it in help. Without a
-`""` branch, the type's flags need `ops` for every name. argumint reads the
-operations a type supports from the `of` branches, and rejects any other
-operation when it builds the spec.
+`-q` and `--quieter` move to the next level, as for any enum flag, and `-v`
+and `--louder` move back one. The last argument to `flagOpIt` describes it in
+help. Without one, help shows no action for it.
 
 ```console
-$ ./log -q
-warn
 $ ./log -qqqq
 error
+$ ./log -vvv
+debug
 $ ./log --help
 Usage:
   log [options]
   log (-h | --help)
 
 Options:
-  -q, --quieter  Log level [action: Show less]
+  -q, --quieter  Log level [action: Move to the next value]
   --debug        Log level [action: Set to debug]
+  -v, --louder   Log level [action: Show more]
   -h, --help     Display this help message
 ```
 
-The string form of `ops` reads each value the way an `opt` would: an enum by
-name, and any other type with its `converter` from `string`. For more, see
-[Custom Types](custom-types.md#flags).
+`flagOp` takes a proc instead, which changes the value it's given:
+
+```nim
+flagOp("-v, --louder", proc (level: var Level) =
+  if level > debug: dec level)
+```
+
+An operation of your own works for a flag of any type, including one that
+argumint can't read from a string. See [Custom Types](custom-types.md#flags).
 
 ### Sets of Enum Values
 
-A flag can hold a `set` of an enum. Call `defineSetFlag` with the enum, and
-each operation's value is a set:
+A flag can hold a `set` of an enum. Each operation's value is a set:
 
 - `=` replaces the flag's set.
 - `+=` adds the elements, and `-=` removes them.
@@ -267,8 +282,6 @@ import argumint
 
 type Topping = enum
   cheese, ham, olives
-
-defineSetFlag(Topping)
 
 let spec = (
   toppings: flag(default = {cheese}, help = "Toppings",
@@ -291,6 +304,10 @@ $ ./pizza --ham --olives
 $ ./pizza --no-cheese --olives
 {olives}
 ```
+
+Without `help`, help describes each operation by its elements, as in "Add
+ham". In the string form of `ops`, each value is one element, as in
+`ops = "--ham+=ham, --olives+=olives"`.
 
 ## Keeping Values in Bounds
 
