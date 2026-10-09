@@ -1,5 +1,9 @@
 # `arg`/`opt`/`args`/`opts`/`flag` all get `default(T)` fallback *and* a bare-call shorthand
 
+> **Note (#248):** there's no `flagOps` table to populate any more (ADR
+> 0070), so the declaration-order constraint on `flag*`'s bare-bool
+> overload below no longer applies.
+
 Supersedes ADR 0023.
 
 ADR 0023 gave `arg[T]`/`opt[T]` a `default(T)` fallback (so `opt[float]("--v")`

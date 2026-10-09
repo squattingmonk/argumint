@@ -14,6 +14,10 @@
 > the one-argument `defineArg` is gone (ADR 0068). Only the flag-registering
 > templates still expand into the caller's file.
 
+> **Note (#248):** the flag-registering templates are gone too: a Flag
+> Operation is a closure built where its `flagOp` is called, so no template
+> expands into the caller's file any more (ADR 0070).
+
 `defineArg`/`defineFlag`/`defineFlagArg`/`defineSetFlag` — the public
 mechanism for registering a custom Positional Argument/Option/Flag type —
 generate methods whose bodies call `self.validator.help()`,

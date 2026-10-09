@@ -1,5 +1,11 @@
 # Flag Operations are declared via `flagOp`, not embedded in a variants string
 
+> **Note (#248):** partly superseded by ADR 0070. `FlagOpGroup[T]` is now
+> `FlagOp[T]`, holding a closure rather than an op string and value; `op`
+> is one of four named ops checked at compile time, or a proc replaces it.
+> Bare spellings run the type's Implicit Operation. Alias grouping
+> (decision 3) is unchanged.
+
 `flag*[T]`'s `variants` param used to be a comma-separated string where
 each item was `<flag>[<op><value>]` (e.g. `--boost+=5`), parsed with a PEG.
 Two side-table params were added later to work around what a string

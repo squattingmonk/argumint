@@ -5,8 +5,6 @@ import argumint # re-exports `some`/`none` -- see issue #12
 
 type Rank = enum bronze, silver, gold
 
-defineSetFlag(Rank)
-
 suite "Flag Clamp integration":
   test "repeated --verbose clamps at the upper bound":
     let spec = (
@@ -116,7 +114,7 @@ suite "Flag Clamp integration":
     except HelpError as e:
       helpText = e.msg
     check "clamp:" notin helpText
-    check "  -v, --verbose  Adjust verbosity [action: Increment by 1]" in helpText
+    check "  -v, --verbose  Adjust verbosity [action: Increase by 1]" in helpText
     check "  --quiet        Adjust verbosity [action: Set to 0]" in helpText
 
   test "adjust is the escape hatch for a type with no total order, e.g. set[E]":

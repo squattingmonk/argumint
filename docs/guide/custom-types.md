@@ -186,26 +186,19 @@ value, and can't be a value type. If you need one, comment on
 
 ## Flags
 
-To use a type for a [flag](flags.md), give `defineArg` a block that applies
-an operation. Inside it, `value` is the flag's value, `op` is the operation,
-and `arg` is the operation's value:
+A [flag](flags.md) can have any type, with no converter. Its operations say
+what each name does. `=` works for every type, and an operation of your own
+does whatever it says:
 
 ```nim
 import std/times
 import argumint
 
-converter toDateTime(value: string): DateTime = parse(value, "yyyy-MM-dd")
-
-defineArg(DateTime):
-  case op
-  of "=": value = arg
-  else: discard
-
 let today = now()
 
 let spec = (
   day: flag(default = today, help = "Day to report on",
-    ops = [flagOp("--yesterday", "=", today - 1.days, help = "Yesterday"),
+    ops = [flagOpIt[DateTime]("--yesterday", it - 1.days, "A day earlier"),
            flagOp("--last-week", "=", today - 1.weeks, help = "A week ago")]),
   help: help(),
 )
@@ -217,23 +210,20 @@ echo spec.day.format("ddd d MMM")
 ```console
 $ ./report
 Sat 3 Oct
-$ ./report --yesterday
-Fri 2 Oct
+$ ./report --yesterday --yesterday
+Thu 1 Oct
 ```
 
-Each `of` branch names an operation the type supports, and argumint rejects
-any other when it builds the spec. Here, only `=` works, and with no `""`
-branch every name needs `ops`: `flag[DateTime]("--day")` is rejected too. A
-flag's operation value has the flag's own type, so a `DateTime` flag can't
-add a `Duration`.
+`+=` and `-=` take a value of the flag's own type, so subtracting a
+`Duration` from a `DateTime` takes an operation of your own, like
+`--yesterday` here. Names given to `flag` itself only work for a `bool`, an
+integer or an enum, so every name of a `DateTime` flag needs an operation:
+`flag[DateTime]("--day")` raises a `SpecDefect` when the spec is built.
 
-The converter is still what makes the type work for an `arg` or `opt`, and the
-`ops` string form uses it too, so `ops = "--new-year=2026-01-01"` works.
-
-`defineFlag` does the same, and also takes a description of the `""`
-operation, which is what a flag's own names do. For an example, and for
-`defineSetFlag`, which makes a flag of a `set` of an enum, see
-[Your Own Flag Types](flags.md#your-own-flag-types).
+The string form of `ops` reads each value with the type's converter, so it
+needs one: with `converter toDateTime(value: string): DateTime`,
+`ops = "--new-year=2026-01-01"` works. See
+[Your Own Flag Operations](flags.md#your-own-flag-operations).
 
 ## Your Own Arg
 

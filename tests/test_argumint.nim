@@ -12,7 +12,9 @@ import argumint/display
 privateAccess(ValueArgBase)      ## White-box assertions on the arg
 privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
 privateAccess(ValuesArg[string]) ## public, state private.
+privateAccess(FlagArgBase)
 privateAccess(FlagArg[bool])
+privateAccess(FlagOp[int])
 
 template restoringEnv(keys: openArray[string], body: untyped) =
   ## Runs `body`, then puts each of `keys` back as it was, set or not.
@@ -28,22 +30,11 @@ type Priority = enum
 converter toPriority(value: string): Priority =
   parseEnum[Priority](value)
 
-defineArg(Priority):
-  case op
-  of "=": value = arg
-  else: raise newException(SpecDefect, "priority flags only support =")
-
 type Level = enum
   quiet, normal, loud
 
 converter toLevel(value: string): Level =
   parseEnum[Level](value)
-
-defineFlag(Level, "Bump up one level"):
-  case op
-  of "": value = Level((ord(value) + 1) mod 3)
-  of "=": value = arg
-  else: raise newException(SpecDefect, "level flags only support = operations")
 
 type Speed = enum
   slow, medium2, fast
@@ -51,17 +42,8 @@ type Speed = enum
 converter toSpeed(value: string): Speed =
   parseEnum[Speed](value)
 
-defineArg(Speed):
-  # Deliberately doesn't support "=" -- used to test that `flag*` raises
-  # SpecDefect when `env` is given for a type whose handler can't apply it.
-  case op
-  of "+=": value = Speed((ord(value) + 1) mod 3)
-  else: raise newException(SpecDefect, "speed flags only support += operations")
-
 type Color = enum
   red, green, blue
-
-defineSetFlag(Color)
 
 const warmColors = {red, green}
 
@@ -359,21 +341,20 @@ suite "Flags":
     spec.parse(usage = "[--priority]", args = @["--priority"], command = "prog")
     check spec.p == high
 
-  test "a bare name is rejected at construction when T has no blank op (#183)":
+  test "a bare name is rejected at construction when T has no Implicit Operation (#183)":
     template rejects(body: untyped) =
       var caught = ""
       try: discard body
       except SpecDefect as e: caught = e.msg
       check "--xx" in caught
-      check "blank operation" in caught
+      check "Implicit Operation" in caught
     rejects flag[float]("--xx")
     rejects flag[string]("--xx")
     rejects flag[char]("--xx")
     rejects flag[float]("--xx", ops = "--up+=1.5")
-    rejects flag[Priority]("--xx")
     rejects flag[set[Color]]("--xx")
 
-  test "a bare name still builds when T has a blank op, and ops alone are unaffected (#183)":
+  test "a bare name still builds when T has an Implicit Operation, and ops alone are unaffected (#183)":
     let spec = (
       quiet: flag("--quiet"),
       verbosity: flag[int]("-v, --verbose"),
@@ -418,25 +399,23 @@ suite "Flags":
       help: help(),
     )
     var helpText = ""
-    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
     # --priority and --boost are two independent explicit groups with
     # genuinely divergent auto-generated descriptions.
     check "Set priority" in helpText
     check "Set to medium" in helpText
 
-  test "a custom flag type can supply blank-op wording via defineFlag":
+  test "an enum flag's bare names describe its Implicit Operation":
     let spec = (
       lvl: flag[Level]("-b, --bump", ops = [flagOp("--set", "=", loud)], default = quiet, help = "Adjust level"),
       help: help(),
     )
     var helpText = ""
-    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+    try: spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e: helpText = e.msg
-    # -b/--bump (the implicit blank-op group) is what shows the
-    # defineFlag-supplied blankDesc.
     check "Adjust level" in helpText
-    check "Bump up one level" in helpText
+    check "Move to the next value" in helpText
 
 suite "Set flags":
   test "= sets the value to a singleton set, replacing any existing elements":
@@ -1309,7 +1288,7 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
-    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Adjust verbosity [action: Increment by 1]") in helpText
+    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Adjust verbosity [action: Increase by 1]") in helpText
     check ("  " & "--quiet".alignLeft(colWidth) & "  Adjust verbosity [action: Set to 0]") in helpText
     check ("  " & "--boost".alignLeft(colWidth) & "  Adjust verbosity [action: Increase by 5]") in helpText
     check ("  " & "--dampen".alignLeft(colWidth) & "  Adjust verbosity [action: Decrease by 2]") in helpText
@@ -1325,7 +1304,7 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     let colWidth = "-v, --verbose".len
-    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Increment by 1") in helpText
+    check ("  " & "-v, --verbose".alignLeft(colWidth) & "  Increase by 1") in helpText
     check ("  " & "--quiet".alignLeft(colWidth) & "  Set to 0") in helpText
 
   test "flagOp's own help param overrides the auto-generated description for a specific variant":
@@ -1337,24 +1316,24 @@ suite "Messages":
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Reset to silent" in helpText
     check "Set to 0" notin helpText
 
-  test "a bool flag's blank-op variants show \"Set to the opposite of the default\" when grouped with a divergent peer":
+  test "a bool flag's bare variants show \"Set to true\" when grouped with a divergent peer":
     let spec = (
-      moored: flag("-m, --moored", ops = [flagOp("--docked", "=", true)], default = false, help = "Ship status"),
+      moored: flag("-m, --moored", ops = [flagOp("--adrift", "=", false)], default = false, help = "Ship status"),
       help: help(),
     )
     var helpText = ""
     try:
-      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0), args = @["--help"], command = "prog")
+      spec.parse(settings = newSpecSettings(maxVariantsWidth = 0, style = nil), args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
     check "Ship status" in helpText
-    check "Set to the opposite of the default" in helpText
+    check "Set to true" in helpText
     check "Toggle" notin helpText
 
   test "same-op variants collapse into a single ungrouped row (no divergence to disambiguate)":
@@ -1368,13 +1347,13 @@ suite "Messages":
     except HelpError as e:
       helpText = e.msg
     check "  -v, --verbose  Adjust verbosity" in helpText
-    check "Increment by 1" notin helpText
+    check "Increase by 1" notin helpText
 
   test "maxVariantsWidth defaults to DefaultMaxVariantsWidth and is configurable":
     proc mkSpec(): auto = (verbosity: flag[int]("-v, --verbose, --quiet, --boost, --dampen", default = 0, help = "Adjust verbosity"), help: help())
     let default = newSpec(mkSpec())
     let narrow = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 20))
-    let unlimited = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 0))
+    let unlimited = newSpec(mkSpec(), settings = newSpecSettings(maxVariantsWidth = 0, style = nil))
     check default.settings.maxVariantsWidth == DefaultMaxVariantsWidth
     check narrow.settings.maxVariantsWidth == 20
     check unlimited.settings.maxVariantsWidth == 0
@@ -1689,7 +1668,7 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check tags.value.isNone
     check not verbose.value
     check verbose.ops.len == 2      # one per variant
-    check verbose.aliases.len == 2  # only populated for a multi-variant flag
+    check verbose.aliases("-v", "--verbose")
     check verbose.clamp.isNil
 
   test "`Spec`'s private bookkeeping fields exist":
@@ -1737,17 +1716,19 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
 
   test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
     # Exported from `argtypes` only so the facade's generic constructors,
-    # accessors, and registration templates can reach it; never
-    # re-exported -- see issue #51 and the ADR on the facade/machinery
-    # seam. `declared` for the two method generators, whose untyped
-    # `flagHandler` block has no spelling that fits inside `compiles(...)`.
-    check declared(defineFlagArg)
-    check declared(defineSetFlagArg)
-    checkFlagOp[int]("+=")  # the supported case raises nothing
+    # accessors, `flagOp` and `flagOpIt` can reach it; never re-exported --
+    # see issue #51 and the ADR on the facade/machinery seam.
+    check opError[int]("+=") == ""
+    check opError[bool]("*=") == "`*=` needs `*` for bool"
     expect SpecDefect:
-      checkFlagOp[int]("*=")
+      discard namedOp("*=", true)
+    check describeOp("+=", 5) == "Increase by 5"
+    check initFlagOp[int]("-v", proc (value: var int) = discard, "").spellings == @["-v"]
     check splitFlagSpellings("-v, --verbose") == @["-v", "--verbose"]
-    check parseFlagOpsString[int]("--boost+=5") == @[(variants: @["--boost"], op: "+=", value: 5, help: "")]
+    let boost = parseFlagOpsString[int]("--boost+=5")
+    check boost.len == 1
+    check boost[0].spellings == @["--boost"]
+    check boost[0].desc == "Increase by 5"
     let name = initValueArg[string](Optional, "-n, --name=<s>", "x", "", "Options", false, noValidator[string]())
     check name.variants == @["-n", "--name=<s>"]
     let tags = initValuesArg[string](Optional, "--tag=<t>", @["x"], "", "Options", false, noValidator[string]())
@@ -1760,6 +1741,8 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     let base: ValueArgBase = opt("--num=<n>", default = 1)
     check not base.multi
     check ValueArgBase(opts[int]("--num=<n>")).multi
+    let flagBase: FlagArgBase = flag[int]("-v")
+    check flagBase.ops.len == 1
 
   test "a `ValueArg`/`ValuesArg` constructor sets every hook on its base":
     # A hook left unset compiles, then crashes the first time a base method
@@ -1770,6 +1753,13 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
         when (field is proc):
           checkpoint name & ", multi = " & $base.multi
           check not field.isNil
+
+  test "a `FlagArg` constructor sets every hook on its base":
+    let base = FlagArgBase(flag[int]("-v"))
+    for name, field in base[].fieldPairs:
+      when (field is proc):
+        checkpoint name
+        check not field.isNil
 
   test "the read accessors behind `get` exist in `argumint/argtypes`":
     let
@@ -1789,6 +1779,8 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     # it rather than being stranded alone.
     check "-v, --verbose".split(Comma) == @["-v", "--verbose"]
     check "--boost+=5".match(FlagOpVariantFormat)
+    check not "--boost^=5".match(FlagOpVariantFormat)
+    check "--boost^=5".match(UnknownFlagOpFormat)
 
 suite "accumulates":
   test "is true only for args that build their value from more than one match":
@@ -2137,7 +2129,7 @@ suite "Fallback tiers (env and Config Source)":
         verbosity: flag[int]("--verbose", default = 0, env = envFor(t), configKey = keyFor(t), help = ""),
       )
       spec.parse(usage = "[--verbose]...", settings = settings, args = @[], command = "prog")
-      check spec.verbosity == 1 # blank-op variant's own increment-by-1, not an arbitrary value
+      check spec.verbosity == 1 # the Implicit Operation, not an arbitrary value
 
       let spec2 = (
         verbosity: flag[int]("--verbose", default = 0, env = envFor(t), configKey = keyFor(t), help = ""),
@@ -2163,13 +2155,12 @@ suite "Fallback tiers (env and Config Source)":
       spec.parse(usage = "[--verbose]...", settings = settings, args = @[], command = "prog")
       check spec.verbosity == 3
 
-    test tier & ": a flag of a type with no = support applies its own declared op":
-      # Speed's handler only supports `+=` (see its `defineArg` above). The
-      # value names the variant's bare spelling, not the flagOp's op/value.
+    test tier & ": a flag applies the proc its Variant declares":
+      # The value names the Variant, not what its Flag Operation does.
       let settings = t.supply("--speed")
       defer: clearFallback()
       let spec = (
-        speed: flag[Speed](ops = [flagOp("--speed", "+=", slow)], default = slow,
+        speed: flag[Speed](ops = [flagOpIt[Speed]("--speed", succ(it))], default = slow,
           env = envFor(t), configKey = keyFor(t), help = ""),
       )
       spec.parse(usage = "[--speed]", settings = settings, args = @[], command = "prog")

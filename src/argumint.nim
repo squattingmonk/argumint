@@ -113,11 +113,11 @@ export backend.envSource, backend.configKey, backend.envName
 
 # The two Arg types whose machinery issue #51 moved into
 # `argumint/argtypes`. Only their names travel back here: the private
-# fields, the `define*` method generators, and the `init*`/`raw*` bookends
+# fields, the untyped bases, and the `init*`/`raw*` bookends
 # the public names below are written against all stay withheld -- see
 # `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
 # which holds that line.
-export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOpGroup
+export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOp
 
 # Enough to pick a built-in Help Formatter or declare Long-Form Help Text;
 # writing your own formatter needs `import argumint/help` (ADR 0048/0049/0057).
@@ -132,48 +132,6 @@ export style.StyleRole, style.Styler, style.TextStyle, style.Theme,
 export style.StyledText, style.styled, style.`&`
 export console.wantsColor
 export terminal.ForegroundColor, terminal.Style
-
-# ------------------------------------------------------------------------------
-# Registering a custom flag type. A Value Type needs no registration; each of
-# these is the public, documented name for one of `argumint/argtypes`'s method
-# generators -- see `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`.
-# ------------------------------------------------------------------------------
-
-template defineArg*[T](typeName: typedesc[T], flagHandler: untyped): untyped =
-  ## Lets `T` be used for a flag. `flagHandler` is a code block that is
-  ## executed to handle an operation on a `FlagArg[T]` value. Within the
-  ## scope of the handler, the following variables are defined:
-  ## - `value: var T`: the flag's value, which can be modified by the handler
-  ## - `op: string`: the operation to be performed on `value` (e.g., `+=`)
-  ## - `arg: T`: an argument to the operation
-  ## Blank-op (`""`) variants show no auto-generated description in help
-  ## text; use `defineFlag` to supply one. `T` needs `$` and `==`. See the
-  ## [Custom Types](guide/custom-types.html) guide page.
-  ##
-  ## Register `T` under its own name, not an alias of it.
-  defineFlagArg(typeName, "", flagHandler)
-
-template defineFlag*[T](typeName: typedesc[T], blankDesc: string, flagHandler: untyped): untyped =
-  ## Same as `defineArg` above, but also registers `blankDesc` as the
-  ## auto-generated help-text description for blank-op (`""`) variants
-  ## (e.g. `"Set to the opposite of the default"`), since that behavior is
-  ## type-specific and can't be inferred from `(op, value)` alone the way
-  ## `=`/`+=`/`-=` can.
-  defineFlagArg(typeName, blankDesc, flagHandler)
-
-template defineSetFlag*[E: enum](elemType: typedesc[E]): untyped =
-  ## Registers flag support for `set[E]`. Call once per concrete enum `E`
-  ## before declaring `flag[set[E]](...)`, the same way a custom scalar flag
-  ## type opts in via `defineArg`/`defineFlag`. Each variant's value is a
-  ## `set[E]`:
-  ## - `=` sets the value to the given set.
-  ## - `+=` adds the given set (union).
-  ## - `-=` removes the given set (difference).
-  ## - `*=` keeps only what's also in the given set (intersection).
-  ##
-  ## The string form of `ops` (`"--cheese+=cheese"`) takes a single element
-  ## name, which is converted to a one-element set.
-  defineSetFlagArg elemType
 
 # ------------------------------------------------------------------------------
 # Type write accessors for args.
@@ -466,25 +424,42 @@ proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
   ## for full parameter docs.
   opts[string](variants, default, help, group, hidden, validator, env, configKey, complete)
 
-proc flagOp*[T](variants: string, op: string, value: T, help = ""): FlagOpGroup[T] =
-  ## Declares one explicit FlagOp Alias group for `flag*`'s `ops` param --
-  ## every spelling in `variants` shares this exact Flag Operation
-  ## (`op`/`value`) and `help` override. Unlike `flag*`'s own bare
-  ## `variants` string (always the type's implicit/blank-op behavior --
-  ## see `flag*`), `op` and `value` are mandatory here: a `flagOp` can
-  ## never represent a blank operation.
+proc flagOp*[T](variants: string, op: static string, value: T, help = ""): FlagOp[T] =
+  ## Declares a named Flag Operation for `flag*`'s `ops` param. Every
+  ## spelling in `variants` runs it, and each is a FlagOp Alias of the
+  ## others.
   ## - `variants` is a comma-separated list of bare spellings (`-f`/
   ##   `--flag`).
-  ## - `op` is one of the operations registered for `T` via `defineFlag`/
-  ##   `defineArg` (e.g. `"="`, `"+="`, `"-="` for the built-in numeric
-  ##   types) -- an unsupported op raises `SpecDefect`.
+  ## - `op` is `"="` (set to `value`), `"+="`, `"-="` or `"*="`. `x += value`
+  ##   uses `T`'s own `+=` if it has one, and otherwise `x = x + value`; so
+  ##   for a set, `+=`, `-=` and `*=` are union, difference and
+  ##   intersection. An op `T` can't do is a compile error.
   ## - `value` is the value the operation applies.
-  ## - `help` optionally overrides the auto-generated description shown in
-  ##   help text (e.g. "Increase by 5") for every spelling in this group.
-  checkFlagOp[T](op)
-  result = (variants: splitFlagSpellings(variants), op: op, value: value, help: help)
+  ## - `help` replaces the generated description shown in help text (e.g.
+  ##   "Increase by 5").
+  ##
+  ## On a number, `+=`, `-=` and `*=` stop at `T`'s bounds rather than
+  ## overflowing; a range type stops at its own.
+  const error = opError[T](op)
+  when error.len > 0: {.error: error.}
+  initFlagOp(variants, namedOp(op, value), if help.len > 0: help else: describeOp(op, value))
 
-proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
+proc flagOp*[T](variants: string, apply: proc (value: var T), help = ""): FlagOp[T] =
+  ## Declares a Flag Operation that runs `apply` on the flag's value, for
+  ## `flag*`'s `ops` param. `help` is its description in help text; with
+  ## none, it shows none. See `flagOp` above for `variants`, and
+  ## `flagOpIt` for the short form.
+  initFlagOp(variants, apply, help)
+
+template flagOpIt*[T](variants: string, expr: untyped, help = ""): FlagOp[T] =
+  ## Declares a Flag Operation that sets the flag's value to `expr`, in
+  ## which `it` is the value it had: `flagOpIt[int]("--double", it * 2)`.
+  ## See `flagOp` above.
+  flagOp[T](variants, proc (value: var T) =
+    let it {.inject.} = value
+    value = expr, help)
+
+proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
     default: T = zeroValue[T](), help: HelpText = "", group = "",
     hidden = false, clamp: FlagClamp[T] = noClamp[T](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[T] =
@@ -493,19 +468,16 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOpGroup[T]] = @[],
   ## be used to infer `T`; otherwise, `T` defaults to `bool` (see the bare-call
   ## overload below) unless set explicitly -- e.g. `flag[int]("--boost")`.
   ## - `variants` is a comma-separated list of bare spellings (`-f`/
-  ##   `--flag`) that all share the type's implicit/blank-op behavior:
-  ##   flipping `default` for bool flags, or incrementing the existing
-  ##   value by 1 for int flags. Every spelling here is automatically a
-  ##   FlagOp Alias of every other, since they can only ever share one
-  ##   `(op, value)` pair. A type with no blank op (`float`, `string`,
-  ##   `char`, a set, or a custom type with no `of ""` branch) takes no
-  ##   spellings here: spec construction raises `SpecDefect`.
-  ## - `ops` optionally declares one or more explicit FlagOp Alias groups,
-  ##   built with `flagOp*` -- each names its own spellings, `op`, `value`,
-  ##   and `help`, e.g. `ops = [flagOp("-b, --boost", "+=", 5, "Boost by
-  ##   5")]`. Two different `flagOp` groups are always independently
-  ##   reachable, even if their `(op, value)` coincidentally match -- see
-  ##   `docs/adr/0027-flag-op-declarations.md`.
+  ##   `--flag`) that run `T`'s Implicit Operation: a `bool` is set to the
+  ##   opposite of `default`, an integer increases by 1, and an enum moves
+  ##   to its next declared value, each stopping at its type's last value.
+  ##   Every spelling here is a FlagOp Alias of every other. Any other type
+  ##   takes no spellings here: spec construction raises `SpecDefect`.
+  ## - `ops` optionally declares more Flag Operations, each with its own
+  ##   spellings, built with `flagOp*` or `flagOpIt*`, e.g. `ops =
+  ##   [flagOp("-b, --boost", "+=", 5, "Boost by 5")]`. Two different
+  ##   `flagOp`s are always independently reachable, even if they do the
+  ##   same thing -- see `docs/adr/0027-flag-op-declarations.md`.
   ## - `default` is the default value of the flag if not given by the user;
   ##   defaults to `T`'s zero value (`default(T)`, e.g. `false` or `0`), or a
   ##   range type's lowest value if that excludes zero.
@@ -547,16 +519,17 @@ proc flag*[T](variants: string = "", ops: string, default: T = zeroValue[T](),
     configKey: ConfigKey = noConfigKey()): FlagArg[T] =
   ## Convenience overload: `ops` as a comma-separated string of
   ## `<flag><op><value>` entries (e.g. `"--quiet=0, --boost+=5,
-  ## --dampen-=2"`), each becoming its own single-spelling explicit FlagOp
-  ## Alias group -- sugar for, and parsed into, the equivalent array of
-  ## `flagOp*` calls. A multi-spelling explicit group, or a value with no
-  ## string spelling, still needs the array form directly. See `flag[T]`
+  ## --dampen-=2"`), each the same as a `flagOp*` call with one spelling.
+  ## `<op>` is `=`, `+=`, `-=` or `*=`; one `T` can't do raises `SpecDefect`.
+  ## `<value>` is read as an `arg[T]`'s would be, or for a `set[E]` as one
+  ## `E`. Several spellings, a proc, or a type with no converter from
+  ## string need the array form. See `flag[T]`
   ## above for full parameter docs, and
   ## `docs/adr/0028-flag-ops-string-convenience.md` for why this is a
   ## separate overload rather than folded into `variants` itself.
   flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
 
-proc flag*(variants: string = "", ops: varargs[FlagOpGroup[bool]] = @[],
+proc flag*(variants: string = "", ops: varargs[FlagOp[bool]] = @[],
     default: bool = false, help: HelpText = "", group = "",
     hidden = false, clamp: FlagClamp[bool] = noClamp[bool](),
     env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey()): FlagArg[bool] =

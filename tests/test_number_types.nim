@@ -14,12 +14,6 @@ type Fours = ref object of ConfigSource
 method lookup(self: Fours, key: ConfigKey): Option[seq[string]] =
   some(@["4"])
 
-# Flags still need registering until #248.
-defineArg(Positive):
-  case op
-  of "": value.inc
-  else: value = arg
-
 # Each spec holds its Arg as a plain `Arg`: two tuples that differ only in
 # `int` and `Natural` miscompile (docs/gotchas.md).
 

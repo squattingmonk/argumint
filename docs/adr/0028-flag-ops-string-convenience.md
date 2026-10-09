@@ -1,5 +1,9 @@
 # `flag*` gets an `ops: string` convenience overload alongside `ops: varargs[FlagOpGroup[T]]`
 
+> **Note (#248):** partly superseded by ADR 0070. The string form takes
+> only `=`, `+=`, `-=` and `*=`; an unknown op, `:` included, raises
+> `SpecDefect` listing them. A `set[E]` entry's value is one `E`.
+
 `docs/adr/0027-flag-op-declarations.md` replaced `flag*`'s comma-string
 `<flag>[<op><value>]` syntax with explicit `flagOp*(variants, op, value,
 help = "")` calls passed to `ops`. This fixed the drift risk between

@@ -271,20 +271,21 @@ let
   """
 
   FlagOpVariantFormat* = peg"""
-    # A flag spelling with an optional embedded <op><value> suffix --
-    # convenience sugar for flag*'s own `variants` string only (see
-    # `splitFlagSpellings`/`parseFlagOpsString` in argumint/argtypes): a
-    # bare spelling keeps the implicit blank-op behavior, a suffixed one
-    # becomes its own single-spelling explicit FlagOp Alias group,
-    # equivalent to passing one `flagOp*` call via `ops` instead. flagOp*'s
-    # own (multi-spelling) `variants` list never allows this suffix -- see
-    # FlagVariantFormat.
-    flag <- ^ (shortFlag / longFlag) (op value)? $
+    # A flag spelling with an embedded <op><value>: one entry of the string
+    # form of flag*'s ops (see `parseFlagOpsString` in argumint/argtypes).
+    flag <- ^ (shortFlag / longFlag) op value $
     shortFlag <- {'-' \w}
     longFlag <- {'--' \w (\w / ('-' \w))+}
-    op <- {equals / (\W? equals)}
-    equals <- '=' / ':'
+    op <- {'=' / '+=' / '-=' / '*='}
     value <- {.*}
+  """
+
+  UnknownFlagOpFormat* = peg"""
+    # The op in an entry FlagOpVariantFormat rejects, for its error: what
+    # follows the spelling, up to and including the first '='.
+    flag <- ^ (shortFlag / longFlag) {(!'=' \W)+ '='? / '='}
+    shortFlag <- '-' \w
+    longFlag <- '--' \w (\w / ('-' \w))+
   """
 
 func defaultGroup*(kind: ArgKind): string =
@@ -578,8 +579,8 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## or there's nothing meaningful to show. A `desc` gets Help Markup, ticks
   ## and all: help drops them for styled output. The base case (commands and
   ## message args, neither of which has a validator) has nothing to show;
-  ## `ValueArg`/`ValuesArg` override it through their untyped base, and
-  ## `FlagArg` per type via `defineFlagArg` (`argumint/argtypes`).
+  ## `ValueArg`/`ValuesArg` and `FlagArg` override it through their untyped
+  ## bases (`argumint/argtypes`).
   discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =
@@ -589,7 +590,7 @@ method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## non-empty result as-is, so an override must keep this rule itself --
   ## see `docs/adr/0063-flag-operation-description-in-completion.md`. The
   ## base case (everything but a flag) has nothing to show; `FlagArg`
-  ## overrides this per-type via `defineFlagArg`.
+  ## overrides this through its untyped base.
   ""
 
 method envSource*(self: Arg): Option[EnvSource] {.base.} =
@@ -597,8 +598,7 @@ method envSource*(self: Arg): Option[EnvSource] {.base.} =
   ## environment variable's name plus any per-Arg delimiter override -- or
   ## `none` if this arg has no environment-variable tier. Base case
   ## (positional args, commands, message args) has none; `ValueArg`/
-  ## `ValuesArg` override it through their untyped base, and `FlagArg` per
-  ## type via `defineFlagArg`.
+  ## `ValuesArg` and `FlagArg` override it through their untyped bases.
   ##
   ## One method rather than a name/delimiter pair, so the two can't
   ## disagree: a delimiter override with no variable to apply it to is a
@@ -623,8 +623,8 @@ method configKey*(self: Arg): ConfigKey {.base.} =
   ## Value Precedence's Config Source tier, or `noConfigKey()` if none
   ## configured.
   ## Base case (positional args, commands, message args) has no notion of
-  ## one; `ValueArg`/`ValuesArg` override it through their untyped base,
-  ## and `FlagArg` per type via `defineFlagArg`. See
+  ## one; `ValueArg`/`ValuesArg` and `FlagArg` override it through their
+  ## untyped bases. See
   ## `docs/adr/0018-config-source.md`.
   noConfigKey()
 
@@ -662,7 +662,7 @@ proc subject*(arg: Arg, c: Contribution): string =
 
 method aliases*(self: Arg, a, b: string): bool {.base.} =
   ## Returns whether `a` and `b` are aliases for `self`. Overridden by
-  ## `FlagArg[T]`, which restricts this to FlagOp Aliases (variants sharing
+  ## `FlagArg`'s base, which restricts this to FlagOp Aliases (variants sharing
   ## an equivalent Flag Operation). Every call site guarantees `a` and `b`
   ## are both already-declared variants of `self` -- never a foreign string
   ## -- so this doesn't re-derive that from `self.variants`; a plain
