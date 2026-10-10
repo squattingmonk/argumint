@@ -20,6 +20,14 @@
 #   even callable, e.g. before the `Spec` itself is constructed; this
 #   example has no such setup, so it isn't used below.
 #
+# `deploy <env> <host>` also shows a completer proc (see
+# docs/adr/0071-runtime-completers.md): `<host>`'s values can't be listed up
+# front, since they depend on the environment, so its `complete` proc looks
+# them up when the user presses Tab. By then `env` already holds what the user
+# typed, so the proc reads it by capturing `env`, declared with `let` before
+# the spec. The proc runs inside the user's shell with no hook run first: it
+# stays quiet (no `echo`, no stderr) and doesn't rely on `connectToDatabase`.
+#
 # Try it after compiling:
 #   nim c examples/completion.nim
 #   set -x PATH $PWD/examples $PATH    # fish; use `export PATH=...` for bash/zsh
@@ -35,6 +43,8 @@
 #   completion completion fish | source    # fish has no <() -- pipe into source
 #   completion --log-level=<TAB>           # debug info warn error
 #   completion dep<TAB>                    # deploy
+#   completion deploy production <TAB>     # web1 web2 db1
+#   completion deploy staging <TAB>        # stage1
 #
 # In a live fish or zsh shell (not bash, which has no way to render one),
 # each candidate's own `help = "..."` text shows up alongside it in the
@@ -44,7 +54,6 @@
 # docs/adr/0022-completion-candidate-help-text.md.
 
 import std/strformat
-import std/strutils
 
 import argumint
 
@@ -61,25 +70,39 @@ proc connectToDatabase() =
   # of the script.
   stderr.writeLine "Connecting to the database..."
 
+proc hostsIn(env: string): seq[(string, string)] =
+  ## Each host in `env`, with a description for the completion menu. A real
+  ## CLI would ask an inventory service, with a timeout of its own.
+  case env
+  of "production": @[("web1", "Frontend"), ("web2", "Frontend"),
+                     ("db1", "Primary database")]
+  of "staging": @[("stage1", "Everything, on one box")]
+  else: @[]
+
 proc cmdDeploy(spec: tuple, info: HookInfo) =
-  echo fmt"Deploying to {spec.env}"
+  echo fmt"Deploying to {spec.host} in {spec.env}"
 
 proc cmdCompletion(spec: tuple, info: HookInfo) =
-  echo built.completionScript(parseEnum[Shell](spec.shell), "completion")
+  echo built.completionScript(spec.shell, "completion")
 
 let
+  env = arg("<env>", validator = choice(["staging", "production"]), help = "Environment to deploy to")
   deploy = (
-    env: arg("<env>", validator = choice(["staging", "production"]), help = "Environment to deploy to"),
+    env: env,
+    host: arg("<host>", help = "Host to deploy to",
+      complete = proc (ctx: CompletionContext): Offer = offer(hostsIn(env.get))),
+    help: help(),
   )
   completionCmd = (
-    shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"]), help = "Shell to print a completion script for"),
+    shell: arg[Shell]("<shell>", help = "Shell to print a completion script for"),
+    help: help(),
   )
   spec = (
     logLevel: opt(
       "--log-level=<level>", default = "info",
       validator = choice(["debug", "info", "warn", "error"]), help = "Logging verbosity"
     ),
-    deploy: command("deploy", deploy, action = cmdDeploy, usage = "<env>", help = "Deploy to an environment"),
+    deploy: command("deploy", deploy, action = cmdDeploy, usage = "<env> <host>", help = "Deploy to an environment"),
     completion: command(
       "completion", completionCmd, action = cmdCompletion, usage = "<shell>",
       help = "Print a completion script for the given shell"

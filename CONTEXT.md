@@ -883,10 +883,23 @@ it. A blank line is never one.
 _Avoid_: Empty usage line, blank alternative
 
 **Path Completion**:
-Which paths shell completion offers for a value with no enumerable values
-of its own: file names, with directories to descend into (`Files`, the
-default), directories only (`Dirs`), or none (`None`). Set per Arg with
-`complete`. A `choice` validator's values replace it, since no path would
-pass it. `__complete` names it on the last line of its output. See
-`docs/adr/0066-completion-falls-back-to-paths.md`.
+Which paths shell completion offers beside a value's candidates: file
+names, with directories to descend into (`Files`), directories only
+(`Dirs`), or none (`None`). By default a value with no enumerable values
+offers `Files`, and one with a `choice` validator offers `None`, since no
+path would pass it. A Completer decides it per Tab through `offer`'s
+`paths`, and `complete = Dirs` is a Completer offering just that.
+`__complete` names it on the last line of its output. See
+`docs/adr/0066-completion-falls-back-to-paths.md` and
+`docs/adr/0071-runtime-completers.md`.
 _Avoid_: File fallback, file completion (each names only one of the three)
+
+**Completer**:
+What an Arg's `complete` holds: how shell completion offers its value. A
+proc taking a `CompletionContext` and returning an `Offer` (candidate
+values, optionally described, and a Path Completion) runs each Tab, after
+earlier values are filled as `parse` would fill them, but with no hooks. A
+Path Completion converts to one offering just those paths. The default
+offers the Arg's enumerable values, otherwise files. See
+`docs/adr/0071-runtime-completers.md`.
+_Avoid_: Completion function, completion callback

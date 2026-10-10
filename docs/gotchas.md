@@ -657,3 +657,15 @@ debugging time. Read this before touching the constructors and `flagOp`/
   gets its own environment per call. `bindOp` (`argtypes.nim`) is that proc
   for `initFlagArg`'s loop over its Flag Operations; the "two ops built in
   one loop" test in that file's own suite pins it.
+
+- **A converter from a closure type won't take a proc literal.** A literal
+  capturing nothing is `{.nimcall.}`, and Nim won't chain the implicit
+  nimcall-to-closure conversion with a converter. `toCompleter`
+  (`argumint.nim`) is generic over `P: proc` instead, guarded by
+  `when not compiles(CompleterProc(fn))` so an effect-annotated proc still
+  converts and any other shape gets a clear `{.error.}`.
+
+- **A generic converter from any proc catches `$` on a proc.** System `$`
+  for an object prints each field; for `Completer.fn` it finds no `$` for a
+  proc, converts the proc to a `Completer` and recurses until the call
+  depth limit. `Completer` has its own `$` to stop it.

@@ -47,6 +47,45 @@ type
     None
       ## No paths
 
+  CompletionContext* = object
+    ## What a Completer is told about the Tab it answers.
+    word*: string
+      ## The word being completed, possibly `""`. argumint filters the
+      ## candidates by it anyway, so it is only for narrowing a slow query.
+
+  Offer* = object
+    ## A Completer's answer: candidate values, each with a description
+    ## (possibly `""`), and which paths the shell adds to them. Built with
+    ## `offer`.
+    values: seq[tuple[value, help: string]]
+    paths: PathCompletion
+
+  CompleterProc* = proc (ctx: CompletionContext): Offer {.closure.}
+    ## Lists an Arg's completion candidates when the user presses Tab. It
+    ## runs inside the shell's completion, so:
+    ## - return quickly, with your own timeout on any network call;
+    ## - never write to stdout, which would become candidates, or stderr,
+    ##   which lands in the user's shell;
+    ## - expect no hook to have run, so nothing a `before` hook sets up.
+    ##
+    ## Earlier Args have their values filled, so a completer reads them by
+    ## capturing them. A `CatchableError` it raises offers nothing. See
+    ## `docs/adr/0071-runtime-completers.md`.
+
+  CompleterKind = enum
+    ckDefault ## The Arg's enumerable values, else files
+    ckFixed ## The same Offer every Tab, such as a `PathCompletion`'s
+    ckProc ## A `CompleterProc`, run after earlier values are filled
+
+  Completer* = object
+    ## How shell completion offers an Arg's value: a `CompleterProc`, or a
+    ## `PathCompletion` converted by `toCompleter`. The zero value offers
+    ## the Arg's enumerable values if it has any, otherwise files.
+    case kind: CompleterKind
+    of ckDefault: discard
+    of ckFixed: fixed: Offer
+    of ckProc: fn: CompleterProc
+
   SeenBy* = enum
     ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
     ## provenance (`CONTEXT.md`). Ordered weakest-to-strongest, mirroring the
@@ -92,10 +131,10 @@ type
       ## The group where the argument should appear in help messages
     hidden*: bool
       ## Whether the arg is kept out of help messages and shell completion
-    complete*: PathCompletion
-      ## Which paths completion offers for this Arg's value, unless it has
-      ## enumerable values -- see
-      ## `docs/adr/0066-completion-falls-back-to-paths.md`.
+    complete*: Completer
+      ## How shell completion offers this Arg's value; the zero value offers
+      ## its enumerable values, else files -- see
+      ## `docs/adr/0071-runtime-completers.md`.
     seenBy*: SeenBy
       ## Which Value Precedence tier supplied this Arg -- written by `parse`
       ## right after `accept` stores the value, so provenance can never outrun
@@ -287,6 +326,41 @@ let
     shortFlag <- '-' \w
     longFlag <- '--' \w (\w / ('-' \w))+
   """
+
+proc initOffer*(values: seq[tuple[value, help: string]], paths: PathCompletion): Offer =
+  ## Machinery behind the facade's `offer`.
+  Offer(values: values, paths: paths)
+
+func values*(o: Offer): lent seq[tuple[value, help: string]] =
+  ## `o`'s candidates, in the order given.
+  o.values
+
+func paths*(o: Offer): PathCompletion =
+  ## Which paths the shell adds to `o`'s candidates.
+  o.paths
+
+func initCompleter*(fixed: Offer): Completer =
+  ## A Completer offering `fixed` every Tab, with nothing filled.
+  Completer(kind: ckFixed, fixed: fixed)
+
+func initCompleter*(fn: CompleterProc): Completer =
+  ## A Completer running `fn`, with earlier values filled first.
+  Completer(kind: ckProc, fn: fn)
+
+func isDefault*(c: Completer): bool =
+  ## Whether `c` is the zero value: the Arg's enumerable values, else files.
+  c.kind == ckDefault
+
+func fills*(c: Completer): bool =
+  ## Whether earlier values are filled before `c` runs.
+  c.kind == ckProc
+
+proc run*(c: Completer, ctx: CompletionContext): Offer =
+  ## What `c` offers for `ctx`. Not for the default Completer.
+  case c.kind
+  of ckDefault: raiseAssert "the default Completer has no Offer of its own"
+  of ckFixed: c.fixed
+  of ckProc: c.fn(ctx)
 
 func defaultGroup*(kind: ArgKind): string =
   ## The help group an Arg of `kind` goes in when its `group` is empty.

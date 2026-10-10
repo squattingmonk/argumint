@@ -61,3 +61,8 @@ Breaking: `completeArgs` and `CompletionCandidate` are gone from the
 facade, and `__complete`'s output gains a last line that any third-party
 adapter must strip. Out of scope: extension filters and a custom completer
 proc.
+
+**Update:** amended by `docs/adr/0071-runtime-completers.md`. `complete`
+now takes a Completer, which a `PathCompletion` converts to (point 2), and
+any explicit `complete`, `Dirs` included, replaces `choice` values (point
+3). A custom completer proc is no longer out of scope.

@@ -1468,9 +1468,11 @@ originally sketched into. `resolveCompletion*` reads each live frontier state's
 own outgoing
 transitions for next-word candidates (`candidateWords`) — or, when the last
 already-typed word is itself a bare Optional-kind option name still
-awaiting its value (`pendingOptionalArgs`), completes that Arg's own
-`completions()` instead (populated from a `Validator`'s enumerable
-candidates — see `validators.completions`/`Arg.completions`). Candidate
+awaiting its value (`pendingOptionalArgs`), completes that Arg's value
+instead. Either way, a value's candidates come from `offerFor` (see
+"Completers" below): the Arg's Completer, or by default its own
+`completions()` (populated from a `Validator`'s enumerable candidates — see
+`validators.completions`/`Arg.completions`). Candidate
 words are read from `spec.options` (the canonical bare-spelling → `Arg`
 map `match`'s `mkOption`/`mkOptions` branches themselves resolve against), not
 `Arg.variants` directly — the latter, for an Optional-kind `ValueArg`
@@ -1509,11 +1511,11 @@ option given before its place in the line, such as `-v` after `a` under
 
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
-`help` is populated only for an Arg's own name (option/flag/command
-candidates, via `completion.describeVariants`), never for one of its enumerated
-*values* (an `mkArgument` matcher's `completions()`, or a pending option's
-own `completions()`), which always carry `help == ""` — there's no
-per-value description in the data model to draw from. `describeVariants`
+`help` is populated for an Arg's own name (option/flag/command candidates,
+via `completion.describeVariants`), and for a value only when a Completer's
+`offer` gave it one; an enumerated value from `completions()` always
+carries `help == ""`, since there's no per-value description in the data
+model to draw from. `describeVariants`
 reads a variant the way help's row does: the Arg's short `.help`, then its
 Flag Operation Description from `Arg.variantDesc(variant)` (`backend.nim`)
 as `[action: ...]` when that is non-empty (e.g. a flag's `-i`/`-d`
@@ -1556,12 +1558,13 @@ display string in place of its word, so the script writes
 Besides its candidates, `resolveCompletion*` returns which paths the shell
 should add (`PathCompletion`, `backend.nim`), and `parse*` prints that as
 the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
-(`completion.directive`). Every position that takes a free-form value
-contributes its Arg's `complete` — each non-hidden `mkArgument` transition
-out of a frontier state, or each pending option in the pending-value case
-— unless the Arg has enumerable `completions()`, which a `choice` accepts
-alone. `Files` beats `Dirs`, which beats `None`; `widen` takes the minimum,
-the enum's declaration order. Each script strips the last line
+(`completion.directive`). Every position that takes a value contributes
+the paths of its Arg's `Offer` — each non-hidden `mkArgument` transition
+out of a frontier state, or each pending option in the pending-value case.
+By default that is `Files`, or `None` if the Arg has enumerable
+`completions()`, which a `choice` accepts alone. `Files` beats `Dirs`,
+which beats `None`; `widen` takes the minimum, the enum's declaration
+order. Each script strips the last line
 unconditionally and adds file names (bash `compgen -f` with
 `compopt -o filenames`, fish `__fish_complete_path`, zsh `_files`) or
 directories (`compgen -d`, `__fish_complete_directories`, `_files -/`). See
@@ -1569,3 +1572,39 @@ directories (`compgen -d`, `__fish_complete_directories`, `_files -/`). See
 runnable on bash 3.2, macOS's `/bin/bash`: no `mapfile`, no `case` inside a
 process substitution, and `compopt` only where it exists, so 3.2 completes
 paths without escaping them.
+
+### Completers
+
+`completion.offerFor` answers "what does this Arg's value offer this Tab"
+with an `Offer`: candidate values, each with an optional
+description, and a `PathCompletion`. `Completer` (`backend.nim`) is a
+case object: the default gives the Arg's `completions()`, or files if it
+has none; a fixed one, which a `PathCompletion` converts to, gives the
+same `Offer` every Tab; and a proc one runs with `CompletionContext.word`
+set to the word being completed. A `CatchableError` from the proc is an
+empty `Offer` with no paths. `offer`, `toCompleter` and `$` live in
+`argumint.nim`, built on withheld `initOffer`/`initCompleter`.
+A `Tab` object caches each Arg's `Offer` for the request, so a Completer
+reached from several frontier branches, or from both the candidate and
+the path loops, runs once. Values are prefix-filtered by `addUnseen` like
+any other candidate, and descriptions go through `prose.summary`. See
+`docs/adr/0071-runtime-completers.md`.
+
+A proc Completer (`Completer.fills`) is first given the earlier
+values, through `Tab.fill`. The walk never converts a value: `matches` holds
+raw strings. So `fill` stores the branch's `ParseContext.matches` as
+`parseAllValues` does (`Match.idx` order, `byCli`), then runs
+`applyFallbacks` with fresh `Tiers` over the root Spec and each level in
+`pc.levels`, which on the completion path holds only the levels below the
+root. Each Arg's write is wrapped on its own, so one bad value leaves just
+that Arg unsupplied. `dispatch` never runs, so no hook does. The walk's own
+probes still read env vars and Config Sources, to judge whether an option
+is satisfied, but only the fill writes.
+
+The fill runs once per Tab, from the first branch that needs it, and clears
+nothing. Filling per branch would have run each Completer once per live
+branch (twice for an optional `-h`), and clearing between branches would
+have destroyed pre-seeded values (ADR 0041). `collectFrontier` tries
+transitions in `walk`'s order, so an ambiguous `(<user> | <org>) <repo>`
+binds `acme` to `user`, as `parse` does. A fixed Completer fills nothing,
+so a CLI using only `PathCompletion`s sees no writes.

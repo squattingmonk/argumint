@@ -67,6 +67,10 @@ newline would corrupt the wire format. Not validated against.
   distinguish `debug` from `info` and reads as noise in the completion
   menu, so an `Argument`-kind or pending-option-value candidate's `help` is
   always `""`.
+
+  **Update:** amended by `docs/adr/0071-runtime-completers.md`. A
+  completer's `offer` can give each value its own description; `choice`
+  and enum values still carry none.
 - **Dedup keys on `.value` only**: `candidateWords`'s and the pending-value
   loop's existing first-seen-wins dedup (ADR 0012) switched from scanning
   `seq[string]` membership to a `HashSet[string]` of seen values, since a

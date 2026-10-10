@@ -229,9 +229,21 @@ suite "`PathCompletion` values beside std modules (#200)":
       b: opt("--b=<b>", complete = Dirs),
       c: args("<c>", complete = None),
     )
-    check spec.a.Arg.complete == PathCompletion.Files
-    check spec.b.Arg.complete == PathCompletion.Dirs
-    check spec.c.Arg.complete == PathCompletion.None
+    check $spec.a.Arg.complete == "Completer(fixed)"
+    check $spec.b.Arg.complete == "Completer(fixed)"
+    check $spec.c.Arg.complete == "Completer(fixed)"
+
+suite "Completers (#215)":
+  test "a proc converts, and its Offer is built with offer":
+    let a = arg("<a>", complete = proc (ctx: CompletionContext): Offer =
+      offer([("x", "An x")], paths = Files))
+    check $a.Arg.complete == "Completer(proc)"
+    check $arg("<b>").Arg.complete == "Completer(default)"
+
+  test "an Offer's fields are opaque":
+    let o = offer(["x"])
+    check not compiles(o.values)
+    check not compiles(o.paths)
 
 suite "`Spec` is an opaque handle":
   setup:

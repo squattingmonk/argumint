@@ -3,10 +3,20 @@
 # `docs/adr/0012-fsm-driven-shell-completion.md` and
 # `docs/adr/0022-completion-candidate-help-text.md`.
 
-import std/[algorithm, os, osproc, sequtils, strutils, unittest]
+import std/[algorithm, options, os, osproc, sequtils, strutils, unittest]
 
 import argumint
 import argumint/completion
+from argumint/backend import fills
+
+type
+  MemSource = ref object of ConfigSource
+    data: seq[(ConfigKey, seq[string])]
+
+method lookup(self: MemSource, key: ConfigKey): Option[seq[string]] =
+  for (k, v) in self.data:
+    if k == key:
+      return some(v)
 
 proc completeArgs(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
   spec.resolveCompletion(words, command).candidates
@@ -440,6 +450,271 @@ suite "Path completion directive (#200)":
       file: arg("<file>", complete = None),
     ), usage = "[options] <file>")
     check spec.wire("x", "--into", "")[^1] == ":dirs"
+
+suite "Completers (#215)":
+  test "a completer's values are offered, with no paths":
+    let spec = newSpec((branch: arg("<branch>", complete = proc (ctx: CompletionContext): Offer =
+      offer(["main", "dev"])),))
+    check spec.wire("") == @["main\t", "dev\t", ":"]
+
+  test "a completer's values are filtered by the word being completed":
+    let spec = newSpec((branch: arg("<branch>", complete = proc (ctx: CompletionContext): Offer =
+      offer(["main", "dev", "docs"])),))
+    check spec.wire("d") == @["dev\t", "docs\t", ":"]
+
+  test "a completer can ask for paths beside its values":
+    let spec = newSpec((src: arg("<src>", complete = proc (ctx: CompletionContext): Offer =
+      offer(["-"], paths = Files)),))
+    check spec.wire("") == @["-\t", ":files"]
+
+  test "a completer answers a pending option's value":
+    let spec = newSpec((host: opt("--host=<host>", complete = proc (ctx: CompletionContext): Offer =
+      offer(["alpha", "beta"])),), usage = "[options]")
+    check spec.wire("--host", "") == @["alpha\t", "beta\t", ":"]
+
+  test "a completer is told the word being completed":
+    var told: seq[string]
+    let spec = newSpec((host: opt("--host=<host>", complete = proc (ctx: CompletionContext): Offer =
+      told.add ctx.word
+      offer(newSeq[string]())), file: arg("<file>")), usage = "[options] <file>")
+    discard spec.wire("--host", "al")
+    discard spec.wire("x", "--host", "be")
+    check told == @["al", "be"]
+
+  test "a completer's descriptions ride along, each on one line":
+    let spec = newSpec((host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+      offer([("alpha", "The first\nhost.\n\nMore."), ("beta", "Tab\there"), ("gamma", "")])),))
+    check spec.wire("") == @["alpha\tThe first host.", "beta\tTab here", "gamma\t", ":"]
+
+  test "a completer replaces a choice's values":
+    let spec = newSpec((mode: arg("<mode>", validator = choice(["fast", "slow"]),
+      complete = proc (ctx: CompletionContext): Offer = offer(["medium"])),))
+    check spec.wire("") == @["medium\t", ":"]
+
+  test "an explicit Dirs replaces a choice's values":
+    let spec = newSpec((mode: arg("<mode>", validator = choice(["fast", "slow"]),
+      complete = Dirs),))
+    check spec.wire("") == @[":dirs"]
+
+  test "by default an enum-typed Arg offers its values":
+    type Speed = enum fast, slow
+    let spec = newSpec((speed: arg[Speed]("<speed>"),))
+    check spec.wire("") == @["fast\t", "slow\t", ":"]
+
+  test "a completer that raises offers nothing":
+    let spec = newSpec((host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+      raise newException(IOError, "offline")),))
+    check spec.wire("") == @[":"]
+
+  test "a completer runs once per Tab, however many branches reach it":
+    var calls = 0
+    let spec = newSpec((
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        inc calls
+        offer(["alpha"])),
+      verbose: flag("-v"),
+      help: help(),
+    ), usage = "[-v] <host>\n[-v] [-h] <host>")
+    check spec.wire("") == @["-v\t", "-h\tDisplay this help message",
+      "--help\tDisplay this help message", "alpha\t", ":"]
+    check calls == 1
+
+  test "a hidden option's completer runs only once the option is typed":
+    var calls = 0
+    let spec = newSpec((key: opt("--key=<key>", hidden = true,
+      complete = proc (ctx: CompletionContext): Offer =
+        inc calls
+        offer(["x"])),), usage = "[options]")
+    check spec.wire("") == @[":"]
+    check calls == 0
+    check spec.wire("--key", "") == @["x\t", ":"]
+    check calls == 1
+
+  test "a hidden Arg's completer never runs":
+    var calls = 0
+    let spec = newSpec((host: arg("<host>", hidden = true,
+      complete = proc (ctx: CompletionContext): Offer =
+        inc calls
+        offer(["alpha"])),))
+    check spec.wire("") == @[":"]
+    check calls == 0
+
+proc namedCompleter(ctx: CompletionContext): Offer =
+  offer(["named"])
+
+var globalHosts = @["global"]
+
+suite "What converts to a Completer (#215)":
+  test "every PathCompletion, on every value constructor":
+    for c in [Files, Dirs, None]:
+      check arg("<a>", complete = c).complete.fills == false
+      check arg[int]("<a>", complete = c).complete.fills == false
+      check args("<a>", complete = c).complete.fills == false
+      check args[int]("<a>", complete = c).complete.fills == false
+      check opt("--a", complete = c).complete.fills == false
+      check opt[int]("--a", complete = c).complete.fills == false
+      check opts("--a", complete = c).complete.fills == false
+      check opts[int]("--a", complete = c).complete.fills == false
+
+  test "proc literals, named procs, stored procs and effect-annotated procs":
+    let local = @["local"]
+    let stored: CompleterProc = proc (ctx: CompletionContext): Offer = offer(["stored"])
+    for (spec, expected) in [
+      (newSpec((a: arg("<a>", complete = proc (ctx: CompletionContext): Offer =
+        offer(["none"])),)), "none"),
+      (newSpec((a: arg[int]("<a>", complete = proc (ctx: CompletionContext): Offer =
+        offer(globalHosts)),)), "global"),
+      (newSpec((a: arg("<a>", complete = proc (ctx: CompletionContext): Offer =
+        offer(local)),)), "local"),
+      (newSpec((a: arg[int]("<a>", complete = namedCompleter),)), "named"),
+      (newSpec((a: arg("<a>", complete = stored),)), "stored"),
+      (newSpec((a: arg("<a>", complete = proc (ctx: CompletionContext): Offer
+        {.raises: [], gcsafe.} = offer(["fx"])),)), "fx"),
+    ]:
+      check spec.wire("") == @[expected & "\t", ":"]
+
+  test "a proc of another shape doesn't convert":
+    check not compiles(arg("<a>", complete = proc (word: string): seq[string] = @[]))
+
+type
+  Log = ref object
+    ## What a fill test's completer saw, and whether a hook ran.
+    seen: seq[int]
+    hookRan: bool
+
+proc gitSpec(log: Log, settings = newSpecSettings(style = nil), seed = ""): Spec =
+  ## `--repo` at the root, pre-seeded to `seed` if given, read by the
+  ## completer of `checkout <branch>` and of `--tag`. A `--repo` of 13
+  ## makes the completer raise.
+  let repo = opt[int]("--repo=<n>", env = "ARGUMINT_TEST_REPO", configKey = "repo")
+  if seed.len > 0:
+    repo.parse(seed, seenBy = some(byCli))
+  let byRepo = proc (ctx: CompletionContext): Offer =
+    log.seen.add repo.get
+    if repo.get == 13:
+      raise newException(IOError, "unlucky")
+    offer(["main"])
+  newSpec((
+    repo: repo,
+    tag: opt("--tag=<tag>", complete = byRepo),
+    checkout: command("checkout", (branch: arg("<branch>", complete = byRepo),),
+      before = proc (spec: tuple[branch: ValueArg[string]], info: HookInfo) =
+        log.hookRan = true),
+  ), usage = "[options] checkout\n[options]", settings = settings)
+
+suite "Completers see earlier values (#215)":
+  setup:
+    delEnv "ARGUMINT_TEST_REPO"
+  teardown:
+    delEnv "ARGUMINT_TEST_REPO"
+
+  for (words, seen) in [
+    (@["--repo", "7", "checkout", ""], 7),
+    (@["checkout", "r"], 0),
+    (@["--repo", "7", "--repo", "8", "checkout", ""], 8),
+    (@["--repo", "nope", "checkout", ""], 0),
+    (@["--repo", "7", "--tag", ""], 7),
+    (@["--repo=7", "--tag", ""], 7),
+  ]:
+    test "completing " & $words & " shows the completer --repo " & $seen:
+      let log = Log()
+      check gitSpec(log).wire(words)[^1] == ":"
+      check log.seen == @[seen]
+      check not log.hookRan
+
+  test "an env var reaches the completer":
+    putEnv "ARGUMINT_TEST_REPO", "5"
+    let log = Log()
+    discard gitSpec(log).wire("checkout", "")
+    check log.seen == @[5]
+
+  test "a Config Source reaches the completer":
+    let log = Log()
+    let source = MemSource(data: @[(configKey("repo"), @["6"])])
+    discard gitSpec(log, newSpecSettings(style = nil,
+      configSources = @[ConfigSource source])).wire("checkout", "")
+    check log.seen == @[6]
+
+  test "an option typed after a positional sees earlier values":
+    var seen: seq[int]
+    let repo = opt[int]("--repo=<n>")
+    let spec = newSpec((
+      repo: repo,
+      file: arg("<file>", complete = None),
+      tag: opt("--tag=<tag>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add repo.get
+        offer(newSeq[string]())),
+    ), usage = "[options] <file>")
+    check spec.wire("--repo", "7", "x", "--tag", "") == @[":"]
+    check seen == @[7]
+
+  test "an env var below the root reaches the completer":
+    putEnv "ARGUMINT_TEST_REPO", "3"
+    var seen: seq[int]
+    let depth = opt[int]("--depth=<n>", env = "ARGUMINT_TEST_REPO")
+    let spec = newSpec((clone: command("clone", (depth: depth,
+      url: arg("<url>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add depth.get
+        offer(newSeq[string]())))),))
+    discard spec.wire("clone", "")
+    check seen == @[3]
+
+  test "a completer that raises after the fill offers nothing":
+    let log = Log()
+    check gitSpec(log).wire("--repo", "13", "checkout", "") == @[":"]
+    check log.seen == @[13]
+
+  test "a pre-seeded value survives the fill":
+    let log = Log()
+    discard gitSpec(log, seed = "99").wire("checkout", "")
+    check log.seen == @[99]
+
+  test "an ambiguous grammar binds the value as parse would":
+    var seen: seq[(string, string)]
+    let user = arg("<user>")
+    let org = arg("<org>")
+    let spec = newSpec((user: user, org: org,
+      repo: arg("<repo>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add (user.get, org.get)
+        offer(newSeq[string]())),
+    ), usage = "(<user> | <org>) <repo>")
+    discard spec.wire("acme", "")
+    check seen == @[("acme", "")]
+
+  test "the fill happens once, though two completers are reachable":
+    var seen: seq[seq[string]]
+    let tags = opts("--tag=<tag>")
+    let byTags = proc (ctx: CompletionContext): Offer =
+      seen.add tags.get
+      offer(newSeq[string]())
+    let spec = newSpec((
+      tags: tags,
+      file: arg("<file>", complete = byTags),
+      dir: arg("<dir>", complete = byTags),
+    ), usage = "[options] <file>\n[options] <dir>")
+    discard spec.wire("--tag", "a", "")
+    check seen == @[@["a"], @["a"]]
+
+  test "an args completer reads its own earlier values":
+    var seen: seq[seq[string]]
+    let files = args("<file>")
+    files.complete = proc (ctx: CompletionContext): Offer =
+      seen.add files.get
+      offer(newSeq[string]())
+    let spec = newSpec((files: files,))
+    discard spec.wire("a", "b", "")
+    check seen == @[@["a", "b"]]
+
+  # The walk's probes read Config Sources anyway -- see architecture.md §6.
+  test "a PathCompletion completer fills nothing":
+    putEnv "ARGUMINT_TEST_REPO", "5"
+    let repo = opt[int]("--repo=<n>", env = "ARGUMINT_TEST_REPO", configKey = "repo")
+    let source = MemSource(data: @[(configKey("repo"), @["6"])])
+    let spec = newSpec((repo: repo, dir: arg("<dir>", complete = Dirs)),
+      usage = "[options] <dir>", settings = newSpecSettings(style = nil,
+        configSources = @[ConfigSource source]))
+    check spec.wire("") == @["--repo\t", ":dirs"]
+    check repo.seenBy == byNone
 
 suite "__complete entry point":
   test "raises CompletionError with tab-separated candidate/help lines and fires no hooks":

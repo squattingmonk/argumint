@@ -13,7 +13,6 @@ their shell to ask your program. `completionScript` writes one for each shell,
 and a command is an easy way to print it:
 
 ```nim
-import std/strutils
 import argumint
 
 var cli: Spec
@@ -22,7 +21,7 @@ proc deploy(spec: tuple, _: HookInfo) =
   echo "Deploying to ", spec.env
 
 proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(parseEnum[Shell](spec.shell))
+  echo cli.completionScript(spec.shell)
 
 let
   deploySpec = (
@@ -32,8 +31,7 @@ let
     help: help(),
   )
   completionSpec = (
-    shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"]),
-               help = "Shell to print a script for"),
+    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
     help: help(),
   )
   spec = (
@@ -81,7 +79,7 @@ The script completes the program under its file name. To always complete one
 name, even if the user renames the program, pass it as the second argument:
 
 ```nim
-  echo cli.completionScript(parseEnum[Shell](spec.shell), "site")
+  echo cli.completionScript(spec.shell, "site")
 ```
 
 ## What Gets Completed
@@ -148,8 +146,10 @@ or `opts`:
   name: opt("--name=<name>", complete = None, help = "Name for the release"),
 ```
 
-`complete` is `Files` unless you say otherwise. A `choice` validator's values
-replace file names, since no file name would pass it.
+Unless you pass `complete`, a `choice` validator's values replace file names,
+since no file name would pass it. When you do pass it, it decides: an argument
+with a `choice` and `complete = Dirs` offers directories. To offer values of
+your own, see [Completing Values at Runtime](#completing-values-at-runtime).
 
 An option, command, or argument declared with `hidden = true` isn't offered,
 even when what the user typed matches it, though it still parses. A hidden
@@ -162,6 +162,79 @@ offered. See [Groups](help.md#groups).
 and exits with `0`. `parse` raises a `CompletionError` with the words as its
 message, ending with the line that names the file names to add. See
 [Error Handling](errors.md).
+
+## Completing Values at Runtime
+
+Some values can only be listed by looking: the hosts in an environment, the
+branches in a repository. Pass `complete` a proc, and argumint runs it each
+time the user presses Tab at that value. The proc takes a `CompletionContext`
+and returns an `Offer`, which `offer` builds from the values:
+
+```nim
+import argumint
+
+proc hostsIn(env: string): seq[string] =
+  if env == "production": @["web1", "web2", "db1"] else: @["stage1"]
+
+let env = arg("<env>", validator = choice(["staging", "production"]),
+              help = "Where to deploy")
+let spec = (
+  env: env,
+  host: arg("<host>", help = "Host to deploy to",
+            complete = proc (ctx: CompletionContext): Offer =
+              offer(hostsIn(env.get))),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "Deploying to ", spec.host, " in ", spec.env
+```
+
+When the proc runs, the arguments and options before it already hold what the
+user typed, or what an environment variable or config file gave them. So
+`<host>` reads `env` to list the hosts in that environment. A proc can only
+read an `Arg` it can see, so `env` is declared before the spec, with `let`.
+For an `args` or `opts`, the proc can also read the values already given, to
+leave them out.
+
+```console
+$ deploy __complete production ""
+web1	
+web2	
+db1	
+:
+$ deploy __complete production w
+web1	
+web2	
+:
+```
+
+argumint offers only the values that start with what the user typed, so the
+proc can return them all. `ctx.word` is what the user typed, if a slow lookup
+can use it to fetch less.
+
+To describe each value, give `offer` pairs of value and description. fish and
+zsh show them; bash shows only the values:
+
+```nim
+  offer([("web1", "Frontend"), ("db1", "Primary database")])
+```
+
+The proc's values replace a `choice` validator's, and file names. To offer
+file names beside them, pass `paths`:
+
+```nim
+  offer(["-"], paths = Files)
+```
+
+The proc runs inside the user's shell, each time they press Tab:
+
+- Return quickly. A network call needs a timeout of its own.
+- Don't write to stdout, which would become values, or stderr, which shows up
+  in the user's shell.
+- No hook has run, so nothing a `before` hook sets up is there.
+- If it raises an exception, nothing is offered. To offer file names instead,
+  catch it in the proc and return `offer([], paths = Files)`.
 
 ## Expensive Setup
 
