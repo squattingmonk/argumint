@@ -66,3 +66,7 @@ proc.
 now takes a Completer, which a `PathCompletion` converts to (point 2), and
 any explicit `complete`, `Dirs` included, replaces `choice` values (point
 3). A custom completer proc is no longer out of scope.
+
+**Update:** amended by `docs/adr/0072-file-completion-patterns.md`. A
+`:files` directive may be followed by tab-separated file patterns (point
+5), and extension filters are no longer out of scope.

@@ -122,7 +122,8 @@ staging
 
 Each line is a word, a tab, and a description, which may be empty. The last
 line says which file names the shell should add: `:files`, `:dirs` for
-directories only, or `:` for none. The shell offers only the words that start
+directories only, or `:` for none. After `:files` may come patterns that the
+names must match, each after a tab. The shell offers only the words that start
 with what the user typed.
 
 fish and zsh show each description beside its word. bash shows only the words,
@@ -145,6 +146,26 @@ or `opts`:
   dest: arg("<dest>", complete = Dirs, help = "Directory to deploy into"),
   name: opt("--name=<name>", complete = None, help = "Name for the release"),
 ```
+
+To offer only the files that fit, pass `files` the patterns their names must
+match. Directories are still offered, so the user can look inside them:
+
+```nim
+  config: opt("--config=<file>", complete = files("*.toml", "*.ini"),
+              help = "Settings to load"),
+```
+
+```console
+$ site __complete --config ""
+:files	*.toml	*.ini
+```
+
+A pattern may use `*` for any run of characters, `?` for any one, `[abc]` for
+any one of those, and `[!abc]` for any other. Other pattern syntax works in some
+shells but not all. A pattern is matched against the file's name, without its
+directory, and case matters: to accept `SITE.TOML` as well, pass
+`files("*.toml", "*.TOML")`. When no file matches, the shell offers only the
+directories.
 
 Unless you pass `complete`, a `choice` validator's values replace file names,
 since no file name would pass it. When you do pass it, it decides: an argument
@@ -221,10 +242,12 @@ zsh show them; bash shows only the values:
 ```
 
 The proc's values replace a `choice` validator's, and file names. To offer
-file names beside them, pass `paths`:
+file names beside them, pass `paths`, and `patterns` to offer only some, as
+`files` does:
 
 ```nim
   offer(["-"], paths = Files)
+  offer(["HEAD"], paths = Files, patterns = ["*.patch"])
 ```
 
 The proc runs inside the user's shell, each time they press Tab:

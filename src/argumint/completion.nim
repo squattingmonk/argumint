@@ -33,9 +33,10 @@ type
     ## unless a Completer's `offer` described it (ADR 0071) -- see
     ## architecture.md §6.
 
-  Completion* = tuple[candidates: seq[CompletionCandidate], paths: PathCompletion]
-    ## What `resolveCompletion` offers: the candidates, and which paths the
-    ## shell adds to them.
+  Completion* = tuple[candidates: seq[CompletionCandidate], paths: PathCompletion,
+      patterns: seq[string]]
+    ## What `resolveCompletion` offers: the candidates, which paths the
+    ## shell adds to them, and the patterns a file's name must match.
 
   Tab = object
     ## One `__complete` request's state: each value Arg's Offer, asked once,
@@ -245,9 +246,19 @@ proc accepts(spec: Spec, words: seq[string], command, variant: string, arg: Arg)
   let probe = if arg.kind == Optional: variant & "=x" else: variant
   spec.frontierAfter(words & probe, command).len > 0
 
-proc widen(paths: var PathCompletion, other: PathCompletion) =
-  ## `Files` beats `Dirs`, which beats `None` -- declared in that order.
-  paths = min(paths, other)
+proc widen(c: var Completion, o: Offer) =
+  ## Unfiltered `Files` beats filtered, then `Dirs`, then `None`; two
+  ## filters join their patterns -- see
+  ## `docs/adr/0072-file-completion-patterns.md`.
+  if c.paths == PathCompletion.Files and c.patterns.len == 0:
+    return
+  if o.paths == PathCompletion.Files and o.patterns.len == 0 or o.paths < c.paths:
+    c.paths = o.paths
+    c.patterns = o.patterns
+  elif o.paths == PathCompletion.Files:
+    for p in o.patterns:
+      if p notin c.patterns:
+        c.patterns.add p
 
 proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Completion =
   ## Returns shell-completion candidates for `words` -- everything typed
@@ -283,7 +294,7 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
       for (arg, pc) in pending:
         let o = tab.offerFor(arg, pc, wordBeingCompleted)
         result.candidates.addUnseen(seenValues, o.valueCandidates, wordBeingCompleted)
-        result.paths.widen o.paths
+        result.widen o
       return result
 
   # Case (a): ordinary "what word can come next" completion, plus any
@@ -301,15 +312,20 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
   for (state, pc) in frontier:
     for tr in state.transitions:
       if tr.matcher.kind == mkArgument and not tr.matcher.arg.hidden:
-        result.paths.widen tab.offerFor(tr.matcher.arg, pc, wordBeingCompleted).paths
+        result.widen tab.offerFor(tr.matcher.arg, pc, wordBeingCompleted)
 
-proc directive*(paths: PathCompletion): string =
+proc directive*(c: Completion): string =
   ## The line ending `__complete`'s output, telling the shell script which
-  ## paths to add -- see `docs/adr/0066-completion-falls-back-to-paths.md`.
-  case paths
-  of PathCompletion.Files: ":files"
-  of PathCompletion.Dirs: ":dirs"
-  of PathCompletion.None: ":"
+  ## paths to add, then any patterns, tab-separated -- see
+  ## `docs/adr/0066-completion-falls-back-to-paths.md` and
+  ## `docs/adr/0072-file-completion-patterns.md`.
+  result =
+    case c.paths
+    of PathCompletion.Files: ":files"
+    of PathCompletion.Dirs: ":dirs"
+    of PathCompletion.None: ":"
+  for p in c.patterns:
+    result.add '\t' & p
 
 proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
@@ -341,19 +357,34 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
           cur=""
         fi
         # `__complete` prints "value<TAB>help" per line, then a directive
-        # line (see docs/adr/0022 and 0066). bash has no slot for help, so
-        # cut it off; `-o filenames` escapes paths and marks directories.
-        # No `mapfile`/`compopt` in bash 3.2 (macOS's /bin/bash).
+        # line, tab-separated from any file patterns (see docs/adr/0022,
+        # 0066 and 0072). bash has no slot for help, so cut it off;
+        # `-o filenames` escapes paths and marks directories. No
+        # `mapfile`/`compopt` in bash 3.2 (macOS's /bin/bash).
         local out paths="" line
+        local -a fields=() pats=()
         out=$({binaryName} __complete "${{args[@]}}" "$cur")
-        case ${{out##*$'\n'}} in
+        IFS=$'\t' read -r -a fields <<< "${{out##*$'\n'}}"
+        case ${{fields[0]}} in
           :files) paths=-f ;;
           :dirs)  paths=-d ;;
         esac
+        pats=("${{fields[@]:1}}")
         COMPREPLY=()
         while IFS= read -r line; do COMPREPLY+=("$line"); done < <(
           compgen -W "$(printf '%s\n' "$out" | sed '$d' | cut -f1)" -- "$cur"
-          if [[ -n $paths ]]; then compgen $paths -- "$cur"; fi
+          if [[ -n $paths ]]; then
+            # Keep directories, and files whose name matches a pattern.
+            compgen $paths -- "$cur" | while IFS= read -r line; do
+              local p
+              ((${{#pats[@]}})) || {{ printf '%s\n' "$line"; continue; }}
+              # compgen leaves a leading ~ unexpanded.
+              if [[ -d ${{line/#\~/$HOME}} ]]; then printf '%s\n' "$line"; continue; fi
+              for p in "${{pats[@]}}"; do
+                if [[ ${{line##*/}} == $p ]]; then printf '%s\n' "$line"; break; fi
+              done
+            done
+          fi
         )
         if [[ -n $paths ]]; then compopt -o filenames 2>/dev/null; fi
       }}
@@ -373,11 +404,11 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
           cur="$PREFIX"
         fi
         # `__complete` prints "value<TAB>help" per line, then a directive
-        # line (see docs/adr/0022 and 0066); the display string replaces the
-        # word.
-        local -a lines candidates descriptions
+        # line, tab-separated from any file patterns (see docs/adr/0022,
+        # 0066 and 0072); the display string replaces the word.
+        local -a lines candidates descriptions fields
         lines=("${{(@f)$({binaryName} __complete "${{args[@]}}" "$cur")}}")
-        local directive=${{lines[-1]}}
+        fields=("${{(@ps:\t:)lines[-1]}}")
         lines=("${{(@)lines[1,-2]}}")
         local line word help
         for line in "${{lines[@]}}"; do
@@ -387,8 +418,16 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
           descriptions+=("$word${{help:+  -- $help}}")
         done
         (( ${{#candidates}} )) && compadd -d descriptions -a candidates
-        case $directive in
-          :files) _files ;;
+        # `_path_files`, since `_files -g` offers every file when none
+        # matches; a space in a pattern would split it -- see docs/adr/0072.
+        case $fields[1] in
+          :files)
+            if (( $#fields > 1 )); then
+              _path_files -g "${{(j: :)${{(@)fields[2,-1]// /[[:blank:]]}}}}"
+              _path_files -/
+            else
+              _files
+            fi ;;
           :dirs) _files -/ ;;
         esac
       }}
@@ -429,7 +468,7 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
         # directive line (docs/adr/0066) -- split the help off first so
         # $prefix lands on the value half only, then re-append it.
         set -l out ({binaryName} __complete $words "$value")
-        set -l directive $out[-1]
+        set -l directive (string split \t -- $out[-1])
         set -e out[-1]
         for candidate in $out
           set -l parts (string split -m1 \t -- $candidate)
@@ -439,10 +478,31 @@ proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string 
             printf '%s\n' "$prefix$parts[1]"
           end
         end
-        switch $directive
+        # Any file patterns follow the directive (docs/adr/0072). `string
+        # match`'s globs have no [...], so each becomes an anchored regex.
+        set -l res
+        for pat in $directive[2..-1]
+          set -a res '^'(string escape --style=regex -- $pat |
+            string replace -a '\*' '.*' | string replace -a '\?' '.' |
+            string replace -a '\[!' '[^' | string replace -a '\[' '[' |
+            string replace -a '\]' ']' | string replace -a '\-' '-')'$'
+        end
+        switch $directive[1]
           case :files
+            # Keep directories, and files whose name matches a pattern.
             for p in (__fish_complete_path "$value")
-              printf '%s\n' "$prefix$p"
+              set -l path (string split -m1 \t -- $p)[1]
+              if test (count $res) -eq 0; or string match -q '*/' -- $path
+                printf '%s\n' "$prefix$p"
+                continue
+              end
+              set -l name (string replace -r '.*/' '' -- $path)
+              for re in $res
+                if string match -qr -- $re $name
+                  printf '%s\n' "$prefix$p"
+                  break
+                end
+              end
             end
           case :dirs
             for p in (__fish_complete_directories "$value")

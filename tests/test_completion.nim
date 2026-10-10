@@ -7,7 +7,7 @@ import std/[algorithm, options, os, osproc, sequtils, strutils, unittest]
 
 import argumint
 import argumint/completion
-from argumint/backend import fills
+from argumint/backend import fills, paths, patterns, run
 
 type
   MemSource = ref object of ConfigSource
@@ -715,6 +715,92 @@ suite "Completers see earlier values (#215)":
         configSources = @[ConfigSource source]))
     check spec.wire("") == @["--repo\t", ":dirs"]
     check repo.seenBy == byNone
+
+proc label(c: Completer): string =
+  ## Names a fixed Completer for a test title.
+  let o = c.run(CompletionContext())
+  result = $o.paths
+  if o.patterns.len > 0:
+    result.add " " & $o.patterns
+
+suite "File patterns (#214)":
+  test "files' patterns follow the directive, on every value constructor":
+    let spec = newSpec((
+      a: arg("<a>", complete = files("*.toml", "*.ini")),
+      b: args[int]("<b>", complete = files("*.toml", "*.ini")),
+      c: opt("--cc=<c>", complete = files("*.toml", "*.ini")),
+      d: opts[int]("--dd=<d>", complete = files("*.toml", "*.ini")),
+    ), usage = "[options] <a> <b>...")
+    check spec.wire("") == @["--cc\t", "--dd\t", ":files\t*.toml\t*.ini"]
+    check spec.wire("x", "")[^1] == ":files\t*.toml\t*.ini"
+    check spec.wire("--cc", "") == @[":files\t*.toml\t*.ini"]
+    check spec.wire("--dd", "") == @[":files\t*.toml\t*.ini"]
+
+  test "files with no patterns is Files":
+    let spec = newSpec((a: arg("<a>", complete = files()),))
+    check spec.wire("") == @[":files"]
+
+  test "files fills nothing":
+    putEnv "ARGUMINT_TEST_REPO", "5"
+    defer: delEnv "ARGUMINT_TEST_REPO"
+    let repo = opt[int]("--repo=<n>", env = "ARGUMINT_TEST_REPO")
+    let spec = newSpec((repo: repo, config: arg("<config>", complete = files("*.toml"))),
+      usage = "[options] <config>")
+    check spec.wire("") == @["--repo\t", ":files\t*.toml"]
+    check repo.seenBy == byNone
+
+  test "a completer can filter the files beside its values":
+    let spec = newSpec((patch: arg("<patch>", complete = proc (ctx: CompletionContext): Offer =
+      offer(["a"], paths = Files, patterns = ["*.patch"])),))
+    check spec.wire("") == @["a\t", ":files\t*.patch"]
+    let described = newSpec((patch: arg("<patch>", complete = proc (ctx: CompletionContext): Offer =
+      offer([("a", "Latest")], paths = Files, patterns = ["*.patch"])),))
+    check described.wire("") == @["a\tLatest", ":files\t*.patch"]
+
+  test "files replaces a choice's values":
+    let spec = newSpec((mode: arg("<mode>", validator = choice(["fast", "slow"]),
+      complete = files("*.toml")),))
+    check spec.wire("") == @[":files\t*.toml"]
+
+  test "patterns need Files, and no tab or newline":
+    expect Defect: discard offer(["a"], paths = Dirs, patterns = ["*.x"])
+    expect Defect: discard offer(["a"], patterns = ["*.x"])
+    expect Defect: discard offer([("a", "")], paths = Dirs, patterns = ["*.x"])
+    expect Defect: discard offer(["a"], paths = Files, patterns = ["*\t.x"])
+    expect Defect: discard files("*.x", "*\n.y")
+    expect Defect: discard files("*\t.x")
+
+  # One Usage Line per Completer, so the frontier holds both.
+  for (first, second, directive) in [
+    (files("*.toml"), toCompleter(Files), ":files"),
+    (toCompleter(Files), files("*.toml"), ":files"),
+    (files("*.toml", "*.ini"), files("*.ini", "*.patch"), ":files\t*.toml\t*.ini\t*.patch"),
+    (files("*.toml"), toCompleter(Dirs), ":files\t*.toml"),
+    (toCompleter(Dirs), files("*.toml"), ":files\t*.toml"),
+    (toCompleter(None), files("*.toml"), ":files\t*.toml"),
+  ]:
+    test "Usage Lines offering " & first.label & " and " & second.label & " end with " & directive.escape:
+      let spec = newSpec((a: arg("<a>", complete = first), b: arg("<b>", complete = second)),
+        usage = "<a>\n<b>")
+      check spec.wire("")[^1] == directive
+
+  # `cmd --xx` is both the command's `--xx` and `<name>`'s, so both await
+  # a value.
+  for (parent, child, directive) in [
+    (files("*.toml"), toCompleter(Files), ":files"),
+    (toCompleter(Files), files("*.toml"), ":files"),
+    (files("*.toml", "*.ini"), files("*.ini", "*.patch"), ":files\t*.ini\t*.patch\t*.toml"),
+    (files("*.toml"), toCompleter(Dirs), ":files\t*.toml"),
+    (toCompleter(Dirs), files("*.toml"), ":files\t*.toml"),
+    (toCompleter(None), files("*.toml"), ":files\t*.toml"),
+  ]:
+    test "pending options offering " & parent.label & " and " & child.label & " end with " & directive.escape:
+      let spec = newSpec((
+        name: arg("<name>"),
+        xx: opt("--xx=<a>", complete = parent),
+        cmd: command("cmd", (xx: opt("--xx=<b>", complete = child),), usage = "[options]"),
+      ), usage = "cmd\n<name> [options]")
+      check spec.wire("cmd", "--xx", "")[^1] == directive
 
 suite "__complete entry point":
   test "raises CompletionError with tab-separated candidate/help lines and fires no hooks":

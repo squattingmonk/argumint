@@ -159,16 +159,18 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## candidates as its `msg` -- one per line, each `"value\thelp"` (`help`
   ## possibly empty, but the tab always present -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
-  ## line naming which paths to add (`:files`, `:dirs`, or `:`) -- see
-  ## `docs/adr/0066-completion-falls-back-to-paths.md`. Before a completer
+  ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
+  ## `:files` any patterns, tab-separated -- see
+  ## `docs/adr/0066-completion-falls-back-to-paths.md` and
+  ## `docs/adr/0072-file-completion-patterns.md`. Before a completer
   ## proc runs, earlier values are stored into their Args, so a caller that
   ## catches `CompletionError` and carries on sees them -- see
   ## `docs/adr/0071-runtime-completers.md`.
   if args.len > 0 and args[0] == "__complete":
-    let (candidates, paths) = spec.resolveCompletion(args[1 ..< args.len], command)
+    let completion = spec.resolveCompletion(args[1 ..< args.len], command)
     var lines = collect:
-      for c in candidates: "{c.value}\t{c.help}".fmt
-    lines.add paths.directive
+      for c in completion.candidates: "{c.value}\t{c.help}".fmt
+    lines.add completion.directive
     raise newPlainError(CompletionError, lines.join("\n"))
 
   var pc = ParseContext(cursor: initCursor(spec, args), command: command,

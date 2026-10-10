@@ -55,10 +55,11 @@ type
 
   Offer* = object
     ## A Completer's answer: candidate values, each with a description
-    ## (possibly `""`), and which paths the shell adds to them. Built with
-    ## `offer`.
+    ## (possibly `""`), which paths the shell adds to them, and the patterns
+    ## a file's name must match. Built with `offer`.
     values: seq[tuple[value, help: string]]
     paths: PathCompletion
+    patterns: seq[string]
 
   CompleterProc* = proc (ctx: CompletionContext): Offer {.closure.}
     ## Lists an Arg's completion candidates when the user presses Tab. It
@@ -327,9 +328,17 @@ let
     longFlag <- '--' \w (\w / ('-' \w))+
   """
 
-proc initOffer*(values: seq[tuple[value, help: string]], paths: PathCompletion): Offer =
-  ## Machinery behind the facade's `offer`.
-  Offer(values: values, paths: paths)
+proc initOffer*(values: seq[tuple[value, help: string]], paths: PathCompletion,
+    patterns: seq[string] = @[]): Offer =
+  ## Machinery behind the facade's `offer` and `files`. Patterns need
+  ## `Files`, and can't hold the directive's tab or newline -- see
+  ## `docs/adr/0072-file-completion-patterns.md`.
+  doAssert patterns.len == 0 or paths == PathCompletion.Files,
+    "file patterns need paths = Files"
+  for p in patterns:
+    doAssert '\t' notin p and '\n' notin p,
+      "a file pattern can't contain a tab or newline: " & p.escape
+  Offer(values: values, paths: paths, patterns: patterns)
 
 func values*(o: Offer): lent seq[tuple[value, help: string]] =
   ## `o`'s candidates, in the order given.
@@ -338,6 +347,10 @@ func values*(o: Offer): lent seq[tuple[value, help: string]] =
 func paths*(o: Offer): PathCompletion =
   ## Which paths the shell adds to `o`'s candidates.
   o.paths
+
+func patterns*(o: Offer): lent seq[string] =
+  ## The patterns a file's name must match to be offered; none means any.
+  o.patterns
 
 func initCompleter*(fixed: Offer): Completer =
   ## A Completer offering `fixed` every Tab, with nothing filled.

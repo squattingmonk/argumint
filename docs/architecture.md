@@ -1562,13 +1562,24 @@ the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
 the paths of its Arg's `Offer` — each non-hidden `mkArgument` transition
 out of a frontier state, or each pending option in the pending-value case.
 By default that is `Files`, or `None` if the Arg has enumerable
-`completions()`, which a `choice` accepts alone. `Files` beats `Dirs`,
-which beats `None`; `widen` takes the minimum, the enum's declaration
-order. Each script strips the last line
+`completions()`, which a `choice` accepts alone. `widen` ranks `Files`
+above `Dirs`, then `None`. Each script strips the last line
 unconditionally and adds file names (bash `compgen -f` with
 `compopt -o filenames`, fish `__fish_complete_path`, zsh `_files`) or
 directories (`compgen -d`, `__fish_complete_directories`, `_files -/`). See
-`docs/adr/0066-completion-falls-back-to-paths.md`. The bash script stays
+`docs/adr/0066-completion-falls-back-to-paths.md`.
+
+An `Offer` with `Files` may also carry file patterns (`files`, or
+`offer`'s `patterns`), which `Completion.patterns` collects and
+`directive` appends to `:files`, each after a tab. `widen` ranks
+unfiltered `Files` above filtered, and joins two filters' patterns in the
+order first seen. Each script then keeps directories, and files whose name
+matches a pattern: bash tests `compgen -f`'s output with `[[ == ]]`; zsh
+calls `_path_files -g` and `_path_files -/`, since `_files -g` offers every
+file when none matches, and writes a space in a pattern as `[[:blank:]]`;
+fish turns each glob into a regex, since `string match` has no `[...]`,
+and filters `__fish_complete_path`. See
+`docs/adr/0072-file-completion-patterns.md`. The bash script stays
 runnable on bash 3.2, macOS's `/bin/bash`: no `mapfile`, no `case` inside a
 process substitution, and `compopt` only where it exists, so 3.2 completes
 paths without escaping them.
@@ -1577,12 +1588,13 @@ paths without escaping them.
 
 `completion.offerFor` answers "what does this Arg's value offer this Tab"
 with an `Offer`: candidate values, each with an optional
-description, and a `PathCompletion`. `Completer` (`backend.nim`) is a
+description, a `PathCompletion`, and any file patterns. `Completer`
+(`backend.nim`) is a
 case object: the default gives the Arg's `completions()`, or files if it
 has none; a fixed one, which a `PathCompletion` converts to, gives the
 same `Offer` every Tab; and a proc one runs with `CompletionContext.word`
 set to the word being completed. A `CatchableError` from the proc is an
-empty `Offer` with no paths. `offer`, `toCompleter` and `$` live in
+empty `Offer` with no paths. `offer`, `files`, `toCompleter` and `$` live in
 `argumint.nim`, built on withheld `initOffer`/`initCompleter`.
 A `Tab` object caches each Arg's `Offer` for the request, so a Completer
 reached from several frontier branches, or from both the candidate and

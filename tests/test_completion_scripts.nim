@@ -1,5 +1,5 @@
 # Drives the generated completion scripts through the real shells (#198,
-# #200): zsh interactively, since `compset`/`compadd` only run inside a
+# #200, #214): zsh interactively, since `compset`/`compadd` only run inside a
 # completion widget; fish through `complete -C`; and bash by setting
 # `COMP_WORDS` as readline would and calling the function. This binary is
 # also the CLI being completed: each shell runs it, through an `amdemo`
@@ -22,6 +22,11 @@ let cli = (
   cd: command("cd", (dir: arg("<dir>", complete = Dirs), help: help()), help = "Change directory"),
   tag: command("tag", (name: arg("<name>", complete = None), help: help()), help = "Tag it"),
   count: command("count", (count: arg[int]("<count>"), help: help()), help = "Count"),
+  conf: command("conf", (
+    file: arg("<file>", complete = files("x[0-9].cfg", "* file.txt", "*.nim")),
+  ), help = "Load settings"),
+  unzip: command("unzip", (file: arg("<file>", complete = files("*.zip")), help: help()),
+    help = "Unpack an archive"),
   help: help(),
 )
 
@@ -42,6 +47,8 @@ proc setUp(shell: Shell): string =
   writeFile(work / "alpha.txt", "")
   writeFile(work / "beta file.txt", "")
   writeFile(work / "sample.txt", "")
+  writeFile(work / "x1.cfg", "")
+  writeFile(work / "xA.cfg", "")
   writeFile(work / "src" / "main.nim", "")
   removeFile(bin / "amdemo")
   createSymlink(getAppFilename(), bin / "amdemo")
@@ -180,6 +187,27 @@ suite "zsh script (#198, #200)":
         for word in has: check word in menu
         for word in lacks: check word notin menu
 
+  for (typed, has, lacks) in [
+    ("amdemo conf ", @["x1.cfg", "beta\\ file.txt", "src/", "sub\\ dir/"],
+      @["alpha.txt", "sample.txt", "xA.cfg"]),
+    ("amdemo unzip ", @["src/", "sub\\ dir/"], @["alpha.txt", "x1.cfg"]),
+  ]:
+    test "file patterns: Tab after " & typed.escape & " lists " & $has & ", not " & $lacks:
+      needsZsh:
+        let menu = tab(typed).menu.join("\n")
+        for word in has: check word in menu
+        for word in lacks: check word notin menu
+
+  for (typed, line) in [
+    ("amdemo conf src/", "amdemo conf src/main.nim "),
+    ("amdemo conf su", "amdemo conf sub\\ dir/"),
+    ("amdemo conf x", "amdemo conf x1.cfg "),
+    ("amdemo conf a", "amdemo conf a"),
+  ]:
+    test "file patterns: Tab after " & typed.escape & " leaves " & line.escape:
+      needsZsh:
+        check tab(typed).line == line
+
   test "Tab after a None positional offers only options":
     needsZsh:
       # `-h` and `--help` share `-`, which zsh inserts.
@@ -203,7 +231,7 @@ suite "fish script (#200)":
     output.splitLines.filterIt(it.len > 0).mapIt(it.split('\t')[0])
 
   for (typed, offered) in [
-    ("amdemo cat ", @["alpha.txt", "beta file.txt", "sample.txt", "src/", "sub dir/", "-h", "-n", "--help"]),
+    ("amdemo cat ", @["alpha.txt", "beta file.txt", "sample.txt", "src/", "sub dir/", "x1.cfg", "xA.cfg", "-h", "-n", "--help"]),
     ("amdemo cat al", @["alpha.txt"]),
     ("amdemo cat su", @["sub dir/"]),
     ("amdemo --into=s", @["--into=src/", "--into=sub dir/"]),
@@ -211,7 +239,11 @@ suite "fish script (#200)":
     ("amdemo cat alpha.txt ", @["-n"]),
     ("amdemo cd ", @["src/", "sub dir/", "-h", "--help"]),
     ("amdemo tag ", @["-h", "--help"]),
-    ("amdemo count ", @["alpha.txt", "beta file.txt", "sample.txt", "src/", "sub dir/", "-h", "--help"]),
+    ("amdemo count ", @["alpha.txt", "beta file.txt", "sample.txt", "src/", "sub dir/", "x1.cfg", "xA.cfg", "-h", "--help"]),
+    ("amdemo conf ", @["beta file.txt", "src/", "sub dir/", "x1.cfg"]),
+    ("amdemo conf src/", @["src/main.nim"]),
+    ("amdemo conf x", @["x1.cfg"]),
+    ("amdemo unzip ", @["src/", "sub dir/", "-h", "--help"]),
     ("amdemo -o be", @["beta file.txt"]),
     ("amdemo --out=be", @["--out=beta file.txt"]),
     ("amdemo --into=", @["--into=src/", "--into=sub dir/"]),
@@ -250,7 +282,7 @@ suite "bash script (#200)":
     doAssert code == 0, output
     output.splitLines.filterIt(it.len > 0).sorted
 
-  let files = @["alpha.txt", "beta file.txt", "sample.txt", "src", "sub dir"]
+  let files = @["alpha.txt", "beta file.txt", "sample.txt", "src", "sub dir", "x1.cfg", "xA.cfg"]
 
   for (words, offered) in [
     (@["amdemo", "cat", ""], files & @["-h", "-n", "--help"]),
@@ -266,6 +298,10 @@ suite "bash script (#200)":
     (@["amdemo", "--into", "="], @["src", "sub dir"]),
     (@["amdemo", "--log-level", "="], @["debug", "error", "info", "warn"]),
     (@["amdemo", "deploy", "s"], @["staging"]),
+    (@["amdemo", "conf", ""], @["beta file.txt", "src", "sub dir", "x1.cfg"]),
+    (@["amdemo", "conf", "src/"], @["src/main.nim"]),
+    (@["amdemo", "conf", "x"], @["x1.cfg"]),
+    (@["amdemo", "unzip", ""], @["src", "sub dir", "-h", "--help"]),
   ]:
     test "completing " & $words & " offers " & $offered:
       if bashExe.len == 0: skip()
