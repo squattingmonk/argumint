@@ -887,11 +887,14 @@ Which paths shell completion offers beside a value's candidates: file
 names, with directories to descend into (`Files`), directories only
 (`Dirs`), or none (`None`). By default a value with no enumerable values
 offers `Files`, and one with a `choice` validator offers `None`, since no
-path would pass it. A Completer decides it per Tab through `offer`'s
-`paths`, and `complete = Dirs` is a Completer offering just that.
-`__complete` names it on the last line of its output. See
-`docs/adr/0066-completion-falls-back-to-paths.md` and
-`docs/adr/0071-runtime-completers.md`.
+path would pass it. `Files` can be limited to names matching patterns,
+such as `files("*.toml")`; directories are still offered. A Completer
+decides it per Tab through `offer`'s `paths` and `patterns`, and
+`complete = Dirs` is a Completer offering just that. `__complete` names it
+on the last line of its output. See
+`docs/adr/0066-completion-falls-back-to-paths.md`,
+`docs/adr/0071-runtime-completers.md` and
+`docs/adr/0072-file-completion-patterns.md`.
 _Avoid_: File fallback, file completion (each names only one of the three)
 
 **Completer**:

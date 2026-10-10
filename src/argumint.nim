@@ -229,19 +229,31 @@ converter toT*[T](arg: FlagArg[T]): T =
 # Completers
 # ------------------------------------------------------------------------------
 
-proc offer*(values: openArray[string], paths = PathCompletion.None): Offer =
+proc offer*(values: openArray[string], paths = PathCompletion.None,
+    patterns: openArray[string] = []): Offer =
   ## A Completer's answer: `values` as candidates, with the shell adding
-  ## `paths` beside them. See `docs/adr/0071-runtime-completers.md`.
+  ## `paths` beside them. With `paths = Files`, `patterns` limits the files
+  ## to those whose name matches one, as `files` does. See
+  ## `docs/adr/0071-runtime-completers.md`.
   var described: seq[tuple[value, help: string]]
   for v in values:
     described.add (v, "")
-  initOffer(described, paths)
+  initOffer(described, paths, @patterns)
 
-proc offer*(values: openArray[(string, string)], paths = PathCompletion.None): Offer =
+proc offer*(values: openArray[(string, string)], paths = PathCompletion.None,
+    patterns: openArray[string] = []): Offer =
   ## A Completer's answer: each `(value, help)` pair as a candidate whose
   ## help shells that show descriptions (fish, zsh) put beside it, with the
-  ## shell adding `paths` beside them.
-  initOffer(@values, paths)
+  ## shell adding `paths`, filtered by `patterns`, beside them.
+  initOffer(@values, paths, @patterns)
+
+proc files*(patterns: varargs[string]): Completer =
+  ## A Completer offering directories, and the files whose name matches one
+  ## of `patterns`, such as `files("*.toml", "*.ini")`; with none, every
+  ## file, as `Files` does. A pattern may use `*`, `?`, `[...]` and
+  ## `[!...]`, and is case-sensitive. A tab or newline in one is a Defect.
+  ## See `docs/adr/0072-file-completion-patterns.md`.
+  initCompleter(offer(newSeq[string](), PathCompletion.Files, patterns))
 
 converter toCompleter*(paths: PathCompletion): Completer =
   ## A Completer offering just `paths`, so `complete = Dirs` reads as a
@@ -291,10 +303,10 @@ proc arg*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
   ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, or a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`). By default it offers
-  ##   `validator`'s values if it lists any, otherwise files -- see
-  ##   `docs/adr/0071-runtime-completers.md`.
+  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
+  ##   directories to descend into, `Dirs`, or `None`), or `files` with
+  ##   patterns. By default it offers `validator`'s values if it lists any,
+  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
   result = initValueArg[T](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
   result.complete = complete
@@ -330,10 +342,10 @@ proc args*[T: not seq](variants: string, default: seq[T] = @[],
   ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
   ##   given.
   ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, or a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`). By default it offers
-  ##   `validator`'s values if it lists any, otherwise files -- see
-  ##   `docs/adr/0071-runtime-completers.md`.
+  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
+  ##   directories to descend into, `Dirs`, or `None`), or `files` with
+  ##   patterns. By default it offers `validator`'s values if it lists any,
+  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
   result = initValuesArg[T](kind = Positional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator)
   result.complete = complete
@@ -390,10 +402,10 @@ proc opt*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
   ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, or a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`). By default it offers
-  ##   `validator`'s values if it lists any, otherwise files -- see
-  ##   `docs/adr/0071-runtime-completers.md`.
+  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
+  ##   directories to descend into, `Dirs`, or `None`), or `files` with
+  ##   patterns. By default it offers `validator`'s values if it lists any,
+  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
   result = initValueArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)
@@ -450,10 +462,10 @@ proc opts*[T: not seq](variants: string, default: seq[T] = @[],
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
   ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, or a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`). By default it offers
-  ##   `validator`'s values if it lists any, otherwise files -- see
-  ##   `docs/adr/0071-runtime-completers.md`.
+  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
+  ##   directories to descend into, `Dirs`, or `None`), or `files` with
+  ##   patterns. By default it offers `validator`'s values if it lists any,
+  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
   result = initValuesArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
     env = env, cfgKey = configKey)

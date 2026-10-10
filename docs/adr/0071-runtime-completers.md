@@ -91,3 +91,7 @@ choices.
 A completer runs inside the user's shell, where argumint can't guard a hang
 or stray output. Its doc comment states the rules: return quickly, write
 nothing to stdout or stderr, and expect no hook to have run.
+
+**Update:** amended by `docs/adr/0072-file-completion-patterns.md`. An
+`Offer` also holds file patterns, from `offer`'s `patterns` or from `files`
+(point 3).
