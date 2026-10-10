@@ -13,7 +13,6 @@ their shell to ask your program. `completionScript` writes one for each shell,
 and a command is an easy way to print it:
 
 ```nim
-import std/strutils
 import argumint
 
 var cli: Spec
@@ -22,7 +21,7 @@ proc deploy(spec: tuple, _: HookInfo) =
   echo "Deploying to ", spec.env
 
 proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(parseEnum[Shell](spec.shell))
+  echo cli.completionScript(spec.shell)
 
 let
   deploySpec = (
@@ -32,8 +31,7 @@ let
     help: help(),
   )
   completionSpec = (
-    shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"]),
-               help = "Shell to print a script for"),
+    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
     help: help(),
   )
   spec = (
@@ -81,7 +79,7 @@ The script completes the program under its file name. To always complete one
 name, even if the user renames the program, pass it as the second argument:
 
 ```nim
-  echo cli.completionScript(parseEnum[Shell](spec.shell), "site")
+  echo cli.completionScript(spec.shell, "site")
 ```
 
 ## What Gets Completed

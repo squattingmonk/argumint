@@ -50,7 +50,7 @@ proc removeNotes(spec: tuple, _: HookInfo) =
   writeNotes(notes)
 
 proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(parseEnum[Shell](spec.shell), "notes")
+  echo cli.completionScript(spec.shell, "notes")
 
 let
   add = (
@@ -72,8 +72,7 @@ let
     help: help(),
   )
   completion = (
-    shell: arg("<shell>", validator = choice(["bash", "zsh", "fish"]),
-               help = "Shell to print a script for"),
+    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
     help: help(),
   )
   spec = (
