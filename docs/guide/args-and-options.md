@@ -269,8 +269,9 @@ own default, so a default outside the range is fine.
 
 `choice` also gives [shell completion](completion.md#what-gets-completed) the
 values to offer. Any other value completes as a file name. Pass
-`complete = Dirs` to offer only directories, or `complete = None` to offer
-nothing.
+`complete = Dirs` to offer only directories, `complete = None` to offer
+nothing, or a proc to list values when the user presses Tab (see
+[Completing Values at Runtime](completion.md#completing-values-at-runtime)).
 
 ### Writing Your Own Checks
 

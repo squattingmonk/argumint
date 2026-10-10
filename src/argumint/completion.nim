@@ -13,9 +13,9 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[sets, strformat, strutils, sugar, tables]
+import std/[algorithm, options, sequtils, sets, strformat, strutils, sugar, tables]
 
-import ./[backend, matching, precedence, prose, tokens]
+import ./[backend, complaints, matching, precedence, prose, tokens]
 
 type
   Shell* {.pure.} = enum
@@ -29,15 +29,21 @@ type
   CompletionCandidate* = tuple[value: string, help: string]
     ## One shell-completion candidate -- `value` is the literal word offered,
     ## `help` is a short description (possibly `""`) for shells that can render
-    ## one (fish, zsh) -- see ADR 0022. `help` is only ever non-empty for an
-    ## Arg's own name (option/flag/command); a *value* candidate (an enumerable
-    ## positional's or Choice validator's own values) always carries `""`, since
-    ## there's no per-value description in the data model to draw from -- see
+    ## one (fish, zsh) -- see ADR 0022. A *value* candidate carries `""`
+    ## unless a Completer's `offer` described it (ADR 0071) -- see
     ## architecture.md §6.
 
   Completion* = tuple[candidates: seq[CompletionCandidate], paths: PathCompletion]
     ## What `resolveCompletion` offers: the candidates, and which paths the
     ## shell adds to them.
+
+  Tab = object
+    ## One `__complete` request's state: each value Arg's Offer, asked once,
+    ## and whether earlier values have been filled.
+    root: Spec
+    command: string
+    filled: bool
+    offers: Table[Arg, Offer]
 
 proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
@@ -93,10 +99,54 @@ proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
       seen.incl c.value
       result.add c
 
-proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate] =
+proc fill(tab: var Tab, pc: ParseContext) =
+  ## Stores `pc`'s matches, then env and Config Source values, into the
+  ## Args, as `parse` would but with no hooks. Once per Tab, from the first
+  ## branch to need it, with nothing cleared; an Arg that fails is left
+  ## unsupplied. See `docs/adr/0071-runtime-completers.md`.
+  if tab.filled:
+    return
+  tab.filled = true
+  for arg, ms in pc.matches:
+    for (variant, value, _, _) in ms.sortedByIt(it.idx):
+      try: arg.parse(value, variant, some(byCli))
+      except CatchableError: discard
+  var tiers = initTiers(tab.root.settings)
+  var report = initReport(tab.root, tab.command)
+  # `pc.levels` holds only the levels below the root -- see `frontierAfter`.
+  for spec in @[tab.root] & pc.levels.mapIt(it.spec):
+    for arg in spec.args:
+      try: applyFallbacks(tiers, @[@[arg]], report)
+      except CatchableError: discard
+
+proc offerFor(tab: var Tab, arg: Arg, pc: ParseContext, word: string): Offer =
+  ## What `arg`'s value offers this Tab: its Completer's answer, or by
+  ## default its enumerable values, else files. A Completer runs at most
+  ## once per Tab, after `fill` if it asks, and one that raises offers
+  ## nothing. See `docs/adr/0071-runtime-completers.md`.
+  if arg in tab.offers:
+    return tab.offers[arg]
+  result =
+    if arg.complete.isDefault:
+      let values = arg.completions()
+      if values.len > 0: initOffer(values.mapIt((it, "")), PathCompletion.None)
+      else: initOffer(@[], PathCompletion.Files)
+    else:
+      if arg.complete.fills:
+        tab.fill(pc)
+      try: arg.complete.run(CompletionContext(word: word))
+      except CatchableError: initOffer(@[], PathCompletion.None)
+  tab.offers[arg] = result
+
+proc valueCandidates(o: Offer): seq[CompletionCandidate] =
+  ## `o`'s values as candidates, each description on one line.
+  for (v, help) in o.values:
+    result.add (v, summary(help))
+
+proc candidateWords(tab: var Tab, frontier: Frontier, prefix: string): seq[CompletionCandidate] =
   ## Reads every live frontier state's own outgoing transitions for literal
-  ## next-word spellings (option/flag variants, command variants, or an
-  ## enumerable positional's `completions()`), keeping only ones starting
+  ## next-word spellings (option/flag variants, command variants, or a
+  ## positional's values from `offerFor`), keeping only ones starting
   ## with `prefix` and deduplicating while preserving first-seen (== FSM
   ## priority/declaration) order. A `hidden` Arg is never offered -- see
   ## `docs/adr/0065-hidden-args-are-not-completed.md`.
@@ -117,19 +167,18 @@ proc candidateWords(frontier: Frontier, prefix: string): seq[CompletionCandidate
           if tr.matcher.cmd.hidden: newSeq[CompletionCandidate]()
           else: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
         of mkArgument:
-          collect:
-            if not tr.matcher.arg.hidden:
-              for v in tr.matcher.arg.completions(): (v, "")
+          if tr.matcher.arg.hidden: newSeq[CompletionCandidate]()
+          else: tab.offerFor(tr.matcher.arg, pc, prefix).valueCandidates
         of mkOptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
         of mkShortcut: newSeq[CompletionCandidate]()
       result.addUnseen(seen, candidates, prefix)
 
-proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
+proc pendingOptionalArgs(frontier: Frontier, name: string): seq[(Arg, ParseContext)] =
   ## Every distinct `Optional`-kind (value-taking, not `Flag`) Arg reachable
   ## from a live frontier state whose variants include `name` exactly --
   ## used by `resolveCompletion` to detect "the last already-typed word is itself
   ## a bare option name still awaiting its value" (e.g. `--log-level` typed
-  ## with nothing after it yet).
+  ## with nothing after it yet). Each comes with the first branch reaching it.
   var seenArgs: HashSet[Arg]
   for (state, pc) in frontier:
     for tr in state.transitions:
@@ -141,7 +190,7 @@ proc pendingOptionalArgs(frontier: Frontier, name: string): seq[Arg] =
       for arg in candidates:
         if arg.kind == Optional and name in pc.cursor.spec.bareVariants(arg) and arg notin seenArgs:
           seenArgs.incl arg
-          result.add arg
+          result.add (arg, pc)
 
 proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var HashSet[State]) =
   ## Generalizes `walk` into "every live branch, not just the first to
@@ -196,11 +245,6 @@ proc accepts(spec: Spec, words: seq[string], command, variant: string, arg: Arg)
   let probe = if arg.kind == Optional: variant & "=x" else: variant
   spec.frontierAfter(words & probe, command).len > 0
 
-proc pathsFor(arg: Arg): PathCompletion =
-  ## What `arg`'s value falls back to: its own `complete`, unless it has
-  ## enumerable values, which a `choice` accepts alone.
-  if arg.completions().len > 0: PathCompletion.None else: arg.complete
-
 proc widen(paths: var PathCompletion, other: PathCompletion) =
   ## `Files` beats `Dirs`, which beats `None` -- declared in that order.
   paths = min(paths, other)
@@ -214,14 +258,16 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
   ## already complete. Never raises -- an unparseable prefix simply yields
   ## no candidates and no paths (`collectFrontier` just finds no live
   ## transitions for it). See `docs/adr/0012-fsm-driven-shell-completion.md`,
-  ## `docs/adr/0022-completion-candidate-help-text.md`, and
-  ## `docs/adr/0066-completion-falls-back-to-paths.md`.
+  ## `docs/adr/0022-completion-candidate-help-text.md`,
+  ## `docs/adr/0066-completion-falls-back-to-paths.md`, and
+  ## `docs/adr/0071-runtime-completers.md`.
   result.paths = PathCompletion.None
+  var tab = Tab(root: spec, command: command)
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
   # Case (b): last word is a bare option name awaiting its value --
-  # short-circuit to that Arg's completions() (see architecture.md §6).
+  # short-circuit to that Arg's own values (see architecture.md §6).
   if priorWords.len > 0:
     let committed = priorWords[0 ..< priorWords.high]
     let name = priorWords[^1]
@@ -231,20 +277,19 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
       for (variant, arg) in frontier.levelOptions:
         if variant == name and arg.kind == Optional and
             spec.accepts(committed, command, variant, arg):
-          pending.add arg
+          pending.add (arg, frontier[0].pc)
     if pending.len > 0:
       var seenValues: HashSet[string]
-      for arg in pending:
-        let candidates = collect:
-          for c in arg.completions(): (c, "")
-        result.candidates.addUnseen(seenValues, candidates, wordBeingCompleted)
-        result.paths.widen arg.pathsFor
+      for (arg, pc) in pending:
+        let o = tab.offerFor(arg, pc, wordBeingCompleted)
+        result.candidates.addUnseen(seenValues, o.valueCandidates, wordBeingCompleted)
+        result.paths.widen o.paths
       return result
 
   # Case (a): ordinary "what word can come next" completion, plus any
   # option accepted after a positional (see `accepts`).
   let frontier = spec.frontierAfter(priorWords, command)
-  result.candidates = frontier.candidateWords(wordBeingCompleted)
+  result.candidates = tab.candidateWords(frontier, wordBeingCompleted)
   var seen: HashSet[string]
   for c in result.candidates:
     seen.incl c.value
@@ -253,10 +298,10 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
     if not arg.hidden and variant.startsWith(wordBeingCompleted) and
         variant notin seen and spec.accepts(priorWords, command, variant, arg):
       result.candidates.addUnseen(seen, describeVariants(arg, @[variant]), wordBeingCompleted)
-  for (state, _) in frontier:
+  for (state, pc) in frontier:
     for tr in state.transitions:
       if tr.matcher.kind == mkArgument and not tr.matcher.arg.hidden:
-        result.paths.widen tr.matcher.arg.pathsFor
+        result.paths.widen tab.offerFor(tr.matcher.arg, pc, wordBeingCompleted).paths
 
 proc directive*(paths: PathCompletion): string =
   ## The line ending `__complete`'s output, telling the shell script which
