@@ -1,5 +1,5 @@
 ## Owns "what happens when one `Matcher` is applied to the live parse state" --
-## `Match`, `MatchTable`, `Reach`, `Level`, and `ParseContext` are the data
+## `Match`, `MatchTable`, `Reach`, and `ParseContext` are the data
 ## model; `push` and `match` are the only two procs that touch them. Both
 ## `fsm.nim`'s `walk` (real parsing) and `completion.nim`'s `collectFrontier`
 ## (shell completion) call `match` directly and share `ParseContext` -- `match`
@@ -28,12 +28,6 @@ type
     ## of that token a Short-Option Cluster peel already accounted for.
     ## Lexicographic, so `subIdx` only ever breaks a tie *within* one physical
     ## argument and never outweighs reaching the next one. See ADR 0036.
-
-  Level* = tuple[spec: Spec, command: string]
-    ## One entered grammar level: the `Spec` owning it, plus the accumulated
-    ## command string naming it (`"app"`, `"app go"`). Recorded root-first on
-    ## `ParseContext.levels` as the walk descends, and read afterwards by
-    ## `dispatch` and `applyFallbacks` -- see architecture.md §5.
 
   ParseContext* = object
     maxReach*: Reach
@@ -195,7 +189,7 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
     # Unconditional on purpose -- a `m.opt notin pc.matches` guard can't tell
     # one occurrence from two; see ADR 0035's rejected third rule.
     pc.report.missingOption(if m.variant.len > 0: m.variant else: m.opt.name,
-      aboutMessageArg = m.opt of MessageArg)
+      aboutMessageArg = m.opt.isMessage)
     # A failed Option matcher never reaches `walk`'s tail, so it records its
     # own leftover -- see ADR 0035, and ADR 0019 point 4 on why this can't
     # live in tokenization.

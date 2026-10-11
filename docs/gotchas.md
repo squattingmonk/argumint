@@ -669,3 +669,17 @@ debugging time. Read this before touching the constructors and `flagOp`/
   for an object prints each field; for `Completer.fn` it finds no `$` for a
   proc, converts the proc to a `Completer` and recurses until the call
   depth limit. `Completer` has its own `$` to stop it.
+
+- **An object constructor for a foreign subtype can't set an inherited
+  private field**, even inside a generic declared beside the parent.
+  `A(validator: v)` with `A = ref object of ValueArg[T]` declared in the
+  caller's module fails with `undeclared field`, and so does `writeHook[A]`
+  for its `A(self).value`. `initValueArg(A, ...)` (`argtypes.nim`)
+  allocates `A` with `new`, then sets each field through a `ValueArg[T]`
+  view, with the hooks instantiated for `ValueArg[T]`. `new`, not `A()`:
+  for a range `T` that excludes zero, `A()` fails on the uninitialized
+  `default`. `initValuesArg` shares the field-setting template. Don't
+  shortcut it by copying a built parent over the subtype
+  (`ValueArg[T](result)[] = parent[]`): that compiles, but copies the
+  parent's runtime type too, so `A`'s method overrides silently stop
+  dispatching.

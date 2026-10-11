@@ -171,16 +171,31 @@ type
     theme: Theme
       ## What an `autoStyler` style resolves to colour with
 
+  Level* = tuple[spec: Spec, command: string]
+    ## One entered grammar level: the `Spec` owning it, plus the accumulated
+    ## command string naming it (`"app"`, `"app go"`). Recorded root-first on
+    ## `ParseContext.levels` as the walk descends, and read afterwards by
+    ## `dispatch` and `applyFallbacks` -- see architecture.md §5. Not
+    ## exported from the facade: a user reads its fields off `HookInfo`.
+
   HookInfo* = object
     matched*: seq[Arg]
       ## Every Arg matched during this invocation, across every spec level in
       ## the dispatch chain (not just the receiving hook's own level) -- a view
       ## onto `fsm.nim`'s internal `MatchTable` computed once from the walk
       ## `parse*` already performs, not a re-walk. E.g.
-      ## `info.matched.anyIt(it of MessageArg)` (or `showsMessage(info)` below)
+      ## `info.matched.anyIt(it.isMessage)` (or `showsMessage(info)` below)
       ## to detect a Message/Help request from a `before` hook and skip
       ## expensive setup for it -- see
       ## `docs/adr/0021-hook-info-matched-args.md`.
+    root*: Level
+      ## The Spec `parse*` was called on and the `command` it was given
+      ## (default `appName()`) -- the program's name as the user types it.
+      ## The same at every level.
+    here*: Level
+      ## The level being dispatched: its Spec and the command line that
+      ## reached it, e.g. `prog ship move`. Equal to `root` at the root.
+
 
   Spec* = ref object
     ## An opaque handle to a built command-line spec: name it, pass it around,
@@ -567,13 +582,25 @@ proc hash*(self: State): Hash =
   ## Remove it once `nimPreviewHashRef` is Nim's default.
   hash(cast[pointer](self))
 
+method isMessage*(self: Arg): bool {.base.} =
+  ## Whether `self` is a Message Argument: matching it fires its `action`
+  ## in place of the enclosing Spec's own `action` hook. `false` unless a
+  ## subtype overrides it, as `MessageArg` and `HelpArg` do. An Arg of any
+  ## kind may be one, and may hold a value. An override of `action` never
+  ## fires without this returning `true`.
+  false
+
+method isMessage(self: MessageArg): bool =
+  ## Always `true` -- see `isMessage*`.
+  true
+
 proc showsMessage*(info: HookInfo): bool =
-  ## True if `info.matched` includes a Message Argument (Help or a plain
-  ## `message()`/`version()`) -- i.e. this invocation's dispatch will
-  ## short-circuit into printing a message and exiting rather than
-  ## reaching a real `action`.
+  ## True if `info.matched` includes a Message Argument (Help, a plain
+  ## `message()`/`version()`, or any Arg whose `isMessage` is `true`) --
+  ## i.e. this invocation's dispatch will short-circuit into printing a
+  ## message and exiting rather than reaching a real `action`.
   for arg in info.matched:
-    if arg of MessageArg:
+    if arg.isMessage:
       return true
   false
 
@@ -620,18 +647,17 @@ proc parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = non
   if how.get == arReplace:
     self.seenBy = seenBy.get
 
-method action*(self: Arg, command: string, spec: Spec, variant = "") {.base.} =
+method action*(self: Arg, info: HookInfo, variant = "") {.base.} =
   ## Fires this Arg's Action -- what a matched Message Argument does in place
   ## of the enclosing Spec's own `action` hook (see `CONTEXT.md`'s Action
-  ## entry and `docs/adr/0013-message-args-fire-after-before.md`).
-  ##
-  ## One signature for every kind, rather than one per what each needs:
-  ## `command`/`spec` are what a `HelpArg` uses to render help text, and a
-  ## plain `MessageArg` simply ignores them. That is what lets the per-level
-  ## message pass dispatch once, with no test for which kind it holds.
+  ## entry and `docs/adr/0013-message-args-fire-after-before.md`). `info` is
+  ## the dispatching level's, as its `action` hook would see it; `variant` is
+  ## the spelling the user typed. Only called when `isMessage` is `true`, so
+  ## an override needs one of those too. A value-holding Arg reads its own
+  ## value, already converted and validated by the time this fires.
   raise newException(Defect, fmt"action() is not defined for {self.name(variant)}")
 
-method action(self: MessageArg, command: string, spec: Spec, variant = "") =
+method action(self: MessageArg, info: HookInfo, variant = "") =
   ## Raises `MessageError` with `self.message`, short-circuiting the rest
   ## of parsing so `parse*`/`parseOrQuit*` can deliver it directly (see
   ## `message*`/`version*`).

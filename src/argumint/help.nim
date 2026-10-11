@@ -326,15 +326,17 @@ proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColu
   ## `prog ship move`).
   formatter(helpContext(spec, command))
 
-method action(self: HelpArg, command: string, spec: Spec, variant = "") =
-  ## Raises `HelpError` with `spec`'s generated help text for `command`,
+method action(self: HelpArg, info: HookInfo, variant = "") =
+  ## Raises `HelpError` with `info.here`'s generated help text,
   ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
   ## deliver it directly (see `help*`). `msg` is rendered without a Styler,
   ## and `styledMsg` with the Spec's.
   # Explicit conversion needed -- see docs/gotchas.md.
   let formatter = if self.formatter.isNil: HelpFormatter(formatColumn) else: self.formatter
-  let plain = formatter(helpContext(spec, command, nil))
-  let styled = if spec.settings.style.isNil: plain else: spec.genHelp(command, formatter)
+  let plain = formatter(helpContext(info.here.spec, info.here.command, nil))
+  let styled =
+    if info.here.spec.settings.style.isNil: plain
+    else: info.here.spec.genHelp(info.here.command, formatter)
   raise (ref HelpError)(msg: plain, styledMsg: styled)
 
 when isMainModule:
@@ -1262,7 +1264,7 @@ when isMainModule:
 
       var raised = ""
       try:
-        help.action(command = "prog", spec)
+        help.action(HookInfo(here: (spec, "prog")))
       except HelpError as e:
         raised = e.msg
       check raised == expected
@@ -1284,7 +1286,7 @@ when isMainModule:
 
       var raised = ""
       try:
-        help.action(command = "prog", spec)
+        help.action(HookInfo(here: (spec, "prog")))
       except HelpError as e:
         raised = e.msg
       check raised == expected

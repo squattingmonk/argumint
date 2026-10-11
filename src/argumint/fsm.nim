@@ -60,38 +60,39 @@ proc walk(s: State, pc: var ParseContext): bool =
     if not pc.report.starved(pc.cursor):
       pc.report.leftover(pc.cursor)
 
-proc parseMessageArgs(spec: Spec, matches: MatchTable, command: string) =
-  ## Parses (and raises on) any matched MessageArg/HelpArg at `spec`'s own
-  ## level (per `Match.spec` provenance -- see `push`). Called after
-  ## `before`, inside `dispatch`'s try/finally, so a `before`-time mutation
-  ## is visible in this level's own message/help output, and `after` still
-  ## fires as a guaranteed cleanup even though this raises instead of
-  ## returning. Unlike `parseAllValues`, this stays per-level: a shared
-  ## MessageArg must fire at the level it was typed at, not the shallowest
-  ## one declaring it -- see
+proc parseMessageArgs(info: HookInfo, matches: MatchTable) =
+  ## Fires (and so raises on) the `action` of any matched Message Argument
+  ## at `info.here.spec`'s own level (per `Match.spec` provenance -- see
+  ## `push`). Called after `before`, inside `dispatch`'s try/finally, so a
+  ## `before`-time mutation is visible in this level's own message/help
+  ## output, and `after` still fires as a guaranteed cleanup even though
+  ## this raises instead of returning. Unlike `parseAllValues`, this stays
+  ## per-level: a shared Message Argument must fire at the level it was
+  ## typed at, not the shallowest one declaring it -- see
   ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
   # Iterates `matches` rather than `spec.args`: a match tagged with this
   # spec can only have come from its own FSM region, so `matchSpec != spec`
   # below already subsumes "declared at this level".
   for arg, ms in matches:
-    if not (arg of MessageArg):
+    if not arg.isMessage:
       continue
     # See `parseAllValues` on sorting by `Match.idx` instead of push order.
     for (variant, value, matchSpec, _) in ms.sortedByIt(it.idx):
-      if matchSpec != spec:
+      if matchSpec != info.here.spec:
         continue
-      arg.action(command, spec, variant)
+      arg.action(info, variant)
 
 proc parseAllValues(matches: MatchTable) =
-  ## Parses every non-Command, non-MessageArg match across the *whole*
-  ## matched tree, before `dispatch` fires any hook -- so no hook runs for
-  ## an invocation carrying an unconvertible or invalid value, on any Value
-  ## Precedence tier. The env and Config Source tiers already parsed up
-  ## front in `applyFallbacks`; this brings the command-line tier in line.
-  ## See `docs/adr/0032-parse-all-values-before-dispatch.md`.
+  ## Parses every match across the *whole* matched tree, before `dispatch`
+  ## fires any hook -- so no hook runs for an invocation carrying an
+  ## unconvertible or invalid value, on any Value Precedence tier. The env
+  ## and Config Source tiers already parsed up front in `applyFallbacks`;
+  ## this brings the command-line tier in line. See
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
   ##
-  ## MessageArgs stay behind for `parseMessageArgs`, which `dispatch` still runs
-  ## per level after that level's `before` -- see
+  ## A Message Argument's value is parsed here too, so a bad one fails before
+  ## any hook. Its `action` stays behind for `parseMessageArgs`, which
+  ## `dispatch` runs per level after that level's `before` -- see
   ## `docs/adr/0013-message-args-fire-after-before.md`.
   for arg, ms in matches:
     # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
@@ -113,19 +114,22 @@ proc dispatch(levels: seq[Level], idx: int, matches: MatchTable, info: HookInfo)
   ## whichever level it routes to -- firing `before`/`action`/`after` per
   ## `docs/adr/0009-command-before-action-after-hooks.md`. Stays recursive
   ## rather than looping: the nested `try`/`finally` is what unwinds `after`
-  ## leaf-to-root. `info` is computed once by `parse*` and threaded through
-  ## unchanged, so every level's hooks see the same whole-invocation view --
-  ## see `docs/adr/0021-hook-info-matched-args.md`.
+  ## leaf-to-root. `info` is computed once by `parse*`; each level gets a
+  ## copy with its own `here`, so every level's hooks see the same
+  ## whole-invocation `matched` and `root` -- see
+  ## `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## Values are already parsed for every matched level by the time this
   ## runs (`parseAllValues`, called from `parse*`), so a hook at any depth
   ## sees the whole tree's values, not just its own level's -- see
   ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
-  let (spec, command) = levels[idx]
+  let spec = levels[idx].spec
+  var info = info
+  info.here = levels[idx]
   if not spec.before.isNil:
     spec.before(info)
   try:
-    parseMessageArgs(spec, matches, command)
+    parseMessageArgs(info, matches)
     if idx == levels.high:
       if not spec.action.isNil:
         spec.action(info)
@@ -206,5 +210,5 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   if not fallback.isEmpty:
     fallback.raiseParseFailure()
 
-  let info = HookInfo(matched: matchedArgs(pc.matches))
+  let info = HookInfo(matched: matchedArgs(pc.matches), root: pc.levels[0])
   dispatch(pc.levels, 0, pc.matches, info)

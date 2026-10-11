@@ -57,7 +57,7 @@ method accumulates(self: CustomArg): bool = true
 method lookup(self: EmptySource, key: ConfigKey): Option[seq[string]] =
   some(newSeq[string]())
 
-method action(self: VariantProbe, command: string, spec: Spec, variant = "") =
+method action(self: VariantProbe, info: HookInfo, variant = "") =
   self.seenVariant = variant
   raise newException(MessageError, self.message)
 

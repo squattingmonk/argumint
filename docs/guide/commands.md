@@ -416,6 +416,11 @@ Options:
 Installed packages go in ~/.pkg.
 ```
 
+A hook also knows where it is. `info.here.command` is the command line that
+reached its level, like `pkg install`, and `info.here.spec` is that level's
+`Spec`. `info.root.command` and `info.root.spec` are the same at every level:
+the name the program was run as, and the `Spec` being parsed.
+
 ### Passing Extra Context to Hooks
 
 A hook receives only its own level's spec. To read a value from another

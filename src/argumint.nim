@@ -48,7 +48,7 @@ export backend.showsMessage
 
 # The core vocabulary types, so a spec can cross a proc or module boundary
 # (`var built: Spec`, `proc buildCli(): Spec`) and `HookInfo.matched` can
-# actually be inspected (`it of MessageArg`, `it.kind == Optional`).
+# actually be inspected (`it.isMessage`, `it.kind == Optional`).
 # `State`/`Transition`/`Matcher`/`MatcherKind` are deliberately left out --
 # they're FSM plumbing, not API. See
 # docs/adr/0030-core-types-exported-spec-opaque.md.
@@ -94,14 +94,14 @@ export backend.PathCompletion, backend.CompletionContext, backend.Offer,
 
 # The write side of an Arg (#47): `arg.parse(v, seenBy = some(byCli))`
 # pre-seeds a value, `arg.clear()` returns one to its coded default, and
-# `action` is what a `MessageArg`/`HelpArg` overrides. `accept`, with the
-# `Contribution` and `Arbitration` it takes, is what a custom `Arg`
-# overrides to store a value (#145). Exported for the same
-# reason as `fsm.parse` above -- reaching them shouldn't need a backend
+# `isMessage` with `action` is what a Message Argument overrides. `accept`,
+# with the `Contribution` and `Arbitration` it takes, is what a custom `Arg`
+# overrides to store a value (#145). Exported for the same reason as
+# `fsm.parse` above -- reaching them shouldn't need a backend
 # import. See `docs/adr/0041-parse-is-the-write-surface.md` and
 # `docs/adr/0030-core-types-exported-spec-opaque.md`.
-export backend.parse, backend.accept, backend.clear, backend.action,
-  backend.Contribution, backend.Arbitration
+export backend.parse, backend.accept, backend.clear, backend.isMessage,
+  backend.action, backend.Contribution, backend.Arbitration
 
 # How a Value Precedence tier *finds* an Arg's value (#59): the two methods
 # a custom `Arg` subtype overrides to opt into the env and Config Source

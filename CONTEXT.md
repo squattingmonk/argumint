@@ -28,8 +28,8 @@ Distinct from a raw string typed on the actual command line, which isn't a
 named domain concept here. (Note: the code's `ArgKind` enum — Command /
 Positional / Optional / Flag — classifies by token shape, i.e. whether a
 following value is expected on the command line, not by this domain-level
-categorization; that's a separate axis, which is why Message Argument is
-tagged `kind: Flag` despite not being a domain specialization of Flag.)
+categorization; that's a separate axis, which is why a Message Argument
+may be of any kind despite not being a domain specialization of any.)
 _Avoid_: Argument (ambiguous with a raw command-line string)
 
 **Value Type**:
@@ -369,20 +369,26 @@ hook's own Spec level) — a view onto the FSM walk `parse*`/`parseOrQuit*`
 already performed, not a re-walk. `showsMessage(info)` answers the
 concrete motivating question — whether this invocation's dispatch will
 short-circuit into a Message Argument's output — but the raw matched-Arg
-list generalizes beyond that one check. Computed once per invocation and
-threaded unchanged through the whole dispatch tree, so an ancestor Command's
-Before Hook can see a descendant's about-to-fire Message Argument match.
-See `docs/adr/0021-hook-info-matched-args.md`.
+list generalizes beyond that one check. `matched` is computed once per
+invocation and the same at every level, so an ancestor Command's Before
+Hook can see a descendant's about-to-fire Message Argument match. It also
+carries `root` — the Spec `parse*` was called on and its command, the same
+at every level — and `here`, the same pair for the level being dispatched
+(e.g. `prog ship move`). A Message Argument's `action` receives its
+level's Hook Info too. See `docs/adr/0021-hook-info-matched-args.md` and
+`docs/adr/0073-message-argument-is-a-capability.md`.
 _Avoid_: hook context, hook args
 
 **Message Argument**:
-An Arg whose match, via any of its Variants, displays a fixed message and
-halts parsing instead of capturing a value — a peer of Positional
-Argument, Option, and Command, not a specialization of Flag. Built with
-`message()`/`version()`; Help is the built-in specialization whose
-displayed message is the Spec's dynamically-generated usage/help text
-rather than a fixed author-supplied string. A matched Message Argument is
-that level's Action for the invocation — see Action.
+An Arg whose match, via any of its Variants, displays a message and halts
+parsing instead of running the Spec's Action. Declared by the Arg's
+`isMessage` method rather than its type, so it may be of any kind and may
+hold a value (converted before any hook, like any other), which its own
+`action` reads. Built in: `message()`/`version()`, a Flag showing a fixed
+string, and Help, whose displayed message is the Spec's
+dynamically-generated usage/help text. A matched Message Argument is that
+level's Action for the invocation — see Action and
+`docs/adr/0073-message-argument-is-a-capability.md`.
 _Avoid_: MessageArg (code-level name), display flag
 
 **Options Catch-all**:

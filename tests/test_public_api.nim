@@ -438,7 +438,7 @@ suite "What naming the core types buys a caller":
     var sawMessageArg, sawFlag: bool
 
     proc onAction(spec: tuple, info: HookInfo) =
-      sawMessageArg = info.matched.anyIt(it of MessageArg)
+      sawMessageArg = info.matched.anyIt(it.isMessage)
       sawFlag = info.matched.anyIt(it.kind == ArgKind.Flag)
 
     let spec = (verbose: flag("-v", help = ""), help: help())
