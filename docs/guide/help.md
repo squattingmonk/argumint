@@ -505,6 +505,56 @@ The context gives you the pieces the built-in formatters use:
 A parse error always shows its usage lines in the standard layout, whatever
 the formatter.
 
+### Letting the User Choose
+
+To let the user pick a layout each time, give them a help flag for each, as
+`--help-long` does in [Paragraph Style](#paragraph-style). To let them pick
+once, write a formatter that reads their choice from an environment variable
+and hands the work to a built-in one:
+
+```nim
+import std/os
+import argumint
+
+proc formatChosen(ctx: HelpContext): string =
+  if getEnv("SHIP_HELP_STYLE") == "paragraph": formatParagraph(ctx)
+  else: formatColumn(ctx)
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  help: help(formatter = formatChosen),
+)
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./ship --help
+Usage:
+  ship <name>
+  ship (-h | --help)
+
+Arguments:
+  <name>      Ship to move
+
+Options:
+  -h, --help  Display this help message
+$ SHIP_HELP_STYLE=paragraph ./ship --help
+Usage:
+  ship <name>
+  ship (-h | --help)
+
+Arguments:
+  <name>
+    Ship to move
+
+Options:
+  -h, --help
+    Display this help message
+```
+
+Give each command's `help` the same formatter, so the choice holds there too.
+
 ## Messages and Versions
 
 `version` and `message` add a flag that prints some text and exits, the way
