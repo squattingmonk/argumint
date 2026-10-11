@@ -73,7 +73,7 @@ proc autoFillUsage(spec: Spec) =
 
   let reachable = spec.fsm.referencedArgs()
   let optionsUnreachable = spec.options.values.toSeq.deduplicate
-    .anyIt(not (it of MessageArg) and it notin reachable)
+    .anyIt(not it.isMessage and it notin reachable)
   let prefix = if optionsUnreachable: "[options] " else: ""
   var prefixUsed = false
 
@@ -99,11 +99,14 @@ proc autoFillUsage(spec: Spec) =
     addLine prefix & names.join(" ")
     prefixUsed = prefixUsed or optionsUnreachable
 
-  # Before the MessageArg lines -- see architecture.md's "autoFillUsage" section.
+  # Before the Message Argument lines -- see architecture.md's "autoFillUsage"
+  # section.
   if optionsUnreachable and not prefixUsed:
     addLine "[options]"
 
-  let messageArgs = spec.args.filterIt(it of MessageArg and it notin reachable)
+  # A Positional one already sits in the positional line above.
+  let messageArgs = spec.args.filterIt(it.isMessage and it.kind != Positional and
+    it notin reachable)
   # Nothing else accepts an empty command line -- see architecture.md's
   # "autoFillUsage" section.
   if spec.usage.len == 0 and messageArgs.len > 0:

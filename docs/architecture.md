@@ -169,7 +169,7 @@ probes too.
 
 `matching.nim` sits directly above `precedence` and below `completion`/
 `fsm`, and holds the matching primitives both the parse walk and shell
-completion drive: `Match`/`MatchTable`/`Reach`/`Level` (types) and
+completion drive: `Match`/`MatchTable`/`Reach` (types) and
 `ParseContext`, plus `push`/`match` (the proc that applies one `Matcher`
 against the live cursor, mutating `pc.report`/`pc.tiers`/`pc.matches` as a
 side effect). Both `walk` (`fsm.nim`) and `collectFrontier` (`completion.
@@ -898,15 +898,19 @@ shape -- exported `{.base.}` no-op, unexported per-type overrides -- and
 always clears provenance alongside the value, since an Arg reading as Seen
 with an empty value seq would make ADR 0040's scalar accessor index it.
 
-`Arg.action` is separate from `parse` and carries the side-effecting kinds.
-One signature serves both: `MessageArg` raises `MessageError` and ignores
-`command`/`spec`, while `HelpArg` uses them to render help before raising
-`HelpError`. That uniformity is what lets `parseMessageArgs` dispatch once,
-with no test for which kind it holds. Each override lives beside its own
-type: `MessageArg`'s in `backend.nim`, `HelpArg`'s in `help.nim` (where it
-renders through the `HelpArg`'s own Help Formatter, ADR 0048). `HelpArg`
-renders a plain `msg` through a Help Context with no styler and, only if the
-Spec has one, a second time for `styledMsg` (ADR 0059).
+`Arg.action` is separate from `parse` and carries the side-effecting kinds:
+it fires for an Arg whose `isMessage` method returns `true`. One signature,
+`action(info: HookInfo, variant)`, serves every kind: `MessageArg` raises
+`MessageError` and ignores `info`, while `HelpArg` uses `info.here` (the
+level's Spec and command) to render help before raising `HelpError`. A
+value-holding Message Argument (a `ValueArg[T]` subtype) reads its own
+value, parsed already by `parseAllValues`. That uniformity is what lets `parseMessageArgs`
+dispatch once, with no test for which kind it holds (ADR 0073). Each
+override lives beside its own type: `MessageArg`'s in `backend.nim`,
+`HelpArg`'s in `help.nim` (where it renders through the `HelpArg`'s own
+Help Formatter, ADR 0048). `HelpArg` renders a plain `msg` through a Help
+Context with no styler and, only if the Spec has one, a second time for
+`styledMsg` (ADR 0059).
 
 The method is a dependency inversion, and a deliberate one. `genHelp` now
 lives in `help.nim`, *below* `fsm.nim` (issue #50), so the FSM could raise
@@ -1335,7 +1339,8 @@ command-line value surfaces before a bad env or config one. See
 
 The walk already knows which levels it entered, so it records them rather
 than letting the post-walk passes re-derive them. `ParseContext.levels` is
-a root-first `seq[Level]`, where `Level` is `(spec: Spec, command:
+a root-first `seq[Level]`, where `Level` (`backend.nim`, beside the
+`HookInfo` that carries two of them) is `(spec: Spec, command:
 string)`: the `Spec` owning that grammar level, plus the accumulated
 command string naming it (`"app"`, `"app go"`, `"app go stat"`). `parse*`
 seeds it with the root entry; `match`'s `mkCommand` branch appends one entry
@@ -1358,27 +1363,29 @@ of `Level`), needing neither a `Spec` lookup of its own nor the
 `MatchTable` to find its next level. `dispatch` recurses over an index
 into `pc.levels` directly, since it does need the command string.
 
-`Spec.parse` then builds a `HookInfo(matched: seq[Arg])` from `pc.matches`
+`Spec.parse` then builds a `HookInfo` with `matched` from `pc.matches`
 -- every Arg with at least one match, across every level, computed once
-from the walk already performed (not a second walk) -- then descends the
-recorded chain via `dispatch(pc.levels, 0, pc.matches, info)`, threading
-`info` unchanged through every recursive call. At each level:
+from the walk already performed (not a second walk) -- and `root` from
+`pc.levels[0]`, then descends the recorded chain via
+`dispatch(pc.levels, 0, pc.matches, info)`. Each level copies `info` and
+sets `here` to its own `Level` on the copy. At each level:
 `spec.before(info)` fires, if set, with every matched level's values
 already parsed; `parseMessageArgs` then fires (via `Arg.action`, and raises
-on) any matched `MessageArg`/`HelpArg` at this level (still filtered by the
-`Match`'s `Spec` provenance, so a shared `help()` fires at the level it was
-typed at rather than the shallowest one declaring it); if this is the
-chain's last entry, `spec.action(info)` fires (this Spec is the dynamic
-leaf for this invocation); otherwise `dispatch` recurses on the next index;
+on) any matched Arg whose `isMessage` is `true` at this level (still
+filtered by the `Match`'s `Spec` provenance, so a shared `help()` fires at
+the level it was typed at rather than the shallowest one declaring it); if
+this is the chain's last entry, `spec.action(info)` fires (this Spec is the
+dynamic leaf for this invocation); otherwise `dispatch` recurses on the next
+index;
 finally `spec.after(info)` fires, wrapped in a `try/finally` around the
 message-arg/action-or-recursion step so it's guaranteed to run once
 `before` (or its absence) has completed without raising, regardless of
-what happens afterward — including a `MessageArg` match, which is treated
+what happens afterward — including a Message Argument match, which is treated
 as this level's action-equivalent for firing purposes: it runs after
 `before` and inside the same `try/finally`, so `before`-time state changes
 are visible to it and `after` still fires as cleanup even though it raises.
 Applied recursively, this gives `before` a root-to-leaf firing order,
-`action`/a matched `MessageArg` firing exactly once at whichever level
+`action`/a matched Message Argument firing exactly once at whichever level
 turns out to be the leaf, and `after` a leaf-to-root order — and, since
 each level's `after` is reached via its own `try/finally`, an ancestor
 whose `before` already ran still gets a chance to clean up even when
@@ -1386,9 +1393,9 @@ something nested inside it fails, with no explicit bookkeeping. See
 `docs/adr/0009-command-before-action-after-hooks.md` and
 `docs/adr/0013-message-args-fire-after-before.md`.
 
-Since `info` is a single value computed once and threaded unchanged
-through the whole recursion, `info.matched` (and its `showsMessage(info)`
-convenience -- true if any matched Arg is a `MessageArg`) is a flat view
+Since `info.matched` is computed once and copied unchanged into every
+level, it (and its `showsMessage(info)` convenience -- true if any matched
+Arg's `isMessage` is `true`) is a flat view
 across the *whole* matched dispatch chain, not scoped to the receiving
 hook's own level -- an ancestor Command's `before` can see
 `info.showsMessage: true` even when the actual matched `HelpArg` belongs
@@ -1421,11 +1428,12 @@ differs by category:
 - **Commands** that are unreachable are joined into a single `(cmd1 | cmd2)`
   alternation line (all their variants flattened into one `|`-list) rather
   than one line per command, so a shared `[options]` prefix isn't repeated
-  for each one. **`MessageArg`s** (e.g. `help()`) are still filled in
+  for each one. **Message Arguments** (e.g. `help()`) are still filled in
   per-arg — each missing one gets its own appended line — since they never
   carry the `[options]` prefix to begin with and are independently optional
   to mention. Mentioning one variant of a multi-variant arg counts as
-  reachable; it won't be duplicated.
+  reachable; it won't be duplicated. A Positional one is the exception: it
+  goes in the positional line below, like any other Positional Argument.
 - **Positional args** are all-or-nothing: only auto-appended (as one joined
   `<a> <b>` line, in declaration order) when *none* of them are reachable
   yet. A partially-specified sequence is left alone. An `Arg` whose
@@ -1433,15 +1441,15 @@ differs by category:
   this is only a hint, so a hand-written `<a>` still matches one value.
   More than one accumulating Positional Argument raises a `SpecDefect`
   instead, since how values split between them is the author's call.
-- **Options** (`opt`/`flag`, non-`MessageArg`) aren't their own usage line;
+- **Options** (`opt`/`flag`, not Message Arguments) aren't their own usage line;
   `[options]` rides along as a prefix on whatever command/positional line
   gets auto-appended above. If nothing else gets appended but some option is
   still unreachable, a standalone `[options]` line is added as a fallback,
-  ahead of the `MessageArg` lines, so the help and version lines still
+  ahead of the Message Argument lines, so the help and version lines still
   come last.
   Weaving `[options]` into an arbitrary hand-written line that's missing it
   is not attempted.
-- **A Bare Call** (`{cmd}`, ADR 0061) is added ahead of the `MessageArg`
+- **A Bare Call** (`{cmd}`, ADR 0061) is added ahead of the Message Argument
   lines when `spec.usage` is still empty by then, i.e. nothing was
   hand-written and nothing else was filled in. Otherwise a spec holding only
   `help()` would accept nothing but `-h`, so a command like that couldn't

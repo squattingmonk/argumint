@@ -1,5 +1,11 @@
 # `before`/`action`/`after` receive a `HookInfo` with matched Args
 
+> **Amended by [ADR 0073](0073-message-argument-is-a-capability.md)**:
+> `HookInfo` also carries `root` and `here`, the root and the dispatching
+> level's `(spec, command)`, so it is no longer identical at every level;
+> `matched` still is. A Message Argument is any Arg whose `isMessage` is
+> `true`, not one `of MessageArg`.
+
 `examples/completion.nim` demonstrated a real usability gap: running
 `examples/completion --help` printed "Connecting to the database..." (a
 stand-in for expensive setup) before the help text, because the DB

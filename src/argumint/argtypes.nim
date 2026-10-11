@@ -684,12 +684,35 @@ template requireValueType(T: typedesc) =
     {.error: $T & " is not a value type: define `converter to" & $T & "(value: string): " &
       $T & "` where its Arg is built".}
 
-template initAnyValueArg(A: typedesc, isMulti: bool): untyped =
-  ## The body `initValueArg`/`initValuesArg` share, reading their params.
-  A(kind: kind, variants: variants.split(Comma), default: default,
-    help: help, group: group.groupOr(kind), hidden: hidden, validator: validator,
-    env: env, cfgKey: cfgKey, multi: isMulti,
-    write: writeHook[A], reset: resetHook[A], describe: describeHook[A])
+template setValueArgFields(arg: typed, H: typedesc, isMulti: bool) =
+  ## Sets every field `initValueArg`/`initValuesArg` share from their params,
+  ## with `H`'s hooks. One field at a time, never `H(...)` -- see
+  ## `initValueArg(A)`.
+  arg.kind = kind
+  arg.variants = variants.split(Comma)
+  arg.default = default
+  arg.help = help
+  arg.group = group.groupOr(kind)
+  arg.hidden = hidden
+  arg.validator = validator
+  arg.env = env
+  arg.cfgKey = cfgKey
+  arg.multi = isMulti
+  arg.write = writeHook[H]
+  arg.reset = resetHook[H]
+  arg.describe = describeHook[H]
+
+proc initValueArg*[A: ValueArgBase, T: not seq](_: typedesc[A], kind: ArgKind,
+    variants: string, default: T, help: HelpText, group: string, hidden: bool,
+    validator: Validator[T], env = none(EnvSource), cfgKey = noConfigKey()): A =
+  ## Builds `A`, a `ValueArg[T]` or a subtype of one declared in any module
+  ## -- e.g. a Message Argument overriding `isMessage` and `action`. Fields
+  ## go through a `ValueArg[T]` view and the hooks are `ValueArg[T]`'s, since
+  ## `A(...)` can't set private fields from a foreign `A`. See
+  ## docs/gotchas.md.
+  requireValueType(T)
+  new(result)
+  setValueArgFields(ValueArg[T](result), ValueArg[T], false)
 
 proc initValueArg*[T: not seq](kind: ArgKind, variants: string, default: T,
     help: HelpText, group: string, hidden: bool, validator: Validator[T],
@@ -698,8 +721,9 @@ proc initValueArg*[T: not seq](kind: ArgKind, variants: string, default: T,
   ## (`kind = Positional`, no `env`/`cfgKey`) and `opt*` (`kind =
   ## Optional`). Call it with named arguments: `help`/`group` are adjacent
   ## same-typed parameters that a positional call could swap silently.
-  requireValueType(T)
-  initAnyValueArg(ValueArg[T], false)
+  initValueArg(ValueArg[T], kind = kind, variants = variants, default = default,
+    help = help, group = group, hidden = hidden, validator = validator,
+    env = env, cfgKey = cfgKey)
 
 proc initValuesArg*[T: not seq](kind: ArgKind, variants: string, default: seq[T],
     help: HelpText, group: string, hidden: bool, validator: Validator[T],
@@ -707,7 +731,8 @@ proc initValuesArg*[T: not seq](kind: ArgKind, variants: string, default: seq[T]
   ## Builds a `ValuesArg[T]`, behind `args*` and `opts*`. See
   ## `initValueArg`.
   requireValueType(T)
-  initAnyValueArg(ValuesArg[T], true)
+  new(result)
+  setValueArgFields(result, ValuesArg[T], true)
 
 proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
     help: HelpText, group: string, hidden: bool, clamp: FlagClamp[T],

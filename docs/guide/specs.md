@@ -97,9 +97,10 @@ echo spec.name
 ```
 
 You need the built `Spec` for `completionScript` (see
-[Shell Completion](completion.md)), to reach it later from a hook, or when you
-build your command line in one place and parse it in another. Its values still
-go to the `Arg`s in your tuple.
+[Shell Completion](completion.md)) outside a hook, or when you build your
+command line in one place and parse it in another. Its values still go to the
+`Arg`s in your tuple. A hook doesn't need it kept: `info.root.spec` is the
+`Spec` being parsed, and `info.root.command` the name it was parsed as.
 
 A `Spec` is opaque: you pass it to procs like `parseOrQuit` and
 `completionScript`, but you don't look inside. The one exception is

@@ -182,7 +182,7 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
     # Built unfiltered; genFsm patches this matcher's opts once
     # explicitOptions is final for the line -- see architecture.md §2.
     let matcher = newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
-      .filterIt(not (it of MessageArg)))
+      .filterIt(not it.isMessage))
     p.pendingOptions.add matcher
     result.b = result.a.add(matcher)
     result.a.addShortcut(result.b) # Make it optional

@@ -1,5 +1,9 @@
 # `parse` is the write surface, and records its own provenance
 
+> **Amended by [ADR 0073](0073-message-argument-is-a-capability.md)**:
+> `action` takes `(info: HookInfo, variant)` instead of `(command, spec,
+> variant)`, and fires for any Arg whose `isMessage` is `true`.
+>
 > **Amended by [ADR 0044](0044-put-typed-write-accessor.md)**: `put` joins
 > `parse` as a second write spelling — the same arbitration, minus the
 > string conversion, plus a `validate = false` opt-out. The write-surface
