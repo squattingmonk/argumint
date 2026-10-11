@@ -301,6 +301,73 @@ A long description follows the rules in
 [Writing Longer Text](#writing-longer-text), so it can have paragraphs and
 lists too.
 
+### Both Layouts in Every Command
+
+A command's spec needs help flags of its own. To offer both layouts
+everywhere, declare each help flag once and put it in every spec. Each one
+shows the help for the command it's given to:
+
+```nim
+import argumint
+
+let
+  shortHelp = help()
+  fullHelp = help("--full-help", help = "Display this help with more detail",
+    formatter = formatParagraph)
+
+let
+  moveSpec = (
+    name: arg("<name>", help = "Ship to move"),
+    speed: opt("-s, --speed=<kn>", default = 10, help = ("Speed in knots",
+      "Speed in knots. Faster ships burn more fuel, and no ship goes faster than 30.")),
+    help: shortHelp,
+    fullHelp: fullHelp,
+  )
+  spec = (
+    move: command("move", moveSpec, help = "Move a ship"),
+    help: shortHelp,
+    fullHelp: fullHelp,
+  )
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./ship --help
+Usage:
+  ship move
+  ship (-h | --help)
+  ship --full-help
+
+Commands:
+  move         Move a ship
+
+Options:
+  -h, --help   Display this help message
+  --full-help  Display this help with more detail
+
+$ ./ship move --full-help
+Usage:
+  ship move [options] <name>
+  ship move (-h | --help)
+  ship move --full-help
+
+Arguments:
+  <name>
+    Ship to move
+
+Options:
+  -s, --speed=<kn>
+    Speed in knots. Faster ships burn more fuel, and no ship goes faster than
+    30. [default: 10]
+
+  -h, --help
+    Display this help message
+
+  --full-help
+    Display this help with more detail
+```
+
 ## Colour
 
 When both standard output and standard error go to a terminal, help and error
