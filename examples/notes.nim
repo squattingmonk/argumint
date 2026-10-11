@@ -11,8 +11,6 @@ let
              help = "Where notes are stored")
   verbose = flag("-v, --verbose", help = "Show extra output")
 
-var cli: Spec
-
 proc readNotes(): seq[string] =
   if fileExists(file): readFile(file).splitLines.filterIt(it.len > 0)
   else: @[]
@@ -49,9 +47,6 @@ proc removeNotes(spec: tuple, _: HookInfo) =
       notes.delete(id - 1)
   writeNotes(notes)
 
-proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(spec.shell, "notes")
-
 let
   add = (
     tags: opts("-t, --tag=<tag>", help = "Tag the note"),
@@ -71,10 +66,6 @@ let
     all: flag("--all", help = "Remove every note"),
     help: help(),
   )
-  completion = (
-    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
-    help: help(),
-  )
   spec = (
     file: file,
     verbose: verbose,
@@ -86,11 +77,8 @@ let
                     usage = "(<id>... | --all)",
                     help = "Remove notes",
                     prolog = "Remove notes by number, or all of them."),
-    completion: command("completion", completion, action = printCompletion,
-                        help = "Print a shell completion script",
-                        prolog = "Print a completion script for a shell."),
+    completion: completion(),
     help: help(),
   )
 
-cli = newSpec(spec, prolog = "A tiny note-taking CLI")
-cli.parseOrQuit()
+spec.parseOrQuit(prolog = "A tiny note-taking CLI")

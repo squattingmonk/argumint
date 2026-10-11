@@ -464,35 +464,11 @@ Values can also come from a config file. See
 
 argumint can complete commands, options, and validated values in bash, zsh,
 and fish. Completion runs your program to ask what comes next, so it always
-agrees with the parser. Add a command that prints the script for a shell:
+agrees with the parser. Add `completion()` to the spec, for a command that
+prints the script for a shell:
 
 ```nim
-var cli: Spec
-
-proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(spec.shell, "notes")
-```
-
-```nim
-  completion = (
-    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
-    help: help(),
-  )
-```
-
-```nim
-    completion: command("completion", completion, action = printCompletion,
-                        help = "Print a shell completion script",
-                        prolog = "Print a completion script for a shell."),
-```
-
-`completionScript` needs the built `Spec`, not the tuple, so build it with
-`newSpec` and keep it in `cli`. Declare `cli` before the hooks, as with `file`,
-and replace the last line of the program:
-
-```nim
-cli = newSpec(spec, prolog = "A tiny note-taking CLI")
-cli.parseOrQuit()
+    completion: completion(),
 ```
 
 With `notes` on your `PATH`, load the script in your shell:
@@ -506,7 +482,8 @@ $ notes completion fish | source     # fish
 Pressing Tab now completes `notes l` to `notes list`, and offers `newest`
 and `oldest` as values for `notes list --order`. The choices come from the
 `choice` validator, so they can't drift out of sync with what `notes` accepts.
-See [Shell Completion](completion.md).
+To write the script when the program is installed instead, use
+`completionScript`. See [Shell Completion](completion.md).
 
 ## Where to Go Next
 

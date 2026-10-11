@@ -9,29 +9,20 @@ come next. Your program answers from the same usage strings it parses with,
 so completion always agrees with the parser.
 
 You don't write any completion code. You only give users a script that tells
-their shell to ask your program. `completionScript` writes one for each shell,
-and a command is an easy way to print it:
+their shell to ask your program. Add `completion()` to your spec, and your
+program gets a `completion` command that prints the script for a shell:
 
 ```nim
 import argumint
 
-var cli: Spec
-
 proc deploy(spec: tuple, _: HookInfo) =
   echo "Deploying to ", spec.env
-
-proc printCompletion(spec: tuple, _: HookInfo) =
-  echo cli.completionScript(spec.shell)
 
 let
   deploySpec = (
     env: arg("<env>", validator = choice(["staging", "production"]),
              help = "Where to deploy"),
     force: flag("-f, --force", help = "Deploy even if checks fail"),
-    help: help(),
-  )
-  completionSpec = (
-    shell: arg[Shell]("<shell>", help = "Shell to print a script for"),
     help: help(),
   )
   spec = (
@@ -41,18 +32,21 @@ let
     config: opt("--config=<file>", help = "Settings to load"),
     deploy: command("deploy", deploySpec, action = deploy,
                     help = "Deploy the site"),
-    completion: command("completion", completionSpec, action = printCompletion,
-                        help = "Print a shell completion script"),
+    completion: completion(),
     help: help(),
   )
 
-cli = newSpec(spec, prolog = "Deploy a website")
-cli.parseOrQuit()
+spec.parseOrQuit(prolog = "Deploy a website")
 ```
 
-`completionScript` needs the built `Spec`, not the tuple, so the program
-builds it with `newSpec` and keeps it in `cli`. See
-[Keeping a Built Spec](specs.md#keeping-a-built-spec).
+`completion` prints the script like `--help` prints help: it writes it to
+stdout and exits, and no `action` runs. `completion --help` lists the shells
+and how to load the script. To give the command another name, or keep it out
+of help, pass it as for `command`:
+
+```nim
+    completion: completion("gen-completion", hidden = true),
+```
 
 ## Installing the Script
 
@@ -76,10 +70,20 @@ $ site completion bash > ~/.local/share/bash-completion/completions/site
 ```
 
 The script completes the program under its file name. To always complete one
-name, even if the user renames the program, pass it as the second argument:
+name, even if the user renames the program, pass it to `parseOrQuit` as
+`command`, which also names the program in help:
 
 ```nim
-  echo cli.completionScript(spec.shell, "site")
+spec.parseOrQuit(command = "site", prolog = "Deploy a website")
+```
+
+To write the script when the program is built or installed instead, build
+the `Spec` with `newSpec` and call `completionScript` with a shell and the
+name to complete:
+
+```nim
+let cli = newSpec(spec, prolog = "Deploy a website")
+writeFile("site.fish", cli.completionScript(Shell.fish, "site"))
 ```
 
 ## What Gets Completed
