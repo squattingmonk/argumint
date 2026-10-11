@@ -385,10 +385,11 @@ parsing instead of running the Spec's Action. Declared by the Arg's
 `isMessage` method rather than its type, so it may be of any kind and may
 hold a value (converted before any hook, like any other), which its own
 `action` reads. Built in: `message()`/`version()`, a Flag showing a fixed
-string, and Help, whose displayed message is the Spec's
-dynamically-generated usage/help text. A matched Message Argument is that
-level's Action for the invocation — see Action and
-`docs/adr/0073-message-argument-is-a-capability.md`.
+string; Help, whose displayed message is the Spec's dynamically-generated
+usage/help text; and the `<shell>` of `completion()`'s command, a positional
+holding a `Shell`, whose message is the whole program's completion script.
+A matched Message Argument is that level's Action for the invocation — see
+Action and `docs/adr/0073-message-argument-is-a-capability.md`.
 _Avoid_: MessageArg (code-level name), display flag
 
 **Options Catch-all**:

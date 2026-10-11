@@ -904,13 +904,15 @@ it fires for an Arg whose `isMessage` method returns `true`. One signature,
 `MessageError` and ignores `info`, while `HelpArg` uses `info.here` (the
 level's Spec and command) to render help before raising `HelpError`. A
 value-holding Message Argument (a `ValueArg[T]` subtype) reads its own
-value, parsed already by `parseAllValues`. That uniformity is what lets `parseMessageArgs`
-dispatch once, with no test for which kind it holds (ADR 0073). Each
-override lives beside its own type: `MessageArg`'s in `backend.nim`,
-`HelpArg`'s in `help.nim` (where it renders through the `HelpArg`'s own
-Help Formatter, ADR 0048). `HelpArg` renders a plain `msg` through a Help
-Context with no styler and, only if the Spec has one, a second time for
-`styledMsg` (ADR 0059).
+value, parsed already by `parseAllValues`: `completion()`'s `ShellArg` is
+one, rendering `info.root.spec`'s script for `info.root.command` (ADR 0074).
+That uniformity is what lets `parseMessageArgs` dispatch once, with no test
+for which kind it holds (ADR 0073). Each override lives beside its own type:
+`MessageArg`'s in `backend.nim`, `HelpArg`'s in `help.nim` (where it renders
+through the `HelpArg`'s own Help Formatter, ADR 0048), and `ShellArg`'s in
+`argumint.nim`, which alone imports both `argtypes` and `completion`.
+`HelpArg` renders a plain `msg` through a Help Context with no styler and,
+only if the Spec has one, a second time for `styledMsg` (ADR 0059).
 
 The method is a dependency inversion, and a deliberate one. `genHelp` now
 lives in `help.nim`, *below* `fsm.nim` (issue #50), so the FSM could raise

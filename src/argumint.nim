@@ -738,6 +738,55 @@ proc version*(variants: string, version: string,
   ##   completion; it still parses
   message(variants, version, help, group, hidden)
 
+type
+  ShellArg = ref object of ValueArg[Shell]
+    ## `completion`'s `<shell>`: a Message Argument printing the root Spec's
+    ## completion script for the shell typed. See
+    ## `docs/adr/0074-built-in-completion-command.md`.
+
+method isMessage(self: ShellArg): bool = true
+
+method action(self: ShellArg, info: HookInfo, variant = "") =
+  raise newException(MessageError,
+    info.root.spec.genCompletionScript(self.get, info.root.command))
+
+const CompletionProlog = """
+Print a shell completion script for this program. Load it with one of:
+
+  source <(prog completion bash)
+  source <(prog completion zsh)
+  prog completion fish | source
+
+where `prog` is this program's name."""
+
+proc completion*(variants = "completion",
+    help: HelpText = "Print a shell completion script",
+    prolog = CompletionProlog, epilog = "", group = "",
+    hidden = false): CommandArg =
+  ## Creates a command which, given a shell, prints the completion script
+  ## for the whole program and exits successfully, like `help`. Add it to
+  ## the program's own spec as `completion: completion()`; the user then
+  ## runs `prog completion fish | source`. The script completes the
+  ## `command` given to `parse*`/`parseOrQuit*`. See
+  ## `docs/adr/0074-built-in-completion-command.md`.
+  ## - `variants` is a comma-separated list of names by which the command can
+  ##   be called by the user.
+  ## - `help` is a short description of the command used in help messages.
+  ## - `prolog` and `epilog` head and end the command's own help message.
+  ## - `group` determines how the command is grouped in help messages; empty
+  ##   means `Commands`.
+  ## - `hidden`, if `true`, keeps the command out of help messages and shell
+  ##   completion; it still parses
+  ##
+  ## To write the script at build or install time instead, see
+  ## `completionScript`.
+  # `<shell>` is required, so `default` is never used.
+  let shell = initValueArg(ShellArg, kind = Positional, variants = "<shell>",
+    default = Shell.bash, help = "The shell to complete in", group = "",
+    hidden = false, validator = noValidator[Shell]())
+  command(variants, (shell: shell, help: help()), help, prolog, epilog,
+    group = group, hidden = hidden)
+
 # ------------------------------------------------------------------------------
 # These are the functions that handle shell completion and initiate parsing.
 # ------------------------------------------------------------------------------

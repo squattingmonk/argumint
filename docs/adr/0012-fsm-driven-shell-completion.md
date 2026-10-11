@@ -9,6 +9,10 @@
 > **Amended by [ADR 0066](0066-completion-falls-back-to-paths.md)**: the
 > scripts add file or directory names when `__complete` asks for them, and
 > `completeArgs` is no longer exported.
+>
+> **Amended by [ADR 0074](0074-built-in-completion-command.md)**: the script
+> is still never wired in automatically, but `completion()` is an opt-in
+> built-in command that prints it, as `help()` is for help.
 
 TODO.md listed "Shell completion generation (bash/zsh/fish) from a Spec" as
 future work with no further detail. This records the design settled before
