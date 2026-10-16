@@ -103,8 +103,10 @@ proc addUnseen(result: var seq[CompletionCandidate], seen: var HashSet[string],
 proc fill(tab: var Tab, pc: ParseContext) =
   ## Stores `pc`'s matches, then env and Config Source values, into the
   ## Args, as `parse` would but with no hooks. Once per Tab, from the first
-  ## branch to need it, with nothing cleared; an Arg that fails is left
-  ## unsupplied. See `docs/adr/0071-runtime-completers.md`.
+  ## branch to need it, with nothing cleared; a value that fails is
+  ## skipped. The fallback tiers are the ones `pc`'s walk probed, so an Arg
+  ## it walked keeps `parse`'s limit on how many values a tier supplies.
+  ## See `docs/adr/0071-runtime-completers.md`.
   if tab.filled:
     return
   tab.filled = true
@@ -112,7 +114,7 @@ proc fill(tab: var Tab, pc: ParseContext) =
     for (variant, value, _, _) in ms.sortedByIt(it.idx):
       try: arg.parse(value, variant, some(byCli))
       except CatchableError: discard
-  var tiers = initTiers(tab.root.settings)
+  var tiers = pc.tiers
   var report = initReport(tab.root, tab.command)
   # `pc.levels` holds only the levels below the root -- see `frontierAfter`.
   for spec in @[tab.root] & pc.levels.mapIt(it.spec):

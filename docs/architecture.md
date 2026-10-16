@@ -1616,12 +1616,14 @@ A proc Completer (`Completer.fills`) is first given the earlier
 values, through `Tab.fill`. The walk never converts a value: `matches` holds
 raw strings. So `fill` stores the branch's `ParseContext.matches` as
 `parseAllValues` does (`Match.idx` order, `byCli`), then runs
-`applyFallbacks` with fresh `Tiers` over the root Spec and each level in
-`pc.levels`, which on the completion path holds only the levels below the
-root. Each Arg's write is wrapped on its own, so one bad value leaves just
-that Arg unsupplied. `dispatch` never runs, so no hook does. The walk's own
-probes still read env vars and Config Sources, to judge whether an option
-is satisfied, but only the fill writes.
+`applyFallbacks` with the branch's own `pc.tiers` over the root Spec and
+each level in `pc.levels`, which on the completion path holds only the
+levels below the root. Reusing the walk's tiers keeps `parse`'s limit on
+how many values a tier supplies to an Arg the branch walked, and resolves
+no source twice (#260). Each value's write is wrapped on its own, so a bad
+value is skipped and the rest still store. `dispatch` never runs, so no
+hook does. The walk's own probes still read env vars and Config Sources,
+to judge whether an option is satisfied, but only the fill writes.
 
 The fill runs once per Tab, from the first branch that needs it, and clears
 nothing. Filling per branch would have run each Completer once per live

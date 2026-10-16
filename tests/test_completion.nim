@@ -18,6 +18,14 @@ method lookup(self: MemSource, key: ConfigKey): Option[seq[string]] =
     if k == key:
       return some(v)
 
+type
+  CountingSource = ref object of MemSource
+    lookups: int
+
+method lookup(self: CountingSource, key: ConfigKey): Option[seq[string]] =
+  inc self.lookups
+  procCall MemSource(self).lookup(key)
+
 proc completeArgs(spec: Spec, words: seq[string], command: string): seq[CompletionCandidate] =
   spec.resolveCompletion(words, command).candidates
 
@@ -668,6 +676,50 @@ suite "Completers see earlier values (#215)":
     let log = Log()
     discard gitSpec(log, seed = "99").wire("checkout", "")
     check log.seen == @[99]
+
+  test "an oversupplied env var supplies nothing, as in parse":
+    putEnv "ARGUMINT_TEST_TAGS", "a:b:c"
+    defer: delEnv "ARGUMINT_TEST_TAGS"
+    var seen: seq[seq[string]]
+    let tags = opts("--tag=<t>", env = "ARGUMINT_TEST_TAGS")
+    let spec = newSpec((tags: tags,
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add tags.get
+        offer(newSeq[string]())),
+    ), usage = "--tag=<t> <host>")
+    discard spec.wire("")
+    check seen == @[newSeq[string]()]
+
+  test "the fill looks up no Config Source the walk already did":
+    let source = CountingSource(data: @[(configKey("repo"), @["6"])])
+    var seen: seq[int]
+    let repo = opt[int]("--repo=<n>", configKey = "repo")
+    let spec = newSpec((repo: repo,
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add repo.get
+        offer(newSeq[string]())),
+    ), usage = "--repo=<n> <host>", settings = newSpecSettings(style = nil,
+      configSources = @[ConfigSource source]))
+    discard spec.wire("")
+    check seen == @[6]
+    check source.lookups == 1
+
+  test "a value that fails is skipped, the rest are stored":
+    var seen: seq[seq[int]]
+    let tags = opts[int]("--tag=<t>")
+    let spec = newSpec((tags: tags,
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        seen.add tags.get
+        offer(newSeq[string]())),
+    ), usage = "[--tag=<t>...] <host>")
+    discard spec.wire("--tag=1", "--tag=x", "--tag=2", "")
+    check seen == @[@[1, 2]]
+
+  test "a command-line value that fails leaves the env var to fill":
+    putEnv "ARGUMINT_TEST_REPO", "7"
+    let log = Log()
+    discard gitSpec(log).wire("--repo", "nope", "checkout", "")
+    check log.seen == @[7]
 
   test "an ambiguous grammar binds the value as parse would":
     var seen: seq[(string, string)]
