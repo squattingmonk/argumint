@@ -133,7 +133,7 @@ suite "a conversion failure beats a matched Message Argument":
                  command = "app")
 
 suite "an Arg shared by two levels acts at the level it was typed":
-  # parseAllValues drops the per-level `Match.spec` filter; parseMessageArgs
+  # storeValues drops the per-level `Match.spec` filter; parseMessageArgs
   # is the one consumer that still needs it. A shared Command is handled by
   # the walk's recorded command chain instead -- see ADR 0032 and
   # architecture.md's "Dispatch order".

@@ -383,17 +383,34 @@ proc failureMessage*(r: Report, styler: Styler = nil): string =
   formatComplaints(r.finalComplaints).render(styler) & "\n\n" &
     r.spec.usage.usageBlock(r.command, r.spec.settings.width).render(styler)
 
-proc failure*[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
+proc failure[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
   ## An `E` carrying `r.failureMessage` -- what `raiseParseFailure` raises,
-  ## and what a reshaped conversion/validation failure (`fsm.parse*`) raises
-  ## instead. Also rendered with the Spec's styler as `styledMsg`, which is
-  ## `msg` again if there's none.
+  ## and what `asComplaint` raises for a validation failure. Also rendered
+  ## with the Spec's styler as `styledMsg`, which is `msg` again if there's
+  ## none.
   result = newException(E, r.failureMessage)
   result.styledMsg = r.failureMessage(r.spec.settings.style)
 
 proc raiseParseFailure*(r: Report) =
   ## Raises `ParseError` with `r.failureMessage`.
   raise r.failure(ParseError)
+
+template asComplaint*(spec: Spec, command: string, body: untyped) =
+  ## Runs `body`, giving a conversion or validation failure it raises the
+  ## same complaint-plus-usage shape as any other parse failure, against
+  ## `spec` and `command`. The exception keeps its type. Needed because
+  ## `arg.parse` has no view of its spec -- see ADR 0035.
+  bind failure # private; see docs/gotchas.md on templates' open symbols
+  try:
+    body
+  except ParseError as e:
+    var r = initReport(spec, command)
+    r.note(e.msg)
+    r.raiseParseFailure()
+  except ValidationError as e:
+    var r = initReport(spec, command)
+    r.note(e.msg)
+    raise r.failure(ValidationError)
 
 when isMainModule:
   ## Direct tests for failure reporting -- ADR 0035 (parse-failure reporting),
