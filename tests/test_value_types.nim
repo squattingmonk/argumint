@@ -6,6 +6,7 @@
 import std/[options, os, strutils, unittest]
 
 import argumint
+from argumint/completion import reply
 import fixtures/units
 
 type
@@ -31,10 +32,7 @@ proc helpOf(spec: tuple): string =
 proc wire(spec: tuple, words: varargs[string]): seq[string] =
   ## `__complete`'s output for `words`, one line each -- the candidates
   ## (with no help after the tab), then the directive.
-  try:
-    spec.parse(args = @["__complete"] & @words, command = "prog")
-  except CompletionError as e:
-    return e.msg.splitLines
+  newSpec(spec).reply(@words, "prog").splitLines
 
 proc parseError(spec: tuple, args: seq[string]): string =
   ## The first line of the error parsing `args` raises.

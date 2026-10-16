@@ -4,6 +4,7 @@
 import std/[sequtils, strutils, unittest]
 
 import argumint
+from argumint/completion import reply
 
 proc messageOf(body: proc ()): string =
   try:
@@ -13,10 +14,7 @@ proc messageOf(body: proc ()): string =
 
 proc wire(spec: Spec, words: varargs[string]): seq[string] =
   ## `__complete`'s output for `words`, one line each.
-  try:
-    spec.parse(args = @["__complete"] & @words, command = "prog")
-  except CompletionError as e:
-    return e.msg.splitLines
+  spec.reply(@words, "prog").splitLines
 
 suite "completion()":
   test "prints the root Spec's script for each shell":

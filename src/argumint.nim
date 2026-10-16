@@ -88,7 +88,7 @@ export specbuild.newSpec
 # interface is `__complete`'s output, so `resolveCompletion` stays withheld --
 # see `docs/adr/0066-completion-falls-back-to-paths.md`.
 export fsm.parse
-export completion.Shell
+export completion.Shell, completion.isCompletionRequest
 export backend.PathCompletion, backend.CompletionContext, backend.Offer,
   backend.CompleterProc, backend.Completer
 
@@ -748,7 +748,7 @@ method isMessage(self: ShellArg): bool = true
 
 method action(self: ShellArg, info: HookInfo, variant = "") =
   raise newException(MessageError,
-    info.root.spec.genCompletionScript(self.get, info.root.command))
+    genCompletionScript(self.get, info.root.command))
 
 const CompletionProlog = """
 Print a shell completion script for this program. Load it with one of:
@@ -790,27 +790,6 @@ proc completion*(variants = "completion",
 # ------------------------------------------------------------------------------
 # These are the functions that handle shell completion and initiate parsing.
 # ------------------------------------------------------------------------------
-
-proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
-  ## Returns whether `args` is a shell-completion request (see
-  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
-  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
-  ## completion handling rather than a real run.
-  ##
-  ## Each completion request re-invokes the binary as a fresh process, so
-  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
-  ## connection) reruns on every keystroke, not just real invocations --
-  ## unlike `before`/`action`/`after` hooks, which are already skipped
-  ## during completion. Guard expensive pre-parse setup with this:
-  ## ```nim
-  ## when isMainModule:
-  ##   if isCompletionRequest():
-  ##     spec.parse(...)          # skip straight past expensive setup
-  ##   else:
-  ##     setupDatabaseConnection()
-  ##     spec.parse(...)
-  ## ```
-  args.len > 0 and args[0] == "__complete"
 
 proc quitWith(e: ref Exception, styler: Styler) {.noreturn.} =
   ## Prints `e`'s `outcome` and quits with its code.
@@ -1002,4 +981,4 @@ proc completionScript*(spec: Spec, shell: Shell, binaryName = appName()): string
   ## Author-driven, like `dot*`: install the result however your packaging
   ## needs (write it to a file, expose a `completion` subcommand, etc.) --
   ## argumint doesn't wire this up automatically.
-  spec.genCompletionScript(shell, binaryName)
+  genCompletionScript(shell, binaryName)

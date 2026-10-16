@@ -187,7 +187,7 @@ methods `tokens.nim` already encapsulates. See issue #78.
 `completion.nim` sits directly above `matching` and below `fsm`, and —
 beyond the always-existing `genCompletionScript*` (§6) — now also holds the
 FSM-walking half of shell completion: `Frontier`, `collectFrontier`,
-`CompletionCandidate`, `bareVariants`, `describeVariants`, `addUnseen`,
+`bareVariants`, `describeVariants`, `addUnseen`,
 `candidateWords`, `pendingOptionalArgs`, and `completeArgs*` (now
 `resolveCompletion*`), moved from
 `fsm.nim` in issue #78 once `matching.nim` existed to import instead of
@@ -1463,10 +1463,14 @@ differs by category:
 
 A compiled binary's `parse*`/`parseOrQuit*` intercepts a magic leading arg,
 `mycli __complete <partial words...>`, before any real FSM matching, env
-fallback, or dispatch — short-circuiting into `completion.resolveCompletion*`,
-which re-walks `spec.fsm` to resolve candidates dynamically rather than via
-a static generated script. See
-`docs/adr/0012-fsm-driven-shell-completion.md` for why.
+fallback, or dispatch — short-circuiting into `completion.reply*`, which
+calls `completion.resolveCompletion*` to re-walk `spec.fsm` and resolve
+candidates dynamically rather than via a static generated script. See
+`docs/adr/0012-fsm-driven-shell-completion.md` for why. `completion.nim`
+owns the wire format whole: the marker (`CompletionMarker`, tested by
+`isCompletionRequest*`, which the facade re-exports), and `reply*`, which
+renders a `Completion` as `parse*`'s `CompletionError` message. `parse*`
+only checks the one and raises the other.
 
 `completion.collectFrontier` generalizes `walk`'s single-winner backtracking
 into "every state simultaneously still reachable after consuming the tokens
@@ -1521,7 +1525,8 @@ option given before its place in the line, such as `-v` after `a` under
 
 ### Candidates and shell adapters
 
-Each candidate is a `CompletionCandidate = tuple[value, help: string]`, not
+Each candidate is a `CompletionCandidate = tuple[value, help: string]`
+(`backend.nim`, the same type an `Offer`'s values hold), not
 a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated for an Arg's own name (option/flag/command candidates,
 via `completion.describeVariants`), and for a value only when a Completer's
@@ -1533,7 +1538,8 @@ Flag Operation Description from `Arg.variantDesc(variant)` (`backend.nim`)
 as `[action: ...]` when that is non-empty (e.g. a flag's `-i`/`-d`
 incrementing/decrementing differently). With no short help the description
 stands alone, and the long help never appears (ADR 0063). Each part goes
-through `prose.summary`: its first paragraph, dedented by the
+through `prose.summary` (as does a Completer's description, in
+`reply*`): its first paragraph, dedented by the
 same `dedentLines` help's re-flow uses, joined onto one line, and passed
 through `plainMarkup`, so a candidate is always exactly one line. It's a
 withheld export of `prose.nim` (not re-exported by `help.nim`), which
@@ -1568,9 +1574,9 @@ display string in place of its word, so the script writes
 ### Path Completion
 
 Besides its candidates, `resolveCompletion*` returns which paths the shell
-should add (`PathCompletion`, `backend.nim`), and `parse*` prints that as
+should add (`PathCompletion`, `backend.nim`), and `reply*` prints that as
 the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
-(`completion.directive`). Every position that takes a value contributes
+(the private `completion.directive`). Every position that takes a value contributes
 the paths of its Arg's `Offer` — each non-hidden `mkArgument` transition
 out of a frontier state, or each pending option in the pending-value case.
 By default that is `Files`, or `None` if the Arg has enumerable
@@ -1611,7 +1617,8 @@ empty `Offer` with no paths. `offer`, `files`, `toCompleter` and `$` live in
 A `Tab` object caches each Arg's `Offer` for the request, so a Completer
 reached from several frontier branches, or from both the candidate and
 the path loops, runs once. Values are prefix-filtered by `addUnseen` like
-any other candidate, and descriptions go through `prose.summary`. See
+any other candidate, and `reply*` puts descriptions through
+`prose.summary`. See
 `docs/adr/0071-runtime-completers.md`.
 
 A proc Completer (`Completer.fills`) is first given the earlier values,

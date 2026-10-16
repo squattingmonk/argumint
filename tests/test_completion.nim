@@ -1,13 +1,14 @@
 # Tests for dynamic shell completion (`completion.resolveCompletion*`, the
-# `__complete` entry point, and `completion.genCompletionScript*`) -- see
+# `__complete` wire format from `completion.reply*` and the entry point in
+# `parse*`, and `completion.genCompletionScript*`) -- see
 # `docs/adr/0012-fsm-driven-shell-completion.md` and
 # `docs/adr/0022-completion-candidate-help-text.md`.
 
 import std/[algorithm, options, os, osproc, sequtils, strutils, unittest]
 
 import argumint
-import argumint/completion
-from argumint/backend import fills, paths, patterns, run
+import argumint/[completion, help]
+from argumint/backend import CompletionCandidate, fills, paths, patterns, run
 
 type
   MemSource = ref object of ConfigSource
@@ -387,10 +388,7 @@ suite "Completion candidates carry help text":
 proc wire(spec: Spec, words: varargs[string]): seq[string] =
   ## `__complete`'s output for `words`, one line each -- the candidates, then
   ## the directive.
-  try:
-    spec.parse(args = @["__complete"] & @words, command = "site")
-  except CompletionError as e:
-    return e.msg.splitLines
+  spec.reply(@words, "site").splitLines
 
 suite "Path completion directive (#200)":
   let site = newSpec((
@@ -992,3 +990,14 @@ suite "bash script adds the paths __complete asks for (#200)":
       else:
         check bashComplete(script, @["mycli", cur], 1, directive).reply.sorted == reply.sorted
 
+
+suite "agreement with help (ADR 0063)":
+  test "a divergent flag's description reads as help's row does":
+    let spec = newSpec((
+      rank: flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--dampen", "-=", 2)],
+        help = "Adjust rank"),
+      help: help()), usage = "[options]", settings = newSpecSettings(style = nil))
+    let described = spec.resolveCompletion(@["--bo"], "prog").candidates
+    check described == @[("--boost", "Adjust rank [action: Increase by 5]")]
+    let row = spec.genHelp("prog").splitLines.filterIt(it.strip.startsWith("--boost"))
+    check row.len == 1 and row[0].endsWith(" " & described[0].help)

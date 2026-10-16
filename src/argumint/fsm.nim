@@ -1,8 +1,8 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, os, strformat, strutils, sugar, tables]
+import std/[algorithm, os, tables]
 
-import ./[backend, complaints, completion, configsource, errors, matching,
+import ./[backend, complaints, completion, errors, matching,
   parser, precedence, tokens]
 export ParseError, SpecDefect, CompletionError
 
@@ -135,26 +135,16 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## `argumint.nim`), so build a fresh `Spec` per parse. See
   ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   ##
-  ## `args[0] == "__complete"` is a shell-completion request (see
-  ## `docs/adr/0012-fsm-driven-shell-completion.md`): short-circuits before
+  ## A shell-completion request (`completion.isCompletionRequest`, see
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`) short-circuits before
   ## any real FSM matching, env fallback, or dispatch (so no `before`/
-  ## `action`/`after` hook fires), raising `CompletionError` with the
-  ## candidates as its `msg` -- one per line, each `"value\thelp"` (`help`
-  ## possibly empty, but the tab always present -- see
-  ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
-  ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
-  ## `:files` any patterns, tab-separated -- see
-  ## `docs/adr/0066-completion-falls-back-to-paths.md` and
-  ## `docs/adr/0072-file-completion-patterns.md`. Before a completer
+  ## `action`/`after` hook fires), raising `CompletionError` with
+  ## `completion.reply`'s output as its `msg`. Before a completer
   ## proc runs, earlier values are stored into their Args, so a caller that
   ## catches `CompletionError` and carries on sees them -- see
   ## `docs/adr/0071-runtime-completers.md`.
-  if args.len > 0 and args[0] == "__complete":
-    let completion = spec.resolveCompletion(args[1 ..< args.len], command)
-    var lines = collect:
-      for c in completion.candidates: "{c.value}\t{c.help}".fmt
-    lines.add completion.directive
-    raise newPlainError(CompletionError, lines.join("\n"))
+  if args.isCompletionRequest:
+    raise newPlainError(CompletionError, spec.reply(args[1 .. ^1], command))
 
   var pc = initParseContext(spec, args, command)
   if not spec.fsm.walk(pc):
