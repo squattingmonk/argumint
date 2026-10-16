@@ -39,7 +39,11 @@ can list them, as Cobra's `ValidArgsFunction` and clap's
    branch entered, as `parse` would. A completer reads an earlier Arg by
    capturing it, so that Arg is bound with `let` before the spec tuple. An
    `args` or `opts` completer sees its own earlier values. A value that
-   fails to convert or validate leaves its Arg unsupplied. No hook runs.
+   fails to convert or validate is skipped. The fallback tiers are the ones
+   the branch's walk probed, so an Arg the branch has walked keeps
+   `parse`'s limit on how many values a tier supplies: an env var with
+   more values than the usage has room for supplies none (#260). No hook
+   runs.
    A fixed Completer, such as a converted `PathCompletion`, fills nothing.
 5. **Once per Tab.** The fill runs once per `__complete` request, from the
    first frontier branch that reaches a proc Completer, and clears nothing,
