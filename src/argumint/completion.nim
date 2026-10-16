@@ -13,9 +13,9 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[algorithm, options, sequtils, sets, strformat, strutils, sugar, tables]
+import std/[sequtils, sets, strformat, strutils, sugar, tables]
 
-import ./[backend, complaints, matching, precedence, prose, tokens]
+import ./[backend, matching, precedence, prose, tokens]
 
 type
   Shell* {.pure.} = enum
@@ -41,8 +41,6 @@ type
   Tab = object
     ## One `__complete` request's state: each value Arg's Offer, asked once,
     ## and whether earlier values have been filled.
-    root: Spec
-    command: string
     filled: bool
     offers: Table[Arg, Offer]
 
@@ -110,17 +108,8 @@ proc fill(tab: var Tab, pc: ParseContext) =
   if tab.filled:
     return
   tab.filled = true
-  for arg, ms in pc.matches:
-    for (variant, value, _, _) in ms.sortedByIt(it.idx):
-      try: arg.parse(value, variant, some(byCli))
-      except CatchableError: discard
-  var tiers = pc.tiers
-  var report = initReport(tab.root, tab.command)
-  # `pc.levels` holds only the levels below the root -- see `frontierAfter`.
-  for spec in @[tab.root] & pc.levels.mapIt(it.spec):
-    for arg in spec.args:
-      try: applyFallbacks(tiers, @[@[arg]], report)
-      except CatchableError: discard
+  var pc = pc
+  pc.storeValues(fpSkip)
 
 proc offerFor(tab: var Tab, arg: Arg, pc: ParseContext, word: string): Offer =
   ## What `arg`'s value offers this Tab: its Completer's answer, or by
@@ -226,8 +215,7 @@ proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var Ha
 proc frontierAfter(spec: Spec, words: seq[string], command: string): Frontier =
   ## Every live branch once `words` are consumed -- see `collectFrontier`.
   var seen: HashSet[State]
-  let pc = ParseContext(cursor: initCursor(spec, words), command: command,
-    tiers: initTiers(spec.settings))
+  let pc = initParseContext(spec, words, command)
   collectFrontier(spec.fsm, pc, result, seen)
 
 iterator levelOptions(frontier: Frontier): (string, Arg) =
@@ -275,7 +263,7 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
   ## `docs/adr/0066-completion-falls-back-to-paths.md`, and
   ## `docs/adr/0071-runtime-completers.md`.
   result.paths = PathCompletion.None
-  var tab = Tab(root: spec, command: command)
+  var tab: Tab
   let wordBeingCompleted = if words.len > 0: words[^1] else: ""
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 

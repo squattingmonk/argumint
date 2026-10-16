@@ -19,6 +19,12 @@ type
     ## matching `docs/adr/0018-config-source.md`.
     ftEnv, ftConfig
 
+  FailurePolicy* = enum
+    ## What storing a walk's values does with one that fails to convert or
+    ## validate: `fpRaise` raises it, as `parse` does; `fpSkip` drops it and
+    ## carries on, as a runtime Completer's fill does (ADR 0071).
+    fpRaise, fpSkip
+
   ValueCursor = object
     ## Owns one Value Precedence fallback tier's bookkeeping. `probe`
     ## resolves and caches an Arg's available values the first time it's
@@ -163,7 +169,8 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
     for v in values:
       arg.parse(v, seenBy = some(t.seenBy))
 
-proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report) =
+proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report,
+    onFailure: FailurePolicy) =
   ## Sweeps every spec level actually entered during this parse (the chain
   ## the walk recorded -- see architecture.md §5), falling back to each
   ## not-yet-supplied Arg's env var, then (only if env had nothing) its
@@ -175,7 +182,7 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   ## rules, shared identically by both tiers.
   ##
   ## Each tier is gated on `Arg.seenBy`, which the command-line tier has
-  ## already written by the time this runs (`parseAllValues`): `arg.seenBy
+  ## already written by the time this runs (`storeValues`): `arg.seenBy
   ## > t.seenBy` breaks out for the rest of this Arg's tiers, since tiers
   ## descend in strength -- an Arg already at a given tier is appended to,
   ## not skipped, so a pre-seed declaring `byEnv` still collects the env
@@ -189,10 +196,17 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   ## Runs to completion (or raises) entirely before `dispatch` is called --
   ## so a fallback problem at any level blocks every level's hooks from
   ## firing at all, not just that level's, since `dispatch` never starts.
+  ## With `fpSkip`, an Arg whose fallback fails is skipped and the sweep
+  ## moves on to the next; an oversupply complaint lands in `report` either
+  ## way.
   for args in levels:
     for arg in args:
-      for t in FallbackTier:
-        if arg.seenBy > t.seenBy:
-          break
-        if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
-          break
+      try:
+        for t in FallbackTier:
+          if arg.seenBy > t.seenBy:
+            break
+          if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
+            break
+      except CatchableError:
+        if onFailure == fpRaise:
+          raise

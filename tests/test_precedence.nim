@@ -37,6 +37,8 @@ method accumulates(self: TestArg): bool = not self.single
 method accept(self: TestArg, c: Contribution, how: Arbitration) =
   ## Records per tier, so the fallback sweep's two paths stay
   ## distinguishable once each tier writes through `parse`.
+  if c.value == "bad":
+    raise newException(ParseError, "bad value for " & self.variants[0])
   if how == arReplace:
     self.clear
   if c.tier == some(byConfig): self.configRecorded.add c.value
@@ -162,7 +164,7 @@ suite "applyFallbacks (env tier)":
     var tiers = tiersWith()
     let args = @[Arg arg]
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
     check arg.recorded == @["hi"]
 
@@ -175,7 +177,7 @@ suite "applyFallbacks (env tier)":
     check tiers.probe(arg)
     check tiers.probe(arg)
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
     check arg.recorded == @["a", "b"]
 
@@ -187,7 +189,7 @@ suite "applyFallbacks (env tier)":
     let args = @[Arg arg]
     discard tiers.probe(arg) # consumes only 1 of the 3 available values
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check "  - unexpected option: --foo" in report.failureMessage
 
   test "complains about a single-value arg given two values, naming the variable":
@@ -196,7 +198,7 @@ suite "applyFallbacks (env tier)":
     let arg = newTestArg("--foo", "ARGUMINT_TEST_SINGLE", single = true)
     var tiers = tiersWith()
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[@[Arg arg]], report) # never visited by a walk
+    applyFallbacks(tiers, @[@[Arg arg]], report, fpRaise) # never visited by a walk
     check "  - unexpected option: --foo (env: ARGUMINT_TEST_SINGLE)" in report.failureMessage
     check arg.recorded.len == 0
 
@@ -210,7 +212,7 @@ suite "applyFallbacks (env tier)":
     let args = @[Arg arg]
     discard tiers.probe(arg) # consumes only 1 of 3
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args, args], report) # same arg, two levels
+    applyFallbacks(tiers, @[args, args], report, fpRaise) # same arg, two levels
     check "  - unexpected option: --foo" in report.failureMessage
 
   test "skips an arg already explicitly matched on the command line":
@@ -223,7 +225,7 @@ suite "applyFallbacks (env tier)":
     # table before calling this -- not a `matches` lookup here. See ADR 0039.
     arg.seenBy = byCli
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
     check arg.recorded.len == 0
 
@@ -234,7 +236,7 @@ suite "applyFallbacks (config tier)":
     var tiers = tiersWith(@[ConfigSource source])
     let args = @[Arg arg]
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
     check arg.configRecorded == @["hi"]
 
@@ -245,7 +247,7 @@ suite "applyFallbacks (config tier)":
     let args = @[Arg arg]
     discard tiers.probe(arg) # consumes only 1 of 3
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check "  - unexpected option: --foo" in report.failureMessage
 
   test "env present takes precedence, config is never consulted":
@@ -256,7 +258,7 @@ suite "applyFallbacks (config tier)":
     var tiers = tiersWith(@[ConfigSource source])
     let args = @[Arg arg]
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check arg.recorded == @["from-env"]
     check arg.configRecorded.len == 0
 
@@ -266,7 +268,33 @@ suite "applyFallbacks (config tier)":
     var tiers = tiersWith(@[ConfigSource source])
     let args = @[Arg arg]
     var report = initReport(reportSpec, "")
-    applyFallbacks(tiers, @[args], report)
+    applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
     check arg.recorded.len == 0
     check arg.configRecorded == @["from-config"]
+
+suite "applyFallbacks (on failure)":
+  setup:
+    putEnv("ARGUMINT_TEST_BAD", "bad")
+    putEnv("ARGUMINT_TEST_GOOD", "good")
+  teardown:
+    delEnv("ARGUMINT_TEST_BAD")
+    delEnv("ARGUMINT_TEST_GOOD")
+
+  test "fpSkip: a bad env value on one arg doesn't stop the next arg's":
+    let bad = newTestArg("--bad", "ARGUMINT_TEST_BAD")
+    let good = newTestArg("--good", "ARGUMINT_TEST_GOOD")
+    var tiers = tiersWith()
+    var report = initReport(reportSpec, "")
+    applyFallbacks(tiers, @[@[Arg bad, good]], report, fpSkip)
+    check bad.recorded.len == 0
+    check good.recorded == @["good"]
+
+  test "fpRaise: the same bad env value raises, and the next arg gets nothing":
+    let bad = newTestArg("--bad", "ARGUMINT_TEST_BAD")
+    let good = newTestArg("--good", "ARGUMINT_TEST_GOOD")
+    var tiers = tiersWith()
+    var report = initReport(reportSpec, "")
+    expect ParseError:
+      applyFallbacks(tiers, @[@[Arg bad, good]], report, fpRaise)
+    check good.recorded.len == 0

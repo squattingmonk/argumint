@@ -1,22 +1,22 @@
-## Owns "what happens when one `Matcher` is applied to the live parse state" --
-## `Match`, `MatchTable`, `Reach`, and `ParseContext` are the data
-## model; `push` and `match` are the only two procs that touch them. Both
-## `fsm.nim`'s `walk` (real parsing) and `completion.nim`'s `collectFrontier`
-## (shell completion) call `match` directly and share `ParseContext` -- `match`
-## mutates its `.report`/`.tiers`/`.matches` fields as a side effect regardless
-## of which caller is driving it, so this module sits below both rather than
-## belonging to either. `reach` stays behind in `fsm.nim`: only `walk`'s Reach-
-## ranking (ADR 0036) needs it, `collectFrontier` never does. See
-## `docs/architecture.md` §3 and issue #78.
+## Owns the live parse state and what happens to it: `Match`, `MatchTable`,
+## `Reach`, and `ParseContext` are the data model; `initParseContext` builds
+## it, `match` applies one `Matcher` to it, and `storeValues` writes a
+## finished walk's values into the Args. Both `fsm.nim`'s `walk` (real
+## parsing) and `completion.nim`'s `collectFrontier` (shell completion) go
+## through all three -- `match` mutates `.report`/`.tiers`/`.matches` as a
+## side effect regardless of which caller is driving it, so this module sits
+## below both rather than belonging to either. `reach` stays behind in
+## `fsm.nim`: only `walk`'s Reach-ranking (ADR 0036) needs it,
+## `collectFrontier` never does. See `docs/architecture.md` §3 and issue #78.
 
-import std/[strformat, sequtils, tables]
+import std/[algorithm, options, strformat, sequtils, tables]
 
 import ./[backend, complaints, fsmgraph, precedence, tokens]
 
 type
   Match* = tuple[variant: string, value: string, spec: Spec, idx: int]
     ## `idx` is the original CLI argv position of the token this match
-    ## consumed -- see `RawToken.idx`. Composition (`parseAllValues`) sorts
+    ## consumed -- see `RawToken.idx`. Composition (`storeValues`) sorts
     ## by it instead of relying on push order, which is grammar-position
     ## order, not typed order.
 
@@ -46,10 +46,10 @@ type
       ## walk position -- names the level `cursor.spec` governs
     levels*: seq[Level]
       ## Every grammar level entered on this path, root-first. Seeded with
-      ## the root entry by `parse*` (the completion path neither seeds nor
-      ## reads it) and appended to as `match`'s `Command` branch descends;
-      ## a losing branch's entry is discarded with the branch, since
-      ## `walk` clones the whole context per candidate transition
+      ## the root entry by `initParseContext` and appended to as `match`'s
+      ## `Command` branch descends; a losing branch's entry is discarded
+      ## with the branch, since the walk clones the whole context per
+      ## candidate transition
     report*: Report
       ## The furthest-reaching fsm path's own failure -- complaints,
       ## leftovers, and the Spec/command to render them against. See
@@ -59,6 +59,14 @@ type
     tiers*: Tiers
       ## Value Precedence's two fallback tiers -- see `Tiers`
       ## (`precedence.nim`)
+
+proc initParseContext*(spec: Spec, args: seq[string], command: string): ParseContext =
+  ## The parse state before any of `args` is matched against `spec`, whose
+  ## level `command` names: the root level entered, nothing matched, and
+  ## no fallback tier yet consulted.
+  ParseContext(cursor: initCursor(spec, args), command: command,
+    report: initReport(spec, command), tiers: initTiers(spec.settings),
+    levels: @[(spec: spec, command: command)])
 
 proc push*(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "", idx = 0) =
   ## Adds a matched arg's seen variant and value to the table of matches,
@@ -212,3 +220,37 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       # consumed as anything else, so it's the real error however the
       # probes went -- see `Report.starved`.
       discard pc.report.starved(pc.cursor)
+
+proc storeValues*(pc: var ParseContext, onFailure: FailurePolicy) =
+  ## Writes a finished walk's values into its Args: every match across the
+  ## *whole* matched tree at `byCli`, then the env and Config Source tiers
+  ## over every level entered (`applyFallbacks`). Tiers go strongest-first,
+  ## which is Value Precedence read top-down, so a bad command-line value
+  ## surfaces before a bad env one -- see ADR 0039.
+  ##
+  ## With `fpRaise`, `parse` calls this before `dispatch` fires any hook, so
+  ## no hook runs for an invocation carrying an unconvertible or invalid
+  ## value on any tier. A failure is raised as a complaint with usage
+  ## (`asComplaint`), and so is a tier supplying more values than the walk
+  ## had room for. A Message Argument's value is stored here too, so a bad
+  ## one fails before any hook; its `action` stays behind for `dispatch`,
+  ## per level, after that level's `before`. See
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md` and
+  ## `docs/adr/0013-message-args-fire-after-before.md`.
+  ##
+  ## With `fpSkip`, a failing command-line value, or an Arg whose fallback
+  ## fails, is skipped and the rest still store; oversupply is dropped. This
+  ## is a runtime Completer's fill -- see `docs/adr/0071-runtime-completers.md`.
+  var oversupply = initReport(pc.cursor.spec, pc.command)
+  asComplaint(pc.cursor.spec, pc.command):
+    for arg, ms in pc.matches:
+      # Typed order: Flag Operations don't commute -- see `Match.idx`.
+      for (variant, value, _, _) in ms.sortedByIt(it.idx):
+        try:
+          arg.parse(value, variant, some(byCli))
+        except CatchableError:
+          if onFailure == fpRaise:
+            raise
+    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), oversupply, onFailure)
+  if onFailure == fpRaise and not oversupply.isEmpty:
+    oversupply.raiseParseFailure()

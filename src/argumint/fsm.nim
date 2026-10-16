@@ -1,7 +1,6 @@
 ## This module handles the navigation of the FSM based on a set of provided
 ## command-line arguments.
-import std/[algorithm, options, os, sequtils, strformat, strutils,
-  sugar, tables]
+import std/[algorithm, os, strformat, strutils, sugar, tables]
 
 import ./[backend, complaints, completion, configsource, errors, matching,
   parser, precedence, tokens]
@@ -66,7 +65,7 @@ proc parseMessageArgs(info: HookInfo, matches: MatchTable) =
   ## `push`). Called after `before`, inside `dispatch`'s try/finally, so a
   ## `before`-time mutation is visible in this level's own message/help
   ## output, and `after` still fires as a guaranteed cleanup even though
-  ## this raises instead of returning. Unlike `parseAllValues`, this stays
+  ## this raises instead of returning. Unlike `storeValues`, this stays
   ## per-level: a shared Message Argument must fire at the level it was
   ## typed at, not the shallowest one declaring it -- see
   ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
@@ -76,31 +75,11 @@ proc parseMessageArgs(info: HookInfo, matches: MatchTable) =
   for arg, ms in matches:
     if not arg.isMessage:
       continue
-    # See `parseAllValues` on sorting by `Match.idx` instead of push order.
+    # See `storeValues` on sorting by `Match.idx` instead of push order.
     for (variant, value, matchSpec, _) in ms.sortedByIt(it.idx):
       if matchSpec != info.here.spec:
         continue
       arg.action(info, variant)
-
-proc parseAllValues(matches: MatchTable) =
-  ## Parses every match across the *whole* matched tree, before `dispatch`
-  ## fires any hook -- so no hook runs for an invocation carrying an
-  ## unconvertible or invalid value, on any Value Precedence tier. The env
-  ## and Config Source tiers already parsed up front in `applyFallbacks`;
-  ## this brings the command-line tier in line. See
-  ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
-  ##
-  ## A Message Argument's value is parsed here too, so a bad one fails before
-  ## any hook. Its `action` stays behind for `parseMessageArgs`, which
-  ## `dispatch` runs per level after that level's `before` -- see
-  ## `docs/adr/0013-message-args-fire-after-before.md`.
-  for arg, ms in matches:
-    # Sorted by true CLI-token order (`Match.idx`), not push/grammar-position
-    # order -- Flag Operations are stateful and often non-commutative (e.g.
-    # `clamp`), so composition must follow the order the user actually typed
-    # them in, regardless of which usage-line position matched which token.
-    for (variant, value, _, _) in ms.sortedByIt(it.idx):
-      arg.parse(value, variant, some(byCli))
 
 proc matchedArgs(matches: MatchTable): seq[Arg] =
   ## Every Arg with at least one match in `matches`, across every spec
@@ -120,7 +99,7 @@ proc dispatch(levels: seq[Level], idx: int, matches: MatchTable, info: HookInfo)
   ## `docs/adr/0021-hook-info-matched-args.md`.
   ##
   ## Values are already parsed for every matched level by the time this
-  ## runs (`parseAllValues`, called from `parse*`), so a hook at any depth
+  ## runs (`storeValues`, called from `parse*`), so a hook at any depth
   ## sees the whole tree's values, not just its own level's -- see
   ## `docs/adr/0032-parse-all-values-before-dispatch.md`.
   let spec = levels[idx].spec
@@ -177,38 +156,10 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     lines.add completion.directive
     raise newPlainError(CompletionError, lines.join("\n"))
 
-  var pc = ParseContext(cursor: initCursor(spec, args), command: command,
-    report: initReport(spec, command), tiers: initTiers(spec.settings),
-    levels: @[(spec: spec, command: command)])
+  var pc = initParseContext(spec, args, command)
   if not spec.fsm.walk(pc):
     pc.report.raiseParseFailure()
-
-  # A conversion/validation failure gets the same complaint-plus-usage shape
-  # as any other. Reshaped here because `arg.parse` has no view of its spec
-  # -- see ADR 0035.
-  template reshaped(body: untyped) =
-    try:
-      body
-    except ParseError as e:
-      var r = initReport(pc.cursor.spec, pc.command)
-      r.note(e.msg)
-      r.raiseParseFailure()
-    except ValidationError as e:
-      var r = initReport(pc.cursor.spec, pc.command)
-      r.note(e.msg)
-      raise r.failure(ValidationError)
-
-  # Tiers applied strongest-first, which is Value Precedence read top-down.
-  # Consequence: a bad command-line value now surfaces before a bad env one,
-  # where it used to be the other way round -- see ADR 0039.
-  reshaped:
-    parseAllValues(pc.matches)
-
-  var fallback = initReport(pc.cursor.spec, pc.command)
-  reshaped:
-    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), fallback)
-  if not fallback.isEmpty:
-    fallback.raiseParseFailure()
+  pc.storeValues(fpRaise)
 
   let info = HookInfo(matched: matchedArgs(pc.matches), root: pc.levels[0])
   dispatch(pc.levels, 0, pc.matches, info)

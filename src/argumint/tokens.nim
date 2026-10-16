@@ -24,7 +24,7 @@ type
       ## Original position in the CLI argv -- a peeled cluster remainder
       ## inherits its parent token's `idx` rather than getting a fresh one.
       ## Lets Flag Operation composition sort by true typed order instead
-      ## of grammar/push order -- see `parseAllValues` (`fsm.nim`).
+      ## of grammar/push order -- see `storeValues` (`matching.nim`).
     subIdx*: int
       ## How many letters have been peeled off this token's parent cluster
       ## -- 0 for anything the user typed. Ranking-only, and deliberately
