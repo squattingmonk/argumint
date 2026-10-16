@@ -17,7 +17,7 @@ depth, seam, adapter, leverage, locality) as defined in the
 | | Candidate | Strength | Status |
 |---|---|---|---|
 | [P](#p--a-variant-module-one-grammar-parsed-once) | A Variant module: one grammar, parsed once | Strong | Open |
-| [Q](#q--committing-a-walk-lives-in-one-module) | Committing a walk lives in one module | Strong | Open |
+| [Q](#q--committing-a-walk-lives-in-one-module) | Committing a walk lives in one module | Strong | Shipped: #260, PR #263, `c850052`; #261, PR #264, `8d79d44` |
 | [R](#r--completion-owns-the-__complete-wire-format) | Completion owns the `__complete` wire format | Strong | Open |
 | [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Open |
 | [T](#t--arbitration-owns-the-whole-write-not-just-the-decision) | Arbitration owns the whole write, not just the decision | Worth exploring | Open |
