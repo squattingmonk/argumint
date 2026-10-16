@@ -1,6 +1,6 @@
 ## Dynamic shell completion: resolves a request's candidates by re-walking
 ## the FSM (`resolveCompletion*`), owns the `__complete` wire format
-## (`isCompletionRequest*`, `reply*`), and generates thin per-shell adapter
+## (`hasCompletionMarker*`, `reply*`), and generates thin per-shell adapter
 ## scripts that speak it (`genCompletionScript*`). See
 ## `docs/adr/0012-fsm-driven-shell-completion.md` and
 ## `docs/adr/0022-completion-candidate-help-text.md`.
@@ -16,7 +16,7 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[os, sequtils, sets, strformat, strutils, sugar, tables]
+import std/[sequtils, sets, strformat, strutils, sugar, tables]
 
 import ./[backend, matching, precedence, prose, tokens]
 
@@ -311,36 +311,21 @@ proc directive(c: Completion): string =
 const CompletionMarker = "__complete"
   ## The first argument that makes a run a shell-completion request.
 
-proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
-  ## Returns whether `args` is a shell-completion request (see
-  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
-  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
-  ## completion handling rather than a real run.
-  ##
-  ## Each completion request re-invokes the binary as a fresh process, so
-  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
-  ## connection) reruns on every keystroke, not just real invocations --
-  ## unlike `before`/`action`/`after` hooks, which are already skipped
-  ## during completion. Guard expensive pre-parse setup with this:
-  ## ```nim
-  ## when isMainModule:
-  ##   if isCompletionRequest():
-  ##     spec.parse(...)          # skip straight past expensive setup
-  ##   else:
-  ##     setupDatabaseConnection()
-  ##     spec.parse(...)
-  ## ```
+proc hasCompletionMarker*(args: seq[string]): bool =
+  ## Returns whether `args` starts with `CompletionMarker` -- see
+  ## `docs/architecture.md` §6.
   args.len > 0 and args[0] == CompletionMarker
 
 proc reply*(spec: Spec, words: seq[string], command: string): string =
   ## `__complete`'s output for `words` (everything after the marker): one
   ## line per candidate, each `"value\thelp"` (`help` possibly empty, but
-  ## the tab always present, and put on one line by `summary` -- see
+  ## the tab always present -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
   ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
   ## `:files` any patterns, tab-separated -- see
   ## `docs/adr/0066-completion-falls-back-to-paths.md` and
-  ## `docs/adr/0072-file-completion-patterns.md`.
+  ## `docs/adr/0072-file-completion-patterns.md`. Every description goes
+  ## through `summary`, so each candidate is one line.
   let completion = spec.resolveCompletion(words, command)
   var lines = collect:
     for c in completion.candidates: "{c.value}\t{summary(c.help)}".fmt
@@ -351,8 +336,8 @@ proc genCompletionScript*(shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
   ## shell's own convention, completes `binaryName` by shelling out to it
   ## (`<binaryName> __complete <words...>`). The script needs nothing from
-  ## the `Spec` -- completion (including each candidate's
-  ## help text, rendered by fish and zsh but not bash -- see
+  ## the `Spec` -- completion (including each candidate's help text,
+  ## rendered by fish and zsh but not bash -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`) is resolved
   ## dynamically at request time by the compiled binary itself.
   let script =

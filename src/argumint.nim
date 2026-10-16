@@ -88,7 +88,7 @@ export specbuild.newSpec
 # interface is `__complete`'s output, so `resolveCompletion` stays withheld --
 # see `docs/adr/0066-completion-falls-back-to-paths.md`.
 export fsm.parse
-export completion.Shell, completion.isCompletionRequest
+export completion.Shell
 export backend.PathCompletion, backend.CompletionContext, backend.Offer,
   backend.CompleterProc, backend.Completer
 
@@ -791,6 +791,27 @@ proc completion*(variants = "completion",
 # These are the functions that handle shell completion and initiate parsing.
 # ------------------------------------------------------------------------------
 
+proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
+  ## Returns whether `args` is a shell-completion request (see
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
+  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
+  ## completion handling rather than a real run.
+  ##
+  ## Each completion request re-invokes the binary as a fresh process, so
+  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
+  ## connection) reruns on every keystroke, not just real invocations --
+  ## unlike `before`/`action`/`after` hooks, which are already skipped
+  ## during completion. Guard expensive pre-parse setup with this:
+  ## ```nim
+  ## when isMainModule:
+  ##   if isCompletionRequest():
+  ##     spec.parse(...)          # skip straight past expensive setup
+  ##   else:
+  ##     setupDatabaseConnection()
+  ##     spec.parse(...)
+  ## ```
+  args.hasCompletionMarker
+
 proc quitWith(e: ref Exception, styler: Styler) {.noreturn.} =
   ## Prints `e`'s `outcome` and quits with its code.
   let o = outcome(e, styler)
@@ -978,7 +999,9 @@ proc completionScript*(spec: Spec, shell: Shell, binaryName = appName()): string
   ## Returns a shell-completion script for `shell` that completes
   ## `binaryName` by shelling out to it (`<binaryName> __complete
   ## <words...>`) -- see `docs/adr/0012-fsm-driven-shell-completion.md`.
-  ## Author-driven, like `dot*`: install the result however your packaging
-  ## needs (write it to a file, expose a `completion` subcommand, etc.) --
-  ## argumint doesn't wire this up automatically.
+  ## The script is the same for every `spec`, since the binary resolves
+  ## completion itself at request time. Author-driven, like `dot*`: install
+  ## the result however your packaging needs (write it to a file, expose a
+  ## `completion` subcommand, etc.) -- argumint doesn't wire this up
+  ## automatically.
   genCompletionScript(shell, binaryName)

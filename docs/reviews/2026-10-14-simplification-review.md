@@ -18,7 +18,7 @@ depth, seam, adapter, leverage, locality) as defined in the
 |---|---|---|---|
 | [P](#p--a-variant-module-one-grammar-parsed-once) | A Variant module: one grammar, parsed once | Strong | Open |
 | [Q](#q--committing-a-walk-lives-in-one-module) | Committing a walk lives in one module | Strong | Shipped: #260, PR #263, `c850052`; #261, PR #264, `8d79d44` |
-| [R](#r--completion-owns-the-__complete-wire-format) | Completion owns the `__complete` wire format | Strong | Open |
+| [R](#r--completion-owns-the-__complete-wire-format) | Completion owns the `__complete` wire format | Strong | Shipped: #266, PR #267, `43f6fd4` |
 | [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Open |
 | [T](#t--arbitration-owns-the-whole-write-not-just-the-decision) | Arbitration owns the whole write, not just the decision | Worth exploring | Open |
 | [U](#u--backendnim-sheds-the-completer-and-specsettings) | `backend.nim` sheds the Completer and `SpecSettings` | Worth exploring | Open |
@@ -162,15 +162,22 @@ it doesn't use, "for call-site consistency".
 
 **Solution.** `completion` owns the marker, `isCompletionRequest`, and one
 `reply(spec, words, command): string`; `fsm.parse*` shrinks to a two-line
-guard that raises it, and the facade re-exports rather than re-checks. One
-candidate type; the annotation comes from the code help uses.
+guard that raises it, and the facade wraps rather than re-checks. One
+candidate type, in `backend`.
 
 **Wins.**
 
 - Locality: the wire format sits behind one seam.
 - Tests assert the reply directly, not via `CompletionError`.
-- `fsm` drops its `completion` import.
 - `valueCandidates` deleted.
+
+**As shipped.** `fsm` keeps its `completion` import, since its guard calls
+`hasCompletionMarker` and `reply`. Help's annotation code isn't shared:
+it's styled and covers more than the action, while completion shows the
+action alone (ADR 0063), so the "agreement with help" suite in
+`test_completion.nim` pins the two instead. The facade wraps the marker
+check as `isCompletionRequest` rather than re-exporting it, so its doc
+stays on the facade's page.
 
 Not proposed: merging the three shell script templates. Each leans on its
 own shell's mechanics (`COMP_WORDBREAKS`, `compset`, `commandline`), so
