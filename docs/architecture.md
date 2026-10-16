@@ -1468,9 +1468,10 @@ calls `completion.resolveCompletion*` to re-walk `spec.fsm` and resolve
 candidates dynamically rather than via a static generated script. See
 `docs/adr/0012-fsm-driven-shell-completion.md` for why. `completion.nim`
 owns the wire format whole: the marker (`CompletionMarker`, tested by
-`isCompletionRequest*`, which the facade wraps for its doc page), and
-`reply*`, which renders a `Completion` as `parse*`'s `CompletionError`
-message. `parse*` only checks the one and raises the other.
+`hasCompletionMarker*`, which the facade's `isCompletionRequest*` wraps so
+its doc shows on the facade's page), and `reply*`, which renders a
+`Completion` as `parse*`'s `CompletionError` message. `parse*` only checks
+the one and raises the other.
 
 `completion.collectFrontier` generalizes `walk`'s single-winner backtracking
 into "every state simultaneously still reachable after consuming the tokens
@@ -1538,10 +1539,10 @@ Flag Operation Description from `Arg.variantDesc(variant)` (`backend.nim`)
 as `[action: ...]` when that is non-empty (e.g. a flag's `-i`/`-d`
 incrementing/decrementing differently). With no short help the description
 stands alone, and the long help never appears (ADR 0063). Each part goes
-through `prose.summary`, and `reply*` runs it again on every description,
-a Completer's included: its first paragraph, dedented by the same
+through `prose.summary`: its first paragraph, dedented by the same
 `dedentLines` help's re-flow uses, joined onto one line, and passed
-through `plainMarkup`, so a candidate is always exactly one line. It's a
+through `plainMarkup`. `reply*` runs it again on every description, a
+Completer's included, so a candidate is always exactly one line. It's a
 withheld export of `prose.nim` (not re-exported by `help.nim`), which
 `completion.nim` imports without importing `help`.
 

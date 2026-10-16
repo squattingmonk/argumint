@@ -810,7 +810,7 @@ proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
   ##     setupDatabaseConnection()
   ##     spec.parse(...)
   ## ```
-  completion.isCompletionRequest(args)
+  args.hasCompletionMarker
 
 proc quitWith(e: ref Exception, styler: Styler) {.noreturn.} =
   ## Prints `e`'s `outcome` and quits with its code.

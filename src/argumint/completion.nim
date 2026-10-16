@@ -1,6 +1,6 @@
 ## Dynamic shell completion: resolves a request's candidates by re-walking
 ## the FSM (`resolveCompletion*`), owns the `__complete` wire format
-## (`isCompletionRequest*`, `reply*`), and generates thin per-shell adapter
+## (`hasCompletionMarker*`, `reply*`), and generates thin per-shell adapter
 ## scripts that speak it (`genCompletionScript*`). See
 ## `docs/adr/0012-fsm-driven-shell-completion.md` and
 ## `docs/adr/0022-completion-candidate-help-text.md`.
@@ -16,7 +16,7 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[os, sequtils, sets, strformat, strutils, sugar, tables]
+import std/[sequtils, sets, strformat, strutils, sugar, tables]
 
 import ./[backend, matching, precedence, prose, tokens]
 
@@ -311,22 +311,21 @@ proc directive(c: Completion): string =
 const CompletionMarker = "__complete"
   ## The first argument that makes a run a shell-completion request.
 
-proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
-  ## Returns whether `args` starts with `CompletionMarker`. The facade's
-  ## `isCompletionRequest*` wraps this for users; `fsm.parse*` calls it
-  ## directly.
+proc hasCompletionMarker*(args: seq[string]): bool =
+  ## Returns whether `args` starts with `CompletionMarker` -- see
+  ## `docs/architecture.md` §6.
   args.len > 0 and args[0] == CompletionMarker
 
 proc reply*(spec: Spec, words: seq[string], command: string): string =
   ## `__complete`'s output for `words` (everything after the marker): one
   ## line per candidate, each `"value\thelp"` (`help` possibly empty, but
-  ## the tab always present, and always one line, since `summary` runs on
-  ## every description here -- see
+  ## the tab always present -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
   ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
   ## `:files` any patterns, tab-separated -- see
   ## `docs/adr/0066-completion-falls-back-to-paths.md` and
-  ## `docs/adr/0072-file-completion-patterns.md`.
+  ## `docs/adr/0072-file-completion-patterns.md`. Every description goes
+  ## through `summary`, so each candidate is one line.
   let completion = spec.resolveCompletion(words, command)
   var lines = collect:
     for c in completion.candidates: "{c.value}\t{summary(c.help)}".fmt

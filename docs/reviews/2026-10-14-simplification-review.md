@@ -160,13 +160,6 @@ is built by hand in `completion.nim:89` and separately by help's
 annotation code, so the two can drift. `genCompletionScript` takes a `spec`
 it doesn't use, "for call-site consistency".
 
-**As shipped.** `fsm` keeps its `completion` import, since its guard calls
-`isCompletionRequest` and `reply`. Help's annotation code isn't shared:
-it's styled and covers more than the action, while completion shows the
-action alone (ADR 0063), so a test pins their agreement instead. The
-facade wraps `isCompletionRequest` rather than re-exporting it, so its doc
-stays on the facade's page.
-
 **Solution.** `completion` owns the marker, `isCompletionRequest`, and one
 `reply(spec, words, command): string`; `fsm.parse*` shrinks to a two-line
 guard that raises it, and the facade wraps rather than re-checks. One
@@ -177,6 +170,14 @@ candidate type, in `backend`.
 - Locality: the wire format sits behind one seam.
 - Tests assert the reply directly, not via `CompletionError`.
 - `valueCandidates` deleted.
+
+**As shipped.** `fsm` keeps its `completion` import, since its guard calls
+`hasCompletionMarker` and `reply`. Help's annotation code isn't shared:
+it's styled and covers more than the action, while completion shows the
+action alone (ADR 0063), so the "agreement with help" suite in
+`test_completion.nim` pins the two instead. The facade wraps the marker
+check as `isCompletionRequest` rather than re-exporting it, so its doc
+stays on the facade's page.
 
 Not proposed: merging the three shell script templates. Each leans on its
 own shell's mechanics (`COMP_WORDBREAKS`, `compset`, `commandline`), so

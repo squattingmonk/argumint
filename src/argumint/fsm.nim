@@ -135,7 +135,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## `argumint.nim`), so build a fresh `Spec` per parse. See
   ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   ##
-  ## A shell-completion request (`completion.isCompletionRequest`, see
+  ## A shell-completion request (`completion.hasCompletionMarker`, see
   ## `docs/adr/0012-fsm-driven-shell-completion.md`) short-circuits before
   ## any real FSM matching, env fallback, or dispatch (so no `before`/
   ## `action`/`after` hook fires), raising `CompletionError` with
@@ -143,7 +143,7 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## proc runs, earlier values are stored into their Args, so a caller that
   ## catches `CompletionError` and carries on sees them -- see
   ## `docs/adr/0071-runtime-completers.md`.
-  if args.isCompletionRequest:
+  if args.hasCompletionMarker:
     raise newPlainError(CompletionError, spec.reply(args[1 .. ^1], command))
 
   var pc = initParseContext(spec, args, command)
