@@ -312,30 +312,16 @@ const CompletionMarker = "__complete"
   ## The first argument that makes a run a shell-completion request.
 
 proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
-  ## Returns whether `args` is a shell-completion request (see
-  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
-  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
-  ## completion handling rather than a real run.
-  ##
-  ## Each completion request re-invokes the binary as a fresh process, so
-  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
-  ## connection) reruns on every keystroke, not just real invocations --
-  ## unlike `before`/`action`/`after` hooks, which are already skipped
-  ## during completion. Guard expensive pre-parse setup with this:
-  ## ```nim
-  ## when isMainModule:
-  ##   if isCompletionRequest():
-  ##     spec.parse(...)          # skip straight past expensive setup
-  ##   else:
-  ##     setupDatabaseConnection()
-  ##     spec.parse(...)
-  ## ```
+  ## Returns whether `args` starts with `CompletionMarker`. The facade's
+  ## `isCompletionRequest*` wraps this for users; `fsm.parse*` calls it
+  ## directly.
   args.len > 0 and args[0] == CompletionMarker
 
 proc reply*(spec: Spec, words: seq[string], command: string): string =
   ## `__complete`'s output for `words` (everything after the marker): one
   ## line per candidate, each `"value\thelp"` (`help` possibly empty, but
-  ## the tab always present, and put on one line by `summary` -- see
+  ## the tab always present, and always one line, since `summary` runs on
+  ## every description here -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
   ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
   ## `:files` any patterns, tab-separated -- see
@@ -351,8 +337,8 @@ proc genCompletionScript*(shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
   ## shell's own convention, completes `binaryName` by shelling out to it
   ## (`<binaryName> __complete <words...>`). The script needs nothing from
-  ## the `Spec` -- completion (including each candidate's
-  ## help text, rendered by fish and zsh but not bash -- see
+  ## the `Spec` -- completion (including each candidate's help text,
+  ## rendered by fish and zsh but not bash -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`) is resolved
   ## dynamically at request time by the compiled binary itself.
   let script =

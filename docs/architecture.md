@@ -1468,9 +1468,9 @@ calls `completion.resolveCompletion*` to re-walk `spec.fsm` and resolve
 candidates dynamically rather than via a static generated script. See
 `docs/adr/0012-fsm-driven-shell-completion.md` for why. `completion.nim`
 owns the wire format whole: the marker (`CompletionMarker`, tested by
-`isCompletionRequest*`, which the facade re-exports), and `reply*`, which
-renders a `Completion` as `parse*`'s `CompletionError` message. `parse*`
-only checks the one and raises the other.
+`isCompletionRequest*`, which the facade wraps for its doc page), and
+`reply*`, which renders a `Completion` as `parse*`'s `CompletionError`
+message. `parse*` only checks the one and raises the other.
 
 `completion.collectFrontier` generalizes `walk`'s single-winner backtracking
 into "every state simultaneously still reachable after consuming the tokens
@@ -1526,8 +1526,8 @@ option given before its place in the line, such as `-v` after `a` under
 ### Candidates and shell adapters
 
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`
-(`backend.nim`, the same type an `Offer`'s values hold), not
-a bare string — see `docs/adr/0022-completion-candidate-help-text.md`.
+(`backend.nim`, the same type an `Offer`'s values hold), not a bare
+string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated for an Arg's own name (option/flag/command candidates,
 via `completion.describeVariants`), and for a value only when a Completer's
 `offer` gave it one; an enumerated value from `completions()` always
@@ -1538,9 +1538,9 @@ Flag Operation Description from `Arg.variantDesc(variant)` (`backend.nim`)
 as `[action: ...]` when that is non-empty (e.g. a flag's `-i`/`-d`
 incrementing/decrementing differently). With no short help the description
 stands alone, and the long help never appears (ADR 0063). Each part goes
-through `prose.summary` (as does a Completer's description, in
-`reply*`): its first paragraph, dedented by the
-same `dedentLines` help's re-flow uses, joined onto one line, and passed
+through `prose.summary`, and `reply*` runs it again on every description,
+a Completer's included: its first paragraph, dedented by the same
+`dedentLines` help's re-flow uses, joined onto one line, and passed
 through `plainMarkup`, so a candidate is always exactly one line. It's a
 withheld export of `prose.nim` (not re-exported by `help.nim`), which
 `completion.nim` imports without importing `help`.
@@ -1576,9 +1576,10 @@ display string in place of its word, so the script writes
 Besides its candidates, `resolveCompletion*` returns which paths the shell
 should add (`PathCompletion`, `backend.nim`), and `reply*` prints that as
 the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
-(the private `completion.directive`). Every position that takes a value contributes
-the paths of its Arg's `Offer` — each non-hidden `mkArgument` transition
-out of a frontier state, or each pending option in the pending-value case.
+(the private `completion.directive`). Every position that takes a value
+contributes the paths of its Arg's `Offer` — each non-hidden `mkArgument`
+transition out of a frontier state, or each pending option in the
+pending-value case.
 By default that is `Files`, or `None` if the Arg has enumerable
 `completions()`, which a `choice` accepts alone. `widen` ranks `Files`
 above `Dirs`, then `None`. Each script strips the last line

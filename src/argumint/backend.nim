@@ -56,7 +56,10 @@ type
   CompletionCandidate* = tuple[value: string, help: string]
     ## One shell-completion candidate -- `value` is the literal word offered,
     ## `help` is a short description (possibly `""`) for shells that can render
-    ## one (fish, zsh) -- see ADR 0022. `reply` puts it on one line.
+    ## one (fish, zsh) -- see
+    ## `docs/adr/0022-completion-candidate-help-text.md`. A *value* candidate
+    ## carries `""` unless a Completer's `offer` described it -- see
+    ## `docs/adr/0071-runtime-completers.md`. `reply` puts it on one line.
 
   Offer* = object
     ## A Completer's answer: candidate values, each with a description
