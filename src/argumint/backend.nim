@@ -53,11 +53,16 @@ type
       ## The word being completed, possibly `""`. argumint filters the
       ## candidates by it anyway, so it is only for narrowing a slow query.
 
+  CompletionCandidate* = tuple[value: string, help: string]
+    ## One shell-completion candidate -- `value` is the literal word offered,
+    ## `help` is a short description (possibly `""`) for shells that can render
+    ## one (fish, zsh) -- see ADR 0022. `reply` puts it on one line.
+
   Offer* = object
     ## A Completer's answer: candidate values, each with a description
     ## (possibly `""`), which paths the shell adds to them, and the patterns
     ## a file's name must match. Built with `offer`.
-    values: seq[tuple[value, help: string]]
+    values: seq[CompletionCandidate]
     paths: PathCompletion
     patterns: seq[string]
 
@@ -343,7 +348,7 @@ let
     longFlag <- '--' \w (\w / ('-' \w))+
   """
 
-proc initOffer*(values: seq[tuple[value, help: string]], paths: PathCompletion,
+proc initOffer*(values: seq[CompletionCandidate], paths: PathCompletion,
     patterns: seq[string] = @[]): Offer =
   ## Machinery behind the facade's `offer` and `files`. Patterns need
   ## `Files`, and can't hold the directive's tab or newline -- see
@@ -355,7 +360,7 @@ proc initOffer*(values: seq[tuple[value, help: string]], paths: PathCompletion,
       "a file pattern can't contain a tab or newline: " & p.escape
   Offer(values: values, paths: paths, patterns: patterns)
 
-func values*(o: Offer): lent seq[tuple[value, help: string]] =
+func values*(o: Offer): lent seq[CompletionCandidate] =
   ## `o`'s candidates, in the order given.
   o.values
 

@@ -1,4 +1,7 @@
-## Generates thin per-shell adapter scripts for dynamic completion. See
+## Dynamic shell completion: resolves a request's candidates by re-walking
+## the FSM (`resolveCompletion*`), owns the `__complete` wire format
+## (`isCompletionRequest*`, `reply*`), and generates thin per-shell adapter
+## scripts that speak it (`genCompletionScript*`). See
 ## `docs/adr/0012-fsm-driven-shell-completion.md` and
 ## `docs/adr/0022-completion-candidate-help-text.md`.
 ##
@@ -13,7 +16,7 @@
 ## -- rendering the help text where the shell supports it (fish, zsh), or
 ## stripping it where it doesn't (bash).
 
-import std/[sequtils, sets, strformat, strutils, sugar, tables]
+import std/[os, sequtils, sets, strformat, strutils, sugar, tables]
 
 import ./[backend, matching, precedence, prose, tokens]
 
@@ -25,13 +28,6 @@ type
     ## Every `State` simultaneously still reachable after consuming a given
     ## prefix of tokens, paired with the `ParseContext` that reached it -- see
     ## `collectFrontier`.
-
-  CompletionCandidate* = tuple[value: string, help: string]
-    ## One shell-completion candidate -- `value` is the literal word offered,
-    ## `help` is a short description (possibly `""`) for shells that can render
-    ## one (fish, zsh) -- see ADR 0022. A *value* candidate carries `""`
-    ## unless a Completer's `offer` described it (ADR 0071) -- see
-    ## architecture.md §6.
 
   Completion* = tuple[candidates: seq[CompletionCandidate], paths: PathCompletion,
       patterns: seq[string]]
@@ -130,11 +126,6 @@ proc offerFor(tab: var Tab, arg: Arg, pc: ParseContext, word: string): Offer =
       except CatchableError: initOffer(@[], PathCompletion.None)
   tab.offers[arg] = result
 
-proc valueCandidates(o: Offer): seq[CompletionCandidate] =
-  ## `o`'s values as candidates, each description on one line.
-  for (v, help) in o.values:
-    result.add (v, summary(help))
-
 proc candidateWords(tab: var Tab, frontier: Frontier, prefix: string): seq[CompletionCandidate] =
   ## Reads every live frontier state's own outgoing transitions for literal
   ## next-word spellings (option/flag variants, command variants, or a
@@ -160,7 +151,7 @@ proc candidateWords(tab: var Tab, frontier: Frontier, prefix: string): seq[Compl
           else: describeVariants(tr.matcher.cmd, tr.matcher.cmd.variants)
         of mkArgument:
           if tr.matcher.arg.hidden: newSeq[CompletionCandidate]()
-          else: tab.offerFor(tr.matcher.arg, pc, prefix).valueCandidates
+          else: tab.offerFor(tr.matcher.arg, pc, prefix).values
         of mkOptsEnd: newSeq[CompletionCandidate]() # invisible -- see ADR 0020 point 8
         of mkShortcut: newSeq[CompletionCandidate]()
       result.addUnseen(seen, candidates, prefix)
@@ -283,7 +274,7 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
       var seenValues: HashSet[string]
       for (arg, pc) in pending:
         let o = tab.offerFor(arg, pc, wordBeingCompleted)
-        result.candidates.addUnseen(seenValues, o.valueCandidates, wordBeingCompleted)
+        result.candidates.addUnseen(seenValues, o.values, wordBeingCompleted)
         result.widen o
       return result
 
@@ -304,7 +295,7 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
       if tr.matcher.kind == mkArgument and not tr.matcher.arg.hidden:
         result.widen tab.offerFor(tr.matcher.arg, pc, wordBeingCompleted)
 
-proc directive*(c: Completion): string =
+proc directive(c: Completion): string =
   ## The line ending `__complete`'s output, telling the shell script which
   ## paths to add, then any patterns, tab-separated -- see
   ## `docs/adr/0066-completion-falls-back-to-paths.md` and
@@ -317,12 +308,50 @@ proc directive*(c: Completion): string =
   for p in c.patterns:
     result.add '\t' & p
 
-proc genCompletionScript*(spec: Spec, shell: Shell, binaryName: string): string =
+const CompletionMarker = "__complete"
+  ## The first argument that makes a run a shell-completion request.
+
+proc isCompletionRequest*(args: seq[string] = commandLineParams()): bool =
+  ## Returns whether `args` is a shell-completion request (see
+  ## `docs/adr/0012-fsm-driven-shell-completion.md`) -- i.e. whether calling
+  ## `parse*`/`parseOrQuit*` with these same `args` would short-circuit into
+  ## completion handling rather than a real run.
+  ##
+  ## Each completion request re-invokes the binary as a fresh process, so
+  ## setup code run *before* `parse*`/`parseOrQuit*` (config loading, a DB
+  ## connection) reruns on every keystroke, not just real invocations --
+  ## unlike `before`/`action`/`after` hooks, which are already skipped
+  ## during completion. Guard expensive pre-parse setup with this:
+  ## ```nim
+  ## when isMainModule:
+  ##   if isCompletionRequest():
+  ##     spec.parse(...)          # skip straight past expensive setup
+  ##   else:
+  ##     setupDatabaseConnection()
+  ##     spec.parse(...)
+  ## ```
+  args.len > 0 and args[0] == CompletionMarker
+
+proc reply*(spec: Spec, words: seq[string], command: string): string =
+  ## `__complete`'s output for `words` (everything after the marker): one
+  ## line per candidate, each `"value\thelp"` (`help` possibly empty, but
+  ## the tab always present, and put on one line by `summary` -- see
+  ## `docs/adr/0022-completion-candidate-help-text.md`), then a directive
+  ## line naming which paths to add (`:files`, `:dirs`, or `:`), and for
+  ## `:files` any patterns, tab-separated -- see
+  ## `docs/adr/0066-completion-falls-back-to-paths.md` and
+  ## `docs/adr/0072-file-completion-patterns.md`.
+  let completion = spec.resolveCompletion(words, command)
+  var lines = collect:
+    for c in completion.candidates: "{c.value}\t{summary(c.help)}".fmt
+  lines.add completion.directive
+  lines.join("\n")
+
+proc genCompletionScript*(shell: Shell, binaryName: string): string =
   ## Returns a completion script for `shell` that, once installed per that
   ## shell's own convention, completes `binaryName` by shelling out to it
-  ## (`<binaryName> __complete <words...>`). `spec` is accepted for
-  ## call-site consistency with `dot`/`genHelp`, but the generated script
-  ## doesn't need to inspect it -- completion (including each candidate's
+  ## (`<binaryName> __complete <words...>`). The script needs nothing from
+  ## the `Spec` -- completion (including each candidate's
   ## help text, rendered by fish and zsh but not bash -- see
   ## `docs/adr/0022-completion-candidate-help-text.md`) is resolved
   ## dynamically at request time by the compiled binary itself.
