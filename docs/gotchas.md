@@ -690,3 +690,11 @@ debugging time. Read this before touching the constructors and `flagOp`/
   reported as `identifier expected, but found 'some(byCli)'` at the call
   site. Name a template's parameters apart from the fields its body
   touches (`arbitrated` takes `tier`).
+
+- **Comparing an enum with a value of its own subrange converts the enum
+  down, not the subrange up.** With `FallbackTier = range[byConfig..byEnv]`
+  (`precedence.nim`), `arg.seenBy > t` converted `arg.seenBy` to
+  `FallbackTier` and raised `RangeDefect` for `byCli`. Convert the subrange
+  value instead (`arg.seenBy > SeenBy(t)`), and likewise `some(SeenBy(t))`
+  where an `Option[SeenBy]` is wanted, since `some(t)` is an
+  `Option[FallbackTier]`.
