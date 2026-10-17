@@ -152,7 +152,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
   ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
+  ## - `settings` is the `SpecSettings` the whole tree shares -- see
   ##   `newSpecSettings`. Shared by reference -- not copied -- with every
   ##   nested subcommand's spec, so mutating it later (e.g. from a `before`
   ##   hook) applies live throughout the tree.
