@@ -34,6 +34,20 @@ re-export it, so importing either alone still names what it raises.
 `errors.nim`'s withheld `newPlainError` builds one whose `styledMsg` is its
 `msg`, for the raise sites with no Styler to hand (ADR 0059).
 
+`variant.nim` is the other grammar leaf: the Variant grammar, written once
+as PEG source fragments (`ShortName`, `LongName`, `Angled`, `Upper`,
+`Equals`, `CommandName`). Three readers build their patterns from them, so
+none can drift from the others: the lexer's usage-string tokens, `tokens`'
+runtime option shapes, and `parseVariant`, which reads one declared Variant
+against a `VariantShape` and returns its bare name and metavar, or `none`.
+The shapes are what the lexer knows (positional, option, command); `Flag`
+is an option with the metavar forbidden, a rule only spec construction
+can apply. `parseVariant` raises nothing: each caller raises its own
+`SpecDefect`, naming the field or spelling at fault. `splitVariants` is
+the comma split every `variants` string goes through. Its own tests check
+that the lexer reads each accepted Variant as its shape's tokens, and
+doesn't read a rejected one that way.
+
 `console.nim` answers what the terminal can do: how wide output can be
 (`resolvedWidth`, over `detectWidth` and `DefaultWidth`/`DefaultMaxWidth`)
 and whether it can take colour (`resolvedStyler`), which `SpecSettings`'
@@ -85,10 +99,7 @@ into one: `finishSpec` calls `genFsm` (`parser`) and `autoFillUsage` calls
 construction in `backend` is a recursive module dependency, and Nim rejects
 it outright. The constructors that never touch a usage string
 (`newSpecSettings`) do live in `backend`, beside the `SpecSettings` type
-they build; so do the variant-format PEGs
-(`PositionalVariantFormat`/`OptionalVariantFormat`/`FlagVariantFormat`/
-`FlagOpVariantFormat`), the `Comma` separator every `variants` string is
-split on, and `subject`, all of which have consumers on both sides of the
+they build; so does `subject`, which has consumers on both sides of the
 split.
 
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
@@ -1007,7 +1018,8 @@ Where the closures come from:
   `initFlagArg` raises `SpecDefect` if `variants` has bare spellings.
 
 The string form of `ops` (`parseFlagOpsString`, ADR 0028) matches each
-entry against `FlagOpVariantFormat`, which accepts only the four named ops;
+entry against `FlagOpEntryFormat` (a Flag spelling from `variant.nim`'s
+fragments, then an op and a value), which accepts only the four named ops;
 an entry it rejects is matched against `UnknownFlagOpFormat` to report the
 op it did find. Values go through `fromString[T]`, or for a `set[E]`
 through `fromString[E]` into a one-element set.
@@ -1152,7 +1164,7 @@ variant by its Arg's kind (`styledVariant`, which splits an option's
 `=<m>` or `=M` into `srOption`/`srPlain`/`srMetavar` through
 `style.styledOption`, shared with complaints), and runs the help text through
 `markup` with the Arg's own `metavars`, derived from its variants by
-`OptionalVariantFormat`'s `helpVar` capture. `annotations` tags the
+`parseVariant`. `annotations` tags the
 bracket, `;` and key labels `srAnnotation`, and its values `srLiteral` or
 `srEnv`; the validator part comes from `validatorHelp`, which now returns
 `StyledText` built by `Validator.styledHelp`/`FlagClamp.styledHelp` (whose

@@ -16,9 +16,9 @@
 ## parse-failure message. See `docs/architecture.md` for where that line
 ## falls and why. The env tier's types live in `argumint/envvar`.
 
-import std/[hashes, options, os, pegs, strformat, strutils, tables]
+import std/[hashes, options, os, strformat, strutils, tables]
 
-import ./[configsource, console, envvar, errors, style]
+import ./[configsource, console, envvar, errors, style, variant]
 export configsource, envvar
 export console.DefaultWidth, console.DefaultMaxWidth, console.chooseWidth,
   console.detectWidth
@@ -297,60 +297,6 @@ static:
     "-d:argumint.maxVariantsWidth must be 0 (unlimited) or more, got " &
     $DefaultMaxVariantsWidth
 
-# The comma separator every `variants`/`ops` string is split on, and the
-# formats an `arg`/`opt`/`flag` Variant string must match. Exported for
-# siblings (spec construction, `subject`, the Arg constructors, the
-# `ValueArg`/`FlagArg` machinery in `argumint/argtypes`) but never
-# re-exported by the facade -- reachable only via `import argumint/backend`,
-# like everything else internal here.
-let
-  Comma* = peg"\s* ',' \s*"
-
-  PositionalVariantFormat* = peg"""
-    # Allows you to capture <arg> or ARG
-    argument <- ^ {angled / upper} $
-    angled <- '<' \w (\w / ('-' \w))* '>'
-    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
-  """
-
-  OptionalVariantFormat* = peg"""
-    # Allows you to capture [-o, var] / [--option, var] in -o=<var> /
-    # --option=<var>, or VAR in place of <var>
-    option <- ^ (shortOption / longOption) (equals helpVar)? $
-    equals <- '=' / ':'
-    shortOption <- {'-' \w}
-    longOption <- {'--' \w (\w / ('-' \w))+}
-    helpVar <- ('<' {\w (\w / ('-' \w))*} '>') / {upper}
-    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
-  """
-
-  FlagVariantFormat* = peg"""
-    # A bare flag spelling, no embedded <op><value> -- that's supplied
-    # explicitly via flagOp's own op/value params instead (see flag*/
-    # flagOp*).
-    flag <- ^ (shortFlag / longFlag) $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-  """
-
-  FlagOpVariantFormat* = peg"""
-    # A flag spelling with an embedded <op><value>: one entry of the string
-    # form of flag*'s ops (see `parseFlagOpsString` in argumint/argtypes).
-    flag <- ^ (shortFlag / longFlag) op value $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-    op <- {'=' / '+=' / '-=' / '*='}
-    value <- {.*}
-  """
-
-  UnknownFlagOpFormat* = peg"""
-    # The op in an entry FlagOpVariantFormat rejects, for its error: what
-    # follows the spelling, up to and including the first '='.
-    flag <- ^ (shortFlag / longFlag) {(!'=' \W)+ '='? / '='}
-    shortFlag <- '-' \w
-    longFlag <- '--' \w (\w / ('-' \w))+
-  """
-
 proc initOffer*(values: seq[CompletionCandidate], paths: PathCompletion,
     patterns: seq[string] = @[]): Offer =
   ## Machinery behind the facade's `offer` and `files`. Patterns need
@@ -577,9 +523,10 @@ proc metavars*(arg: Arg): seq[string] =
   ## for `--speed=<kn>`), for Help Markup to tell a metavar from a
   ## positional in `arg`'s own help text.
   for variant in arg.variants:
-    var m: array[2, string]
-    if variant.match(OptionalVariantFormat, m) and m[1].len > 0 and m[1] notin result:
-      result.add m[1]
+    let parts = parseVariant(variant, VariantShape.Option)
+    if parts.isSome and parts.get.metavar.len > 0 and
+        parts.get.metavar notin result:
+      result.add parts.get.metavar
 
 proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
@@ -759,13 +706,11 @@ proc subjectParts*(arg: Arg, c: Contribution): tuple[name, source: string] =
     else: ("", "")
   if label.len == 0:
     return (arg.name(c.variant), "")
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
+  # Every other complaint names the bare option (`--port`, not
+  # `--port=<n>`). A Positional or Command doesn't parse as an option, so
+  # keeps its name.
+  let parts = parseVariant(arg.name, VariantShape.Option)
+  let bare = if parts.isSome: parts.get.name else: arg.name
   (bare, " ($#: $#)" % [kind, label])
 
 proc subject*(arg: Arg, c: Contribution): string =

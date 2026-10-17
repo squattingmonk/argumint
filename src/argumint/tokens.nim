@@ -9,7 +9,7 @@
 
 import std/[pegs, strformat, tables]
 
-import ./backend
+import ./[backend, variant]
 
 type
   RawToken* = object
@@ -79,21 +79,13 @@ type
     optsEnd*: bool
 
 let
-  OptionValueFormat = peg"""
-    # Allows you to capture [-o, =, val] / [--option, =, val] in -o=val / --option=val
-    option <- ^ {(shortOption / longOption)} ({equals} {value}) $
-    equals <- '=' / ':'
-    shortOption <- '-' \w
-    longOption <- '--' \w (\w / ('-' \w))+
-    value <- _*
-  """
+  OptionValueFormat = peg("^ {" & ShortName & " / " & LongName & "} ({" &
+    Equals & "} {_*}) $")
+    ## Captures `[-o, =, val]` / `[--option, =, val]` in `-o=val` /
+    ## `--option=val` -- the option shapes are `variant.nim`'s.
 
-  OptionFormat = peg"""
-  # Allows you to capture -o / --option
-  option <- ^ {(shortOption / longOption)} $
-  shortOption <- '-' \w
-  longOption <- '--' \w (\w / ('-' \w))+
-  """
+  OptionFormat = peg("^ {" & ShortName & " / " & LongName & "} $")
+    ## Captures `-o` / `--option`.
 
 proc fromCluster(token: RawToken): bool =
   ## Whether this token is a peeled `-abc` remainder rather than something the

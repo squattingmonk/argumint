@@ -114,9 +114,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   separate spec levels (e.g. Naval Fate's top-level spec has commands only,
   each subcommand's nested spec has positional args only) — but options
   routinely appear alongside either.
-- `arg`/`opt`/`flag`/`command` variant strings are validated with the PEG
-  patterns in `src/argumint/backend.nim` (`PositionalVariantFormat`,
-  `OptionalVariantFormat`, `FlagVariantFormat`) — errors here raise
+- `arg`/`opt`/`flag`/`command` variant strings are validated by
+  `parseVariant` in `src/argumint/variant.nim`, whose PEG fragments the
+  lexer and runtime token shapes share — errors here raise
   `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
