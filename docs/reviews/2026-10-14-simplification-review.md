@@ -16,14 +16,15 @@ depth, seam, adapter, leverage, locality) as defined in the
 
 | | Candidate | Strength | Status |
 |---|---|---|---|
-| [P](#p--a-variant-module-one-grammar-parsed-once) | A Variant module: one grammar, parsed once | Strong | Open |
+| [P](#p--a-variant-module-one-grammar-parsed-once) | A Variant module: one grammar, parsed once | Strong | Shipped: #270, PR #276, `b694a67` |
 | [Q](#q--committing-a-walk-lives-in-one-module) | Committing a walk lives in one module | Strong | Shipped: #260, PR #263, `c850052`; #261, PR #264, `8d79d44` |
 | [R](#r--completion-owns-the-__complete-wire-format) | Completion owns the `__complete` wire format | Strong | Shipped: #266, PR #267, `43f6fd4` |
-| [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Open |
-| [T](#t--arbitration-owns-the-whole-write-not-just-the-decision) | Arbitration owns the whole write, not just the decision | Worth exploring | Open |
-| [U](#u--backendnim-sheds-the-completer-and-specsettings) | `backend.nim` sheds the Completer and `SpecSettings` | Worth exploring | Open |
-| [V](#v--the-facade-documents-each-parameter-once) | The facade documents each parameter once | Worth exploring | Open |
-| [W](#w--one-enum-for-value-precedence-tiers) | One enum for Value Precedence tiers | Speculative | Open |
+| [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Shipped: #271, PR #278, `230e931`; ADR 0075 |
+| [T](#t--arbitration-owns-the-whole-write-not-just-the-decision) | Arbitration owns the whole write, not just the decision | Worth exploring | Shipped: #272, PR #277, `3712f2a` |
+| [U](#u--backendnim-sheds-the-completer-and-specsettings) | `backend.nim` sheds the Completer and `SpecSettings` | Worth exploring | Shipped with P: #270, PR #276, `b694a67` |
+| [V](#v--the-facade-documents-each-parameter-once) | The facade documents each parameter once | Worth exploring | Shipped: #273, PR #279, `fa14e5a` |
+| [W](#w--one-enum-for-value-precedence-tiers) | One enum for Value Precedence tiers | Speculative | Shipped: #274, PR #280, `4e826c2` |
+| [X](#x--the-extender-surface-separates-from-the-user-surface) | The extender surface separates from the user surface | Worth exploring | Open: #269, needs grilling |
 
 **Recommendation:** Q first. It is the only candidate where the duplication
 already carries a semantic split (`ParseContext.levels` means two things)
@@ -94,6 +95,20 @@ the lexer. `Arg` stores parsed Variants; the re-deriving sites read fields.
 - `backend` sheds its PEG cluster.
 - One interface to test every spelling against.
 - The Flag/value-Arg asymmetry disappears.
+
+**As shipped.** Variants stay strings and aren't parsed once at
+construction: `Arg` stores no parsed Variant,
+since a second record could disagree with `variants`, which is public and
+writable (that gap is [X](#x--the-extender-surface-separates-from-the-user-surface)).
+Each site that needs a name or metavar calls `parseVariant` instead, and
+`splitVariants` replaces every comma split. The grammar had a third copy
+the card missed, `tokens.nim`'s runtime option shapes; the new leaf
+`variant.nim` holds it as PEG source fragments that the lexer, `tokens`
+and `parseVariant` all build from. Short options narrowed to
+`-[a-zA-Z0-9]` everywhere, and command Variants gained a grammar, so
+`command("BUILD")` or `command("-x")` now raises a `SpecDefect` when built.
+The Flag Operation PEGs moved to `argtypes`, beside their one user, as
+`FlagOpEntryFormat` and `UnknownFlagOpFormat`.
 
 ### Q — Committing a walk lives in one module
 
@@ -216,6 +231,13 @@ and redundant re-exports.
 - One minimum width, one clamp.
 - The built-ins stop duplicating the group loop.
 
+**As shipped.** The Help Frame sits beside the Help Formatter rather than
+becoming its interface: `ctx.frame(renderRows, form)` is public, and a
+formatter may build on it or still write the whole message, so ADR 0048
+stands ([ADR 0075](../adr/0075-help-formatters-build-on-the-help-frame.md)).
+The clamp went into the `SpecSettings.width` getter, not the Help Context,
+since parse errors never build one; `MinWidth` (20) names the minimum.
+
 **ADRs.** Extends [ADR 0048](../adr/0048-pluggable-help-formatters.md) and
 [ADR 0057](../adr/0057-help-context.md) rather than contradicting them, but
 changes what the 1.0 Help Formatter toolkit freezes.
@@ -239,6 +261,12 @@ and promotes `seenBy`.
 
 - Locality: promotion order fixed in one place.
 - Small and mechanical.
+
+**As shipped.** The template is `arbitrated`, and `arbitration` went
+private behind it. "It can't fail today" was wrong: the order matters,
+because a replacing store calls `clear`, which resets `seenBy`, so
+promoting first would be undone. The Flag `putImpl` now stores before
+promoting, like the others.
 
 **ADRs.** Enacts [ADR 0041](../adr/0041-parse-is-the-write-surface.md) and
 [ADR 0044](../adr/0044-put-typed-write-accessor.md) more strictly.
@@ -269,6 +297,13 @@ about 35 lines and haven't grown, so F stays parked.
 Close to a move rather than a deepening: the deletion test is weak. Best
 done riding along with P.
 
+**As shipped.** With P, as its own commit: `completer.nim` (a leaf) and
+`settings.nim` (below `backend`). The dependency-edge win didn't hold.
+`Spec` has a `settings` field and `Arg` a `complete` field, so `backend`
+imports and re-exports both modules, and everything importing `backend`
+still reaches `console` through `settings`. The gain is reading locality:
+`backend` went from 793 production lines to about 510.
+
 ### V — The facade documents each parameter once
 
 **Worth exploring.** Files: `argumint.nim:283–481, 588–696, 784–786,
@@ -292,6 +327,13 @@ each parameter on one canonical overload and point the others at it.
 - Locality: one doc per parameter.
 - `completion()` and future built-ins stop passing filler.
 
+**As shipped.** The private runner was already in place, as
+`buildAndBind`. `arg[T]`, `opt[T]`, `command[S]` and `parse*(tuple)` carry
+each parameter's doc, and the other overloads say "as on" one of them. The
+drift fixed: the `command` overloads said `config` for `settings`, the
+`settings` bullets listed fields, and `flag[T]` didn't document `help`.
+`argumint.nim` went from 1,007 lines to about 900.
+
 **ADRs.** Nim forces the bare-call overloads and repeated signatures
 ([ADR 0061](../adr/0061-cmd-and-bare-calls.md)), so the gain is docs and
 behaviour drift, not signatures. Public names stay in `argumint.nim` for the
@@ -314,6 +356,54 @@ for tests.
 
 - One name per tier.
 - One exported name fewer.
+
+**As shipped.** `FallbackTier` stayed, as `range[byConfig..byEnv]`, since
+it still indexes the cursor array without unused slots. So each tier has
+one name, but the module exports two names (`FallbackTier`, and
+`FallbackOrder` for the strongest-first order), not one fewer. Iterating
+the subrange itself runs weakest first, so both loops iterate
+`FallbackOrder`. Comparing a `SeenBy` with a `FallbackTier` converts the
+enum down to the subrange, which raises `RangeDefect` for `byCli`; that
+trap is in `docs/gotchas.md`.
+
+### X — The extender surface separates from the user surface
+
+**Worth exploring.** Found while grilling P; filed as #269, which needs its
+own grilling. Files: `backend.Arg`, `argtypes.initValueArg`,
+`backend.arbitrated`, `tests/test_write_side.nim`,
+[ADR 0017](../adr/0017-argumint-reexports-for-custom-arg-types.md),
+[ADR 0030](../adr/0030-core-types-exported-spec-opaque.md),
+[ADR 0043](../adr/0043-facade-machinery-seam.md).
+
+**Problem.** `import argumint` gives every caller write access to all of
+`Arg`'s public fields (`kind`, `variants`, `help`, `group`, `hidden`,
+`complete`, `seenBy`, plus `CommandArg.spec` and `MessageArg.message`). A
+CLI author needs at most to read a few. Only an
+extender building a custom `Arg` subtype needs to set them, and ADR 0030
+lets them do it with `import argumint` alone. The sharpest case is
+`variants`: it's checked when the Spec is built, but nothing stops a
+caller changing it afterwards, leaving `spec.options`, `spec.arguments`,
+the Flag ops table
+and the FSM keyed by the old strings. Making the field private with a
+withheld setter was prototyped during P's grilling, and broke ADR 0030's
+custom-`Arg` contract.
+
+**Solution.** A separate module for extenders (working name
+`argumint/argbuilder`): `import argumint` exposes Args read-only, and the
+extender module adds what a custom `Arg` needs to build and write one.
+Open questions include which fields an extender may set, and whether
+`initValueArg` (with V's signature) and `arbitrated` (from T) move there.
+
+**Wins.**
+
+- `variants` can't drift from the Spec built on it, so `parseVariant`'s
+  raw-string fallbacks in `backend.metavars` and `backend.subjectParts`
+  become assertions.
+- The user surface shrinks to reads.
+
+**ADRs.** Revisits [ADR 0030](../adr/0030-core-types-exported-spec-opaque.md)'s
+custom-`Arg` contract, and may give
+[ADR 0043](../adr/0043-facade-machinery-seam.md)'s seam a third tier.
 
 ## Smaller findings
 
