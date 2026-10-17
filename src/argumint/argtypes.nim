@@ -263,7 +263,7 @@ proc replaceImpl*[T: not seq](self: ValuesArg[T], values: seq[T], seenBy: Option
   ## Validates every candidate in `values` against the prefix of `values`
   ## already accepted -- `self`'s own prior values never enter that history,
   ## since they're about to be discarded -- then, only if all of them pass,
-  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitration`
+  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitrated`
   ## call: unlike `putImpl`, `replaceImpl` always applies, tier or no tier,
   ## which is what lets it demote. Raising mid-validation leaves both fields
   ## untouched, so there's no `clear()` to undo on failure.

@@ -876,7 +876,8 @@ It writes through `arbitrated` (withheld in `backend.nim`, with the bare
 `arbitration` decision private behind it), which decides what a
 contribution at the declared tier does, runs the store with that decision
 as `how`, and only then records a stronger tier -- so a store that raises
-leaves the Arg at its old tier. `parse`'s store packs the value into a
+before clearing (as the built-ins do, validating first) leaves the Arg at
+its old tier. `parse`'s store packs the value into a
 `Contribution` and hands it to `accept`, the one method a value-carrying
 Arg overrides:
 
@@ -1361,7 +1362,7 @@ written, so it can never outrun the value it describes.
 `storeValues` covers the whole matched tree — commands and Message Args
 included, via the quiet base `accept` that stores nothing — so
 provenance is complete before the first hook, at any dispatch depth. Each
-contribution is arbitrated by `arbitrated` against the tier already
+contribution goes through `arbitrated` against the tier already
 recorded: a stronger tier clears first, an equal one appends, a weaker one
 applies nothing. The first CLI match therefore clears any pre-seed and
 records `byCli`, which moves every later match into the append branch with

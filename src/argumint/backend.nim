@@ -339,17 +339,20 @@ template arbitrated*(self: Arg, tier: Option[SeenBy], store: untyped) =
   ## if equal (or `none`, which extends at whatever tier is current); and
   ## replacing if stronger. `store` runs with `how` (an `Arbitration`) in
   ## scope, and `self.seenBy` is promoted only after it returns, so a
-  ## `store` that raises leaves `self` at its old tier. A write never
+  ## `store` that raises before calling `clear` leaves `self` at its old
+  ## tier (the built-in stores validate first). A write never
   ## demotes; call `clear` first to hand an Arg back to a weaker tier.
   ## Every write routes through this -- restating the rule by hand is how a
   ## write silently demotes, or accumulates where it should reset. See
   ## `docs/adr/0041-parse-is-the-write-surface.md`.
-  let decision = self.arbitration(tier)
+  let target = self
+  let wanted = tier
+  let decision = target.arbitration(wanted)
   if decision.isSome:
     let how {.inject.} = decision.get
     store
     if how == arReplace:
-      self.seenBy = tier.get
+      target.seenBy = wanted.get
 
 method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
   ## Converts, validates and stores `c` onto `self` -- the one thing a
