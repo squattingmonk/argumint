@@ -419,8 +419,8 @@ proc opts*[T: not seq](variants: string, default: seq[T] = @[],
   ## - `group` determines how options are grouped in help messages; empty
   ##   means `Options`.
   ##
-  ## `env` and `configKey` are as on `opt[T]`, except that an env value is
-  ## split on `Spec.settings.envDelim` into as many values as this option's
+  ## `env` and `configKey` are as on `opt[T]`: an env value splits on
+  ## `Spec.settings.envDelim` into as many values as this option's
   ## position(s) can consume -- see
   ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. `help`,
   ## `hidden`, `validator` (run on each value) and `complete` are as on
@@ -503,9 +503,10 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ##   the first place). `default` must already satisfy `clamp`, or spec
   ##   construction raises `SpecDefect` -- see
   ##   `docs/adr/0016-flag-clamp.md`.
-  ## - `env` is as on `opt[T]`, except that each env value must name one of
-  ##   the flag's own declared Variants (e.g. `--verbose`); an unrecognized
-  ##   name raises `ParseError`.
+  ## - `env` is as on `opt[T]`, except that each env value isn't converted
+  ##   but names one of the flag's own declared Variants (e.g. `--verbose`),
+  ##   whose Flag Operation applies; an unrecognized name raises
+  ##   `ParseError`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
   ##   the command line or via env -- each value must name one of the
@@ -692,8 +693,8 @@ proc completion*(variants = "completion",
   ## - `group` determines how the command is grouped in help messages; empty
   ##   means `Commands`.
   ##
-  ## `help` and `hidden` are as on `arg[T]`. To write the script at build or install time instead, see
-  ## `completionScript`.
+  ## `help` and `hidden` are as on `arg[T]`. To write the script at build or
+  ## install time instead, see `completionScript`.
   # `<shell>` is required, so `default` is never used.
   let shell = initValueArg(ShellArg, kind = Positional, variants = "<shell>",
     default = Shell.bash, help = "The shell to complete in")
@@ -767,6 +768,7 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
+  ##
   ## Every parameter is as on `parse*(tuple)`.
   ##
   ## `spec` is **single-use**: parsing more than once accumulates into the
