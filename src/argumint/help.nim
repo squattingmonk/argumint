@@ -761,7 +761,7 @@ when isMainModule:
         ).helpContext("p")
 
     proc lines(text: string, width = 40): seq[string] =
-      ctxAt(width).prose(text).wrap(max(width, 20)).mapIt(it.plain)
+      ctxAt(width).prose(text).wrap(max(width, MinWidth)).mapIt(it.plain)
 
     test "empty or all-blank text has no lines":
       check lines("").len == 0

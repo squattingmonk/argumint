@@ -27,9 +27,11 @@ usage block unclamped.
    epilog, building each Arg's Rows with `ctx.rows` and rendering every
    line with the context's Styler.
    - **`RowRenderer = proc (rows: seq[Row]): seq[StyledText]`** lays out
-     one group's Rows as lines. It returns lines, not a string, so a
-     formatter on the frame never calls `render` and can't pair resolved
-     text with the wrong Styler.
+     one group's Rows as lines. It's a closure capturing what it needs
+     (`ctx.width`, Column Style's `colWidth`), so it isn't also passed
+     `ctx`. It returns lines, not a string, so a formatter on the frame
+     never calls `render` and can't pair resolved text with the wrong
+     Styler.
    - **`HelpTextForm {.pure.} = enum Short, Long`** picks the help text
      the frame passes to `ctx.rows`: `Long` is `arg.help.longOrShort`
      (ADR 0049).
@@ -45,8 +47,11 @@ usage block unclamped.
 5. **The toolkit loses its pass-throughs.** `ctx.heading`, the
    `usageLines` and `usage` re-exports, and the `style` re-exports
    (`StyleRole`, `Span`, `StyledText`, `Styler`, `styled`, `&`, `render`,
-   `plain`, `withoutTicks`) are gone from `argumint/help`. `rows(arg,
-   help)` keeps its string parameter, and `longOrShort` stays public.
+   `plain`, `withoutTicks`) are gone from `argumint/help`, and `groups`
+   absorbs the private `helpGroups` it only re-yielded. `rows(arg, help)`
+   keeps its string parameter, and `longOrShort` stays public: swapping
+   the string for `HelpTextForm` would trade one proc for a less flexible
+   enum.
 
 ## Considered options
 

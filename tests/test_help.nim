@@ -80,9 +80,7 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check declared(longOrShort)
 
   test "the toolkit has no pass-throughs for what the context hands out":
-    # The Help Frame review (candidate S): `ctx.usage` lays out the usage,
-    # `ctx.render` renders with the right Styler, and the context resolves
-    # the ticks.
+    # See docs/adr/0075-help-formatters-build-on-the-help-frame.md.
     check not declared(usageLines)
     check not compiles(greeter().helpContext("p").heading("Options"))
     check not compiles(greeter().usage)
