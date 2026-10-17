@@ -1,8 +1,8 @@
 ## Owns "what value, if any, does a fallback tier supply for this Arg" --
 ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md` and
-## `docs/adr/0018-config-source.md`. `FallbackTier` names Value Precedence's
-## two fallback tiers, declared strongest-first so iteration order *is* the
-## precedence order; `Tiers` holds one `ValueCursor` per tier so the walk
+## `docs/adr/0018-config-source.md`. `FallbackTier` is Value Precedence's
+## two fallback tiers as `SeenBy` members, consulted in `FallbackOrder`;
+## `Tiers` holds one `ValueCursor` per tier so the walk
 ## and the post-walk sweep each consult one thing, not two. `probe` lets a
 ## tier's value stand in for a missing CLI value during the walk, and
 ## `applyFallbacks` is the post-walk sweep that actually writes whatever
@@ -13,11 +13,10 @@ import std/[options, sets, tables]
 import ./[backend, complaints, configsource, envvar]
 
 type
-  FallbackTier* = enum
-    ## Value Precedence's two fallback tiers, declared strongest-first so
-    ## iteration order *is* the precedence order: env before Config Source,
-    ## matching `docs/adr/0018-config-source.md`.
-    ftEnv, ftConfig
+  FallbackTier* = range[byConfig..byEnv]
+    ## Value Precedence's two fallback tiers, as the `SeenBy` members they
+    ## supply. Iterate `FallbackOrder`, not the type, which runs weakest
+    ## first.
 
   FailurePolicy* = enum
     ## What storing a walk's values does with one that fails to convert or
@@ -62,25 +61,24 @@ type
       ## shares the root's (see `specbuild.cascadeSpecSettings`)
     cursors: array[FallbackTier, ValueCursor]
 
+const FallbackOrder* = [FallbackTier(byEnv), byConfig]
+  ## The fallback tiers strongest first, the order they're consulted in:
+  ## env before Config Source, matching `docs/adr/0018-config-source.md`.
+
 proc initTiers*(settings: SpecSettings): Tiers =
   ## Fresh bookkeeping for one parse, reading each tier's sources from
   ## `settings`. A default `Tiers` has none, so probing it crashes.
   Tiers(settings: settings)
 
-proc seenBy(t: FallbackTier): SeenBy =
-  case t
-  of ftEnv: byEnv
-  of ftConfig: byConfig
-
 proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[string]] =
   ## What `t` supplies for `arg` -- `argumint/envvar` and
   ## `argumint/configsource` each answer for their own tier.
   case t
-  of ftEnv:
+  of byEnv:
     let source = arg.envSource
     if source.isSome: lookupEnv(source.get, settings.envDelim)
     else: none(seq[string])
-  of ftConfig:
+  of byConfig:
     let key = arg.configKey
     if key.len > 0: lookupConfigSources(settings.configSources, key)
     else: none(seq[string])
@@ -112,7 +110,7 @@ proc probe*(tiers: var Tiers, arg: Arg, catchAll = false): bool =
   ## Tries each fallback tier in precedence order -- env, then Config
   ## Source -- for a CLI token `match`'s `Option` arm couldn't find.
   ## `catchAll` is for a matcher the Options Catch-all reached.
-  for t in FallbackTier:
+  for t in FallbackOrder:
     if tiers.cursors[t].probe(t, arg, tiers.settings, catchAll):
       return true
 
@@ -163,11 +161,11 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   if values.len > room:
     if arg notin cursor.complained:
       cursor.complained.incl arg
-      report.unexpected(arg, some(t.seenBy))
+      report.unexpected(arg, some(SeenBy(t)))
   else:
     cursor.applied.incl arg
     for v in values:
-      arg.parse(v, seenBy = some(t.seenBy))
+      arg.parse(v, seenBy = some(SeenBy(t)))
 
 proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report,
     onFailure: FailurePolicy) =
@@ -183,7 +181,7 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   ##
   ## Each tier is gated on `Arg.seenBy`, which the command-line tier has
   ## already written by the time this runs (`storeValues`): `arg.seenBy
-  ## > t.seenBy` breaks out for the rest of this Arg's tiers, since tiers
+  ## > SeenBy(t)` breaks out for the rest of this Arg's tiers, since tiers
   ## descend in strength -- an Arg already at a given tier is appended to,
   ## not skipped, so a pre-seed declaring `byEnv` still collects the env
   ## var's own values. Clearing a weaker pre-seed happens where the write
@@ -202,8 +200,9 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   for args in levels:
     for arg in args:
       try:
-        for t in FallbackTier:
-          if arg.seenBy > t.seenBy:
+        for t in FallbackOrder:
+          # `SeenBy(t)`, not `t`: see docs/gotchas.md on subrange comparisons.
+          if arg.seenBy > SeenBy(t):
             break
           if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
             break

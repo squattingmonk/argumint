@@ -173,8 +173,10 @@ both import it, the same shape as `tokens.nim`.
 
 `precedence.nim` sits directly above `complaints`/`configsource`/`envvar`
 and below `matching`/`fsm`, and holds everything Value Precedence's fallback
-tiers name: `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first so
-iteration order *is* the precedence order), `Tiers` (one `ValueCursor` per
+tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
+members the two tiers supply) and `FallbackOrder` (`[byEnv, byConfig]`,
+strongest first, the order they're consulted in; iterating the type itself
+would run weakest first), `Tiers` (one `ValueCursor` per
 tier), `probe`, `applyFallbacks`, and `FailurePolicy` (`fpRaise`/`fpSkip`,
 what `applyFallbacks` does with an Arg whose fallback fails). `Tiers`
 replaces what used to be two loose `ParseContext` fields
@@ -634,7 +636,7 @@ Source entries have the user-facing semantics.
 
 Value Precedence's environment-variable and Config Source tiers share one
 mechanism, `precedence.nim`'s `ValueCursor` type — one per tier, indexed
-by `FallbackTier` (`ftEnv`/`ftConfig`, declared strongest-first) inside
+by `FallbackTier` (`byConfig..byEnv`, consulted in `FallbackOrder`) inside
 `Tiers` (embedded on `ParseContext` as `tiers`) — rather than two
 independent implementations. `Tiers.probe` is consulted from `match`'s
 `mkOption` branch during the walk — CLI token first, then each tier's own
@@ -687,10 +689,10 @@ errors do (#189). For `flag`, each
 value (from either tier) names one of the Arg's own declared Variants
 (matching `self.ops`' keys exactly) and is applied via *that* Variant's
 own Flag Operation, not forced through `=`. The one-loop-two-tiers shape
-(`for arg... for t in FallbackTier: if arg.seenBy > t.seenBy: break; if
+(`for arg... for t in FallbackOrder: if arg.seenBy > SeenBy(t): break; if
 tiers.applyTier(t, ...): break`) states this fallthrough once, instead of
 two hard-coded gates written differently for each tier — equivalent
-because `FallbackTier` descends in strength, so `seenBy > byEnv` already
+because `FallbackOrder` descends in strength, so `seenBy > byEnv` already
 implies `seenBy > byConfig`.
 
 A pre-existing nuance, not introduced by the Config Source tier: since

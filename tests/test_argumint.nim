@@ -75,36 +75,36 @@ const FallbackDelim = ","
 
 proc tierName(t: FallbackTier): string =
   case t
-  of ftEnv: "env"
-  of ftConfig: "config"
+  of byEnv: "env"
+  of byConfig: "config"
 
 proc envFor(t: FallbackTier): Option[EnvSource] =
   ## `t`'s source for an Arg under test; the other tier gets none.
-  if t == ftEnv: env(FallbackVar, FallbackDelim) else: none(EnvSource)
+  if t == byEnv: env(FallbackVar, FallbackDelim) else: none(EnvSource)
 
 proc keyFor(t: FallbackTier): ConfigKey =
   ## `t`'s Config Key for an Arg under test; the other tier gets none.
-  if t == ftConfig: configKey("fallback") else: noConfigKey()
+  if t == byConfig: configKey("fallback") else: noConfigKey()
 
 proc supply(t: FallbackTier, values: varargs[string]): SpecSettings =
   ## Settings under which `t` supplies `values`, in order. Joined on
   ## `FallbackDelim`, so the env tier's split doesn't depend on `envDelim`.
   ## Pair with `defer: clearFallback()`.
   case t
-  of ftEnv:
+  of byEnv:
     putEnv(FallbackVar, @values.join(FallbackDelim))
     newSpecSettings(style = nil)
-  of ftConfig:
+  of byConfig:
     newSpecSettings(style = nil, configSources = @[fakeSource((configKey("fallback"), @values))])
 
 proc supplyNothing(t: FallbackTier): SpecSettings =
   ## Settings under which `t` is configured but has no value: the variable
   ## unset, or a Config Source without the key.
   case t
-  of ftEnv:
+  of byEnv:
     delEnv(FallbackVar)
     newSpecSettings(style = nil)
-  of ftConfig:
+  of byConfig:
     newSpecSettings(style = nil, configSources = @[fakeSource()])
 
 proc clearFallback() = delEnv(FallbackVar)
@@ -2091,7 +2091,7 @@ suite "FSM shortcut cycles":
 suite "Fallback tiers (env and Config Source)":
   # Behaviour both fallback tiers share, run once per tier. What only one
   # tier does lives in its own suite below.
-  for t in FallbackTier:
+  for t in FallbackOrder:
     let tier = t.tierName
 
     test tier & ": an opt's value is used and converted like a CLI value":
@@ -2261,7 +2261,7 @@ suite "Fallback tiers (env and Config Source)":
 
     # #189: a single-value Arg never takes more than one value from a tier,
     # whatever its slot.
-    let source = if t == ftEnv: "env: " & FallbackVar else: "configKey: fallback"
+    let source = if t == byEnv: "env: " & FallbackVar else: "configKey: fallback"
     for (usage, values, args, fits, url) in [
       ("[--url=<url>]", @["a", "b"], newSeq[string](), false, ""),
       ("--url=<url>", @["a", "b"], newSeq[string](), false, ""),
