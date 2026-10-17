@@ -263,7 +263,7 @@ proc replaceImpl*[T: not seq](self: ValuesArg[T], values: seq[T], seenBy: Option
   ## Validates every candidate in `values` against the prefix of `values`
   ## already accepted -- `self`'s own prior values never enter that history,
   ## since they're about to be discarded -- then, only if all of them pass,
-  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitration`
+  ## overwrites `self.value` and `self.seenBy` in one step. No `arbitrated`
   ## call: unlike `putImpl`, `replaceImpl` always applies, tier or no tier,
   ## which is what lets it demote. Raising mid-validation leaves both fields
   ## untouched, so there's no `clear()` to undo on failure.
@@ -299,12 +299,8 @@ proc putImpl*[T](self: AnyValueArg[T], value: T, seenBy: Option[SeenBy], validat
   ## `parse`'s arbitration for a value already typed `T` -- backs `put`
   ## (`argumint.nim`). No Variant was typed, so an error names `self`'s
   ## first one.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  self.storeImpl(value, Contribution(tier: seenBy), how.get, validate)
-  if how.get == arReplace:
-    self.seenBy = seenBy.get
+  self.arbitrated(seenBy):
+    self.storeImpl(value, Contribution(tier: seenBy), how, validate)
 
 proc enumValues[T: enum](): seq[T] =
   ## Every value of `T`, gaps and all.
@@ -628,15 +624,12 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## params: nothing here can raise, so there's no message to give context
   ## to and no check to opt out of. See
   ## `docs/adr/0044-put-typed-write-accessor.md`.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  if how.get == arReplace:
-    self.clear
-    self.seenBy = seenBy.get
-  self.value = value
-  if not self.clamp.isNil:
-    self.value = self.clamp.apply(self.value)
+  self.arbitrated(seenBy):
+    if how == arReplace:
+      self.clear
+    self.value = value
+    if not self.clamp.isNil:
+      self.value = self.clamp.apply(self.value)
 
 # The hooks `initFlagArg` gives its `FlagArgBase`, instantiated for its leaf
 # type `A`: see `FlagArgBase`.

@@ -844,7 +844,7 @@ lists what else would compile). A converter for a user's own `T` is
 declared in the user's own module and found where `opt` is instantiated,
 which is where it needs to be.
 
-### The write side: `parse`, `arbitration`, `clear`, `action`
+### The write side: `parse`, `arbitrated`, `clear`, `action`
 
 `Arg.parse` is the only thing that writes an Arg's value, on every tier and
 from application code alike. It is re-exported through the facade
@@ -871,19 +871,20 @@ where it reproduces the default exactly. See
 `docs/adr/0041-parse-is-the-write-surface.md` and
 `docs/adr/0044-put-typed-write-accessor.md`.
 
-`parse` is a plain proc, not a method, so no Arg can skip the tier rule. It
-asks `arbitration` (withheld in `backend.nim`) what a contribution at the
-declared tier does, packs the value into a `Contribution`, and hands it to
-`accept`, the one method a value-carrying Arg overrides:
+`parse` is a plain proc, not a method, so no Arg can skip the tier rule.
+It writes through `arbitrated` (withheld in `backend.nim`, with the bare
+`arbitration` decision private behind it), which decides what a
+contribution at the declared tier does, runs the store with that decision
+as `how`, and only then records a stronger tier -- so a store that raises
+before clearing (as the built-ins do, validating first) leaves the Arg at
+its old tier. `parse`'s store packs the value into a
+`Contribution` and hands it to `accept`, the one method a value-carrying
+Arg overrides:
 
 ```nim
 proc parse*(self: Arg, value: string, variant = "", seenBy = none(SeenBy)) =
-  let how = self.arbitration(seenBy)
-  if how.isNone:                       # weaker tier: apply nothing
-    return
-  self.accept(Contribution(value: value, variant: variant, tier: seenBy), how.get)
-  if how.get == arReplace:
-    self.seenBy = seenBy.get           # accept cleared; record the new tier
+  self.arbitrated(seenBy):             # a weaker tier never runs this
+    self.accept(Contribution(value: value, variant: variant, tier: seenBy), how)
 ```
 
 A tier weaker than the one recorded is refused (`parse` never demotes --
@@ -891,8 +892,8 @@ A tier weaker than the one recorded is refused (`parse` never demotes --
 extends without clearing, so values from one tier accumulate; a stronger one
 replaces: the Arg is cleared and records the new tier. Because the first CLI
 match replaces, every later match in the same parse extends with no extra
-bookkeeping. `put`'s `putImpl`s arbitrate the same way, since a typed `T`
-can't go through `accept`'s string.
+bookkeeping. `put`'s `putImpl`s write through `arbitrated` too, since a
+typed `T` can't go through `accept`'s string.
 
 `accept` is told which of the two outcomes applies and does the rest.
 `ValueArg`'s `storeImpl` shows the shape every override follows:
@@ -972,7 +973,7 @@ the export: Nim attaches an override to `backend`'s method family because
 procs over `ValueArg`/`ValuesArg`/`FlagArg`, not methods on `Arg` -- so
 neither is part of the custom-`Arg` contract above, and neither dispatches
 through a subtype's `accept` override. `put` writes `self.value` directly
-through the same `arbitration`/`putImpl` path every built-in
+through the same `arbitrated`/`putImpl` path every built-in
 `ValueArg`/`FlagArg` uses; a custom `Arg` subtype has no `value` field for
 it to reach and so cannot be driven through `put` at all -- `parse`, through
 its own `accept` override, remains the only write path into it.
@@ -1361,7 +1362,7 @@ written, so it can never outrun the value it describes.
 `storeValues` covers the whole matched tree — commands and Message Args
 included, via the quiet base `accept` that stores nothing — so
 provenance is complete before the first hook, at any dispatch depth. Each
-contribution is arbitrated by `arbitration` against the tier already
+contribution goes through `arbitrated` against the tier already
 recorded: a stronger tier clears first, an equal one appends, a weaker one
 applies nothing. The first CLI match therefore clears any pre-seed and
 records `byCli`, which moves every later match into the append branch with
