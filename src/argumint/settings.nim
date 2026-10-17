@@ -6,8 +6,8 @@
 ## `argumint/console`.
 
 import ./[configsource, console, envvar, style]
-export console.DefaultWidth, console.DefaultMaxWidth, console.chooseWidth,
-  console.detectWidth
+export console.DefaultWidth, console.DefaultMaxWidth, console.MinWidth,
+  console.chooseWidth, console.detectWidth
 
 type
   SpecSettings* = ref object
@@ -61,9 +61,9 @@ proc newSpecSettings*(width = 0,
   ##   default) detects it on first read: the terminal's width, capped at
   ##   `DefaultMaxWidth` (100) so help doesn't sprawl on a wide terminal, or
   ##   `DefaultWidth` (80) when none can be detected (e.g., piped output with
-  ##   `COLUMNS` unset). An explicit width is used as given: `width =
-  ##   detectWidth()` for no cap, or `width = min(detectWidth(), 120)` for
-  ##   your own.
+  ##   `COLUMNS` unset). An explicit width is used as given, down to
+  ##   `MinWidth` (20): `width = detectWidth()` for no cap, or `width =
+  ##   min(detectWidth(), 120)` for your own.
   ## - `maxVariantsWidth` caps the variants column's width before it wraps
   ##   onto extra indented lines (`0` for unlimited).
   ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
@@ -121,10 +121,12 @@ proc newSpecSettings*(width = 0,
     theme: theme)
 
 proc width*(s: SpecSettings): int =
-  ## The column width usage/help text wraps at. A `0` is detected here, on
-  ## first read, and kept: `detectWidth()` capped at `DefaultMaxWidth`.
+  ## The column width usage/help text wraps at, never less than `MinWidth`
+  ## (20): a narrower width, set or detected, reads back as `MinWidth`. A
+  ## `0` is detected here, on first read, and kept: `detectWidth()` capped
+  ## at `DefaultMaxWidth`.
   if s.width == 0: s.width = resolvedWidth()
-  s.width
+  max(s.width, MinWidth)
 
 proc `width=`*(s: SpecSettings, width: int) =
   ## Sets the wrap width; `0` has the next read detect it again.

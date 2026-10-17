@@ -1522,6 +1522,15 @@ suite "Messages":
   test "an explicit width is never capped":
     check newSpecSettings(width = 150).width == 150
 
+  test "a width under MinWidth reads back as MinWidth":
+    check newSpecSettings(width = 10).width == MinWidth
+    let settings = newSpecSettings()
+    settings.width = 5
+    check settings.width == MinWidth
+    restoringEnv(["COLUMNS"]):
+      putEnv("COLUMNS", "12")
+      check newSpecSettings().width == MinWidth
+
   test "detectWidth is the raw detected width, uncapped":
     restoringEnv(["COLUMNS"]):
       putEnv("COLUMNS", "200")

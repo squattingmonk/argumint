@@ -217,7 +217,7 @@ proc appName*(): string =
       result.setLen(result.len - ExeExt.len - 1)
 
 # Read-only views of private `Spec` fields (ADR 0030). Only `specbuild` writes
-# them. `prolog`/`epilog`/`usage` are re-exported by `argumint/help` for Help
+# them. `prolog`/`epilog` are re-exported by `argumint/help` for Help
 # Formatters (ADR 0048); none are re-exported by the facade.
 proc prolog*(spec: Spec): string =
   ## Front matter for `spec`'s help message.

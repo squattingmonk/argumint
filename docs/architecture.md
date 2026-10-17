@@ -95,16 +95,16 @@ to sit: the `variantDesc`/`defaultStr`/`validatorHelp`/`configKey` display
 methods, the derived `envName` beside them, and `Spec`'s own private fields
 are all `backend`'s. A `HelpFormatter` renders the whole message from the
 `HelpContext` `help.nim` hands it (its `groups`, `rows`, `prose`, `usage`,
-and `render`), plus `joinSections` and the `prolog`/`epilog`/`usage`
-accessors `backend` defines -- see `docs/adr/0048-pluggable-help-formatters.md`
-and `docs/adr/0057-help-context.md`. Usage Lines have their own module,
+and `render`), plus `joinSections` and the `prolog`/`epilog` accessors
+`backend` defines, or builds on the Help Frame (`frame`) and writes only
+its rows -- see `docs/adr/0048-pluggable-help-formatters.md` and
+`docs/adr/0057-help-context.md`. Usage Lines have their own module,
 `usage.nim`, which takes a plain usage string and needs no Spec: it splits
 one into Usage Lines (`splitUsage`, which the parser calls too, §2), lays
 them out (`usageLines`, a usage with none as one bare command line, since
 an empty usage accepts a bare call -- #68), and puts them under their
 `Usage:` heading (`usageBlock`), which help's `frame` and
-`Report.failureMessage` both call. `help.nim` re-exports `usageLines` for
-formatter authors. `backend` does no wrapping of its own. Its position
+`Report.failureMessage` both call. `backend` does no wrapping of its own. Its position
 below `fsm` is what makes `Arg.action`'s dependency inversion a choice
 rather than a necessity — see "The write side" below.
 
@@ -1113,15 +1113,20 @@ the mechanics and `docs/adr/0004`/`docs/adr/0005` for the design rationale.
 A Help Formatter (`help.nim`) renders the whole help message from a
 `HelpContext` (ADR 0048, ADR 0057). `genHelp` builds the context from the
 Spec's settings (`helpContext`) and calls the formatter with it. Both
-built-ins share a private `frame` that joins prolog (`ctx.prose`), the
+built-ins are the exported Help Frame (`frame`, ADR 0075) and a `RowRenderer`
+(`columnLines`, `paragraphLines`). The frame joins prolog (`ctx.prose`), the
 usage block (`usage.usageBlock`, which `ctx.usage` is without its heading),
-one block per `ctx.groups` entry, and epilog with `joinSections`. The
+one block per `ctx.groups` entry (its heading, then its Rows -- built with
+`HelpTextForm`'s help text -- through the renderer), and epilog with
+`joinSections`, rendering every line with the context's Styler. The
 context holds the Styler, and every piece it hands out (`rows`, `prose`, `markup`) has
 Help Markup's ticks already resolved for it, so a formatter never decides
 that itself; `ctx.render` renders with the same Styler. `Spec.settings.width` wraps usage lines
-(`usageLines`) and every row's text. Its default, `0`, is detected on the
-getter's first read by `resolvedWidth` (`console.nim`) and kept (ADR
-0058): `detectWidth()` (`COLUMNS`, else the terminal's width, else
+(`usageLines`) and every row's text. The getter never returns less than
+`MinWidth = 20` (`console.nim`), so help and parse errors share one clamp
+and nothing below it re-floors the width. Its default, `0`, is detected
+on the getter's first read by `resolvedWidth` (`console.nim`) and kept
+(ADR 0058): `detectWidth()` (`COLUMNS`, else the terminal's width, else
 `DefaultWidth = 80`), capped at `DefaultMaxWidth = 100` (ADR 0052). All
 the `newSpecSettings` defaults can be set with `-d:argumint.*` defines (ADR
 0053), `theme` with one per Style Role building `defaultTheme`.
@@ -1202,8 +1207,8 @@ blanks), each with `markup` applied after joining (against the Arg's
 flattening each part to one line (`oneLine`) so it can't span blocks.
 `HelpContext.prose` is `toProse` with the ticks resolved (`withoutTicks`
 has a `Prose` overload). `wrap` is the only way out: each block starts at
-its indent and marker and wraps hanging under its text. `renderParagraph`
-and `renderColumn` both call it; in Column Style each line starts at the
+its indent and marker and wraps hanging under its text. `paragraphLines`
+and `columnLines` both call it; in Column Style each line starts at the
 text column, even while the variants are still wrapping. A blank line in a
 row stays empty in both, with no margin. No line `wrap` yields contains a
 newline, so no span a styler sees does either. `help.nim` re-exports only
@@ -1235,8 +1240,9 @@ int`, the widest single bucket's joined names (via `rows`), not the widest
 whole-`Arg`'s — and, deliberately unfiltered by `hidden`, a hidden arg's
 long variant name still counts toward the column width even though its own
 row never renders (existing behavior, preserved as-is rather than
-endorsed). `renderColumn(rows: seq[Row], width, colWidth: int): string`
-wraps variants at `colWidth` and text at the remaining width, zipping them
+endorsed). `columnLines(rows: seq[Row], width, colWidth: int):
+seq[StyledText]` wraps variants at `colWidth` and text at the remaining
+width (at least `MinWidth`), zipping them
 line-by-line so the help text stays inline with the first variants line.
 Each bucket's row starts at the 2-space `Margin` — buckets are peers
 (different variants of the same `Arg`), not a wrap continuation of one
@@ -1249,7 +1255,7 @@ hung) alike.
 **Paragraph Style** (`formatParagraph`) instead puts each row's variants on
 their own `Margin`-indented lines, wrapped to the full width, with its text
 wrapped below at `ContinuationIndent`; rows are separated by a blank line
-(`renderParagraph`). There's no shared column, so `maxVariantsWidth`
+(`paragraphLines`). There's no shared column, so `maxVariantsWidth`
 doesn't apply.
 
 `width`/`maxVariantsWidth`/`envDelim`/`configSources`/`style` live together on

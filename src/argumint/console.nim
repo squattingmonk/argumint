@@ -25,13 +25,17 @@ const
     ## The widest `newSpecSettings`'s default `width` gets on a wide
     ## terminal -- see `docs/adr/0052-default-help-width-cap.md`. Set with
     ## `-d:argumint.maxWidth`.
+  MinWidth* = 20
+    ## The narrowest width help and parse errors wrap at: `SpecSettings`'
+    ## `width` reads back at least this, and no wrapped text gets fewer
+    ## columns.
 
-# 20 is the floor the help renderers already clamp a width to.
 static:
-  doAssert DefaultWidth >= 20,
-    "-d:argumint.width must be at least 20, got " & $DefaultWidth
-  doAssert DefaultMaxWidth >= 20,
-    "-d:argumint.maxWidth must be at least 20, got " & $DefaultMaxWidth
+  doAssert DefaultWidth >= MinWidth,
+    "-d:argumint.width must be at least " & $MinWidth & ", got " & $DefaultWidth
+  doAssert DefaultMaxWidth >= MinWidth,
+    "-d:argumint.maxWidth must be at least " & $MinWidth & ", got " &
+    $DefaultMaxWidth
 
 proc chooseWidth*(columns: string, terminal: int): int =
   ## `detectWidth`'s rule, given `COLUMNS`'s value and the width the standard
