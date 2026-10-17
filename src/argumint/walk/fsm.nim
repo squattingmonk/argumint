@@ -3,7 +3,6 @@
 import std/[algorithm, os, tables]
 
 import ./[complaints, completion, matching, precedence, tokens],
-
   ../core/[backend, errors], ../grammar/parser
 export ParseError, SpecDefect, CompletionError
 

@@ -21,7 +21,6 @@
 import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, tables, typetraits]
 
 import ./[display, flagclamp, validators], ../core/[backend, errors, variant],
-
   ../text/style, ../configsource
 
 type

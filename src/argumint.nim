@@ -15,13 +15,12 @@
 
 import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[configsource, help], ./argumint/core/[backend, envvar,
-
-  errors, outcome, variant], ./argumint/text/[console, style],
-
-  ./argumint/grammar/[dot, specbuild], ./argumint/values/[argtypes, flagclamp,
-
-  validators], ./argumint/walk/[completion, fsm]
+import ./argumint/[configsource, help]
+import ./argumint/core/[backend, envvar, errors, outcome, variant]
+import ./argumint/text/[console, style]
+import ./argumint/grammar/[dot, specbuild]
+import ./argumint/values/[argtypes, flagclamp, validators]
+import ./argumint/walk/[completion, fsm]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.

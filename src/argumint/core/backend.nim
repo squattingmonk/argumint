@@ -19,7 +19,6 @@
 import std/[hashes, options, os, strformat, strutils, tables]
 
 import ./[completer, envvar, errors, settings, variant], ../text/style,
-
   ../configsource
 export completer, configsource, envvar, settings
 

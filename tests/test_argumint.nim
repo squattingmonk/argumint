@@ -1,11 +1,10 @@
 import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
-import argumint/values/argtypes
-import argumint/core/backend
-import argumint/walk/precedence
+import argumint/core/[backend, variant]
 import argumint/grammar/specbuild
-import argumint/core/variant
+import argumint/values/argtypes
+import argumint/walk/precedence
 import argumint/configsource/ini
 import argumint/configsource/json
 import argumint/values/display
