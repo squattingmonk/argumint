@@ -147,8 +147,9 @@ suite "Types nameable after a bare `import argumint`":
     # `parse` arbitrates for every write, so nothing outside the library
     # needs to; `Arbitration` itself is public, as `accept` takes one.
     # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
-    # The `arbitrate` template this replaced is gone altogether.
-    check not compiles(Arg(nil).arbitration(some(byCli)))
+    # The `arbitrate` template this replaced is gone altogether, and
+    # `arbitration` is private to `backend` behind `arbitrated` (#272).
+    check not declared(arbitrated)
     check not declared(arbitrate)
 
   test "the env tier's reading and splitting stay out of the facade (#149)":

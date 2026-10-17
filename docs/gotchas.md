@@ -683,3 +683,10 @@ debugging time. Read this before touching the constructors and `flagOp`/
   (`ValueArg[T](result)[] = parent[]`): that compiles, but copies the
   parent's runtime type too, so `A`'s method overrides silently stop
   dispatching.
+
+- **A template parameter replaces every matching identifier in its body,
+  field names included.** In `template arbitrated(self: Arg, seenBy: ...)`,
+  the body's `self.seenBy = seenBy.get` became `arg.some(byCli) = ...`,
+  reported as `identifier expected, but found 'some(byCli)'` at the call
+  site. Name a template's parameters apart from the fields its body
+  touches (`arbitrated` takes `tier`).

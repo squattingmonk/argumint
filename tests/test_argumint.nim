@@ -1707,7 +1707,12 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
 
   test "the tier rule exists in `argumint/backend`":
     let arg = Arg(variants: @["--port"])
-    check arg.arbitration(some(byCli)) == some(arReplace)
+    var replaced = false
+    arg.arbitrated(some(byCli)):
+      replaced = how == arReplace
+    check replaced
+    check arg.seenBy == byCli
+    check not compiles(arg.arbitration(some(byCli)))
 
   test "the env tier's reading and splitting exist in `argumint/envvar`":
     check compiles(lookupEnv(EnvSource(name: "PORT"), ":"))

@@ -299,12 +299,8 @@ proc putImpl*[T](self: AnyValueArg[T], value: T, seenBy: Option[SeenBy], validat
   ## `parse`'s arbitration for a value already typed `T` -- backs `put`
   ## (`argumint.nim`). No Variant was typed, so an error names `self`'s
   ## first one.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  self.storeImpl(value, Contribution(tier: seenBy), how.get, validate)
-  if how.get == arReplace:
-    self.seenBy = seenBy.get
+  self.arbitrated(seenBy):
+    self.storeImpl(value, Contribution(tier: seenBy), how, validate)
 
 proc enumValues[T: enum](): seq[T] =
   ## Every value of `T`, gaps and all.
@@ -628,15 +624,12 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## params: nothing here can raise, so there's no message to give context
   ## to and no check to opt out of. See
   ## `docs/adr/0044-put-typed-write-accessor.md`.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  if how.get == arReplace:
-    self.clear
-    self.seenBy = seenBy.get
-  self.value = value
-  if not self.clamp.isNil:
-    self.value = self.clamp.apply(self.value)
+  self.arbitrated(seenBy):
+    if how == arReplace:
+      self.clear
+    self.value = value
+    if not self.clamp.isNil:
+      self.value = self.clamp.apply(self.value)
 
 # The hooks `initFlagArg` gives its `FlagArgBase`, instantiated for its leaf
 # type `A`: see `FlagArgBase`.

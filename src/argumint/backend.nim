@@ -48,7 +48,7 @@ type
 
   Arbitration* = enum
     ## What one contribution at a Value Precedence tier does to an Arg,
-    ## judged against its current provenance -- see `arbitration*`. A
+    ## judged against its current provenance -- see `arbitrated`. A
     ## weaker tier is refused, so it has no member.
     arExtend ## Same tier, or none declared: add to what is there
     arReplace ## A stronger tier: clear what is there, then store
@@ -324,18 +324,32 @@ method clear*(self: Arg) {.base.} =
   ## this method to also remove their value, restoring any default.
   self.seenBy = byNone
 
-proc arbitration*(self: Arg, tier: Option[SeenBy]): Option[Arbitration] =
-  ## The tier rule: what a contribution at `tier` does to `self`, or `none`
-  ## when `tier` is weaker than `self.seenBy` and is refused. A `none` tier
-  ## extends at whatever tier is current. `parse` never demotes; call
-  ## `clear` first to hand an Arg back to a weaker tier. Every write routes
-  ## through this -- restating the rule by hand is how a write silently
-  ## demotes, or accumulates where it should reset. See
-  ## `docs/adr/0041-parse-is-the-write-surface.md`.
+proc arbitration(self: Arg, tier: Option[SeenBy]): Option[Arbitration] =
+  ## The tier rule `arbitrated` applies -- see there.
   let seen = tier.get(otherwise = self.seenBy)
   if seen < self.seenBy: none(Arbitration)
   elif seen > self.seenBy: some(arReplace)
   else: some(arExtend)
+
+# `tier`, not `seenBy`: it would replace `self.seenBy` too -- see
+# docs/gotchas.md.
+template arbitrated*(self: Arg, tier: Option[SeenBy], store: untyped) =
+  ## Writes onto `self` at Value Precedence tier `tier` by the tier rule:
+  ## refused if weaker than `self.seenBy`, so `store` never runs; extending
+  ## if equal (or `none`, which extends at whatever tier is current); and
+  ## replacing if stronger. `store` runs with `how` (an `Arbitration`) in
+  ## scope, and `self.seenBy` is promoted only after it returns, so a
+  ## `store` that raises leaves `self` at its old tier. A write never
+  ## demotes; call `clear` first to hand an Arg back to a weaker tier.
+  ## Every write routes through this -- restating the rule by hand is how a
+  ## write silently demotes, or accumulates where it should reset. See
+  ## `docs/adr/0041-parse-is-the-write-surface.md`.
+  let decision = self.arbitration(tier)
+  if decision.isSome:
+    let how {.inject.} = decision.get
+    store
+    if how == arReplace:
+      self.seenBy = tier.get
 
 method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
   ## Converts, validates and stores `c` onto `self` -- the one thing a
@@ -350,17 +364,13 @@ method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
 proc parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = none(SeenBy)) =
   ## Writes `value` onto `self` at Value Precedence tier `seenBy`: refused if
   ## weaker than `self.seenBy`, appended if equal (or `none`), replacing if
-  ## stronger -- see `arbitration*`. `variant` is the Variant typed on the
+  ## stronger -- see `arbitrated`. `variant` is the Variant typed on the
   ## command line, naming `self` in an error. For a Flag, `value` is the
   ## Variant whose Flag Operation applies. Not overridable: a custom Arg
   ## overrides `accept`, so it can't skip the tier rule. See
   ## `docs/adr/0041-parse-is-the-write-surface.md`.
-  let how = self.arbitration(seenBy)
-  if how.isNone:
-    return
-  self.accept(Contribution(value: value, variant: variant, tier: seenBy), how.get)
-  if how.get == arReplace:
-    self.seenBy = seenBy.get
+  self.arbitrated(seenBy):
+    self.accept(Contribution(value: value, variant: variant, tier: seenBy), how)
 
 method action*(self: Arg, info: HookInfo, variant = "") {.base.} =
   ## Fires this Arg's Action -- what a matched Message Argument does in place
@@ -514,3 +524,38 @@ when isMainModule:
       let arg = Arg(variants: @["--port"])
       check arg.arbitration(some(byNone)) == some(arExtend)
       check arg.arbitration(some(byConfig)) == some(arReplace)
+
+  suite "arbitrated":
+    test "a refused tier never runs the store":
+      let arg = Arg(variants: @["--port"], seenBy: byEnv)
+      var ran = false
+      arg.arbitrated(some(byConfig)):
+        ran = true
+      check not ran
+      check arg.seenBy == byEnv
+
+    test "the store sees the old tier on a replace; the new one follows":
+      let arg = Arg(variants: @["--port"], seenBy: byEnv)
+      var during = byNone
+      arg.arbitrated(some(byCli)):
+        check how == arReplace
+        during = arg.seenBy
+      check during == byEnv
+      check arg.seenBy == byCli
+
+    test "a store that raises leaves the tier untouched":
+      proc reject() = raise newException(ValidationError, "bad")
+      let arg = Arg(variants: @["--port"], seenBy: byEnv)
+      expect ValidationError:
+        arg.arbitrated(some(byCli)):
+          reject()
+      check arg.seenBy == byEnv
+
+    test "an extend doesn't promote":
+      for tier in [some(byEnv), none(SeenBy)]:
+        let arg = Arg(variants: @["--port"], seenBy: byEnv)
+        var extended = false
+        arg.arbitrated(tier):
+          extended = how == arExtend
+        check extended
+        check arg.seenBy == byEnv
