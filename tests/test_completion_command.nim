@@ -4,7 +4,7 @@
 import std/[sequtils, strutils, unittest]
 
 import argumint
-from argumint/completion import reply
+from argumint/walk/completion import reply
 
 proc messageOf(body: proc ()): string =
   try:

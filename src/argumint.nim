@@ -2,11 +2,11 @@
 ## `opts`/`flag`/`command`/`help`/`message`/`version` values, then build and
 ## parse it with `newSpec`/`parse*`/`parseOrQuit*`. A usage string (given
 ## explicitly or auto-filled from the declared args) is compiled into an FSM
-## (`argumint/specbuild`, `argumint/backend`, `argumint/lexer`,
-## `argumint/parser`) that drives actual matching (`argumint/fsm`) --
-## docopt-style patterns like `[-r] <src>... <dest>` or mutually exclusive
-## options fall out of that FSM's grammar rather than hand-written
-## validation code.
+## (`argumint/grammar/specbuild`, `argumint/core/backend`,
+## `argumint/grammar/lexer`, `argumint/grammar/parser`) that drives actual
+## matching (`argumint/walk/fsm`) -- docopt-style patterns like
+## `[-r] <src>... <dest>` or mutually exclusive options fall out of that FSM's
+## grammar rather than hand-written validation code.
 ##
 ## See the [user guide](guide/index.html) for how to use it, and
 ## `examples/naval_fate.nim` for a full worked example with subcommands.
@@ -15,7 +15,13 @@
 
 import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[argtypes, backend, completion, configsource, console, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators, variant]
+import ./argumint/[configsource, help], ./argumint/core/[backend, envvar,
+
+  errors, outcome, variant], ./argumint/text/[console, style],
+
+  ./argumint/grammar/[dot, specbuild], ./argumint/values/[argtypes, flagclamp,
+
+  validators], ./argumint/walk/[completion, fsm]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -28,12 +34,11 @@ export flagclamp except styledHelp
 export configsource
 export backend.name
 
-# `clamp`/`adjust`'s `desc: Option[string]` param (argumint/flagclamp, see
-# issue #12) makes `Option`-construction part of the public API surface --
+# `clamp`/`adjust`'s `desc: Option[string]` param (argumint/values/flagclamp,
+# see issue #12) makes `Option`-construction part of the public API surface --
 # re-exported narrowly (not wholesale `std/options`, which would flood the
-# namespace with `map`/`filter`/`flatMap`/... unrelated to spec
-# construction), so `import argumint` alone is enough to write
-# `desc = some("...")`.
+# namespace with `map`/`filter`/`flatMap`/... unrelated to spec construction),
+# so `import argumint` alone is enough to write `desc = some("...")`.
 #
 # The three accessors joined them in #59, when `envSource*` became the first
 # exported signature to *return* an `Option` -- reading one back needs them,
@@ -82,8 +87,8 @@ export backend.newSpecSettings, envvar.env, envvar.toEnvSource, backend.appName,
 export backend.subject
 export specbuild.newSpec
 
-# `parse` lives in `argumint/fsm` rather than here. `parseOrQuit*(Spec)` was
-# already reachable (it's defined below), so without it `newSpec` -> `parse`
+# `parse` lives in `argumint/walk/fsm` rather than here. `parseOrQuit*(Spec)`
+# was already reachable (it's defined below), so without it `newSpec` -> `parse`
 # was the one broken half of an otherwise-complete pair. Completion's only
 # interface is `__complete`'s output, so `resolveCompletion` stays withheld --
 # see `docs/adr/0066-completion-falls-back-to-paths.md`.
@@ -113,7 +118,7 @@ export backend.parse, backend.accept, backend.clear, backend.isMessage,
 export backend.envSource, backend.configKey, backend.envName
 
 # The two Arg types whose machinery issue #51 moved into
-# `argumint/argtypes`. Only their names travel back here: the private
+# `argumint/values/argtypes`. Only their names travel back here: the private
 # fields, the untyped bases, and the `init*`/`raw*` bookends
 # the public names below are written against all stay withheld -- see
 # `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
@@ -497,7 +502,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ##   range type's lowest value if that excludes zero.
   ## - `group` determines how flags are grouped in help messages; empty
   ##   means `Options`.
-  ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
+  ## - `clamp` optionally attaches a `FlagClamp` (`argumint/values/flagclamp`),
   ##   silently adjusting this flag's value after every Flag Operation --
   ##   never raises, unlike a `Validator` (which never applies to a Flag in
   ##   the first place). `default` must already satisfy `clamp`, or spec

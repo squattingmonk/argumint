@@ -4,7 +4,7 @@
 
 import std/strutils
 
-import ./[console, errors, lexer, style]
+import ./lexer, ../core/errors, ../text/[console, style]
 
 const
   Margin* = "  "

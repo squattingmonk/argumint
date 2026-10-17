@@ -8,7 +8,7 @@
 ## it is re-exported by that facade -- the public names (`arg`/`opt`/
 ## `flag`, `get`, `flagOp`/`flagOpIt`) and their documentation stay there,
 ## written against this machinery. See
-## `docs/adr/0043-facade-machinery-seam.md`; `argumint/argtypes` is an
+## `docs/adr/0043-facade-machinery-seam.md`; `argumint/values/argtypes` is an
 ## implementation detail, not an import path users are meant to type.
 ##
 ## The split is forced rather than stylistic: `std/importutils.privateAccess`
@@ -20,7 +20,9 @@
 
 import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, tables, typetraits]
 
-import ./[backend, configsource, display, errors, flagclamp, style, validators, variant]
+import ./[display, flagclamp, validators], ../core/[backend, errors, variant],
+
+  ../text/style, ../configsource
 
 type
   Description = tuple[defaultStr: string, validatorHelp: StyledText, completions: seq[string]]

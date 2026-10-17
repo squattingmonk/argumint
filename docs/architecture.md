@@ -9,13 +9,34 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
+Only public import paths sit at the top of `src/argumint/`: `help.nim`,
+`configsource.nim` and its `configsource/` adapters. Every withheld module
+lives in a subdirectory for its layer:
+
+- `text/`: `style`, `console`, `prose`. Styled text, terminal detection
+  and wrapping.
+- `core/`: `errors`, `variant`, `completer`, `envvar`, `settings`,
+  `backend`, `outcome`. The data model and what it points at.
+- `grammar/`: `lexer`, `parser`, `usage`, `fsmgraph`, `specbuild`, `dot`.
+  From a spec tuple and its usage string to the FSM.
+- `values/`: `argtypes`, `validators`, `flagclamp`, `display`. Converting,
+  validating and storing values.
+- `walk/`: `tokens`, `fsm`, `matching`, `complaints`, `precedence`,
+  `completion`. Matching a command line against the FSM.
+
+The layers stack `text` → `core` → `grammar` and `values` → `walk`. A
+module imports only from its own layer, a layer below it, or
+`configsource`, and `grammar` and `values` don't import each other. Test
+code inside `when isMainModule` may reach further (`variant`'s tests
+check it against `lexer`).
+
 Seven modules are leaves with no local imports — `errors.nim`,
 `completer.nim`, `configsource.nim`, `display.nim`, `envvar.nim`,
 `style.nim`, and `variant.nim` — and everything else layers on top:
-`console`/`flagclamp`/`outcome`/`prose` → `lexer`/`settings` →
-`backend`/`usage`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
-`tokens` → `complaints` → `precedence` → `matching` → `completion` →
-`fsm`/`specbuild` → `argumint`.
+`console`/`flagclamp`/`lexer`/`outcome`/`validators` →
+`prose`/`settings`/`usage` → `backend` →
+`argtypes`/`fsmgraph`/`help`/`tokens` → `complaints`/`dot`/`parser` →
+`precedence`/`specbuild` → `matching` → `completion` → `fsm` → `argumint`.
 
 `display.nim` renders a value in help and errors: a string or char always
 quoted (escaping only `"`, `\` and control characters, so UTF-8 stays
@@ -1049,7 +1070,7 @@ duplicate Variant.
 
 ### Flag Clamp
 
-`FlagClamp[T]` (`argumint/flagclamp.nim`) is a leaf module with no
+`FlagClamp[T]` (`argumint/values/flagclamp.nim`) is a leaf module with no
 dependency on `backend`/`argumint`, deliberately structured to mirror
 `Validator[T]` (`validators.nim`) without being one -- see
 `docs/adr/0016-flag-clamp.md` for why the two are kept separate. It's a
@@ -1261,10 +1282,10 @@ wrapped below at `ContinuationIndent`; rows are separated by a blank line
 doesn't apply.
 
 `width`/`maxVariantsWidth`/`envDelim`/`configSources`/`style` live together on
-`Spec.settings: SpecSettings` (`src/argumint/settings.nim`), a `ref object`
+`Spec.settings: SpecSettings` (`src/argumint/core/settings.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via
-`cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is
+`cascadeSpecSettings` (`src/argumint/grammar/specbuild.nim`). `settings` is
 deliberately not a parameter to `command*` itself: since it's the same
 shared instance throughout the tree, it only needs to be set once at the
 top-level `newSpec`/`parse*` call regardless of nesting depth. Being a ref
@@ -1291,7 +1312,7 @@ to the Arg itself — `join`, `in`, `some`, a `case` selector). The
 `get*(arg, otherwise)` overloads are `template`s rather than `proc`s so
 `otherwise` stays unevaluated on the supplied path; each binds `arg` to a
 local so the operand is evaluated exactly once. They read `ValueArg`'s
-private `value` field (via `rawValue`/`rawDefault`, `argumint/argtypes`)
+private `value` field (via `rawValue`/`rawDefault`, `argumint/values/argtypes`)
 from an expansion in the caller's module, which works because the
 accessors are declared beside the type (`docs/gotchas.md`). None of the three
 branch on `seen` alone as originally specified by ADR 0040 — ADR 0044 (issue

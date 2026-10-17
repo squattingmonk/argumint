@@ -4,7 +4,7 @@
 
 import std/[sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, errors, fsmgraph, lexer, usage]
+import ./[fsmgraph, lexer, usage], ../core/[backend, errors]
 export errors.SpecDefect
 
 type
@@ -226,12 +226,12 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
 proc addUsageLines*(spec: Spec, root: State, lines: seq[string]) =
   ## Parses each of `lines` as a Usage Line and splices its FSM onto `root` via
   ## `addShortcut` -- the shared line-building step behind both `genFsm` (the
-  ## initial build) and `autoFillUsage` (`argumint/specbuild`, which splices
-  ## auto-generated lines onto an already-built `spec.fsm` instead of re-parsing
-  ## the whole usage string from scratch). Recomputes `root.terminal` afterwards
-  ## rather than leaving it a stateful flag -- see docs/gotchas.md's "terminal
-  ## flag" entry for why this needs both a before-splice snapshot and an
-  ## after-splice transition count, not just the latter.
+  ## initial build) and `autoFillUsage` (`argumint/grammar/specbuild`, which
+  ## splices auto-generated lines onto an already-built `spec.fsm` instead of
+  ## re-parsing the whole usage string from scratch). Recomputes `root.terminal`
+  ## afterwards rather than leaving it a stateful flag -- see docs/gotchas.md's
+  ## "terminal flag" entry for why this needs both a before-splice snapshot and
+  ## an after-splice transition count, not just the latter.
   let hadTransitions = root.transitions.len > 0
   let wasTerminal = root.terminal
   let p = SpecParser(spec: spec)

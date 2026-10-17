@@ -1,6 +1,6 @@
 import std/unittest
 
-import argumint/lexer
+import argumint/grammar/lexer
 
 proc tokenize(spec: string): seq[SpecTokenKind] =
   var lex: SpecLexer

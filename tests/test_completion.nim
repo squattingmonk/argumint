@@ -7,8 +7,9 @@
 import std/[algorithm, options, os, osproc, sequtils, strutils, unittest]
 
 import argumint
-import argumint/[completion, help]
-from argumint/backend import CompletionCandidate, fills, paths, patterns, run
+import argumint/walk/completion, argumint/help
+from argumint/core/backend import CompletionCandidate, fills, paths, patterns,
+  run
 
 type
   MemSource = ref object of ConfigSource

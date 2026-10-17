@@ -4,7 +4,7 @@
 ## `SpecDefect`) and the messages (`MessageError` and its subtypes), not a
 ## successful parse. Withheld from the facade.
 
-import ./[errors, style]
+import ./errors, ../text/style
 
 type
   Outcome* = object

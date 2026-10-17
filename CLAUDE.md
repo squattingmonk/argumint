@@ -117,7 +117,7 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   each subcommand's nested spec has positional args only) — but options
   routinely appear alongside either.
 - `arg`/`opt`/`flag`/`command` variant strings are validated by
-  `parseVariant` in `src/argumint/variant.nim`, whose PEG fragments the
+  `parseVariant` in `src/argumint/core/variant.nim`, whose PEG fragments the
   lexer and runtime token shapes share — errors here raise
   `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
   failures are deliberately different exception types).

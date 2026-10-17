@@ -7,7 +7,7 @@
 
 import std/[algorithm, hashes, sequtils, sets, strformat, strutils, sugar, tables]
 
-import ./backend
+import ../core/backend
 
 func priority(m: Matcher): int {.inline.} =
   ## Returns the priority of the matcher, allowing them to be sorted by

@@ -1,14 +1,14 @@
 import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
-import argumint/argtypes
-import argumint/backend
-import argumint/precedence
-import argumint/specbuild
-import argumint/variant
+import argumint/values/argtypes
+import argumint/core/backend
+import argumint/walk/precedence
+import argumint/grammar/specbuild
+import argumint/core/variant
 import argumint/configsource/ini
 import argumint/configsource/json
-import argumint/display
+import argumint/values/display
 
 privateAccess(ValueArgBase)      ## White-box assertions on the arg
 privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
@@ -1698,7 +1698,7 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check s.groups.len > 0
     check not s.fsm.isNil
 
-  test "spec construction's plumbing exists in `argumint/specbuild`":
+  test "spec construction's plumbing exists in `argumint/grammar/specbuild`":
     # Exported from `specbuild` only so generic `newSpec` can instantiate in
     # the caller's file (ADR 0030), never re-exported by the facade -- see
     # issue #49.
@@ -1709,12 +1709,12 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check not s.fsm.isNil
     check s.settings.width == 80
 
-  test "the Variant grammar exists in `argumint/variant`":
+  test "the Variant grammar exists in `argumint/core/variant`":
     check parseVariant("<name>", VariantShape.Positional).isSome
     check parseVariant("--name=<s>", VariantShape.Option).get.metavar == "s"
     check splitVariants("-v, --verbose") == @["-v", "--verbose"]
 
-  test "the tier rule exists in `argumint/backend`":
+  test "the tier rule exists in `argumint/core/backend`":
     let arg = Arg(variants: @["--port"])
     var replaced = false
     arg.arbitrated(some(byCli)):
@@ -1723,11 +1723,11 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check arg.seenBy == byCli
     check not compiles(arg.arbitration(some(byCli)))
 
-  test "the env tier's reading and splitting exist in `argumint/envvar`":
+  test "the env tier's reading and splitting exist in `argumint/core/envvar`":
     check compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
     check splitEnvValue("a:b", none(string), ":") == @["a", "b"]
 
-  test "the `ValueArg`/`FlagArg` machinery exists in `argumint/argtypes`":
+  test "the `ValueArg`/`FlagArg` machinery exists in `argumint/values/argtypes`":
     # Exported from `argtypes` only so the facade's generic constructors,
     # accessors, `flagOp` and `flagOpIt` can reach it; never re-exported --
     # see issue #51 and the ADR on the facade/machinery seam.
@@ -1750,7 +1750,7 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
       noClamp[bool](), none(EnvSource), noConfigKey())
     check verbose.ops.len == 2
 
-  test "the untyped base under `ValueArg`/`ValuesArg` exists in `argumint/argtypes`":
+  test "the untyped base under `ValueArg`/`ValuesArg` exists in `argumint/values/argtypes`":
     let base: ValueArgBase = opt("--num=<n>", default = 1)
     check not base.multi
     check ValueArgBase(opts[int]("--num=<n>")).multi
@@ -1774,7 +1774,7 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
         checkpoint name
         check not field.isNil
 
-  test "the read accessors behind `get` exist in `argumint/argtypes`":
+  test "the read accessors behind `get` exist in `argumint/values/argtypes`":
     let
       name = opt("-n, --name=<s>", default = "x", help = "")
       tags = opts("--tag=<t>", default = @["a"], help = "")

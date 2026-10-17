@@ -10,7 +10,7 @@
 
 import std/[sequtils, strformat, strutils, sugar]
 
-import ./[display, errors, lexer, style]
+import ./display, ../core/errors, ../text/style
 export ValidationError ## Defined in `errors.nim` with the rest of the
   ## taxonomy; re-exported so importing this module alone still names what
   ## its validators raise.

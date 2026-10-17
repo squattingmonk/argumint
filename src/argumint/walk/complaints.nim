@@ -8,7 +8,7 @@
 ## `docs/architecture.md` §3b.
 import std/[algorithm, options, sequtils, strformat, strutils, tables, unicode]
 
-import ./[backend, errors, style, tokens, usage]
+import ./tokens, ../core/[backend, errors], ../text/style, ../grammar/usage
 
 type
   Complaint = tuple
@@ -421,7 +421,7 @@ when isMainModule:
   ## pin the wording, these pin the rule. See issue #63.
   import std/[unittest]
 
-  import ../argumint
+  import ../../argumint
 
   proc flat(cs: seq[Complaint]): seq[tuple[kind, subject: string, names: bool]] =
     ## `cs` with their subjects' roles dropped, for tests pinning wording.

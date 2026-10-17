@@ -5,7 +5,7 @@
 import std/unittest
 
 import argumint
-import argumint/backend
+import argumint/core/backend
 
 suite "defaults set with -d: defines":
   test "each define replaces its constant":

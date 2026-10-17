@@ -11,7 +11,7 @@
 
 import std/[algorithm, options, strformat, sequtils, tables]
 
-import ./[backend, complaints, fsmgraph, precedence, tokens]
+import ./[complaints, precedence, tokens], ../core/backend, ../grammar/fsmgraph
 
 type
   Match* = tuple[variant: string, value: string, spec: Spec, idx: int]

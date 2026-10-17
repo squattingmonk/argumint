@@ -4,7 +4,7 @@
 ## down the command tree.
 ##
 ## Sits *above* FSM compilation rather than beside the data model in
-## `argumint/backend` -- see `docs/architecture.md` for why.
+## `argumint/core/backend` -- see `docs/architecture.md` for why.
 ##
 ## Only `newSpec` is public API; `beginSpec`/`finishSpec`/`addArgs` are
 ## exported solely because generic `newSpec` instantiates in the caller's
@@ -12,7 +12,7 @@
 
 import std/[importutils, options, sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, errors, fsmgraph, parser, usage, variant]
+import ./[fsmgraph, parser, usage], ../core/[backend, errors, variant]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
