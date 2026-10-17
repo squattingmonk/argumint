@@ -19,7 +19,7 @@ depth, seam, adapter, leverage, locality) as defined in the
 | [P](#p--a-variant-module-one-grammar-parsed-once) | A Variant module: one grammar, parsed once | Strong | Shipped: #270, PR #276, `b694a67` |
 | [Q](#q--committing-a-walk-lives-in-one-module) | Committing a walk lives in one module | Strong | Shipped: #260, PR #263, `c850052`; #261, PR #264, `8d79d44` |
 | [R](#r--completion-owns-the-__complete-wire-format) | Completion owns the `__complete` wire format | Strong | Shipped: #266, PR #267, `43f6fd4` |
-| [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Shipped: #271, PR #278, `230e931` |
+| [S](#s--the-help-frame-becomes-the-help-formatter-interface) | The help frame becomes the Help Formatter interface | Worth exploring | Shipped: #271, PR #278, `230e931`; ADR 0075 |
 | [T](#t--arbitration-owns-the-whole-write-not-just-the-decision) | Arbitration owns the whole write, not just the decision | Worth exploring | Shipped: #272, PR #277, `3712f2a` |
 | [U](#u--backendnim-sheds-the-completer-and-specsettings) | `backend.nim` sheds the Completer and `SpecSettings` | Worth exploring | Shipped with P: #270, PR #276, `b694a67` |
 | [V](#v--the-facade-documents-each-parameter-once) | The facade documents each parameter once | Worth exploring | Shipped: #273, PR #279, `fa14e5a` |
@@ -96,7 +96,8 @@ the lexer. `Arg` stores parsed Variants; the re-deriving sites read fields.
 - One interface to test every spelling against.
 - The Flag/value-Arg asymmetry disappears.
 
-**As shipped.** Variants stay strings: `Arg` stores no parsed Variant,
+**As shipped.** Variants stay strings and aren't parsed once at
+construction: `Arg` stores no parsed Variant,
 since a second record could disagree with `variants`, which is public and
 writable (that gap is [X](#x--the-extender-surface-separates-from-the-user-surface)).
 Each site that needs a name or metavar calls `parseVariant` instead, and
@@ -230,7 +231,7 @@ and redundant re-exports.
 - One minimum width, one clamp.
 - The built-ins stop duplicating the group loop.
 
-**As shipped.** The frame sits beside the Help Formatter rather than
+**As shipped.** The Help Frame sits beside the Help Formatter rather than
 becoming its interface: `ctx.frame(renderRows, form)` is public, and a
 formatter may build on it or still write the whole message, so ADR 0048
 stands ([ADR 0075](../adr/0075-help-formatters-build-on-the-help-frame.md)).
@@ -301,7 +302,7 @@ done riding along with P.
 `Spec` has a `settings` field and `Arg` a `complete` field, so `backend`
 imports and re-exports both modules, and everything importing `backend`
 still reaches `console` through `settings`. The gain is reading locality:
-`backend` went from 786 production lines to about 510.
+`backend` went from 793 production lines to about 510.
 
 ### V — The facade documents each parameter once
 
@@ -331,7 +332,7 @@ each parameter on one canonical overload and point the others at it.
 each parameter's doc, and the other overloads say "as on" one of them. The
 drift fixed: the `command` overloads said `config` for `settings`, the
 `settings` bullets listed fields, and `flag[T]` didn't document `help`.
-`argumint.nim` went from 1,005 lines to about 900.
+`argumint.nim` went from 1,007 lines to about 900.
 
 **ADRs.** Nim forces the bare-call overloads and repeated signatures
 ([ADR 0061](../adr/0061-cmd-and-bare-calls.md)), so the gain is docs and
@@ -376,11 +377,13 @@ own grilling. Files: `backend.Arg`, `argtypes.initValueArg`,
 
 **Problem.** `import argumint` gives every caller write access to all of
 `Arg`'s public fields (`kind`, `variants`, `help`, `group`, `hidden`,
-`complete`, `seenBy`). A CLI author needs at most to read a few. Only an
+`complete`, `seenBy`, plus `CommandArg.spec` and `MessageArg.message`). A
+CLI author needs at most to read a few. Only an
 extender building a custom `Arg` subtype needs to set them, and ADR 0030
 lets them do it with `import argumint` alone. The sharpest case is
 `variants`: it's checked when the Spec is built, but nothing stops a
-caller changing it afterwards, leaving `spec.options`, the Flag ops table
+caller changing it afterwards, leaving `spec.options`, `spec.arguments`,
+the Flag ops table
 and the FSM keyed by the old strings. Making the field private with a
 withheld setter was prototyped during P's grilling, and broke ADR 0030's
 custom-`Arg` contract.
@@ -388,8 +391,8 @@ custom-`Arg` contract.
 **Solution.** A separate module for extenders (working name
 `argumint/argbuilder`): `import argumint` exposes Args read-only, and the
 extender module adds what a custom `Arg` needs to build and write one.
-Candidates for it are the field setters, `initValueArg` (with V's
-signature) and `arbitrated` (from T).
+Open questions include which fields an extender may set, and whether
+`initValueArg` (with V's signature) and `arbitrated` (from T) move there.
 
 **Wins.**
 
