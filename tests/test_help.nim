@@ -69,7 +69,6 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check not declared(variantsByDesc)
     check not declared(helpGroups)
     check declared(helpContext)
-    check declared(usageLines)
     check not declared(wrapProse)
     check not declared(toProse)
     check not declared(annotate)
@@ -79,6 +78,22 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     check declared(Prose)
     check declared(joinSections)
     check declared(longOrShort)
+
+  test "the toolkit has no pass-throughs for what the context hands out":
+    # The Help Frame review (candidate S): `ctx.usage` lays out the usage,
+    # `ctx.render` renders with the right Styler, and the context resolves
+    # the ticks.
+    check not declared(usageLines)
+    check not compiles(greeter().helpContext("p").heading("Options"))
+    check not compiles(greeter().usage)
+    check not declared(Span)
+    check not compiles([styled("a")].render)
+    check not compiles(styled("a").plain)
+    check not compiles(styled("a").withoutTicks)
+    check declared(frame)
+    check declared(RowRenderer)
+    check declared(HelpTextForm)
+    check MinWidth == 20
 
   test "style.nim's shared plain-text and option helpers stay withheld":
     check not declared(firstParagraph)
@@ -91,19 +106,18 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
   # see `docs/adr/0048-pluggable-help-formatters.md`, and
   # `docs/adr/0057-help-context.md` for what a formatter is handed.
   proc formatShouty(ctx: HelpContext): string =
-    let width = max(ctx.width, 24)
     var groups: seq[string]
     for name, args in ctx.groups:
       var lines = @[name.toUpperAscii & ":"]
       for arg in args:
         for row in ctx.rows(arg):
           lines.add "  " & ctx.render(row.variants)
-          for line in row.text.wrap(width - 4):
+          for line in row.text.wrap(ctx.width - 4):
             lines.add "    " & ctx.render(line)
       groups.add lines.join("\n")
-    joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
+    joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
       "USAGE:\n" & ctx.render(ctx.usage),
-      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
+      joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
 
   proc tagged(role: StyleRole, text: string): string =
     ## Marks each styled span as `{role:text}`, leaving plain ones bare.
@@ -171,17 +185,67 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
 
   test "the span helpers are enough to lay out a row":
     # The built-ins' layout rule -- see docs/architecture.md.
-    let row = greeter().helpContext("greet").rows(flag("-x", help = "some help text"))[0]
+    let
+      ctx = greeter().helpContext("greet")
+      row = ctx.rows(flag("-x", help = "some help text"))[0]
     var lines: seq[StyledText]
     for i, text in row.text.wrap(9):
       let variants = if i == 0: row.variants else: StyledText()
       lines.add variants.alignLeft(4) & text
-    check lines.render == "-x  some help\n    text"
+    check ctx.render(lines) == "-x  some help\n    text"
 
   test "the Spec accessors read with or without parentheses, but can't be assigned":
     let spec = greeter()
     check spec.prolog == "Greeter."
     check spec.epilog() == "See the README."
-    check spec.usage == "<name> [--times=<n>]\n(-h | --help)"
     check not compiles(spec.prolog = "Changed.")
-    check not compiles(spec.usage = "<other>")
+
+suite "a custom `HelpFormatter` can build on the Help Frame":
+  # See the Help Frame entry in CONTEXT.md.
+  proc formatCompact(ctx: HelpContext): string =
+    ctx.frame(proc (rows: seq[Row]): seq[StyledText] =
+      for row in rows:
+        result.add styled("  ") & row.variants
+        for line in row.text.wrap(ctx.width - 6):
+          result.add styled("      ") & line)
+
+  test "it writes only the rows; the frame writes the rest":
+    let expected = """
+      Greeter.
+
+      Usage:
+        greet <name> [--times=<n>]
+        greet (-h | --help)
+
+      Arguments:
+        <name>
+            Who to greet
+
+      Options:
+        --times=<n>
+            How many times [default: 1]
+        -h, --help
+            Display this help message
+
+      See the README.""".dedent
+    check greeter().genHelp("greet", formatCompact) == expected
+
+  test "the frame renders the rows with the Spec's Styler":
+    proc tagged(role: StyleRole, text: string): string =
+      if role == srPlain: text else: "{" & $role & ":" & text & "}"
+    let spec = newSpec((name: arg("<name>", help = "Who"),),
+      usage = "<name>", settings = newSpecSettings(style = tagged))
+    check "  {srPositional:<name>}\n      Who" in spec.genHelp("greet", formatCompact)
+
+  test "a Long form shows Long-Form Help Text where declared":
+    let spec = newSpec((
+      name: arg("<name>", help = (short: "Who", long: "Who, at length")),
+      times: opt("--times=<n>", help = "How many"),
+    ), usage = "<name> [--times=<n>]", settings = newSpecSettings(style = nil))
+    let long = proc (ctx: HelpContext): string =
+      let textOnly = proc (rows: seq[Row]): seq[StyledText] =
+        for row in rows: result.add row.text.wrap(ctx.width)[0]
+      ctx.frame(textOnly, HelpTextForm.Long)
+    let help = spec.genHelp("p", long)
+    check "Who, at length" in help
+    check "How many" in help

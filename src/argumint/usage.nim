@@ -68,11 +68,10 @@ proc usageLines*(usage: string, command: string, width = DefaultWidth): seq[Styl
   let
     prefix = styled(Margin) & styled(srProgram, command) & styled(" ")
     indent = styled(' '.repeat(prefix.len))
-    lineWidth = max(width, 20)
     lines = usage.splitUsage
 
   for line in (if lines.len == 0: @[""] else: lines):
-    for i, wrapped in (prefix & line.styledUsage).wrap(lineWidth):
+    for i, wrapped in (prefix & line.styledUsage).wrap(width):
       result.add(if i == 0: wrapped else: indent & wrapped)
 
 proc usageBlock*(usage: string, command: string, width: int): seq[StyledText] =
@@ -176,10 +175,6 @@ when isMainModule:
     test "the hanging indent matches the command's visible width, not bytes":
       let usage = "<foo> [--bar] (--baz | --qux=<qux>)"
       check usageLines(usage, "prög", width = 40).render == "  prög <foo> [--bar] (--baz |\n       --qux=<qux>)"
-
-    test "min width for a usage line is 20":
-      let usage = "<foo> [--bar] (--baz | --qux=<qux>)\n<foobar>"
-      check usageLines(usage, "prog", width = 10).render == "  prog <foo> [--bar]\n       (--baz |\n       --qux=<qux>)\n  prog <foobar>"
 
     test "words longer than width are split when wrapping":
       let usage = "<foo> [--bar --aVeryLongOptionName]"

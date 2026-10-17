@@ -12,12 +12,11 @@ import std/[sequtils, strutils, tables]
 
 import ./[backend, errors, prose, style, usage]
 
-export backend.prolog, backend.epilog, backend.usage
-export style.StyleRole, style.Span, style.StyledText, style.Styler,
-  style.styled, style.`&`, style.add, style.wrap, style.len, style.alignLeft,
-  style.render, style.plain, style.withoutTicks
+# The rest of a formatter's toolkit (`StyledText`, `styled`, `&`) comes with
+# `import argumint`.
+export backend.prolog, backend.epilog, backend.MinWidth
+export style.add, style.wrap, style.len, style.alignLeft
 export prose.Prose, prose.wrap
-export usage.usageLines
 
 type
   HelpArg* = ref object of MessageArg
@@ -49,6 +48,18 @@ type
       ## The names of variants sharing a description, joined by ", "
     text*: Prose
       ## Their resolved help plus `[...]` annotations; lay it out with `wrap`
+
+  RowRenderer* = proc (rows: seq[Row]): seq[StyledText]
+    ## Lays out one Help Group's Rows as lines for `frame`, which adds the
+    ## group's heading and renders them with the context's Styler.
+
+  HelpTextForm* {.pure.} = enum
+    ## Which of an Arg's help texts `frame` shows.
+    Short
+      ## Its Help Text
+    Long
+      ## Its Long-Form Help Text if declared, else its Help Text
+      ## (`longOrShort`)
 
 const ContinuationIndent = "    "
 const CanonicalGroups = [ArgKind.Command.defaultGroup,
@@ -92,15 +103,6 @@ proc groupOrder(spec: Spec): seq[string] =
   for group in spec.groups.keys:
     if group notin CanonicalGroups:
       result.add group
-
-iterator helpGroups(spec: Spec): tuple[name: string, args: seq[Arg]] =
-  ## Yields each of `spec`'s Help Groups with its non-hidden args, in canonical
-  ## order: `Commands`, `Arguments`, `Options`, then user-defined groups in
-  ## declaration order. Groups whose args are all hidden are skipped.
-  for group in spec.groupOrder:
-    let args = spec.groups[group].filterIt(not it.hidden)
-    if args.len > 0:
-      yield (name: group, args: args)
 
 proc variantsByDesc(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   ## Buckets `arg.variants` by their `variantDesc` text, preserving declaration
@@ -157,16 +159,14 @@ proc variantsColWidth(spec: Spec): int =
   if spec.settings.maxVariantsWidth > 0 and result > spec.settings.maxVariantsWidth:
     result = spec.settings.maxVariantsWidth
 
-proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = nil): string =
-  ## Wraps + zips `rows` into the table's text block: variants wrap at
-  ## `colWidth`, text wraps at `max(width - (2 + colWidth + 2), 20)`, zipped
+proc columnLines(rows: seq[Row], width: int, colWidth: int): seq[StyledText] =
+  ## Wraps + zips `rows` into the table's lines: variants wrap at `colWidth`,
+  ## text wraps at `max(width - (2 + colWidth + 2), MinWidth)`, zipped
   ## line-by-line. A row's first line gets `Margin`, and later variant lines
-  ## `ContinuationIndent`. Every text line starts at the text column. Rows join
-  ## with "\n".
+  ## `ContinuationIndent`. Every text line starts at the text column.
   let
-    helpWidth = max(width - (colWidth + 4), 20)
+    helpWidth = max(width - (colWidth + 4), MinWidth)
     textColumn = Margin.len + colWidth + Margin.len
-  var lines: seq[StyledText]
   for row in rows:
     let
       variantLines = row.variants.wrap(colWidth)
@@ -179,8 +179,7 @@ proc renderColumn(rows: seq[Row], width: int, colWidth: int, styler: Styler = ni
       if j < textLines.len and textLines[j].len > 0:
         line = line.alignLeft(max(textColumn, line.len + Margin.len)) &
           textLines[j]
-      lines.add line
-  lines.render(styler)
+      result.add line
 
 proc helpContext(spec: Spec, command: string, styler: Styler): HelpContext =
   ## As the public one, but with `styler` in place of the settings' style.
@@ -202,7 +201,8 @@ proc command*(ctx: HelpContext): string =
   ctx.command
 
 proc width*(ctx: HelpContext): int =
-  ## The width everything the context hands out is wrapped at.
+  ## The width everything the context hands out is wrapped at: at least
+  ## `MinWidth`.
   ctx.width
 
 proc resolved[T: StyledText | Prose](ctx: HelpContext, t: T): T =
@@ -213,8 +213,10 @@ iterator groups*(ctx: HelpContext): tuple[name: string, args: seq[Arg]] =
   ## Each Help Group's name and its non-hidden Args, in display order:
   ## `Commands`, `Arguments`, `Options`, then user-defined groups in
   ## declaration order. A group whose Args are all hidden is skipped.
-  for group in ctx.spec.helpGroups:
-    yield group
+  for group in ctx.spec.groupOrder:
+    let args = ctx.spec.groups[group].filterIt(not it.hidden)
+    if args.len > 0:
+      yield (name: group, args: args)
 
 proc rows*(ctx: HelpContext, arg: Arg, help = arg.help.short): seq[Row] =
   ## `arg`'s Rows: one per set of variants sharing a description, with
@@ -245,10 +247,6 @@ proc usage*(ctx: HelpContext): seq[StyledText] =
   ## no label.
   ctx.spec.usage.usageLines(ctx.command, ctx.width)
 
-proc heading*(ctx: HelpContext, name: string): StyledText =
-  ## `name` as a section heading (`srHeader`), with its colon.
-  heading(name)
-
 proc markup*(ctx: HelpContext, prose: string): StyledText =
   ## `prose` with Help Markup, for a formatter's own text.
   ctx.resolved(markup(prose))
@@ -269,54 +267,51 @@ proc joinSections*(sections: varargs[string]): string =
       result.addSep "\n\n"
       result.add section
 
-proc frame(ctx: HelpContext, groups: seq[string]): string =
-  ## The built-ins' message around their `groups`: prolog, labeled usage
-  ## block, the groups, then epilog.
-  let width = max(ctx.width, 20)
-  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(width)),
+proc frame*(ctx: HelpContext, renderRows: RowRenderer,
+    form = HelpTextForm.Short): string =
+  ## The Help Frame: prolog, labeled usage, each group under its heading with
+  ## its Args' Rows (`form`'s help text) laid out by `renderRows`, then
+  ## epilog, rendered with the Spec's Styler and joined like `joinSections`.
+  ## Write the whole message yourself instead for other labels or order.
+  var groups: seq[string]
+  for name, args in ctx.groups:
+    var rows: seq[Row]
+    for arg in args:
+      let help =
+        case form
+        of HelpTextForm.Short: arg.help.short
+        of HelpTextForm.Long: arg.help.longOrShort
+      rows.add ctx.rows(arg, help)
+    groups.add ctx.render(@[heading(name)] & renderRows(rows))
+  joinSections(ctx.render(ctx.prose(ctx.spec.prolog).wrap(ctx.width)),
     ctx.render(ctx.spec.usage.usageBlock(ctx.command, ctx.width)),
-    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(width)))
+    joinSections(groups), ctx.render(ctx.prose(ctx.spec.epilog).wrap(ctx.width)))
 
 proc formatColumn*(ctx: HelpContext): string =
   ## Column Style: prolog, usage, then each group's rows with variants and
   ## help text aligned into two columns shared across every group, then
   ## epilog.
   let colWidth = ctx.spec.variantsColWidth()
-  var groups: seq[string]
-  for name, args in ctx.groups:
-    var rows: seq[Row]
-    for arg in args:
-      rows.add ctx.rows(arg)
-    groups.add ctx.render(ctx.heading(name)) & "\n" &
-      rows.renderColumn(ctx.width, colWidth, ctx.styler)
-  ctx.frame(groups)
+  ctx.frame(proc (rows: seq[Row]): seq[StyledText] =
+    rows.columnLines(ctx.width, colWidth))
 
-proc renderParagraph(rows: seq[Row], width = DefaultWidth, styler: Styler = nil): string =
-  let
-    variantsWidth = max(width - Margin.len, 20 - Margin.len)
-    helpWidth = max(width - ContinuationIndent.len, 20 - ContinuationIndent.len)
-  for row in rows:
-    var lines: seq[StyledText]
-    for line in row.variants.wrap(variantsWidth):
-      lines.add styled(Margin) & line
-    for line in row.text.wrap(helpWidth):
-      lines.add(if line.len > 0: styled(ContinuationIndent) & line else: line)
-    if lines.len > 0:
-      result.addSep "\n\n"
-      result.add lines.render(styler)
+proc paragraphLines(rows: seq[Row], width: int): seq[StyledText] =
+  ## Each of `rows` as its variants, then its text wrapped as an indented
+  ## paragraph below, with a blank line between rows.
+  for i, row in rows:
+    if i > 0:
+      result.add StyledText()
+    for line in row.variants.wrap(width - Margin.len):
+      result.add styled(Margin) & line
+    for line in row.text.wrap(width - ContinuationIndent.len):
+      result.add(if line.len > 0: styled(ContinuationIndent) & line else: line)
 
 proc formatParagraph*(ctx: HelpContext): string =
   ## Paragraph Style: prolog, usage, then each group's rows with variants on
   ## their own line and (long-form, if given) help text wrapped as an indented
   ## paragraph below, then epilog.
-  var groups: seq[string]
-  for name, args in ctx.groups:
-    var rows: seq[Row]
-    for arg in args:
-      rows.add ctx.rows(arg, arg.help.longOrShort)
-    groups.add ctx.render(ctx.heading(name)) & "\n" &
-      rows.renderParagraph(ctx.width, ctx.styler)
-  ctx.frame(groups)
+  ctx.frame(proc (rows: seq[Row]): seq[StyledText] =
+    rows.paragraphLines(ctx.width), HelpTextForm.Long)
 
 proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColumn): string =
   ## Renders `spec`'s full help message with `formatter`, which owns the
@@ -384,6 +379,14 @@ when isMainModule:
   proc plain(rows: seq[Row]): seq[Row] =
     ## `rows` with their roles dropped, to compare layout alone.
     rows.mapIt(row(it.variants.plain, it.text.plain))
+
+  proc renderColumn(rows: seq[Row], width, colWidth: int,
+      styler: Styler = nil): string =
+    rows.columnLines(width, colWidth).render(styler)
+
+  proc renderParagraph(rows: seq[Row], width = DefaultWidth,
+      styler: Styler = nil): string =
+    rows.paragraphLines(width).render(styler)
 
   suite "annotations":
     test "an arg with nothing set has no annotations":
@@ -711,10 +714,10 @@ when isMainModule:
       groups["Another Group"] = @[]
       check Spec(groups: groups).groupOrder() == @["Options", "Global Options", "Another Group"]
 
-  suite "helpGroups":
+  suite "HelpContext.groups":
     test "a spec with no args has no groups":
       let spec = Spec(settings: newSpecSettings())
-      check spec.helpGroups.toSeq.len == 0
+      check toSeq(spec.helpContext("p").groups).len == 0
 
     test "groups are displayed in canonical order":
       let
@@ -723,14 +726,14 @@ when isMainModule:
           v: Arg(kind: Flag, variants: @["-v"], group: "Flags"),
           x: Arg(kind: Optional, variants: @["-x"], group: "Options"),
           y: Arg(kind: Positional, variants: @["<y>"], group: "Arguments")))
-        groups = spec.helpGroups.toSeq.mapIt(it.name)
+        groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
       check groups == @["Commands", "Arguments", "Options", "Flags"]
 
     test "hidden args are not shown":
       let spec = plainSpec((
         foo: Arg(kind: Optional, variants: @["--foo"], help: "A sample option", group: "Options"),
         bar: Arg(kind: Optional, variants: @["--bar"], help: "A sample hidden option", group: "Options", hidden: true)))
-      check spec.helpGroups.toSeq[0].args.mapIt(it.name) == @["--foo"]
+      check toSeq(spec.helpContext("p").groups)[0].args.mapIt(it.name) == @["--foo"]
 
     test "an Arg with an empty group lands in its kind's canonical group":
       let
@@ -740,7 +743,7 @@ when isMainModule:
           x: Arg(kind: Optional, variants: @["-x"]),
           y: Arg(kind: Positional, variants: @["<y>"]),
           z: Arg(kind: Optional, variants: @["-z"], group: "Extra")))
-        groups = spec.helpGroups.toSeq.mapIt((it.name, it.args.mapIt(it.name)))
+        groups = toSeq(spec.helpContext("p").groups).mapIt((it.name, it.args.mapIt(it.name)))
       check groups == @[("Commands", @["c"]), ("Arguments", @["<y>"]),
                         ("Options", @["-v", "-x"]), ("Extra", @["-z"])]
       check spec.args.allIt(it.group.len > 0)
@@ -749,7 +752,7 @@ when isMainModule:
       let spec = plainSpec((
         foo: Arg(kind: Optional, variants: @["--foo"], group: "Options"),
         baz: Arg(kind: Optional, variants: @["--baz"], group: "Global Options", hidden: true)))
-      check spec.helpGroups.toSeq.mapIt(it.name) == @["Options"]
+      check toSeq(spec.helpContext("p").groups).mapIt(it.name) == @["Options"]
 
 
   suite "HelpContext.prose":
@@ -1034,12 +1037,11 @@ when isMainModule:
       let rows = @[row("<foo>", "")]
       check renderParagraph(rows) == "  <foo>"
 
-    test "a row's variants are wrapped to the spec's width (min 20), keeping the same left margin":
+    test "a row's variants are wrapped to the width, keeping the same left margin":
       let
         rows = @[row("-v, --verbose, --boost, --dampen, --quiet", "")]
         expected = "  -v, --verbose,\n  --boost, --dampen,\n  --quiet"
       check renderParagraph(rows, width = 20) == expected
-      check renderParagraph(rows, width = 10) == expected
 
     test "a row's variants line is followed by the indented help line":
       let
@@ -1047,12 +1049,11 @@ when isMainModule:
         expected = "  -x\n    This is help text"
       check renderParagraph(rows) == expected
 
-    test "long help text is wrapped to the spec's width (min 20), keeping the left margin":
+    test "long help text is wrapped to the width, keeping the left margin":
       let
         rows = @[row("-x", "This help text needs to be wrapped")]
         expected = "  -x\n    This help text\n    needs to be\n    wrapped"
       check renderParagraph(rows, width = 20) == expected
-      check renderParagraph(rows, width = 10) == expected
 
     test "multiple rows have blank lines between them":
       let
@@ -1151,21 +1152,22 @@ when isMainModule:
             A sample arg""".dedent
       check spec.genHelp("prog", formatParagraph) == expected
 
-    test "spec width is successfully passed to renderParagraph":
-      let
-        spec = plainSpec(
-          (foo: Arg(kind: Positional, variants: @["<foo>"], help: "This help text needs to be wrapped", group: "Arguments")),
-          usage = "<foo>", settings = newSpecSettings(width = 20, style = nil))
-        expected = """
-        Usage:
-          prog <foo>
+    test "spec width is passed to the rows, and is at least MinWidth":
+      for width in [20, 10]:
+        let
+          spec = plainSpec(
+            (foo: Arg(kind: Positional, variants: @["<foo>"], help: "This help text needs to be wrapped", group: "Arguments")),
+            usage = "<foo>", settings = newSpecSettings(width = width, style = nil))
+          expected = """
+          Usage:
+            prog <foo>
 
-        Arguments:
-          <foo>
-            This help text
-            needs to be
-            wrapped""".dedent
-      check spec.genHelp("prog", formatParagraph) == expected
+          Arguments:
+            <foo>
+              This help text
+              needs to be
+              wrapped""".dedent
+        check spec.genHelp("prog", formatParagraph) == expected
 
     test "multi-block help renders as paragraphs and a list under the variants":
       let spec = plainSpec(
@@ -1222,11 +1224,10 @@ when isMainModule:
       check ctx.prose("aaaaaaaaaa bbbbbb `-x`").wrap(20).mapIt(it.plain) ==
         @["aaaaaaaaaa bbbbbb -x"]
 
-    test "hands out the usage lines and headings":
+    test "hands out the usage lines":
       let ctx = ctxFor(tagged)
       check ctx.render(ctx.usage) ==
         "  {program:p} [{option:--speed}={metavar:<kn>}]"
-      check ctx.render(ctx.heading("Options")) == "{header:Options:}"
 
     test "groups skips hidden Args":
       let ctx = plainSpec((

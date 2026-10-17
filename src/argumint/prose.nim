@@ -9,7 +9,7 @@
 
 import std/strutils
 
-import ./style
+import ./[console, style]
 
 type
   ProseKind = enum
@@ -152,8 +152,8 @@ proc wrap*(p: Prose, width: int): seq[StyledText] =
   ## containing `\n`; empty if `p` is. A block starts at its indent, a list
   ## item with its marker, and its continuation lines hang under its text. A
   ## blank block comes out empty. A paragraph wraps at exactly `width`; hung
-  ## text gets at least 20 columns (or `width`, if narrower), so a deep
-  ## indent overflows instead of looping. See
+  ## text gets at least `MinWidth` columns (or `width`, if narrower), so a
+  ## deep indent overflows instead of looping. See
   ## `docs/adr/0055-reflow-arg-help-text.md`.
   for b in p.blocks:
     if b.kind == pkBlank:
@@ -163,7 +163,7 @@ proc wrap*(p: Prose, width: int): seq[StyledText] =
     if b.text.len == 0:
       result.add styled(' '.repeat(b.indent) & b.marker.strip(leading = false))
       continue
-    for i, line in b.text.wrap(max(width - hang, min(width, 20))):
+    for i, line in b.text.wrap(max(width - hang, min(width, MinWidth))):
       let lead = if i == 0: ' '.repeat(b.indent) & b.marker else: ' '.repeat(hang)
       result.add styled(lead) & line
 
