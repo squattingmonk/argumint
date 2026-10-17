@@ -265,7 +265,8 @@ prolog, Usage, groups of Args, and epilog, including their order and
 labels. A plain function of a Help Context: it may carry its own
 configuration (e.g. a template) but keeps no state tied to a particular
 Spec or parse, so it has no per-instance identity worth an object
-hierarchy. A parse error's usage
+hierarchy. It may build on the Help Frame and lay out only the rows, as
+both built-ins do, or write the whole message itself. A parse error's usage
 block is not rendered by a Help Formatter. Two ship built-in: **Column
 Style**, which aligns every Arg's Variants and Help Text into a two-column
 table (the original, and still default, layout), and **Paragraph Style**, which instead puts each Arg's
@@ -282,13 +283,21 @@ for this design)
 
 **Help Context**:
 What a Help Formatter is handed for one Help render: the Spec, the command
-path, the width, and the Styler, with the choice of whether Help Markup's
-backticks survive already made. It hands out the parts a formatter builds
-the whole Help message from (each Help Group's Args, an Arg's rows, prose,
-the usage lines, headings) ready to lay out, and renders them with its
-Styler. Read-only, and scoped to one render.
+path, the width (never under 20), and the Styler, with the choice of
+whether Help Markup's backticks survive already made. It hands out the
+parts a formatter builds the whole Help message from (each Help Group's
+Args, an Arg's rows, prose, the usage lines) ready to lay out, and renders
+them with its Styler. Read-only, and scoped to one render.
 _Avoid_: help page, help message (that's the formatter's output), help
 renderer (that's the Help Formatter), help view
+
+**Help Frame**:
+The standard Help message around a formatter's rows: prolog, the labeled
+Usage, each Help Group under its heading, then epilog. A Help Formatter
+built on it supplies only how one group's rows are laid out, and which of
+each Arg's Help Text or Long-Form Help Text they show; one wanting other
+labels or another order writes the whole message itself.
+_Avoid_: template, layout (both suggest it lays out the rows too)
 
 **Help Group**:
 The heading an Arg is listed under in Help, set by its `group` parameter

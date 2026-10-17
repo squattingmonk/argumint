@@ -506,7 +506,58 @@ it is.
 
 A **formatter** writes the whole help message. To write your own,
 `import argumint/help` and write a proc that takes a `HelpContext` and
-returns the text:
+returns the text.
+
+Most layouts only change how each `Arg` is shown. For those, hand
+`ctx.frame` a proc that lays out one group's rows, and it writes the rest of
+the message the way the built-in formatters do:
+
+```nim
+import argumint, argumint/help
+
+proc formatCompact(ctx: HelpContext): string =
+  ctx.frame(proc (rows: seq[Row]): seq[StyledText] =
+    for row in rows:
+      result.add styled("  ") & row.variants
+      for line in row.text.wrap(ctx.width - 6):
+        result.add styled("      ") & line)
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, help = "Speed in knots"),
+  help: help(formatter = formatCompact),
+)
+
+spec.parseOrQuit(prolog = "Moves a ship to its next port.")
+```
+
+```console
+$ ./ship --help
+Moves a ship to its next port.
+
+Usage:
+  ship [options] <name>
+  ship (-h | --help)
+
+Arguments:
+  <name>
+      Ship to move
+
+Options:
+  -s, --speed=<kn>
+      Speed in knots [default: 10]
+  -h, --help
+      Display this help message
+```
+
+Each `Row` is one line of the help table: `row.variants` holds an `Arg`'s
+names, and `row.text` its help text with the brackets added. Lay the text
+out with `wrap`. The frame shows each `Arg`'s short help; pass
+`HelpTextForm.Long` as its last argument to show the long help where there
+is one, as Paragraph Style does.
+
+To change anything else, such as the section labels or their order, write
+the whole message yourself:
 
 ```nim
 import std/strutils
@@ -556,14 +607,15 @@ OPTIONS:
     Display this help message
 ```
 
-The context gives you the pieces the built-in formatters use:
+The context gives you the pieces the frame uses:
 
 - `ctx.groups` gives each group's name and the `Arg`s it shows, in order.
-- `ctx.rows(arg)` gives an `Arg`'s names and its help text, with the
-  brackets added.
+- `ctx.rows(arg)` gives an `Arg`'s rows. Pass `arg.help.longOrShort` as
+  its second argument for the long help.
 - `ctx.prose(text)` re-flows a prolog or epilog, and `wrap` lays it out at a
   width.
-- `ctx.usage` gives the usage lines, and `ctx.width` the width to wrap at.
+- `ctx.usage` gives the usage lines, and `ctx.width` the width to wrap at,
+  which is never less than `MinWidth` (20).
 - `ctx.render` turns any of these into a string, in colour when the output
   is.
 - `joinSections` joins the parts that aren't empty with a blank line between

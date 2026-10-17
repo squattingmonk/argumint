@@ -37,6 +37,10 @@ the builders that skip the tick decision are out of reach. `usageLines`
 stays public, because a parse error's usage block calls it. `import
 argumint` exports the `HelpContext` type, as it does `HelpFormatter`.
 
+**Update:** `heading` and the `usage` re-export are gone, and a formatter
+can build on the context's Help Frame (`ctx.frame`) instead of rebuilding
+the message -- see `docs/adr/0075-help-formatters-build-on-the-help-frame.md`.
+
 ADR 0048 stands: the formatter still renders the whole message and is
 still a plain proc. Only what it's given changes.
 
