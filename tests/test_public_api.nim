@@ -134,15 +134,14 @@ suite "Types nameable after a bare `import argumint`":
   test "spec construction's plumbing stays out of the facade":
     # `beginSpec`/`finishSpec`/`addArgs` are exported from `specbuild` only
     # because generic `newSpec` instantiates in the caller's file (ADR
-    # 0030); the variant-format PEGs are exported from `backend` only so
-    # its siblings can reach them. Neither is public API. Mirrored by
+    # 0030); the Variant grammar is exported from `variant` only so its
+    # siblings can reach it. Neither is public API. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
     check not compiles(beginSpec("", "", ""))
     check not compiles(finishSpec(Spec(nil), SpecSettings(nil)))
     check not compiles(Spec(nil).addArgs((verbose: flag("-v", help = ""),)))
-    check not compiles(PositionalVariantFormat)
-    check not compiles(OptionalVariantFormat)
-    check not compiles(FlagVariantFormat)
+    check not compiles(parseVariant("-v", VariantShape.Flag))
+    check not compiles(splitVariants("-v"))
 
   test "the tier rule stays out of the facade (#144)":
     # `parse` arbitrates for every write, so nothing outside the library
@@ -186,9 +185,6 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(initFlagOp[int]("-v", proc (value: var int) = discard, ""))
     check not compiles(splitFlagSpellings("-v"))
     check not compiles(parseFlagOpsString[int]("--n+=1"))
-    check not compiles(Comma)
-    check not compiles(FlagOpVariantFormat)
-    check not compiles(UnknownFlagOpFormat)
     # Fully private to `argtypes`, not merely withheld. Mirrored in that
     # file's own embedded suite -- see the third exception in this file's
     # header.

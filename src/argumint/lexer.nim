@@ -2,7 +2,7 @@
 ## be navigated by command-line arguments.
 import std/[lexbase, pegs, streams, strformat, strutils]
 
-import ./errors
+import ./[errors, variant]
 export SpecDefect ## Defined in `errors.nim` with the rest of the taxonomy;
   ## re-exported so importing this module alone still names what it raises.
 
@@ -38,16 +38,16 @@ type
 let
   patterns: seq[tuple[kind: SpecTokenKind, pattern: Peg]] = @[
     (tkAnyOption, peg"{'[options]'}"),
-    (tkShortOptions, peg"{'-' [a-zA-Z0-9][a-zA-Z0-9]+}"),
-    (tkShortOption, peg"{'-' [a-zA-Z0-9]}"),
-    (tkLongOption, peg"{'--' \w (\w / ('-' \w))+}"),
+    (tkShortOptions, peg("{'-' " & ShortChar & " " & ShortChar & "+}")),
+    (tkShortOption, peg("{" & ShortName & "}")),
+    (tkLongOption, peg("{" & LongName & "}")),
     (tkOptsEnd, peg"{'[' \s* '--' \s* ']'}"),
     (tkOptsEnd, peg"{'--'} !(\w / '-')"),
-    (tkArgument, peg"{'<' \w (\w / ('-' \w))* '>'}"),
-    (tkArgument, peg"{[A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*} ![a-z]"),
-    (tkCommand, peg"{(\w / '-')+}"),
-    (tkOptionValue, peg"{[=:] '<' \w (\w / ('-' \w))* '>'}"),
-    (tkOptionValue, peg"{[=:] [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*} ![a-z]"),
+    (tkArgument, peg("{" & Angled & "}")),
+    (tkArgument, peg("{" & Upper & "} ![a-z]")),
+    (tkCommand, peg("{" & CommandName & "}")),
+    (tkOptionValue, peg("{" & Equals & " " & Angled & "}")),
+    (tkOptionValue, peg("{" & Equals & " " & Upper & "} ![a-z]")),
     (tkParensOpen, peg"{\(}"),
     (tkParensClose, peg"{\)}"),
     (tkBracketOpen, peg"{\[}"),

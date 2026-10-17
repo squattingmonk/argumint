@@ -10,18 +10,16 @@
 ## `argumint/fsmgraph`, not here.
 ##
 ## Alongside the model sit the pieces that belong beside it rather than in
-## spec construction (`argumint/specbuild`): the constructors for the types
-## declared here that never read a usage string (`newSpecSettings`), the
-## PEGs a Variant string must match, and `subject`, which names an Arg in a
-## parse-failure message. See `docs/architecture.md` for where that line
-## falls and why. The env tier's types live in `argumint/envvar`.
+## spec construction (`argumint/specbuild`), such as `subject`, which names
+## an Arg in a parse-failure message. See `docs/architecture.md` for where
+## that line falls and why. The env tier's types live in `argumint/envvar`,
+## the Completer model in `argumint/completer`, and `SpecSettings` in
+## `argumint/settings`; all three are re-exported from here.
 
-import std/[hashes, options, os, pegs, strformat, strutils, tables]
+import std/[hashes, options, os, strformat, strutils, tables]
 
-import ./[configsource, console, envvar, errors, style]
-export configsource, envvar
-export console.DefaultWidth, console.DefaultMaxWidth, console.chooseWidth,
-  console.detectWidth
+import ./[completer, configsource, envvar, errors, settings, style, variant]
+export completer, configsource, envvar, settings
 
 
 type
@@ -35,65 +33,6 @@ type
       ## `--option value`)
     Flag
       ## An optional argument that takes no value (e.g., `-f` or `--flag`)
-
-  PathCompletion* {.pure.} = enum
-    ## Which paths shell completion offers for a value with no enumerable
-    ## values of its own -- see
-    ## `docs/adr/0066-completion-falls-back-to-paths.md`.
-    Files
-      ## Files, and directories to descend into
-    Dirs
-      ## Directories only
-    None
-      ## No paths
-
-  CompletionContext* = object
-    ## What a Completer is told about the Tab it answers.
-    word*: string
-      ## The word being completed, possibly `""`. argumint filters the
-      ## candidates by it anyway, so it is only for narrowing a slow query.
-
-  CompletionCandidate* = tuple[value: string, help: string]
-    ## One shell-completion candidate -- `value` is the literal word offered,
-    ## `help` is a short description (possibly `""`) for shells that can render
-    ## one (fish, zsh) -- see
-    ## `docs/adr/0022-completion-candidate-help-text.md`. A *value* candidate
-    ## carries `""` unless a Completer's `offer` described it -- see
-    ## `docs/adr/0071-runtime-completers.md`. `reply` puts it on one line.
-
-  Offer* = object
-    ## A Completer's answer: candidate values, each with a description
-    ## (possibly `""`), which paths the shell adds to them, and the patterns
-    ## a file's name must match. Built with `offer`.
-    values: seq[CompletionCandidate]
-    paths: PathCompletion
-    patterns: seq[string]
-
-  CompleterProc* = proc (ctx: CompletionContext): Offer {.closure.}
-    ## Lists an Arg's completion candidates when the user presses Tab. It
-    ## runs inside the shell's completion, so:
-    ## - return quickly, with your own timeout on any network call;
-    ## - never write to stdout, which would become candidates, or stderr,
-    ##   which lands in the user's shell;
-    ## - expect no hook to have run, so nothing a `before` hook sets up.
-    ##
-    ## Earlier Args have their values filled, so a completer reads them by
-    ## capturing them. A `CatchableError` it raises offers nothing. See
-    ## `docs/adr/0071-runtime-completers.md`.
-
-  CompleterKind = enum
-    ckDefault ## The Arg's enumerable values, else files
-    ckFixed ## The same Offer every Tab, such as a `PathCompletion`'s
-    ckProc ## A `CompleterProc`, run after earlier values are filled
-
-  Completer* = object
-    ## How shell completion offers an Arg's value: a `CompleterProc`, or a
-    ## `PathCompletion` converted by `toCompleter`. The zero value offers
-    ## the Arg's enumerable values if it has any, otherwise files.
-    case kind: CompleterKind
-    of ckDefault: discard
-    of ckFixed: fixed: Offer
-    of ckProc: fn: CompleterProc
 
   SeenBy* = enum
     ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
@@ -155,29 +94,6 @@ type
 
   MessageArg* = ref object of Arg
     message*: string
-
-  SpecSettings* = ref object
-    width: int
-      ## `0` until the `width` getter first detects it
-    maxVariantsWidth*: int
-      ## Max width of the help text's variants column before wrapping; 0 means
-      ## unlimited
-    envDelim*: string
-      ## Delimiter an env-configured Option/Flag's raw env value is split on,
-      ## unless it has its own `EnvSource.delim` (see `envvar.splitEnvValue`)
-    configSources*: seq[ConfigSource]
-      ## Value Precedence's Config Source tier, consulted in order -- a later
-      ## source's hit for the same Arg fully replaces an earlier one's, never
-      ## merged (see `lookupConfigSources`)
-    strictOptions*: bool
-      ## Strict Option Checking: whether an option-shaped token may be accepted
-      ## as data, in both a positional slot and an Option's value slot. Default
-      ## `true`; a Non-Option Short (`-5`, `-0x1F`) is always exempt. See
-      ## `docs/adr/0034-strict-option-checking.md`
-    style: Styler
-      ## `autoStyler` until the `style` getter first resolves it
-    theme: Theme
-      ## What an `autoStyler` style resolves to colour with
 
   Level* = tuple[spec: Spec, command: string]
     ## One entered grammar level: the `Spec` owning it, plus the accumulated
@@ -281,123 +197,6 @@ type
     else:
       discard
 
-# Each `Default*` below can be overridden at compile time with its
-# `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
-const
-  DefaultMaxVariantsWidth* {.intdefine: "argumint.maxVariantsWidth".} = 30
-    ## `newSpecSettings`'s default `maxVariantsWidth`. Set with
-    ## `-d:argumint.maxVariantsWidth`.
-  DefaultStrictOptions* {.booldefine: "argumint.strictOptions".} = true
-    ## `newSpecSettings`'s default `strictOptions` -- see
-    ## `docs/adr/0034-strict-option-checking.md`. Set with
-    ## `-d:argumint.strictOptions`.
-
-static:
-  doAssert DefaultMaxVariantsWidth >= 0,
-    "-d:argumint.maxVariantsWidth must be 0 (unlimited) or more, got " &
-    $DefaultMaxVariantsWidth
-
-# The comma separator every `variants`/`ops` string is split on, and the
-# formats an `arg`/`opt`/`flag` Variant string must match. Exported for
-# siblings (spec construction, `subject`, the Arg constructors, the
-# `ValueArg`/`FlagArg` machinery in `argumint/argtypes`) but never
-# re-exported by the facade -- reachable only via `import argumint/backend`,
-# like everything else internal here.
-let
-  Comma* = peg"\s* ',' \s*"
-
-  PositionalVariantFormat* = peg"""
-    # Allows you to capture <arg> or ARG
-    argument <- ^ {angled / upper} $
-    angled <- '<' \w (\w / ('-' \w))* '>'
-    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
-  """
-
-  OptionalVariantFormat* = peg"""
-    # Allows you to capture [-o, var] / [--option, var] in -o=<var> /
-    # --option=<var>, or VAR in place of <var>
-    option <- ^ (shortOption / longOption) (equals helpVar)? $
-    equals <- '=' / ':'
-    shortOption <- {'-' \w}
-    longOption <- {'--' \w (\w / ('-' \w))+}
-    helpVar <- ('<' {\w (\w / ('-' \w))*} '>') / {upper}
-    upper <- [A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*
-  """
-
-  FlagVariantFormat* = peg"""
-    # A bare flag spelling, no embedded <op><value> -- that's supplied
-    # explicitly via flagOp's own op/value params instead (see flag*/
-    # flagOp*).
-    flag <- ^ (shortFlag / longFlag) $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-  """
-
-  FlagOpVariantFormat* = peg"""
-    # A flag spelling with an embedded <op><value>: one entry of the string
-    # form of flag*'s ops (see `parseFlagOpsString` in argumint/argtypes).
-    flag <- ^ (shortFlag / longFlag) op value $
-    shortFlag <- {'-' \w}
-    longFlag <- {'--' \w (\w / ('-' \w))+}
-    op <- {'=' / '+=' / '-=' / '*='}
-    value <- {.*}
-  """
-
-  UnknownFlagOpFormat* = peg"""
-    # The op in an entry FlagOpVariantFormat rejects, for its error: what
-    # follows the spelling, up to and including the first '='.
-    flag <- ^ (shortFlag / longFlag) {(!'=' \W)+ '='? / '='}
-    shortFlag <- '-' \w
-    longFlag <- '--' \w (\w / ('-' \w))+
-  """
-
-proc initOffer*(values: seq[CompletionCandidate], paths: PathCompletion,
-    patterns: seq[string] = @[]): Offer =
-  ## Machinery behind the facade's `offer` and `files`. Patterns need
-  ## `Files`, and can't hold the directive's tab or newline -- see
-  ## `docs/adr/0072-file-completion-patterns.md`.
-  doAssert patterns.len == 0 or paths == PathCompletion.Files,
-    "file patterns need paths = Files"
-  for p in patterns:
-    doAssert '\t' notin p and '\n' notin p,
-      "a file pattern can't contain a tab or newline: " & p.escape
-  Offer(values: values, paths: paths, patterns: patterns)
-
-func values*(o: Offer): lent seq[CompletionCandidate] =
-  ## `o`'s candidates, in the order given.
-  o.values
-
-func paths*(o: Offer): PathCompletion =
-  ## Which paths the shell adds to `o`'s candidates.
-  o.paths
-
-func patterns*(o: Offer): lent seq[string] =
-  ## The patterns a file's name must match to be offered; none means any.
-  o.patterns
-
-func initCompleter*(fixed: Offer): Completer =
-  ## A Completer offering `fixed` every Tab, with nothing filled.
-  Completer(kind: ckFixed, fixed: fixed)
-
-func initCompleter*(fn: CompleterProc): Completer =
-  ## A Completer running `fn`, with earlier values filled first.
-  Completer(kind: ckProc, fn: fn)
-
-func isDefault*(c: Completer): bool =
-  ## Whether `c` is the zero value: the Arg's enumerable values, else files.
-  c.kind == ckDefault
-
-func fills*(c: Completer): bool =
-  ## Whether earlier values are filled before `c` runs.
-  c.kind == ckProc
-
-proc run*(c: Completer, ctx: CompletionContext): Offer =
-  ## What `c` offers for `ctx`. Not for the default Completer.
-  case c.kind
-  of ckDefault: raiseAssert "the default Completer has no Offer of its own"
-  of ckFixed: c.fixed
-  of ckProc: c.fn(ctx)
-
 func defaultGroup*(kind: ArgKind): string =
   ## The help group an Arg of `kind` goes in when its `group` is empty.
   case kind
@@ -416,99 +215,6 @@ proc appName*(): string =
   when ExeExt.len > 0:
     if result.toLowerAscii.endsWith("." & ExeExt):
       result.setLen(result.len - ExeExt.len - 1)
-
-proc newSpecSettings*(width = 0,
-    maxVariantsWidth = DefaultMaxVariantsWidth,
-    envDelim = DefaultEnvDelim, configSources: seq[ConfigSource] = @[],
-    strictOptions = DefaultStrictOptions, style: Styler = autoStyler,
-    theme = defaultTheme): SpecSettings =
-  ## Creates a `SpecSettings` for `newSpec`/`parse*`/`parseOrQuit*`'s `settings`
-  ## param. Every default below can be changed at compile time with a
-  ## `-d:argumint.*` define -- see `docs/adr/0053-compile-time-defaults.md`.
-  ## - `width` is the column width usage/help text wraps at. `0` (the
-  ##   default) detects it on first read: the terminal's width, capped at
-  ##   `DefaultMaxWidth` (100) so help doesn't sprawl on a wide terminal, or
-  ##   `DefaultWidth` (80) when none can be detected (e.g., piped output with
-  ##   `COLUMNS` unset). An explicit width is used as given: `width =
-  ##   detectWidth()` for no cap, or `width = min(detectWidth(), 120)` for
-  ##   your own.
-  ## - `maxVariantsWidth` caps the variants column's width before it wraps
-  ##   onto extra indented lines (`0` for unlimited).
-  ## - `envDelim` is the delimiter an env-configured Option/Flag's raw value
-  ##   is split on to supply more than one value (`" "` suits a list fish
-  ##   exports) -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md` and
-  ##   `docs/adr/0064-no-record-separator-env-split.md`. A single Option/Flag
-  ##   can override this delimiter (or opt out of splitting entirely) via
-  ##   `env*`'s two-arg form -- see
-  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `configSources` is Value Precedence's Config Source tier -- an
-  ##   ordered list of `ConfigSource`s (e.g. `iniConfigSource(path)`,
-  ##   `jsonConfigSource(path)`, or a custom subclass), consulted in order
-  ##   for any Option/Flag declaring a `configKey`. A later source's hit
-  ##   fully replaces an earlier one's, never merged. See
-  ##   `docs/adr/0018-config-source.md`.
-  ## - `strictOptions` is Strict Option Checking: whether an option-shaped
-  ##   token resolving against no declared option may be accepted as data.
-  ##   On by default, and it governs two slots. In the common
-  ##   `[options] <file>...` shape, off means a typo'd `--recrusive`
-  ##   silently becomes a filename; and with any value-taking option, off
-  ##   means `--name --help` sets `name` to `"--help"` rather than
-  ##   reporting that `--name` has no value. A Non-Option Short -- one dash
-  ##   whose second character isn't an ASCII letter (`-5`, `-3.5`,
-  ##   `-0x1F`) -- is exempt either way, which is what keeps negative
-  ##   numbers usable. Set `false` for a grammar that genuinely takes
-  ##   dash-leading literal text, though a typed `--`, a usage-string
-  ##   `[--]` marker, the leading-space form (`" -x"`), or the attached
-  ##   form (`--name=--nope`) each force one token literally without
-  ##   disabling the check everywhere. See
-  ##   `docs/adr/0034-strict-option-checking.md`.
-  ## - `style` decorates help and parse-error output (colour, bold, etc.) by
-  ##   Style Role. `autoStyler` (the default) resolves it on first read: the
-  ##   built-in ANSI theme when output is going to a terminal, else plain.
-  ##   Pass `nil` for plain text always, or `ansiStyler(theme)` or your own
-  ##   `Styler` to colour always. To change the colours but keep detection,
-  ##   pass `theme` instead. See `docs/adr/0051-help-and-error-styling.md`.
-  ## - `theme` is the colours `autoStyler` uses when it colours output. It
-  ##   only matters while `style` is `autoStyler`; for your own `Styler`,
-  ##   check `wantsColor()` yourself. See
-  ##   `docs/adr/0067-theme-keeps-colour-detection.md`.
-  ##
-  ## Neither default touches the terminal here, so building settings (or a
-  ## Spec) never probes it; only reading `width` or `style` does, which help
-  ## and error rendering do just before printing. See
-  ## `docs/adr/0058-lazy-terminal-detection.md`.
-  ##
-  ## Hold onto the returned `SpecSettings` and pass the same instance to
-  ## `command()`'s enclosing `newSpec`/`parse*`/`parseOrQuit*` call to mutate
-  ## it later (e.g. from a `before` hook) and have the change apply live to
-  ## every not-yet-dispatched `Spec` in the tree -- see
-  ## `docs/adr/0013-message-args-fire-after-before.md`.
-  SpecSettings(width: width, maxVariantsWidth: maxVariantsWidth, envDelim: envDelim,
-    configSources: configSources, strictOptions: strictOptions, style: style,
-    theme: theme)
-
-proc width*(s: SpecSettings): int =
-  ## The column width usage/help text wraps at. A `0` is detected here, on
-  ## first read, and kept: `detectWidth()` capped at `DefaultMaxWidth`.
-  if s.width == 0: s.width = resolvedWidth()
-  s.width
-
-proc `width=`*(s: SpecSettings, width: int) =
-  ## Sets the wrap width; `0` has the next read detect it again.
-  s.width = width
-
-proc style*(s: SpecSettings): Styler =
-  ## Decorates help and error output by Style Role; nil for plain text. An
-  ## `autoStyler` is resolved here, on first read, and kept -- so nothing
-  ## probes the terminal until output is rendered. See
-  ## `docs/adr/0058-lazy-terminal-detection.md`.
-  if s.style == autoStyler: s.style = resolvedStyler(s.theme)
-  s.style
-
-proc `style=`*(s: SpecSettings, style: Styler) =
-  ## Sets the styler; `autoStyler` has the next read resolve it again.
-  s.style = style
 
 # Read-only views of private `Spec` fields (ADR 0030). Only `specbuild` writes
 # them. `prolog`/`epilog`/`usage` are re-exported by `argumint/help` for Help
@@ -577,9 +283,10 @@ proc metavars*(arg: Arg): seq[string] =
   ## for `--speed=<kn>`), for Help Markup to tell a metavar from a
   ## positional in `arg`'s own help text.
   for variant in arg.variants:
-    var m: array[2, string]
-    if variant.match(OptionalVariantFormat, m) and m[1].len > 0 and m[1] notin result:
-      result.add m[1]
+    let parts = parseVariant(variant, VariantShape.Option)
+    if parts.isSome and parts.get.metavar.len > 0 and
+        parts.get.metavar notin result:
+      result.add parts.get.metavar
 
 proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
@@ -759,13 +466,11 @@ proc subjectParts*(arg: Arg, c: Contribution): tuple[name, source: string] =
     else: ("", "")
   if label.len == 0:
     return (arg.name(c.variant), "")
-  # `variants[0]` keeps any value placeholder (`--port=<n>`), but every other
-  # complaint names the bare option (`--port`) -- so trim with the same PEG
-  # spec construction already keys `spec.options` by. Leaves a Positional
-  # (`<src>`) or Command untouched, since neither matches it.
-  var bare = arg.name
-  if bare =~ OptionalVariantFormat:
-    bare = matches[0]
+  # Every other complaint names the bare option (`--port`, not
+  # `--port=<n>`). A Positional or Command doesn't parse as an option, so
+  # keeps its name.
+  let parts = parseVariant(arg.name, VariantShape.Option)
+  let bare = if parts.isSome: parts.get.name else: arg.name
   (bare, " ($#: $#)" % [kind, label])
 
 proc subject*(arg: Arg, c: Contribution): string =

@@ -20,7 +20,7 @@
 
 import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, tables, typetraits]
 
-import ./[backend, configsource, display, errors, flagclamp, style, validators]
+import ./[backend, configsource, display, errors, flagclamp, style, validators, variant]
 
 type
   Description = tuple[defaultStr: string, validatorHelp: StyledText, completions: seq[string]]
@@ -417,9 +417,10 @@ proc splitFlagSpellings*(variants: string): seq[string] =
   ## Parses a comma-separated list of bare flag spellings (`-f`/`--flag`).
   ## Shared by `flag*`'s own `variants` string and each `flagOp*`'s.
   if variants.len == 0: return @[]
-  for rawName in variants.split(Comma):
-    if rawName =~ FlagVariantFormat:
-      result.add matches[0]
+  for rawName in splitVariants(variants):
+    let parts = parseVariant(rawName, VariantShape.Flag)
+    if parts.isSome:
+      result.add parts.get.name
     else:
       let escapedRawName = strutils.escape(rawName)
       raise newException(SpecDefect, fmt"Cannot parse flag spelling {escapedRawName}: must be in the format '-f' or '--flag'")
@@ -576,15 +577,25 @@ proc bindOp[T](op: FlagOp[T], group: int): BoundOp =
     if not flag.clamp.isNil:
       flag.value = flag.clamp.apply(flag.value))
 
+let
+  FlagOpEntryFormat = peg("^ {" & ShortName & " / " & LongName &
+    "} {'=' / '+=' / '-=' / '*='} {.*} $")
+    ## One entry of `flag*`'s `ops` string: a Flag spelling, then
+    ## `<op><value>` -- see `parseFlagOpsString`.
+  UnknownFlagOpFormat = peg("^ (" & ShortName & " / " & LongName &
+    ") {(!'=' \\W)+ '='? / '='}")
+    ## The op in an entry `FlagOpEntryFormat` rejects, for its error: what
+    ## follows the spelling, up to and including the first `=`.
+
 proc parseFlagOpsString*[T](ops: string): seq[FlagOp[T]] =
   ## Parses `flag*`'s convenience `ops: string` overload: each comma item
   ## is `<flag><op><value>`, becoming its own single-spelling FlagOp Alias
   ## group -- sugar for the matching `flagOp*` call. The value is read with
   ## `fromString`; for a `set[E]`, as one `E`. See
   ## `docs/adr/0028-flag-ops-string-convenience.md`.
-  for rawName in ops.split(Comma):
+  for rawName in splitVariants(ops):
     var matches: array[3, string]
-    if not rawName.match(FlagOpVariantFormat, matches):
+    if not rawName.match(FlagOpEntryFormat, matches):
       var unknown: array[1, string]
       if rawName.match(UnknownFlagOpFormat, unknown):
         raise newException(SpecDefect, opError[T](unknown[0]))
@@ -689,7 +700,7 @@ template setValueArgFields(arg: typed, H: typedesc, isMulti: bool) =
   ## with `H`'s hooks. One field at a time, never `H(...)` -- see
   ## `initValueArg(A)`.
   arg.kind = kind
-  arg.variants = variants.split(Comma)
+  arg.variants = splitVariants(variants)
   arg.default = default
   arg.help = help
   arg.group = group.groupOr(kind)
@@ -743,8 +754,8 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
   ## Bare spellings in `variants` run `T`'s Implicit Operation, and form one
   ## FlagOp Alias group; each of `ops` forms its own, even if two run the
   ## same operation (see docs/adr/0027).
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default,
-    help: help, group: group.groupOr(Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
+  result = FlagArg[T](kind: ArgKind.Flag, variants: @[], value: default, default: default,
+    help: help, group: group.groupOr(ArgKind.Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     reset: resetFlagHook[FlagArg[T]], describe: describeFlagHook[FlagArg[T]])
   var implicit = implicitOp(default)
   implicit.spellings = splitFlagSpellings(variants)

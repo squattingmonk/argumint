@@ -5,6 +5,7 @@ import argumint/argtypes
 import argumint/backend
 import argumint/precedence
 import argumint/specbuild
+import argumint/variant
 import argumint/configsource/ini
 import argumint/configsource/json
 import argumint/display
@@ -1699,12 +1700,10 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check not s.fsm.isNil
     check s.settings.width == 80
 
-  test "the variant-format PEGs exist in `argumint/backend`":
-    check "<name>".match(PositionalVariantFormat)
-    check "NAME".match(PositionalVariantFormat)
-    check "--name=<s>".match(OptionalVariantFormat)
-    check "--name=NAME".match(OptionalVariantFormat)
-    check "-v".match(FlagVariantFormat)
+  test "the Variant grammar exists in `argumint/variant`":
+    check parseVariant("<name>", VariantShape.Positional).isSome
+    check parseVariant("--name=<s>", VariantShape.Option).get.metavar == "s"
+    check splitVariants("-v, --verbose") == @["-v", "--verbose"]
 
   test "the tier rule exists in `argumint/backend`":
     let arg = Arg(variants: @["--port"])
@@ -1772,15 +1771,10 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check tags.rawDefault == @["a"]
     check not verbose.rawValue
 
-  test "the comma separator and the flag-op variant format exist in `argumint/backend`":
-    # `Comma` has consumers on both sides of issue #51's seam (the Arg
-    # constructors in the facade, `initValueArg`/`splitFlagSpellings` in
-    # `argtypes`), so it lives below both; `FlagOpVariantFormat` followed
-    # it rather than being stranded alone.
-    check "-v, --verbose".split(Comma) == @["-v", "--verbose"]
-    check "--boost+=5".match(FlagOpVariantFormat)
-    check not "--boost^=5".match(FlagOpVariantFormat)
-    check "--boost^=5".match(UnknownFlagOpFormat)
+  test "a flag-op entry's grammar lives beside `parseFlagOpsString`":
+    check parseFlagOpsString[int]("--boost+=5")[0].spellings == @["--boost"]
+    expect SpecDefect:
+      discard parseFlagOpsString[int]("--boost^=5")
 
 suite "accumulates":
   test "is true only for args that build their value from more than one match":

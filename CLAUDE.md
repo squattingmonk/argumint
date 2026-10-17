@@ -81,7 +81,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    `arg`, `opt`, `flag`, `command`, `help` (`argumint.nim`) to build a tuple
    of `Arg` objects; `newSpec` (`specbuild.nim`) assembles them into a `Spec`
    (`backend.nim`), auto-generating a usage string from the declared args if
-   none was given.
+   none was given. Two modules below `backend` hold what the model only
+   points at: `SpecSettings` (`settings.nim`) and an Arg's `Completer`
+   (`completer.nim`).
 2. **Usage-string compilation → FSM** (`lexer.nim` → `parser.nim` →
    `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
    recursively-descent parsed into a graph of `State`/`Transition` objects
@@ -114,9 +116,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   separate spec levels (e.g. Naval Fate's top-level spec has commands only,
   each subcommand's nested spec has positional args only) — but options
   routinely appear alongside either.
-- `arg`/`opt`/`flag`/`command` variant strings are validated with the PEG
-  patterns in `src/argumint/backend.nim` (`PositionalVariantFormat`,
-  `OptionalVariantFormat`, `FlagVariantFormat`) — errors here raise
+- `arg`/`opt`/`flag`/`command` variant strings are validated by
+  `parseVariant` in `src/argumint/variant.nim`, whose PEG fragments the
+  lexer and runtime token shapes share — errors here raise
   `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;

@@ -15,7 +15,7 @@
 
 import std/[os, options, pegs, sugar, strutils, terminal]
 
-import ./argumint/[argtypes, backend, completion, configsource, console, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators]
+import ./argumint/[argtypes, backend, completion, configsource, console, dot, envvar, errors, flagclamp, fsm, help, outcome, specbuild, style, validators, variant]
 
 # Re-exported so `import argumint` alone is enough to catch everything
 # `parse*`/`parseOrQuit*`/`newSpec` can raise.
@@ -639,7 +639,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
   ## given, so it only needs to be specified once regardless of how deeply
   ## nested this command is.
-  result = CommandArg(kind: ArgKind.Command, variants: variants.split(Comma),
+  result = CommandArg(kind: ArgKind.Command, variants: splitVariants(variants),
     help: help, group: group.groupOr(ArgKind.Command), hidden: hidden)
   result.spec = newSpec(spec, usage, prolog, epilog)
   if not before.isNil:
@@ -706,7 +706,7 @@ proc help*(variants = "-h, --help", help: HelpText = "Display this help message"
   ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
-  HelpArg(kind: Flag, variants: variants.split(Comma), help: help,
+  HelpArg(kind: Flag, variants: splitVariants(variants), help: help,
     group: group.groupOr(Flag), hidden: hidden, formatter: formatter)
 
 proc message*(variants: string, text: string, help: HelpText = "",
@@ -721,7 +721,7 @@ proc message*(variants: string, text: string, help: HelpText = "",
   ##   means `Options`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
   ##   completion; it still parses
-  MessageArg(kind: Flag, variants: variants.split(Comma), message: text,
+  MessageArg(kind: Flag, variants: splitVariants(variants), message: text,
     help: help, group: group.groupOr(Flag), hidden: hidden)
 
 proc version*(variants: string, version: string,

@@ -43,13 +43,7 @@ type
 proc bareVariants(spec: Spec, arg: Arg, variant = ""): seq[string] =
   ## The bare option/flag spellings actually typed on the command line for
   ## `arg` (e.g. "--log-level", never "--log-level=<level>"). Reads
-  ## `spec.options`, the same canonical bare-name -> Arg map `classify`
-  ## itself looks up against, rather than re-deriving stripping logic from
-  ## `arg.variants` -- for an Optional-kind `ValueArg` (`opt`/`args`),
-  ## `variants` stores the *declared* string verbatim, including any
-  ## `=<placeholder>` suffix used only for help-text rendering (`FlagArg`
-  ## already stores bare names at construction time, so this is a no-op for
-  ## it, but reusing one rule for both is simpler than branching by kind).
+  ## `spec.options`, the bare-name -> Arg map `classify` looks up against.
   ##
   ## When `variant` is non-empty, only variants that are `arg.aliases` of it
   ## are returned (`aliases` is reflexive, so this covers an exact literal
@@ -448,7 +442,7 @@ proc genCompletionScript*(shell: Shell, binaryName: string): string =
         set -l cur (commandline -ct)
         # Unlike bash's $COMP_WORDBREAKS, fish never splits an =/:-joined
         # option+value into two words on its own (argumint accepts either
-        # separator -- see OptionalVariantFormat), so a pending
+        # separator -- see `Equals` in variant.nim), so a pending
         # "--opt=<TAB>"/"--opt:<TAB>" would otherwise arrive as one opaque,
         # unmatchable word. Split it by hand into the bare option name and
         # its (possibly empty) pending value.

@@ -10,9 +10,9 @@
 ## exported solely because generic `newSpec` instantiates in the caller's
 ## file (ADR 0030), and are not re-exported by the facade.
 
-import std/[importutils, pegs, sequtils, sets, strformat, strutils, tables]
+import std/[importutils, options, sequtils, sets, strformat, strutils, tables]
 
-import ./[backend, errors, fsmgraph, parser, usage]
+import ./[backend, errors, fsmgraph, parser, usage, variant]
 
 privateAccess(Spec) ## Reaches `Spec`'s private fields (ADR 0030) from
   ## non-generic code only -- see `beginSpec`/`finishSpec` and docs/gotchas.md.
@@ -27,24 +27,26 @@ proc addArg(spec: Spec, arg: Arg, varName: string) =
     spec.groups[arg.group].add(arg)
 
   for variant in arg.variants:
+    let shape =
+      case arg.kind
+      of Positional: VariantShape.Positional
+      of Optional: VariantShape.Option
+      of Flag: VariantShape.Flag
+      of Command: VariantShape.Command
+    let parts = parseVariant(variant, shape)
+    if parts.isNone:
+      raise newException(SpecDefect, fmt"invalid {($arg.kind).toLowerAscii} arg variant for {varName}: {variant}")
+    let name = parts.get.name
     case arg.kind
     of Positional:
-      # Matches `<arg>`
-      if variant =~ PositionalVariantFormat:
-        if spec.arguments.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"argument {matches[0]} already defined")
-      else:
-        raise newException(SpecDefect, fmt"invalid positional arg variant for {varName}: {variant}")
+      if spec.arguments.hasKeyOrPut(name, arg):
+        raise newException(SpecDefect, fmt"argument {name} already defined")
     of Optional, Flag:
-      # Matches `-o[=<foo>]` or `--option[=<foo>]` but removes any help vars
-      if variant =~ OptionalVariantFormat:
-        if spec.options.hasKeyOrPut(matches[0], arg):
-          raise newException(SpecDefect, fmt"option {matches[0]} already defined")
-      else:
-        raise newException(SpecDefect, fmt"invalid optional arg variant for {varName}: {variant}")
+      if spec.options.hasKeyOrPut(name, arg):
+        raise newException(SpecDefect, fmt"option {name} already defined")
     of Command:
-      if spec.commands.hasKeyOrPut(variant, CommandArg(arg)):
-        raise newException(SpecDefect, fmt"command {variant} already defined")
+      if spec.commands.hasKeyOrPut(name, CommandArg(arg)):
+        raise newException(SpecDefect, fmt"command {name} already defined")
 
 proc addArgs*(self: Spec, spec: tuple) =
   for varName, arg in spec.fieldPairs:
