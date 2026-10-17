@@ -176,8 +176,8 @@ and below `matching`/`fsm`, and holds everything Value Precedence's fallback
 tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
 members the two tiers supply) and `FallbackOrder` (`[byEnv, byConfig]`,
 strongest first, the order they're consulted in; iterating the type itself
-would run weakest first), `Tiers` (one `ValueCursor` per
-tier), `probe`, `applyFallbacks`, and `FailurePolicy` (`fpRaise`/`fpSkip`,
+would run weakest first), `Tiers` (one `ValueCursor` per tier), `probe`,
+`applyFallbacks`, and `FailurePolicy` (`fpRaise`/`fpSkip`,
 what `applyFallbacks` does with an Arg whose fallback fails). `Tiers`
 replaces what used to be two loose `ParseContext` fields
 (`env`/`configValues`) plus six ad hoc closure constructions at their four
@@ -640,7 +640,7 @@ by `FallbackTier` (`byConfig..byEnv`, consulted in `FallbackOrder`) inside
 `Tiers` (embedded on `ParseContext` as `tiers`) — rather than two
 independent implementations. `Tiers.probe` is consulted from `match`'s
 `mkOption` branch during the walk — CLI token first, then each tier's own
-`ValueCursor.probe` in `FallbackTier` order (env, then, only if env had
+`ValueCursor.probe` in `FallbackOrder` (env, then, only if env had
 nothing, Config Source) — lazily resolving and caching an Arg's available
 values (via `resolve`, a `case` on `FallbackTier`) and handing out the
 next unconsumed value each time that Arg's matcher is visited. `resolve`

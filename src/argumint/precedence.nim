@@ -2,9 +2,9 @@
 ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md` and
 ## `docs/adr/0018-config-source.md`. `FallbackTier` is Value Precedence's
 ## two fallback tiers as `SeenBy` members, consulted in `FallbackOrder`;
-## `Tiers` holds one `ValueCursor` per tier so the walk
-## and the post-walk sweep each consult one thing, not two. `probe` lets a
-## tier's value stand in for a missing CLI value during the walk, and
+## `Tiers` holds one `ValueCursor` per tier so the walk and the post-walk
+## sweep each consult one thing, not two. `probe` lets a tier's value stand
+## in for a missing CLI value during the walk, and
 ## `applyFallbacks` is the post-walk sweep that actually writes whatever
 ## the walk consumed. `fsm.nim` owns the walk itself and failure reporting
 ## -- see `docs/architecture.md` §3.
