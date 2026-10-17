@@ -81,7 +81,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    `arg`, `opt`, `flag`, `command`, `help` (`argumint.nim`) to build a tuple
    of `Arg` objects; `newSpec` (`specbuild.nim`) assembles them into a `Spec`
    (`backend.nim`), auto-generating a usage string from the declared args if
-   none was given.
+   none was given. Two leaves below `backend` hold what the model only
+   points at: `SpecSettings` (`settings.nim`) and an Arg's `Completer`
+   (`completer.nim`).
 2. **Usage-string compilation → FSM** (`lexer.nim` → `parser.nim` →
    `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
    recursively-descent parsed into a graph of `State`/`Transition` objects

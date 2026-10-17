@@ -9,10 +9,10 @@ assumes that vocabulary and focuses on code-level mechanics. See
 
 ## 0. Module layering
 
-Five modules are leaves with no local imports — `errors.nim`,
-`configsource.nim`, `display.nim`, `envvar.nim`, and `style.nim` — and
-everything else layers on top:
-`console`/`flagclamp`/`outcome`/`prose` → `lexer` →
+Seven modules are leaves with no local imports — `errors.nim`,
+`completer.nim`, `configsource.nim`, `display.nim`, `envvar.nim`,
+`style.nim`, and `variant.nim` — and everything else layers on top:
+`console`/`flagclamp`/`outcome`/`prose` → `lexer`/`settings` →
 `backend`/`usage`/`validators` → `argtypes`/`fsmgraph`/`help`/`parser` →
 `tokens` → `complaints` → `precedence` → `matching` → `completion` →
 `fsm`/`specbuild` → `argumint`.
@@ -34,6 +34,14 @@ re-export it, so importing either alone still names what it raises.
 `errors.nim`'s withheld `newPlainError` builds one whose `styledMsg` is its
 `msg`, for the raise sites with no Styler to hand (ADR 0059).
 
+`completer.nim` is the Completer model: what an Arg declares about
+completing its value (`Completer`, from a `CompleterProc` or a fixed
+`Offer`), what a Completer is told (`CompletionContext`), and what it
+answers (`Offer`, with its `CompletionCandidate`s and `PathCompletion`). It
+sits below `backend` because `Arg.complete` is a `Completer`; `backend`
+re-exports it. `completion.nim` is the other half, much higher up: how a
+shell's request is answered, using these (see "Completers" in §6).
+
 `variant.nim` is the other grammar leaf: the Variant grammar, written once
 as PEG source fragments (`ShortName`, `LongName`, `Angled`, `Upper`,
 `Equals`, `CommandName`). Three readers build their patterns from them, so
@@ -54,15 +62,23 @@ and whether it can take colour (`resolvedStyler`), which `SpecSettings`'
 `width`/`style` getters call on first read (ADR 0058). Each rule is a pure
 decider taking its environment as parameters (`chooseWidth`, `wantsColor`)
 beside a thin probe of the real process, and the one `winlean` import
-lives here. It imports only `style`, for `ansiStyler`. `backend`
+lives here. It imports only `style`, for `ansiStyler`. `settings`
 re-exports the public width names, and the facade re-exports `wantsColor()`.
+
+`settings.nim` holds `SpecSettings`, the settings one Spec tree shares:
+`newSpecSettings`, the compile-time defaults behind it (ADR 0053), and the
+`width`/`style` getters that detect on first read (ADR 0058). It sits
+below `backend` because a `Spec` holds one, and it is the only part of the
+data model that imports `console`, so the terminal probe stays out of
+`backend` itself. `backend` re-exports it.
 
 `envvar.nim` is the env tier's counterpart to `configsource.nim`:
 `EnvSource` and its constructors (`env`, `toEnvSource`), `DefaultEnvDelim`,
 the split rule (`splitEnvValue`), and `lookupEnv`, which reads a variable
 and splits it the way `lookupConfigSources` answers for a Config Key.
-`backend` re-exports it, since `Arg.envSource` returns an `EnvSource` and
-`newSpecSettings` defaults to `DefaultEnvDelim`. It can't be called
+`backend` re-exports it, since `Arg.envSource` returns an `EnvSource`, and
+`settings` imports it, since `newSpecSettings` defaults to
+`DefaultEnvDelim`. It can't be called
 `envsource`: see `docs/gotchas.md`.
 
 `outcome.nim` is what `parseOrQuit*` does with each exception it catches:
@@ -97,10 +113,10 @@ in `backend`, because building a `Spec` *means* compiling its usage string
 into one: `finishSpec` calls `genFsm` (`parser`) and `autoFillUsage` calls
 `referencedArgs` (`fsmgraph`), both of which import `backend`. Putting spec
 construction in `backend` is a recursive module dependency, and Nim rejects
-it outright. The constructors that never touch a usage string
-(`newSpecSettings`) do live in `backend`, beside the `SpecSettings` type
-they build; so does `subject`, which has consumers on both sides of the
-split.
+it outright. What never touches a usage string can sit lower:
+`newSpecSettings` lives in `settings`, beside the `SpecSettings` type it
+builds, and `subject`, which has consumers on both sides of the split,
+lives in `backend`.
 
 `argtypes.nim` sits directly above `backend`/`validators`/`flagclamp` and
 below the `argumint.nim` facade, and holds the `ValueArg`/`ValuesArg`/
@@ -1236,7 +1252,7 @@ wrapped below at `ContinuationIndent`; rows are separated by a blank line
 doesn't apply.
 
 `width`/`maxVariantsWidth`/`envDelim`/`configSources`/`style` live together on
-`Spec.settings: SpecSettings` (`src/argumint/backend.nim`), a `ref object`
+`Spec.settings: SpecSettings` (`src/argumint/settings.nim`), a `ref object`
 built once by `newSpec*`'s `settings = newSpecSettings()` param and shared
 by reference — not copied — into every nested subcommand's `Spec` via
 `cascadeSpecSettings` (`src/argumint/specbuild.nim`). `settings` is
@@ -1539,7 +1555,7 @@ option given before its place in the line, such as `-v` after `a` under
 ### Candidates and shell adapters
 
 Each candidate is a `CompletionCandidate = tuple[value, help: string]`
-(`backend.nim`, the same type an `Offer`'s values hold), not a bare
+(`completer.nim`, the same type an `Offer`'s values hold), not a bare
 string — see `docs/adr/0022-completion-candidate-help-text.md`.
 `help` is populated for an Arg's own name (option/flag/command candidates,
 via `completion.describeVariants`), and for a value only when a Completer's
@@ -1587,7 +1603,7 @@ display string in place of its word, so the script writes
 ### Path Completion
 
 Besides its candidates, `resolveCompletion*` returns which paths the shell
-should add (`PathCompletion`, `backend.nim`), and `reply*` prints that as
+should add (`PathCompletion`, `completer.nim`), and `reply*` prints that as
 the last line of `__complete`'s output: `:files`, `:dirs`, or `:` for none
 (the private `completion.directive`). Every position that takes a value
 contributes the paths of its Arg's `Offer` — each non-hidden `mkArgument`
@@ -1621,7 +1637,7 @@ paths without escaping them.
 `completion.offerFor` answers "what does this Arg's value offer this Tab"
 with an `Offer`: candidate values, each with an optional
 description, a `PathCompletion`, and any file patterns. `Completer`
-(`backend.nim`) is a
+(`completer.nim`) is a
 case object: the default gives the Arg's `completions()`, or files if it
 has none; a fixed one, which a `PathCompletion` converts to, gives the
 same `Offer` every Tab; and a proc one runs with `CompletionContext.word`
