@@ -6,7 +6,7 @@
 import std/[strutils, unittest]
 
 import argumint
-import argumint/completion
+import argumint/walk/completion
 
 proc catchAllSpec(): auto =
   ## `myapp [options] <file>...`, the shape where an unrecognized option

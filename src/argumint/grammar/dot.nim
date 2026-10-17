@@ -1,7 +1,7 @@
 ## This module generates graphviz dot graphs for FSMs.
 
 import std/[sequtils, strformat, strutils, tables]
-import ./[backend, fsmgraph]
+import ./fsmgraph, ../core/backend
 
 type
   StateNames = ref object

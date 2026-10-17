@@ -9,7 +9,7 @@
 
 import std/[pegs, strformat, tables]
 
-import ./[backend, variant]
+import ../core/[backend, variant]
 
 type
   RawToken* = object
@@ -273,7 +273,7 @@ proc isSeparateValue*(cur: TokenCursor, pos: int): bool =
 
 when isMainModule:
   import std/[unittest]
-  import ../argumint
+  import ../../argumint
 
   proc restSpec(): auto =
     (rest: args("<rest>"),)

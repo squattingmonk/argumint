@@ -18,7 +18,7 @@
 
 import std/[sequtils, sets, strformat, strutils, sugar, tables]
 
-import ./[backend, matching, precedence, prose, tokens]
+import ./[matching, precedence, tokens], ../core/backend, ../text/prose
 
 type
   Shell* {.pure.} = enum

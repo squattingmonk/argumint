@@ -7,8 +7,8 @@
 # (`tests/test_argumint.nim`) also imports the internals, which would mask a
 # broken re-export -- so this file must not.
 #
-# Issue #51 split the machinery (`argumint/argtypes`) from its public names
-# (`argumint.nim`); that boundary is exactly what this file guards. See
+# Issue #51 split the machinery (`argumint/values/argtypes`) from its public
+# names (`argumint.nim`); that boundary is exactly what this file guards. See
 # `docs/adr/0043-facade-machinery-seam.md`. It also covers a hand-written
 # `ref object of Arg`, which needs the same bare import.
 
@@ -79,8 +79,8 @@ suite "registering a custom type through a bare `import argumint`":
     check spec.size.get == medium
 
   test "a custom flag type applies its ops, declared via the `ops: string` sugar":
-    # `parseFlagOpsString` moved to `argumint/argtypes` with the rest of the
-    # machinery; `flag*`'s string overload in the facade instantiates it.
+    # `parseFlagOpsString` moved to `argumint/values/argtypes` with the rest of
+    # the machinery; `flag*`'s string overload in the facade instantiates it.
     let spec = (size: flag[Size](ops = "--huge=large", default = small, help = ""), help: help())
     spec.parse(args = @["--huge"], command = "prog")
     check spec.size.get == large

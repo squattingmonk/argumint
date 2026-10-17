@@ -1,5 +1,5 @@
 ## Help-text rendering: turns a built `Spec` into the message `--help`
-## prints. Sits directly above `argumint/backend` -- see
+## prints. Sits directly above `argumint/core/backend` -- see
 ## `docs/architecture.md` for why, and for how the variants column wraps.
 ##
 ## `import argumint` alone does not bring `genHelp` into scope; importing
@@ -10,7 +10,7 @@
 
 import std/[sequtils, strutils, tables]
 
-import ./[backend, errors, prose, style, usage]
+import ./core/[backend, errors], ./text/[prose, style], ./grammar/usage
 
 # The rest of a formatter's toolkit (`StyledText`, `styled`, `&`) comes with
 # `import argumint`.
@@ -336,7 +336,7 @@ method action(self: HelpArg, info: HookInfo, variant = "") =
 
 when isMainModule:
   import std/[importutils, options, unittest]
-  import ./[configsource, specbuild]
+  import ./configsource, ./grammar/specbuild
 
   privateAccess(Spec) ## Builds bare `Spec`s for white-box tests (ADR 0030).
 

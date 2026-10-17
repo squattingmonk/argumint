@@ -6,7 +6,7 @@
 import std/[options, os, strutils, unittest]
 
 import argumint
-from argumint/completion import reply
+from argumint/walk/completion import reply
 import fixtures/units
 
 type

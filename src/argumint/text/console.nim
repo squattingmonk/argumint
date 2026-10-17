@@ -5,7 +5,7 @@
 ## `wantsColor`), which is what the tests drive, beside a thin probe that
 ## reads the real process.
 ##
-## Imports only `argumint/style`, for the ANSI styler colour resolves to.
+## Imports only `argumint/text/style`, for the ANSI styler colour resolves to.
 
 import std/[os, parseutils, terminal]
 

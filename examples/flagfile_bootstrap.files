@@ -1,3 +1,3 @@
 src/argumint.nim
-src/argumint/fsm.nim
-src/argumint/backend.nim
+src/argumint/walk/fsm.nim
+src/argumint/core/backend.nim

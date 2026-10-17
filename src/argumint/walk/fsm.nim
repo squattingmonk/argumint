@@ -2,8 +2,8 @@
 ## command-line arguments.
 import std/[algorithm, os, tables]
 
-import ./[backend, complaints, completion, errors, matching,
-  parser, precedence, tokens]
+import ./[complaints, completion, matching, precedence, tokens],
+  ../core/[backend, errors], ../grammar/parser
 export ParseError, SpecDefect, CompletionError
 
 proc reach(pc: ParseContext): Reach =

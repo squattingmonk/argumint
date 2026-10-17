@@ -1,11 +1,11 @@
 ## `SpecSettings`: the presentation and parsing settings one Spec tree
 ## shares (`newSpecSettings`), with the compile-time defaults behind them
 ## (ADR 0053) and the getters that detect the terminal's width and colour on
-## first read (ADR 0058). Sits below `argumint/backend`, whose `Spec`
+## first read (ADR 0058). Sits below `argumint/core/backend`, whose `Spec`
 ## holds one; it's the only part of the data model that depends on
-## `argumint/console`.
+## `argumint/text/console`.
 
-import ./[configsource, console, envvar, style]
+import ./envvar, ../text/[console, style], ../configsource
 export console.DefaultWidth, console.DefaultMaxWidth, console.MinWidth,
   console.chooseWidth, console.detectWidth
 

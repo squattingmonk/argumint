@@ -3,7 +3,7 @@
 Compiler/language quirks discovered while building argumint that cost real
 debugging time. Read this before touching the constructors and `flagOp`/
 `flagOpIt` (`src/argumint.nim`), the hooks and Flag Operations behind them
-(`src/argumint/argtypes.nim`), or the validator combinators.
+(`src/argumint/values/argtypes.nim`), or the validator combinators.
 
 - **`args*`/`opts*` are separate procs from `arg*`/`opt*`, not overloads of
   them.** Prototyping a second same-named overload of `arg*`/`opt*` with its
@@ -28,8 +28,8 @@ debugging time. Read this before touching the constructors and `flagOp`/
   poisonous, because its default is a *call* (or literal seq/array
   construction), not a bare `nil`. Swapping
   `nil` for a call-based equivalent -- `noValidator[T](): Validator[T] =
-  nil` (`argumint/validators`), `noClamp[T](): FlagClamp[T] = nil`
-  (`argumint/flagclamp`) -- removes the poison entirely, and a generic
+  nil` (`argumint/values/validators`), `noClamp[T](): FlagClamp[T] = nil`
+  (`argumint/values/flagclamp`) -- removes the poison entirely, and a generic
   proc (`default(T)`) plus a concrete sibling overload (e.g. `arg*`'s
   bare-string form, `flag*`'s bare-bool form) then correctly resolves the
   bracket-less call to the concrete overload. See
@@ -52,7 +52,7 @@ debugging time. Read this before touching the constructors and `flagOp`/
   is gone, but the cause was never found. `ValuesArg.value` is an
   `Option[seq[T]]` again, and `store` appends in place through `Option`'s
   `var` accessor (`self.value.get.add`) rather than reassigning. Guarded by
-  the "(ORC regression)" test in `src/argumint/argtypes.nim`.
+  the "(ORC regression)" test in `src/argumint/values/argtypes.nim`.
 
 - **`all`/`any` (`validators.nim`) can't take `desc` as a plain defaulted
   param (`desc = ""`) alongside a `varargs` param.** Nim can't resolve a call
@@ -313,7 +313,7 @@ debugging time. Read this before touching the constructors and `flagOp`/
   long as `command*` was only ever instantiated from within
   `argumint.nim` itself. Adding `OptsEnd` to `MatcherKind` (unrelated to
   `Command` itself) was enough to make a *test file* instantiation --
-  `tests/test_argumint.nim`, which does `import argumint/backend`
+  `tests/test_argumint.nim`, which does `import argumint/core/backend`
   directly, alongside `import argumint` -- resolve the same bare
   `Command` to `MatcherKind.Command` instead, failing with the same "type
   mismatch: got 'MatcherKind' for 'Command' but expected 'ArgKind =
@@ -420,14 +420,14 @@ debugging time. Read this before touching the constructors and `flagOp`/
   the instantiation site. Verified both cases with scratch compiles. So
   `newSpec*(spec: tuple, ...)`, generic over the spec tuple and therefore
   instantiated in the caller's file, cannot touch `spec.fsm` directly --
-  hence `beginSpec`/`finishSpec` (`argumint/specbuild.nim`), two non-generic
-  bookends the generic body delegates to. Any *new* generic or template
-  that needs to *write* a private `Spec` field has to be split the same
-  way; reads can use the `backend.nim` accessors, which work anywhere.
+  hence `beginSpec`/`finishSpec` (`argumint/grammar/specbuild.nim`), two
+  non-generic bookends the generic body delegates to. Any *new* generic or
+  template that needs to *write* a private `Spec` field has to be split the
+  same way; reads can use the `backend.nim` accessors, which work anywhere.
 
   A template or generic declared in the same module as the type has no
   such problem: it reaches the private field wherever it's expanded. That
-  asymmetry is the whole shape of `src/argumint/argtypes.nim`: the
+  asymmetry is the whole shape of `src/argumint/values/argtypes.nim`: the
   `ValueArg`/`FlagArg` types live there together with every template and
   generic that touches their private fields (the hooks, `initFlagOp`,
   `rawValue`/`rawDefault`, `acceptImpl`), while the public names those
@@ -485,7 +485,7 @@ debugging time. Read this before touching the constructors and `flagOp`/
   (verified), and errors only wherever the expected type is finally named,
   arbitrarily far from the cause. `get*`/`get*(otherwise)`
   (`src/argumint.nim`, over `rawValue`/`rawDefault` in
-  `src/argumint/argtypes.nim`) exist to route around all of this; see
+  `src/argumint/values/argtypes.nim`) exist to route around all of this; see
   `docs/adr/0040-explicit-value-accessor.md`.
 
 - **Nim won't overload on return type alone.** Two procs with identical
@@ -527,7 +527,7 @@ debugging time. Read this before touching the constructors and `flagOp`/
   ```
 
   Hit extracting `putImpl` out of `parseImpl`
-  (`src/argumint/argtypes.nim`) for issue #29 -- `putImpl` takes an
+  (`src/argumint/values/argtypes.nim`) for issue #29 -- `putImpl` takes an
   already-converted `T` and knows nothing about strings, so `parseImpl`'s
   own conversion had to move to guard exactly this (`acceptImpl` since #145,
   in the same statement shape). See

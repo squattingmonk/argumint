@@ -1,24 +1,25 @@
-## The FSM's data model (`Spec`, `Arg` and its subtypes, `State`,
-## `Transition`, `Matcher`) shared by `argumint/lexer`, `argumint/parser`,
-## and `argumint/fsm`, plus the `{.base.}` methods (`parse*`, `envName*`,
-## `configKey*`, ...) a custom `Arg` subtype must override to plug into
-## parsing, env fallback, and Config Source lookup -- see
+## The FSM's data model (`Spec`, `Arg` and its subtypes, `State`, `Transition`,
+## `Matcher`) shared by `argumint/grammar/lexer`, `argumint/grammar/parser`, and
+## `argumint/walk/fsm`, plus the `{.base.}` methods (`parse*`, `envName*`,
+## `configKey*`, ...) a custom `Arg` subtype must override to plug into parsing,
+## env fallback, and Config Source lookup -- see
 ## `docs/adr/0017-argumint-reexports-for-custom-arg-types.md`. `ValueArg`/
-## `ValuesArg`/`FlagArg` (`argumint/argtypes`) are the built-in
+## `ValuesArg`/`FlagArg` (`argumint/values/argtypes`) are the built-in
 ## implementations of that interface. The graph-construction/simplification
 ## operations that build and mutate `State`/`Matcher` values live in
-## `argumint/fsmgraph`, not here.
+## `argumint/grammar/fsmgraph`, not here.
 ##
-## Alongside the model sit the pieces that belong beside it rather than in
-## spec construction (`argumint/specbuild`), such as `subject`, which names
-## an Arg in a parse-failure message. See `docs/architecture.md` for where
-## that line falls and why. The env tier's types live in `argumint/envvar`,
-## the Completer model in `argumint/completer`, and `SpecSettings` in
-## `argumint/settings`; all three are re-exported from here.
+## Alongside the model sit the pieces that belong beside it rather than in spec
+## construction (`argumint/grammar/specbuild`), such as `subject`, which names
+## an Arg in a parse-failure message. See `docs/architecture.md` for where that
+## line falls and why. The env tier's types live in `argumint/core/envvar`, the
+## Completer model in `argumint/core/completer`, and `SpecSettings` in
+## `argumint/core/settings`; all three are re-exported from here.
 
 import std/[hashes, options, os, strformat, strutils, tables]
 
-import ./[completer, configsource, envvar, errors, settings, style, variant]
+import ./[completer, envvar, errors, settings, variant], ../text/style,
+  ../configsource
 export completer, configsource, envvar, settings
 
 
@@ -396,7 +397,7 @@ method defaultStr*(self: Arg): string {.base.} =
   ## via `[default: <value>]`), or an empty string if there's nothing worth
   ## showing. The base case (commands, flags, and message args) has no
   ## notion of a displayable default; `ValueArg`/`ValuesArg` override it
-  ## through their untyped base (`argumint/argtypes`).
+  ## through their untyped base (`argumint/values/argtypes`).
   ""
 
 method accumulates*(self: Arg): bool {.base.} = false
@@ -412,7 +413,7 @@ method completions*(self: Arg): seq[string] {.base.} = @[]
   ## spelling), for shell-completion purposes -- or `@[]` if unenumerable or
   ## not applicable. The base case (commands, flags, message args -- none of
   ## which carry a `Validator`) has nothing to show; `ValueArg`/`ValuesArg`
-  ## override it through their untyped base (`argumint/argtypes`).
+  ## override it through their untyped base (`argumint/values/argtypes`).
 
 method validatorHelp*(self: Arg): StyledText {.base.} =
   ## Returns a short description of what values `self` accepts (e.g.
@@ -421,7 +422,7 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## and all: help drops them for styled output. The base case (commands and
   ## message args, neither of which has a validator) has nothing to show;
   ## `ValueArg`/`ValuesArg` and `FlagArg` override it through their untyped
-  ## bases (`argumint/argtypes`).
+  ## bases (`argumint/values/argtypes`).
   discard
 
 method variantDesc*(self: Arg, variant: string): string {.base.} =

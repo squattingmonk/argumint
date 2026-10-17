@@ -6,7 +6,7 @@
 import std/math
 import std/options
 
-import ./style
+import ../text/style
 
 type
   FlagClampKind = enum
@@ -35,7 +35,7 @@ proc clamp*[T](bounds: Slice[T], desc = none(string)): FlagClamp[T] =
   ## checked here, so a flag of a type without it works unclamped (see
   ## `docs/adr/0070-flag-operations-are-closures.md`). Not named `range` --
   ## that name
-  ## collides ambiguously with `argumint/validators`' `range` the moment
+  ## collides ambiguously with `argumint/values/validators`' `range` the moment
   ## both modules are imported together (identical `(Slice[T], desc = "")`
   ## shape). `clamp` itself doesn't collide with `system.clamp`/
   ## `std/math.clamp` (both take a value as their first, required arg, a
@@ -85,7 +85,7 @@ proc help*[T](self: FlagClamp[T]): string =
   ## meaningful to show. `self.desc`, if `some("...")`, is shown instead of
   ## the auto-generated text; if `some("")`, suppresses help output
   ## entirely (see issue #12) regardless of what auto-generation would
-  ## otherwise produce. Same name as `argumint/validators`'
+  ## otherwise produce. Same name as `argumint/values/validators`'
   ## `Validator[T].help` -- unlike `range` above, this doesn't collide: the
   ## two take different concrete parameter types (`FlagClamp[T]` vs
   ## `Validator[T]`), which Nim's overload resolution filters on before

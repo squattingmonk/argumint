@@ -1,7 +1,7 @@
 # Locks down what `import argumint` alone does and doesn't put in scope --
 # see docs/adr/0030-core-types-exported-spec-opaque.md.
 #
-# This file must import *only* `argumint`. Adding `import argumint/backend`
+# This file must import *only* `argumint`. Adding `import argumint/core/backend`
 # (or any other submodule) would make every negative assertion below pass
 # vacuously, which is exactly the workaround the ADR exists to remove.
 #
@@ -10,10 +10,10 @@
 # "Library-internal names ... unreachable" suite, which does import the
 # internals. Neither half means much alone; add to both together.
 #
-# One exception: `BoundOp` is private to `src/argumint/argtypes.nim` itself,
-# not merely withheld from this facade, so no importer can name it. Its
-# mirror lives in that file's own embedded "the export boundary drawn in
-# issue #27" suite instead.
+# One exception: `BoundOp` is private to `src/argumint/values/argtypes.nim`
+# itself, not merely withheld from this facade, so no importer can name it. Its
+# mirror lives in that file's own embedded "the export boundary drawn in issue
+# #27" suite instead.
 #
 # A second: `genHelp` isn't private at all -- it's exported from
 # `argumint/help` and merely not re-exported here (see
@@ -23,7 +23,7 @@
 #
 # A third, of exactly the `BoundOp` kind: the string-to-scalar conversions
 # (`toBool`/`toChar`, and `toNumber` behind the rest) and `fromString` are
-# private to `src/argumint/argtypes.nim` -- not merely withheld from this
+# private to `src/argumint/values/argtypes.nim` -- not merely withheld from this
 # facade -- so no importer can name them. Their mirrors live in that file's
 # own embedded suite alongside `BoundOp`'s.
 
@@ -64,7 +64,7 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(FlagArg[bool])
 
   test "the untyped bases under `ValueArg`/`ValuesArg` and `FlagArg` stay out of the facade":
-    # Exported from `argumint/argtypes` for the facade only. Mirrored by
+    # Exported from `argumint/values/argtypes` for the facade only. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
     check not nameable(ValueArgBase)
     check not nameable(FlagArgBase)
@@ -92,8 +92,8 @@ suite "Types nameable after a bare `import argumint`":
     check not declared(chooseWidth)
 
   test "spec construction's public half survives moving out of `argumint.nim`":
-    # Issue #49 split `newSpec` into `argumint/specbuild` and the three
-    # constructors that never read a usage string into `argumint/backend`.
+    # Issue #49 split `newSpec` into `argumint/grammar/specbuild` and the three
+    # constructors that never read a usage string into `argumint/core/backend`.
     # `env`/`toEnvSource` resolved through another path before the move,
     # which made them no less public -- so assert all of them here.
     check compiles(newSpecSettings(width = 100))
@@ -172,10 +172,10 @@ suite "Types nameable after a bare `import argumint`":
 
   test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
     # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
-    # field into `argumint/argtypes`, keeping every public name here. Those
-    # bookends are exported from that module only so this facade's generic
-    # constructors, accessors, `flagOp` and `flagOpIt` can reach them --
-    # see `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
+    # field into `argumint/values/argtypes`, keeping every public name here.
+    # Those bookends are exported from that module only so this facade's generic
+    # constructors, accessors, `flagOp` and `flagOpIt` can reach them -- see
+    # `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
     # `test_argumint.nim`'s "Library-internal names ..." suite.
     check not compiles(initValueArg[string](Optional, "-n", "x", "", "Options", false, noValidator[string]()))
     check not compiles(initValuesArg[string](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
@@ -191,7 +191,7 @@ suite "Types nameable after a bare `import argumint`":
     # header.
     check not compiles(fromString[int]("5"))
 
-  test "the string-to-scalar conversions stay private to `argumint/argtypes`":
+  test "the string-to-scalar conversions stay private to `argumint/values/argtypes`":
     # `fromString` calls them by name, and nothing else does. Exporting them
     # as converters would put `let n: int = "5"` in scope for everyone who
     # imports argumint.
@@ -212,8 +212,8 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(FlagOp[int])
 
   test "the FSM plumbing types stay unexported":
-    # Implementation, not API: their operations live in `argumint/fsmgraph`,
-    # which isn't re-exported either.
+    # Implementation, not API: their operations live in
+    # `argumint/grammar/fsmgraph`, which isn't re-exported either.
     check not nameable(State)
     check not nameable(Transition)
     check not nameable(Matcher)
@@ -256,7 +256,7 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
-    # Each has a read accessor in `argumint/backend`, withheld from the
+    # Each has a read accessor in `argumint/core/backend`, withheld from the
     # facade -- so these pin "withheld", mirrored by `tests/test_argumint.nim`
     # reading them. `usage`/`prolog`/`epilog` are also re-exported from
     # `argumint/help` for custom Help Formatters; like `genHelp`, they're
@@ -378,8 +378,8 @@ suite "`ValueArg`/`FlagArg` are opaque handles too":
 
   test "the read accessors behind `get` stay unreachable too":
     # `get*`/`toT*`/`toSeqT*` are written against `rawValue`/`rawDefault`
-    # (`argumint/argtypes`), which reach the private fields above on their
-    # behalf. Exporting them would reopen those fields under another name.
+    # (`argumint/values/argtypes`), which reach the private fields above on
+    # their behalf. Exporting them would reopen those fields under another name.
     check not compiles(name.rawValue)
     check not compiles(name.rawDefault)
     check not compiles(tags.rawValue)

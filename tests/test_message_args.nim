@@ -9,7 +9,7 @@
 import std/[strutils, unittest]
 
 import argumint
-import argumint/argtypes
+import argumint/values/argtypes
 
 type
   Color = enum red, green, blue

@@ -10,7 +10,7 @@
 ## -- see `docs/architecture.md` §3.
 import std/[options, sets, tables]
 
-import ./[backend, complaints, configsource, envvar]
+import ./complaints, ../core/[backend, envvar], ../configsource
 
 type
   FallbackTier* = range[byConfig..byEnv]
@@ -71,7 +71,7 @@ proc initTiers*(settings: SpecSettings): Tiers =
   Tiers(settings: settings)
 
 proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[string]] =
-  ## What `t` supplies for `arg` -- `argumint/envvar` and
+  ## What `t` supplies for `arg` -- `argumint/core/envvar` and
   ## `argumint/configsource` each answer for their own tier.
   case t
   of byEnv:

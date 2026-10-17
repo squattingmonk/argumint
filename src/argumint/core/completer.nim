@@ -1,9 +1,9 @@
 ## The Completer model: what an Arg declares about completing its value
 ## (`Completer`, built from a `CompleterProc` or a fixed `Offer`), what a
 ## Completer is told (`CompletionContext`), and what it answers (`Offer`,
-## its `CompletionCandidate`s and `PathCompletion`). `argumint/completion`
+## its `CompletionCandidate`s and `PathCompletion`). `argumint/walk/completion`
 ## is the other half: how a shell's request is answered, using these. A
-## leaf, below `argumint/backend`, whose `Arg.complete` field needs it. See
+## leaf, below `argumint/core/backend`, whose `Arg.complete` field needs it. See
 ## `docs/adr/0071-runtime-completers.md`.
 
 import std/strutils

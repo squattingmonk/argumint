@@ -2,7 +2,7 @@
 ## be navigated by command-line arguments.
 import std/[lexbase, pegs, streams, strformat, strutils]
 
-import ./[errors, variant]
+import ../core/[errors, variant]
 export SpecDefect ## Defined in `errors.nim` with the rest of the taxonomy;
   ## re-exported so importing this module alone still names what it raises.
 

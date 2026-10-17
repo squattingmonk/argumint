@@ -1,5 +1,5 @@
 ## Direct tests for the Value Precedence fallback tiers
-## (`argumint/precedence.nim`) -- `docs/adr/0005-env-supplied-multi-value-
+## (`argumint/walk/precedence.nim`) -- `docs/adr/0005-env-supplied-multi-value-
 ## options-and-flags.md`, `docs/adr/0018-config-source.md`, and
 ## `docs/adr/0039-per-arg-provenance.md`. These moved out of `fsm.nim`'s own
 ## `when isMainModule` block once the module they belong to existed. See
@@ -8,7 +8,8 @@
 import std/[options, os, strutils, unittest]
 
 import argumint
-import argumint/[backend, complaints, configsource, precedence]
+import argumint/configsource, argumint/core/backend,
+  argumint/walk/[complaints, precedence]
 
 type
   TestArg = ref object of Arg

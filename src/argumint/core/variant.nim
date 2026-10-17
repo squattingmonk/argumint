@@ -63,7 +63,7 @@ proc parseVariant*(variant: string, shape: VariantShape):
 
 when isMainModule:
   import std/unittest
-  import ./lexer
+  import ../grammar/lexer
 
   type Row = tuple[variant: string, shape: VariantShape, name, metavar: string]
     ## `name == ""` means `parseVariant` rejects it.
