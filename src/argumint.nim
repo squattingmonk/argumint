@@ -292,11 +292,13 @@ proc arg*[T: not seq](variants: string, default: T = zeroValue[T](),
   ## - `default` is the default value of the argument if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
   ##   `false`), or a range type's lowest value if that excludes zero.
-  ## - `help` is a short description of the argument used in help messages.
+  ## - `help` is the argument's Help Text, shown in help messages: a string,
+  ##   or a `(short, long)` pair whose `long` Paragraph Style prefers -- see
+  ##   `docs/adr/0049-help-text-short-long-pair.md`.
   ## - `group` determines how arguments are grouped in help messages; empty
   ##   means `Arguments`.
   ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
+  ##   completion; it still parses.
   ## - `validator` is a `Validator` object of type `T` used to validate parsed
   ##   values. For example, `choice(["foo", "bar"])` would limit possible string
   ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
@@ -307,9 +309,9 @@ proc arg*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   directories to descend into, `Dirs`, or `None`), or `files` with
   ##   patterns. By default it offers `validator`'s values if it lists any,
   ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
-  result = initValueArg[T](kind = Positional, variants = variants, default = default,
-    help = help, group = group, hidden = hidden, validator = validator)
-  result.complete = complete
+  initValueArg[T](kind = Positional, variants = variants, default = default,
+    help = help, group = group, hidden = hidden, validator = validator,
+    complete = complete)
 
 proc arg*(variants: string, default: string = "", help: HelpText = "",
     group = "", hidden = false,
@@ -331,24 +333,14 @@ proc args*[T: not seq](variants: string, default: seq[T] = @[],
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value(s) of the argument if not given by the
   ##   user; defaults to an empty seq.
-  ## - `help` is a short description of the argument used in help messages.
   ## - `group` determines how arguments are grouped in help messages; empty
   ##   means `Arguments`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
-  ## - `validator` is a `Validator` object of type `T` used to validate parsed
-  ##   values. For example, `choice(["foo", "bar"])` would limit possible string
-  ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
-  ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
-  ##   given.
-  ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`), or `files` with
-  ##   patterns. By default it offers `validator`'s values if it lists any,
-  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
-  result = initValuesArg[T](kind = Positional, variants = variants, default = default,
-    help = help, group = group, hidden = hidden, validator = validator)
-  result.complete = complete
+  ##
+  ## `help`, `hidden`, `validator` (run on each value) and `complete` are as
+  ## on `arg[T]`.
+  initValuesArg[T](kind = Positional, variants = variants, default = default,
+    help = help, group = group, hidden = hidden, validator = validator,
+    complete = complete)
 
 proc args*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "", hidden = false,
@@ -374,16 +366,8 @@ proc opt*[T: not seq](variants: string, default: T = zeroValue[T](),
   ## - `default` is the default value of the option if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
   ##   `false`), or a range type's lowest value if that excludes zero.
-  ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
-  ## - `validator` is a `Validator` object of type `T` used to validate parsed
-  ##   values. For example, `choice(["foo", "bar"])` would limit possible string
-  ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
-  ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
-  ##   given.
   ## - `env` optionally names an environment variable supplying this
   ##   option's value when none is given on the command line (a CLI value
   ##   always wins), converted/validated the same way. Applies whether the
@@ -401,15 +385,11 @@ proc opt*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   neither a CLI nor an env value is given -- consulted below env in Value
   ##   Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
-  ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`), or `files` with
-  ##   patterns. By default it offers `validator`'s values if it lists any,
-  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
-  result = initValueArg[T](kind = Optional, variants = variants, default = default,
+  ##
+  ## `help`, `hidden`, `validator` and `complete` are as on `arg[T]`.
+  initValueArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
-    env = env, cfgKey = configKey)
-  result.complete = complete
+    env = env, cfgKey = configKey, complete = complete)
 
 proc opt*(variants: string, default: string = "", help: HelpText = "",
     group = "", hidden = false,
@@ -436,40 +416,18 @@ proc opts*[T: not seq](variants: string, default: seq[T] = @[],
   ##   may optionally include a help var (e.g., `--option=<value>`).
   ## - `default` is the default value(s) of the option if not given by the
   ##   user; defaults to an empty seq.
-  ## - `help` is a short description of the option used in help messages.
   ## - `group` determines how options are grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
-  ## - `validator` is a `Validator` object of type `T` used to validate parsed
-  ##   values. For example, `choice(["foo", "bar"])` would limit possible string
-  ##   values to `foo` and `bar`, while `range(0..4)` would limit int values to
-  ##   0-4. If `nil`, no validation will be performed and any valid `T` can be
-  ##   given.
-  ## - `env` optionally names an environment variable supplying this
-  ##   option's value(s) when none are given on the command line (a CLI
-  ##   value always wins), converted/validated the same way. The raw value
-  ##   is split on `Spec.settings.envDelim` into as many values as this option's
-  ##   position(s) can consume -- see
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
-  ##   plain string names the env var alone; `env("NAME", delim)` also
-  ##   overrides the delimiter for this option only (`delim = ""` disables
-  ##   splitting entirely) -- see
-  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
-  ## - `configKey` optionally names a structured path supplying this
-  ##   option's value(s) from a registered Config Source when none are
-  ##   given on the command line or via env -- consulted below env in
-  ##   Value Precedence, above the coded default. See
-  ##   `docs/adr/0018-config-source.md`.
-  ## - `complete` is how shell completion offers the value: a
-  ##   `CompleterProc` run at each Tab, a `PathCompletion` (`Files`, with
-  ##   directories to descend into, `Dirs`, or `None`), or `files` with
-  ##   patterns. By default it offers `validator`'s values if it lists any,
-  ##   otherwise files -- see `docs/adr/0071-runtime-completers.md`.
-  result = initValuesArg[T](kind = Optional, variants = variants, default = default,
+  ##
+  ## `env` and `configKey` are as on `opt[T]`, except that an env value is
+  ## split on `Spec.settings.envDelim` into as many values as this option's
+  ## position(s) can consume -- see
+  ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. `help`,
+  ## `hidden`, `validator` (run on each value) and `complete` are as on
+  ## `arg[T]`.
+  initValuesArg[T](kind = Optional, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
-    env = env, cfgKey = configKey)
-  result.complete = complete
+    env = env, cfgKey = configKey, complete = complete)
 
 proc opts*(variants: string, default: seq[string] = @[], help: HelpText = "",
     group = "", hidden = false, validator: Validator[string] = noValidator[string](),
@@ -539,32 +497,23 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ##   range type's lowest value if that excludes zero.
   ## - `group` determines how flags are grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
   ## - `clamp` optionally attaches a `FlagClamp` (`argumint/flagclamp`),
   ##   silently adjusting this flag's value after every Flag Operation --
   ##   never raises, unlike a `Validator` (which never applies to a Flag in
   ##   the first place). `default` must already satisfy `clamp`, or spec
   ##   construction raises `SpecDefect` -- see
   ##   `docs/adr/0016-flag-clamp.md`.
-  ## - `env` optionally names an environment variable supplying this
-  ##   flag's value when none is given on the command line (a CLI flag
-  ##   always wins). Each env value must name one of the flag's own
-  ##   declared Variants (e.g. `--verbose`); an unrecognized name raises
-  ##   `ParseError`. A flag matched more than once can take multiple env
-  ##   values, split on `Spec.settings.envDelim` -- see
-  ##   `docs/adr/0004-required-options-env-fallback.md` and
-  ##   `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`. A
-  ##   plain string names the env var alone; `env("NAME", delim)` also
-  ##   overrides the delimiter for this flag only (`delim = ""` disables
-  ##   splitting entirely) -- see
-  ##   `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
+  ## - `env` is as on `opt[T]`, except that each env value must name one of
+  ##   the flag's own declared Variants (e.g. `--verbose`); an unrecognized
+  ##   name raises `ParseError`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
   ##   the command line or via env -- each value must name one of the
   ##   flag's own declared Variants, same as `env`. Consulted below env in
   ##   Value Precedence, above the coded default. See
   ##   `docs/adr/0018-config-source.md`.
+  ##
+  ## `help` and `hidden` are as on `arg[T]`.
   initFlagArg[T](variants = variants, ops = ops, default = default,
     help = help, group = group, hidden = hidden, clamp = clamp,
     env = env, cfgKey = configKey)
@@ -611,7 +560,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## - `variants` is a comma-separated list of names by which the command can be
   ##   called by the user.
   ## - `spec` is a spec tuple representing all possible args this command takes.
-  ## - `help` is a short description of the command used in help messages.
+  ## - `help` is the command's Help Text, as on `arg[T]`.
   ## - `prolog` is the front matter for help messages generated for this
   ##   command. Use this to provide a detailed description of the command's
   ##   purpose.
@@ -620,8 +569,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ##   invoked.
   ## - `group` determines how this command is grouped in help messages;
   ##   empty means `Commands`.
-  ## - `hidden`, if `true`, keeps the command out of help messages and shell
-  ##   completion; it still parses
+  ## - `hidden` is as on `arg[T]`.
   ## - `before` fires once this command's own `spec`'s values are parsed
   ## - `action` fires after `before`, but only if this command is the dynamic
   ##   leaf (no nested command was also matched)
@@ -635,7 +583,7 @@ proc command*[S](variants: string, spec: S, help: HelpText = "",
   ## For more information on how before/action/after hooks are used, see
   ## `docs/adr/0009-command-before-action-after-hooks.md`.
   ##
-  ## Note: `config` is deliberately not a parameter here: it cascades down
+  ## Note: `settings` is deliberately not a parameter here: it cascades down
   ## by reference from whatever the top-level `newSpec`/`parse*` call is
   ## given, so it only needs to be specified once regardless of how deeply
   ## nested this command is.
@@ -654,42 +602,14 @@ proc command*[S, O](variants: string, spec: S, options: O, help: HelpText = "",
     before: proc(spec: S, opts: O, info: HookInfo) = nil,
     action: proc(spec: S, opts: O, info: HookInfo) = nil,
     after: proc(spec: S, opts: O, info: HookInfo) = nil): CommandArg =
-  ## - `variants` is a comma-separated list of names by which the command can be
-  ##   called by the user.
-  ## - `spec` is a spec tuple representing all possible args this command takes.
   ## - `options` is a generic extra-context passthrough, not necessarily
   ##   CLI-options-shaped data -- typically the caller's enclosing/parent spec
   ##   tuple (or any other context object), so a nested command's hooks can
   ##   read outer/global state that `spec: S` alone -- scoped to just this
-  ##   command's own tuple -- wouldn't otherwise expose.
-  ## - `help` is a short description of the command used in help messages.
-  ## - `prolog` is the front matter for help messages generated for this
-  ##   command. Use this to provide a detailed description of the command's
-  ##   purpose.
-  ## - `epilog` is the end matter for help messages generated for this command.
-  ## - `usage` is the usage string that controls how the command's args can be
-  ##   invoked.
-  ## - `group` determines how this command is grouped in help messages;
-  ##   empty means `Commands`.
-  ## - `hidden`, if `true`, keeps the command out of help messages and shell
-  ##   completion; it still parses
-  ## - `before` fires once this command's own `spec`'s values are parsed
-  ## - `action` fires after `before`, but only if this command is the dynamic
-  ##   leaf (no nested command was also matched)
-  ## - `after` fires after this command's own `before`/`action`/nested dispatch.
-  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
-  ##   during this whole invocation (not just this command's own level) --
-  ##   e.g. `info.showsMessage` to skip expensive hook work for a
-  ##   `--help`/`--version`/message request. See
-  ##   `docs/adr/0021-hook-info-matched-args.md`.
+  ##   command's own tuple -- wouldn't otherwise expose. Each hook receives
+  ##   it as `opts`, between `spec` and `info`.
   ##
-  ## For more information on how before/action/after hooks are used, see
-  ## `docs/adr/0009-command-before-action-after-hooks.md`.
-  ##
-  ## Note: `config` is deliberately not a parameter here: it cascades down
-  ## by reference from whatever the top-level `newSpec`/`parse*` call is
-  ## given, so it only needs to be specified once regardless of how deeply
-  ## nested this command is.
+  ## Every other parameter is as on `command[S]`.
   command(variants, spec, help, prolog, epilog, usage, group, hidden,
     before = if before.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = before(spec, options, info)),
     action = if action.isNil: nil else: (proc(cmdSpec: S, info: HookInfo) = action(spec, options, info)),
@@ -701,11 +621,10 @@ proc help*(variants = "-h, --help", help: HelpText = "Display this help message"
   ## for the spec in whose context it was called.
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-o` or `--option`.
-  ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
+  ##
+  ## `help` and `hidden` are as on `arg[T]`.
   HelpArg(kind: Flag, variants: splitVariants(variants), help: help,
     group: group.groupOr(Flag), hidden: hidden, formatter: formatter)
 
@@ -716,11 +635,10 @@ proc message*(variants: string, text: string, help: HelpText = "",
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-o` or `--option`.
   ## - `text` is the message to display when the flag is matched.
-  ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
+  ##
+  ## `help` and `hidden` are as on `arg[T]`.
   MessageArg(kind: Flag, variants: splitVariants(variants), message: text,
     help: help, group: group.groupOr(Flag), hidden: hidden)
 
@@ -731,11 +649,10 @@ proc version*(variants: string, version: string,
   ## - `variants` is a comma-separated list of names by which the flag is
   ##   presented to the user. These must take the form `-v` or `--version`.
   ## - `version` is the message to display when the flag is matched.
-  ## - `help` is a short description of the flag used in help messages.
   ## - `group` determines how the flag is grouped in help messages; empty
   ##   means `Options`.
-  ## - `hidden`, if `true`, keeps the arg out of help messages and shell
-  ##   completion; it still parses
+  ##
+  ## `help` and `hidden` are as on `arg[T]`.
   message(variants, version, help, group, hidden)
 
 type
@@ -771,19 +688,15 @@ proc completion*(variants = "completion",
   ## `docs/adr/0074-built-in-completion-command.md`.
   ## - `variants` is a comma-separated list of names by which the command can
   ##   be called by the user.
-  ## - `help` is a short description of the command used in help messages.
   ## - `prolog` and `epilog` head and end the command's own help message.
   ## - `group` determines how the command is grouped in help messages; empty
   ##   means `Commands`.
-  ## - `hidden`, if `true`, keeps the command out of help messages and shell
-  ##   completion; it still parses
   ##
-  ## To write the script at build or install time instead, see
+  ## `help` and `hidden` are as on `arg[T]`. To write the script at build or install time instead, see
   ## `completionScript`.
   # `<shell>` is required, so `default` is never used.
   let shell = initValueArg(ShellArg, kind = Positional, variants = "<shell>",
-    default = Shell.bash, help = "The shell to complete in", group = "",
-    hidden = false, validator = noValidator[Shell]())
+    default = Shell.bash, help = "The shell to complete in")
   command(variants, (shell: shell, help: help()), help, prolog, epilog,
     group = group, hidden = hidden)
 
@@ -854,28 +767,7 @@ proc parseOrQuit*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## Like `parse*(tuple)`, but prints a message and `quit()`s instead of
   ## raising on failure -- intended for a bare CLI `main()`, not for
   ## embedding in a larger program.
-  ## - `usage` is the usage string used to build the FSM. See
-  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
-  ##   `usage` are auto-filled.
-  ## - `prolog` is the front matter for help messages generated from this spec.
-  ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
-  ##   `newSpecSettings`. Shared by reference with every nested subcommand's
-  ##   spec; mutating it later (e.g. from a `before` hook) applies live
-  ##   throughout the tree.
-  ## - `args` is the command-line arguments to parse using the spec.
-  ## - `command` is the name of the binary to use in help messages.
-  ## - `before` fires once this `spec`'s own values are parsed
-  ## - `action` fires after `before`, but only if this spec is the dynamic leaf
-  ##   (no nested command was matched)
-  ## - `after` fires after this spec's own `before`/`action`/nested dispatch.
-  ## - Each hook receives `info: HookInfo`, a view of every Arg matched
-  ##   during this whole invocation -- e.g. `info.showsMessage` to skip
-  ##   expensive hook work for a `--help`/`--version`/message request. See
-  ##   `docs/adr/0021-hook-info-matched-args.md`.
-  ##
-  ## `before`/`action`/`after` are app-level hooks around the
-  ## whole parse -- see `docs/adr/0009-command-before-action-after-hooks.md`.
+  ## Every parameter is as on `parse*(tuple)`.
   ##
   ## `spec` is **single-use**: parsing more than once accumulates into the
   ## same Args rather than starting fresh. Use `parsedOrQuit*` to parse a
@@ -902,7 +794,7 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.
-  ## - `settings` holds `width`/`maxVariantsWidth`/`envDelim` -- see
+  ## - `settings` is the `SpecSettings` the whole tree shares -- see
   ##   `newSpecSettings`. Shared by reference with every nested subcommand's
   ##   spec; mutating it later (e.g. from a `before` hook) applies live
   ##   throughout the tree.

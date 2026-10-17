@@ -701,16 +701,20 @@ template setValueArgFields(arg: typed, H: typedesc, isMulti: bool) =
   arg.validator = validator
   arg.env = env
   arg.cfgKey = cfgKey
+  arg.complete = complete
   arg.multi = isMulti
   arg.write = writeHook[H]
   arg.reset = resetHook[H]
   arg.describe = describeHook[H]
 
 proc initValueArg*[A: ValueArgBase, T: not seq](_: typedesc[A], kind: ArgKind,
-    variants: string, default: T, help: HelpText, group: string, hidden: bool,
-    validator: Validator[T], env = none(EnvSource), cfgKey = noConfigKey()): A =
+    variants: string, default: T, help: HelpText = "", group = "",
+    hidden = false, validator: Validator[T] = noValidator[T](),
+    env = none(EnvSource), cfgKey = noConfigKey(),
+    complete = default(Completer)): A =
   ## Builds `A`, a `ValueArg[T]` or a subtype of one declared in any module
-  ## -- e.g. a Message Argument overriding `isMessage` and `action`. Fields
+  ## -- e.g. a Message Argument overriding `isMessage` and `action`. Every
+  ## parameter after `default` defaults as on `arg*`/`opt*`. Fields
   ## go through a `ValueArg[T]` view and the hooks are `ValueArg[T]`'s, since
   ## `A(...)` can't set private fields from a foreign `A`. See
   ## docs/gotchas.md.
@@ -719,19 +723,21 @@ proc initValueArg*[A: ValueArgBase, T: not seq](_: typedesc[A], kind: ArgKind,
   setValueArgFields(ValueArg[T](result), ValueArg[T], false)
 
 proc initValueArg*[T: not seq](kind: ArgKind, variants: string, default: T,
-    help: HelpText, group: string, hidden: bool, validator: Validator[T],
-    env = none(EnvSource), cfgKey = noConfigKey()): ValueArg[T] =
+    help: HelpText = "", group = "", hidden = false,
+    validator: Validator[T] = noValidator[T](), env = none(EnvSource),
+    cfgKey = noConfigKey(), complete = default(Completer)): ValueArg[T] =
   ## Builds a `ValueArg[T]`, splitting `variants` on commas. Behind `arg*`
   ## (`kind = Positional`, no `env`/`cfgKey`) and `opt*` (`kind =
   ## Optional`). Call it with named arguments: `help`/`group` are adjacent
   ## same-typed parameters that a positional call could swap silently.
   initValueArg(ValueArg[T], kind = kind, variants = variants, default = default,
     help = help, group = group, hidden = hidden, validator = validator,
-    env = env, cfgKey = cfgKey)
+    env = env, cfgKey = cfgKey, complete = complete)
 
 proc initValuesArg*[T: not seq](kind: ArgKind, variants: string, default: seq[T],
-    help: HelpText, group: string, hidden: bool, validator: Validator[T],
-    env = none(EnvSource), cfgKey = noConfigKey()): ValuesArg[T] =
+    help: HelpText = "", group = "", hidden = false,
+    validator: Validator[T] = noValidator[T](), env = none(EnvSource),
+    cfgKey = noConfigKey(), complete = default(Completer)): ValuesArg[T] =
   ## Builds a `ValuesArg[T]`, behind `args*` and `opts*`. See
   ## `initValueArg`.
   requireValueType(T)
