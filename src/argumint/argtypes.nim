@@ -754,8 +754,8 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
   ## Bare spellings in `variants` run `T`'s Implicit Operation, and form one
   ## FlagOp Alias group; each of `ops` forms its own, even if two run the
   ## same operation (see docs/adr/0027).
-  result = FlagArg[T](kind: Flag, variants: @[], value: default, default: default,
-    help: help, group: group.groupOr(Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
+  result = FlagArg[T](kind: ArgKind.Flag, variants: @[], value: default, default: default,
+    help: help, group: group.groupOr(ArgKind.Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     reset: resetFlagHook[FlagArg[T]], describe: describeFlagHook[FlagArg[T]])
   var implicit = implicitOp(default)
   implicit.spellings = splitFlagSpellings(variants)

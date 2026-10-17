@@ -43,8 +43,8 @@ re-exports it. `completion.nim` is the other half, much higher up: how a
 shell's request is answered, using these (see "Completers" in §6).
 
 `variant.nim` is the other grammar leaf: the Variant grammar, written once
-as PEG source fragments (`ShortName`, `LongName`, `Angled`, `Upper`,
-`Equals`, `CommandName`). Three readers build their patterns from them, so
+as PEG source fragments (`ShortChar`, `ShortName`, `LongName`,
+`AngledName`, `Angled`, `Upper`, `Equals`, `CommandName`). Three readers build their patterns from them, so
 none can drift from the others: the lexer's usage-string tokens, `tokens`'
 runtime option shapes, and `parseVariant`, which reads one declared Variant
 against a `VariantShape` and returns its bare name and metavar, or `none`.

@@ -16,16 +16,21 @@ const
   ShortChar* = "[a-zA-Z0-9]"
     ## A short option's one character, and each of a `-abc` cluster's.
   ShortName* = "'-' " & ShortChar
+    ## A short option: `-o`.
   LongName* = "'--' \\w (\\w / ('-' \\w))+"
+    ## A long option of two or more characters: `--dry-run`, `--dry_run`.
   AngledName* = "\\w (\\w / ('-' \\w))*"
     ## The name inside `<...>`, for a positional or a metavar.
   Angled* = "'<' " & AngledName & " '>'"
+    ## An angle-bracketed positional or metavar (`<src>`).
   Upper* = "[A-Z0-9] ([A-Z0-9] / ([_-] [A-Z0-9]))*"
     ## An all-caps positional or metavar (`SRC`, `FILE-2`). The lexer
     ## follows it with `![a-z]`, so `X1a` reads as a command.
   Equals* = "[=:]"
     ## What joins an option to its metavar or value.
   CommandName* = "\\w (\\w / '-')*"
+    ## A command's name. `parseVariant` also rejects an `Upper` word, which
+    ## the lexer reads as a positional.
 
 let
   Comma = peg"\s* ',' \s*"
