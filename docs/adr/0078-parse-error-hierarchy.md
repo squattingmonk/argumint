@@ -27,8 +27,8 @@ from a value that won't convert without matching on `msg`.
 3. **A failure is raised as the subtype every complaint shares, or else
    `ParseError`.** This is ADR 0077's "most specific type covering every
    failure", with the hierarchy filled in. A validation failure beside a
-   conversion failure raises `ParseError`, as before. argumint never
-   raises a bare `ParseError` itself.
+   conversion failure raises `ParseError`, as before. A single kind of
+   failure always raises its own subtype, never a bare `ParseError`.
 4. **A failure from user code is classified by its type.** A Custom Arg's
    `accept` or a custom Validator may raise any `ParseError`. A bare
    `ParseError` counts as itself, so any failure it joins raises
@@ -54,7 +54,8 @@ from a value that won't convert without matching on `msg`.
   program seldom branches on the difference.
 - **Oversupply as its own subtype, or a bare `ParseError`.** Where a value
   came from is rarely something a program branches on, and a bare
-  `ParseError` would break point 3's "never bare".
+  `ParseError` would make oversupply alone the one single kind of failure
+  without a subtype of its own.
 - **Structured fields,** such as the offending Arg or the complaint list.
   A failure can name several Args or none, and publishing the complaints
   would make their wording API. A field can be added later without

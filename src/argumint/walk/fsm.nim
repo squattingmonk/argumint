@@ -4,7 +4,8 @@ import std/[algorithm, os, tables]
 
 import ./[complaints, completion, matching, tokens],
   ../core/[backend, errors], ../grammar/parser
-export ParseError, SpecDefect, CompletionError
+export ParseError, UsageError, ConversionError, ValidationError, SpecDefect,
+  CompletionError
 
 proc reach(pc: ParseContext): Reach =
   ## This path's Reach (`CONTEXT.md`): where the first token it could not

@@ -94,14 +94,19 @@ suite "fallback-tier oversupply raises UsageError":
     check raised(s.parse(args = @[], command = "app",
       settings = plain())) == "UsageError"
 
-  test "beside a conversion failure, the two raise ParseError":
+suite "failures of more than one subtype raise ParseError":
+  setup:
+    putEnv "ARGUMINT_TEST_PORTS", "1,2"
+  teardown:
+    delEnv "ARGUMINT_TEST_PORTS"
+
+  test "oversupply beside a conversion failure":
     let s = (port: opt("--port=<n>", default = 1,
                env = env("ARGUMINT_TEST_PORTS", ","), help = ""),
              num: opt("--num=<n>", default = 1, help = ""))
     check raised(s.parse(args = @["--num", "x"], command = "app",
       settings = plain())) == "ParseError"
 
-suite "failures of more than one subtype raise ParseError":
   test "a validation failure beside a conversion failure":
     let s = (num: opt("--num=<n>", default = 1, validator = range(1..3), help = ""),
              max: opt("--max=<n>", default = 1, help = ""))

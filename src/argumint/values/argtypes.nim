@@ -644,7 +644,7 @@ proc describeFlagHook[A](self: FlagArgBase): StyledText =
 
 method accept(self: FlagArgBase, c: Contribution, how: Arbitration) =
   ## `c.value` is the Variant whose Flag Operation applies, on every tier.
-  ## One the flag doesn't have raises `ConversionError`.
+  ## A Variant the flag doesn't have raises `ConversionError`.
   if not self.ops.hasKey(c.value):
     raise newPlainError(ConversionError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
   if how == arReplace:

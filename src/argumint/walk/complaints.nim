@@ -13,9 +13,10 @@ import ./tokens, ../core/[backend, errors], ../text/style, ../grammar/usage
 
 type
   FailureKind = enum
-    ## Which `ParseError` a complaint is a case of, for `raiseFailure` to
-    ## pick the type covering all of them. `fkParse` is a bare `ParseError`
-    ## raised by user code. See ADR 0078.
+    ## A `ParseError` subtype, as data: which one a complaint is a case of,
+    ## and which one `raiseFailure` raises. `fkParse` is `ParseError` itself,
+    ## for complaints of mixed kinds or a bare one from user code. See ADR
+    ## 0078.
     fkUsage, fkConversion, fkValidation, fkParse
 
   Complaint = tuple
@@ -33,8 +34,8 @@ type
     aboutMessageArg: bool
       ## Whether it's about a Message Argument, which a Reach-tied merge drops
       ## beside any other complaint -- see ADR 0036
-    failure: FailureKind
-      ## Which `ParseError` it's a case of -- see `FailureKind`
+    cause: FailureKind
+      ## Which `ParseError` subtype it's a case of
 
   Leftover = TokenCursor
     ## One failed branch's unconsumed tokens, plus the context to
@@ -68,12 +69,12 @@ proc initReport*(spec: Spec, command: string): Report =
   Report(spec: spec, command: command)
 
 proc complaint(kind: string, subject: StyledText, names = false,
-    aboutMessageArg = false, failure = fkUsage): Complaint =
+    aboutMessageArg = false, cause = fkUsage): Complaint =
   ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
   ## pointing at a specific token the user typed -- see `Complaint.names`
   ## and ADR 0035. Pass `aboutMessageArg = true` for one about a Message
-  ## Argument. `failure` defaults to the walk's own kind, `fkUsage`.
-  (kind, subject, names, aboutMessageArg, failure)
+  ## Argument. `cause` defaults to the walk's own kind, `fkUsage`.
+  (kind, subject, names, aboutMessageArg, cause)
 
 proc dedupKey(c: Complaint): tuple[kind, subject: string, names: bool] =
   ## What makes two complaints the same: roles don't count, so styling never
@@ -231,12 +232,12 @@ proc store*(r: var Report, arg: Arg, value: string, variant = "",
     arg.parse(value, variant, seenBy)
     result = true
   except ParseError as e:
-    let failure =
+    let cause =
       if e of UsageError: fkUsage
       elif e of ConversionError: fkConversion
       elif e of ValidationError: fkValidation
       else: fkParse
-    r.messages.add complaint("", styled(e.msg), failure = failure)
+    r.messages.add complaint("", styled(e.msg), cause = cause)
 
 proc leftover*(r: var Report, cur: TokenCursor) =
   ## Records what a failed branch couldn't consume, for `finalComplaints` to
@@ -422,11 +423,11 @@ proc raiseFailure*(r: Report) =
   ## Raises `r.failureMessage` as the most specific type covering every
   ## complaint: the subtype they all share, else `ParseError`. A Report with
   ## only leftovers is a walk's, so `UsageError`. See ADR 0077 and ADR 0078.
-  let kind =
+  let cause =
     if r.messages.len == 0: fkUsage
-    elif r.messages.allIt(it.failure == r.messages[0].failure): r.messages[0].failure
+    elif r.messages.allIt(it.cause == r.messages[0].cause): r.messages[0].cause
     else: fkParse
-  case kind
+  case cause
   of fkUsage: raise r.failure(UsageError)
   of fkConversion: raise r.failure(ConversionError)
   of fkValidation: raise r.failure(ValidationError)

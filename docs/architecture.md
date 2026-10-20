@@ -46,10 +46,11 @@ ranges, arg types for defaults and conversion failures.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
 `ParseError` and its subtypes `UsageError`, `ConversionError` and
-`ValidationError`, `MessageError`, `HelpError`, `CompletionError`). Keeping them in a leaf is what lets any module name an
-exception without depending on whichever module raises it — `fsm.nim` needs
-`ValidationError` but has no business importing the validator combinators,
-and `lexer.nim` raises `SpecDefect` while staying free of everything above
+`ValidationError`, `MessageError`, `HelpError`, `CompletionError`).
+Keeping them in a leaf is what lets any module name an exception without
+depending on whichever module raises it — `complaints.nim` names every
+`ParseError` subtype but has no business importing the validator
+combinators or the arg types, and `lexer.nim` raises `SpecDefect` while staying free of everything above
 it. The two modules whose own API would be incomplete without one
 (`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
 re-export it, so importing either alone still names what it raises.
