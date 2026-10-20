@@ -194,31 +194,31 @@ moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
 both import it, the same shape as `tokens.nim`.
 
 `precedence.nim` sits directly above `complaints`/`configsource`/`envvar`
-and below `matching`/`fsm`, and holds everything Value Precedence's fallback
-tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
+and below `matching`/`fsm`, and holds everything Value Precedence's
+fallback tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
 members the two tiers supply) and `FallbackOrder` (`[byEnv, byConfig]`,
 strongest first, the order they're consulted in; iterating the type itself
 would run weakest first), `Tiers` (one `ValueCursor` per tier), `probe`,
-and `applyFallbacks`, which records a fallback that fails into its
-`Report` and carries on. `Tiers`
-replaces what used to be two loose `ParseContext` fields
-(`env`/`configValues`) plus six ad hoc closure constructions at their four
-call sites (`matching.match`'s `mkOption` arm, and `applyFallbacks`'s
-per-tier `resolve`/`setValue` pair) — a `resolve: proc ():
-Option[seq[string]]` parameter existed to keep `ValueCursor` tier-agnostic,
-but there are exactly two tiers, both compiled in, so it bought genericity
-nowhere it was spent; dispatching on `FallbackTier` via `case` inline
-replaces it, and also removes a `let spec = pc.cursor.spec` workaround
-`match`'s `mkOption` arm needed only because a closure can't capture a `var
-ParseContext` parameter. `fsm.nim` keeps only the walk itself and dispatch —
-`match`/`push` moved out to `matching.nim` entirely in issue #78, so this is
-no longer just a division of labor within one file. Unlike `argtypes`,
-`precedence` needs no withholding — `matching.nim` and `fsm.nim` both import
-it, the same shape as `tokens.nim`/`complaints.nim`. `initTiers(settings)`
-captures the parse's one `SpecSettings` (every level shares the root's), so
-`probe` and `applyFallbacks` take Args, never a `Spec`; `initParseContext`
-builds them for both the parse walk and completion's, since completion's
-walk probes too.
+and `applyFallbacks`, which records a fallback that fails into its `Report`
+and carries on. `Tiers` replaces what used to be two loose `ParseContext`
+fields (`env`/`configValues`) plus six ad hoc closure constructions at
+their four call sites (`matching.match`'s `mkOption` arm, and
+`applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve: proc
+(): Option[seq[string]]` parameter existed to keep `ValueCursor`
+tier-agnostic, but there are exactly two tiers, both compiled in, so it
+bought genericity nowhere it was spent; dispatching on `FallbackTier` via
+`case` inline replaces it, and also removes a `let spec = pc.cursor.spec`
+workaround `match`'s `mkOption` arm needed only because a closure can't
+capture a `var ParseContext` parameter. `fsm.nim` keeps only the walk
+itself and dispatch — `match`/`push` moved out to `matching.nim` entirely
+in issue #78, so this is no longer just a division of labor within one
+file. Unlike `argtypes`, `precedence` needs no withholding — `matching.nim`
+and `fsm.nim` both import it, the same shape as
+`tokens.nim`/`complaints.nim`. `initTiers(settings)` captures the parse's
+one `SpecSettings` (every level shares the root's), so `probe` and
+`applyFallbacks` take Args, never a `Spec`; `initParseContext` builds them
+for both the parse walk and completion's, since completion's walk probes
+too.
 
 `matching.nim` sits directly above `precedence` and below `completion`/
 `fsm`, and holds the matching primitives both the parse walk and shell
@@ -632,7 +632,7 @@ ADR 0059). `parseOrQuit*` prints its `outcome`: the `srError` label above
 `matching.storeValues` gives a conversion or validation failure that same
 shape, since its raise site in `arg.parse` has no view of the Spec. It
 seeds one `Report` with the live `(spec, command)`, catches each failure
-on every tier into it with `Report.failed` (a bare line, as `note` makes),
+on every tier into it with `Report.store` (a bare line, as `note` makes),
 and returns it with `applyFallbacks`' oversupply complaints alongside.
 `raiseFailure` raises `ValidationError` when every complaint is a
 Validator's, and `ParseError` otherwise. See

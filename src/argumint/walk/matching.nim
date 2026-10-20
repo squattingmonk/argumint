@@ -11,7 +11,7 @@
 
 import std/[algorithm, options, sets, strformat, sequtils, tables]
 
-import ./[complaints, precedence, tokens], ../core/[backend, errors], ../grammar/fsmgraph
+import ./[complaints, precedence, tokens], ../core/backend, ../grammar/fsmgraph
 
 type
   Match* = tuple[variant: string, value: string, spec: Spec, idx: int]
@@ -240,17 +240,13 @@ proc storeValues*(pc: var ParseContext): Report =
   ## `docs/adr/0013-message-args-fire-after-before.md` and
   ## `docs/adr/0071-runtime-completers.md`.
   result = initReport(pc.cursor.spec, pc.command)
-  var typed: seq[(Arg, Match)]
+  var allMatches: seq[(Arg, Match)]
   for arg, ms in pc.matches:
     for m in ms:
-      typed.add (arg, m)
-  # Typed order across every Arg: Flag Operations don't commute, and the
-  # complaints read in the order the user wrote them -- see `Match.idx`.
+      allMatches.add (arg, m)
   var closed: HashSet[Arg]
-  for (arg, m) in typed.sortedByIt(it[1].idx):
-    try:
-      arg.parse(m.value, m.variant, some(byCli))
-    except ParseError, ValidationError:
-      result.failed(getCurrentException())
+  # Typed order: Flag Operations don't commute -- see `Match.idx`.
+  for (arg, m) in allMatches.sortedByIt(it[1].idx):
+    if not result.store(arg, m.value, m.variant, some(byCli)):
       closed.incl arg
   applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), closed, result)

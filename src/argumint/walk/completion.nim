@@ -92,8 +92,9 @@ proc fill(tab: var Tab, pc: ParseContext) =
   ## Stores `pc`'s matches, then env and Config Source values, into the
   ## Args, as `parse` would but with no hooks. Once per Tab, from the first
   ## branch to need it, with nothing cleared; a value that fails is
-  ## skipped, and what `storeValues` reports is dropped. The fallback tiers are the ones `pc`'s walk probed, so an Arg
-  ## it walked keeps `parse`'s limit on how many values a tier supplies.
+  ## skipped, and what `storeValues` reports is dropped. The fallback tiers
+  ## are the ones `pc`'s walk probed, so an Arg it walked keeps `parse`'s
+  ## limit on how many values a tier supplies.
   ## See `docs/adr/0071-runtime-completers.md`.
   if tab.filled:
     return

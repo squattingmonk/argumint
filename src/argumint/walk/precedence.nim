@@ -10,7 +10,7 @@
 ## -- see `docs/architecture.md` §3.
 import std/[options, sets, tables]
 
-import ./complaints, ../core/[backend, envvar, errors], ../configsource
+import ./complaints, ../core/[backend, envvar], ../configsource
 
 type
   FallbackTier* = range[byConfig..byEnv]
@@ -161,10 +161,7 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   else:
     cursor.applied.incl arg
     for v in values:
-      try:
-        arg.parse(v, seenBy = some(SeenBy(t)))
-      except ParseError, ValidationError:
-        report.failed(getCurrentException())
+      discard report.store(arg, v, seenBy = some(SeenBy(t)))
 
 proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]],
     closed: HashSet[Arg], report: var Report) =

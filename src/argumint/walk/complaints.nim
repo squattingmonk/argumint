@@ -214,12 +214,21 @@ proc note*(r: var Report, msg: string) =
   ## ADR 0035.
   r.messages.add complaint("", styled(msg))
 
-proc failed*(r: var Report, e: ref Exception) =
-  ## Records a value that failed to convert (`ParseError`) or validate
-  ## (`ValidationError`) as a bare sentence, as `note` does, remembering
-  ## which it was for `raiseFailure`. `arg.parse` has no view of its spec,
-  ## so its failures are worded here, against the Report's. See ADR 0077.
-  r.messages.add complaint("", styled(e.msg), invalid = e of ValidationError)
+proc store*(r: var Report, arg: Arg, value: string, variant = "",
+    seenBy: Option[SeenBy]): bool =
+  ## Parses `value` into `arg`, returning whether it stored. A failure to
+  ## convert (`ParseError`) or validate (`ValidationError`) is recorded as
+  ## a bare sentence, as `note` does, remembering which it was for
+  ## `raiseFailure`; anything else propagates. `arg.parse` has no view of
+  ## its spec, so its failures are worded here, against the Report's. See
+  ## ADR 0077.
+  try:
+    arg.parse(value, variant, seenBy)
+    result = true
+  except ParseError as e:
+    r.messages.add complaint("", styled(e.msg))
+  except ValidationError as e:
+    r.messages.add complaint("", styled(e.msg), invalid = true)
 
 proc leftover*(r: var Report, cur: TokenCursor) =
   ## Records what a failed branch couldn't consume, for `finalComplaints` to
