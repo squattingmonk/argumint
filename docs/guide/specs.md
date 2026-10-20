@@ -248,8 +248,8 @@ port.clear()                              # forget it
 port.get                                  # 80, the default again
 ```
 
-A value that doesn't convert raises a `ParseError`, and one the validator
-rejects raises a `ValidationError`.
+A value that doesn't convert raises a `ConversionError`, and one the
+validator rejects raises a `ValidationError`.
 
 `seenBy` says which source your value counts as. It's an `Option`, so wrap
 the source in `some`: a plain `byCli` won't convert.

@@ -93,20 +93,23 @@ help.
 `parse` doesn't print or exit. It raises an exception, so a larger program
 can decide what to do:
 
-- `ParseError`: the command line doesn't fit the usage, or a value can't be
-  converted to its type.
-- `ValidationError`: a value failed its
-  [validator](args-and-options.md#validating-values).
+- `ParseError`: the user got something wrong. It comes as one of three
+  subtypes, so you can catch all mistakes at once or just one kind:
+  - `UsageError`: the command line doesn't fit the usage, such as an
+    unknown option or a missing argument.
+  - `ConversionError`: a value can't be converted to its type, such as
+    `--num x`.
+  - `ValidationError`: a value failed its
+    [validator](args-and-options.md#validating-values).
 - `MessageError`: the user asked for a
   [message](help.md#messages-and-versions), such as `--version`. Its two
   subtypes are `HelpError`, for help, and `CompletionError`, for a
   [completion](completion.md) request.
 
 When the command line fits the usage but more than one value is wrong,
-`parse` lists them all in one message, in the order they were typed. It
-raises a `ValidationError` only when every one of them failed its
-validator, and a `ParseError` otherwise. The values that were fine are
-still stored.
+`parse` lists them all in one message, in the order they were typed. If
+they're all the same kind of mistake, it raises that subtype, and a plain
+`ParseError` otherwise. The values that were fine are still stored.
 
 Each one's `msg` says what went wrong and shows the usage. This program
 prints it and exits with `2` for a mistake, as many tools do:
@@ -121,7 +124,7 @@ let spec = (
 
 try:
   spec.parse(usage = "[--num=<n>]")
-except ParseError, ValidationError:
+except ParseError:
   stderr.writeLine getCurrentExceptionMsg()
   quit 2
 except MessageError as e:
@@ -147,8 +150,10 @@ line, so you can write your own. `msg` is always plain text. For the
 coloured text `parseOrQuit` prints in a terminal, use `styledMsg`. See
 [Colour](help.md#colour).
 
-To handle help or completion differently from other messages, put
-`except HelpError` or `except CompletionError` above `except MessageError`.
+To handle one kind of mistake differently, put its `except` above
+`except ParseError`, such as `except ValidationError`. The same goes for
+help or completion: put `except HelpError` or `except CompletionError`
+above `except MessageError`.
 
 ## Strict Option Checking
 

@@ -499,7 +499,7 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ## - `env` is as on `opt[T]`, except that each env value isn't converted
   ##   but names one of the flag's own declared Variants (e.g. `--verbose`),
   ##   whose Flag Operation applies; an unrecognized name raises
-  ##   `ParseError`.
+  ##   `ConversionError`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
   ##   the command line or via env -- each value must name one of the
@@ -741,7 +741,7 @@ proc parseOrQuit*(spec: Spec, args: seq[string] = commandLineParams(), command =
   ## `docs/adr/0031-parsed-fresh-spec-per-parse.md`.
   try:
     spec.parse(args, command)
-  except ParseError, ValidationError, MessageError:
+  except ParseError, MessageError:
     quitWith(getCurrentException(), spec.settings.style)
 
 proc buildAndBind[S: tuple](spec: S, usage, prolog, epilog: string, settings: SpecSettings,
@@ -784,9 +784,10 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
     action: proc(spec: S, info: HookInfo) = nil,
     after: proc(spec: S, info: HookInfo) = nil) =
   ## Builds `spec` into a `Spec` via `newSpec` and parses `args` against it in
-  ## one step. Raises `SpecDefect` (malformed spec), or `ParseError`/
-  ## `ValidationError`/`HelpError`/`MessageError` (parse failure) -- use
-  ## `parseOrQuit*` if you want those to print a message and `quit()` instead.
+  ## one step. Raises `SpecDefect` (malformed spec), `ParseError` or a
+  ## subtype (parse failure), or `MessageError` or a subtype (help, a
+  ## message, or completion) -- use `parseOrQuit*` if you want those to
+  ## print a message and `quit()` instead.
   ## - `usage` is the usage string used to build the FSM. See
   ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
   ##   `usage` are auto-filled.

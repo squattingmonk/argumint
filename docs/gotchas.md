@@ -514,7 +514,7 @@ debugging time. Read this before touching the constructors and `flagOp`/
 
   The converter's own `ValueError` then escapes uncaught instead of being
   caught by the `except` branch that looks right next to it -- it surfaces
-  four layers away, as a raw `ValueError` where a `ParseError` was
+  four layers away, as a raw `ValueError` where a `ConversionError` was
   expected. The fix is an ordinary `let` *statement inside* the `try`
   block, not a `try` *expression* bound to a `let` outside it -- the
   conversion then genuinely runs under the `try`'s watch:
