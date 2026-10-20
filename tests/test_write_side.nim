@@ -8,7 +8,7 @@
 
 import std/[options, os, strutils, unittest]
 
-import argumint
+import argumint, argumint/customarg
 
 type
   MemSource = ref object of ConfigSource
@@ -53,6 +53,12 @@ method configKey(self: CustomArg): ConfigKey = self.cfg
 # `vals` keeps every value, so it says so: a fallback tier gives a
 # single-value Arg only one (#189).
 method accumulates(self: CustomArg): bool = true
+
+proc customArg(variants: string, envSrc = none(EnvSource),
+    cfg = noConfigKey()): CustomArg =
+  ## Builds one as the guide does: fields first, then `initArg`.
+  result = CustomArg(help: "", envSrc: envSrc, cfg: cfg)
+  result.initArg(Optional, variants)
 
 method lookup(self: EmptySource, key: ConfigKey): Option[seq[string]] =
   some(newSeq[string]())
@@ -382,30 +388,30 @@ suite "clear returns an Arg to its coded-default state":
 suite "a custom Arg subtype gets the tier rule without arbitrating (#145)":
   # ADR 0030's custom-Arg contract: `CustomArg` overrides only `accept` and
   # never calls `arbitrated` -- `parse` refuses, extends or replaces for
-  # it. Reachable from the facade alone -- this file imports no backend.
+  # it. Reachable from `argumint/customarg` -- this file imports no backend.
   test "an equal tier applies without clearing":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
+    let c = customArg("--foo")
     c.parse("a", seenBy = some(byEnv))
     c.parse("b", seenBy = some(byEnv))
     check c.vals == @["a", "b"]
     check c.seenBy == byEnv
 
   test "a weaker tier is refused and applies nothing":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
+    let c = customArg("--foo")
     c.parse("a", seenBy = some(byCli))
     c.parse("z", seenBy = some(byConfig))
     check c.vals == @["a"]
     check c.seenBy == byCli
 
   test "a stronger tier clears first, then applies":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
+    let c = customArg("--foo")
     c.parse("a", seenBy = some(byEnv))
     c.parse("x", seenBy = some(byCli))
     check c.vals == @["x"]
     check c.seenBy == byCli
 
   test "no declared tier extends at whatever tier is current":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "")
+    let c = customArg("--foo")
     c.parse("a", seenBy = some(byCli))
     c.parse("y")
     check c.vals == @["a", "y"]
@@ -423,8 +429,7 @@ suite "a custom Arg subtype opts into the fallback tiers (#59)":
   test "overriding envSource joins the environment-variable tier":
     putEnv("ARGUMINT_TEST_CUSTOM_ENV", "from-env")
     defer: delEnv("ARGUMINT_TEST_CUSTOM_ENV")
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
-                      envSrc: some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_ENV")))
+    let c = customArg("--foo", envSrc = some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_ENV")))
     let spec = (foo: c)
     spec.parse(usage = "[--foo]", args = @[], command = "prog")
     check c.vals == @["from-env"]
@@ -436,15 +441,13 @@ suite "a custom Arg subtype opts into the fallback tiers (#59)":
     # one method to override and `EnvSource` carries both.
     putEnv("ARGUMINT_TEST_CUSTOM_MULTI", "a;b")
     defer: delEnv("ARGUMINT_TEST_CUSTOM_MULTI")
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
-                      envSrc: env("ARGUMINT_TEST_CUSTOM_MULTI", ";"))
+    let c = customArg("--foo", envSrc = env("ARGUMINT_TEST_CUSTOM_MULTI", ";"))
     let spec = (foo: c)
     spec.parse(usage = "[--foo]...", args = @[], command = "prog")
     check c.vals == @["a", "b"]
 
   test "overriding configKey joins the Config Source tier":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
-                      cfg: configKey("foo"))
+    let c = customArg("--foo", cfg = configKey("foo"))
     let spec = (foo: c)
     spec.parse(usage = "[--foo]", args = @[], command = "prog",
                settings = withConfig({"foo": @["from-config"]}))
@@ -454,9 +457,8 @@ suite "a custom Arg subtype opts into the fallback tiers (#59)":
   test "env still outranks config for a custom Arg, same as any other":
     putEnv("ARGUMINT_TEST_CUSTOM_BOTH", "won")
     defer: delEnv("ARGUMINT_TEST_CUSTOM_BOTH")
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
-                      envSrc: some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_BOTH")),
-                      cfg: configKey("foo"))
+    let c = customArg("--foo", envSrc = some(EnvSource(name: "ARGUMINT_TEST_CUSTOM_BOTH")),
+                      cfg = configKey("foo"))
     let spec = (foo: c)
     spec.parse(usage = "[--foo]", args = @[], command = "prog",
                settings = withConfig({"foo": @["lost"]}))
@@ -464,11 +466,10 @@ suite "a custom Arg subtype opts into the fallback tiers (#59)":
     check c.seenBy == byEnv
 
   test "envName is derived from envSource, never overridden separately":
-    let c = CustomArg(kind: Optional, variants: @["--foo"], help: "",
-                      envSrc: env("SOME_VAR", ","))
+    let c = customArg("--foo", envSrc = env("SOME_VAR", ","))
     check c.envName == "SOME_VAR"
     check c.envSource.get.delim == some(",")
-    let bare = CustomArg(kind: Optional, variants: @["--bar"], help: "")
+    let bare = customArg("--bar")
     check bare.envSource.isNone
     check bare.envName == ""
     check bare.configKey.len == 0
@@ -662,8 +663,8 @@ suite "Message Args still fire, and know which variant fired":
     # `parseMessageArgs` dispatches with the Match's `variant`; passing its
     # `value` instead leaves a multi-variant Message Arg unable to tell which
     # of its own spellings the user typed.
-    let probe = VariantProbe(kind: Flag, variants: @["--version", "-V"],
-                             message: "1.0", help: "")
+    let probe = VariantProbe(message: "1.0", help: "")
+    probe.initArg(Flag, "--version, -V")
     let spec = (v: Arg probe)
     expect MessageError:
       spec.parse(usage = "[-V]", args = @["-V"], command = "app")

@@ -1,5 +1,10 @@
 # An Arg's value sources are two methods, and they are readable
 
+> **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
+> `envSource`, `configKey` and `envName` moved from `argumint.nim` to
+> `argumint/customarg`. A Custom Arg imports both, not `import argumint`
+> alone.
+
 > **Extended by [ADR 0062](0062-accept-is-the-override-point.md)**: the
 > write half of the custom-`Arg` contract is now `accept`, not `parse`, and
 > an error names a fallback source by reading this ADR's `envName` and

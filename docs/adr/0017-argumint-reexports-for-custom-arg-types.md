@@ -1,5 +1,9 @@
 # `argumint.nim` re-exports `validators`, `flagclamp`, `backend.name`, and `strutils.escape`
 
+> **Note (ADR 0076):** `backend.subject` is no longer exported from
+> `argumint.nim`, since generated code binds it where it's defined. It's
+> in `argumint/customarg` for a Custom Arg that calls it.
+
 > **Note (#164):** generated code no longer calls `escape`: the conversion
 > error in `acceptImpl` now uses `display.quoted`. `export strutils.escape`
 > no longer serves the purpose below; whether to keep it is #166.

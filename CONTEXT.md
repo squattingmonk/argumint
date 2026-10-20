@@ -32,6 +32,14 @@ categorization; that's a separate axis, which is why a Message Argument
 may be of any kind despite not being a domain specialization of any.)
 _Avoid_: Argument (ambiguous with a raw command-line string)
 
+**Custom Arg**:
+An `Arg` subtype a developer writes, starting from `Arg` itself, to store
+values its own way. It's built with `initArg`, and plugged in by overriding
+`accept` (and `clear`, `envSource`, `configKey`, `isMessage` or `action` as
+needed), all from `argumint/customarg`. See
+`docs/adr/0076-custom-args-build-through-customarg.md`.
+_Avoid_: custom type (that's a Value Type with its own converter)
+
 **Value Type**:
 A type an Arg's value can have: one with a converter from string in scope
 where the Arg is built, or any enum, which is parsed by name when it has
@@ -797,7 +805,8 @@ Variant whose Flag Operation applies, whichever tier supplied it. Carries no
 source label: an error names `(env: PORT)` or `(configKey: a.b.c)` by
 reading the Arg's own Env Source or Config Key for the claimed tier. What an
 Arg does with a Contribution is its `accept`, the one method a custom Arg
-overrides to store a value. See
+overrides to store a value. A Custom Arg names it through
+`argumint/customarg`. See
 `docs/adr/0062-accept-is-the-override-point.md`.
 _Avoid_: write, update, value (the stored result, not what is offered)
 
@@ -808,7 +817,8 @@ there), *replace* (a stronger tier — clear, then store), or *refused* (a
 weaker tier — nothing applies, and nothing is checked, so a bad value
 raises nothing). `parse` and `put` decide it before any `accept` runs, so
 no Arg can skip the rule; `accept` is told which of the first two applies.
-The `replace` proc is the one write that does not arbitrate. See
+The `replace` proc is the one write that does not arbitrate. A Custom
+Arg names it through `argumint/customarg`. See
 `docs/adr/0041-parse-is-the-write-surface.md` and
 `docs/adr/0062-accept-is-the-override-point.md`.
 _Avoid_: merge, override (a tier *outranks*; nothing is overridden)

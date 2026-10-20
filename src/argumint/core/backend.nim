@@ -69,8 +69,10 @@ type
     ## see `docs/adr/0049-help-text-short-long-pair.md`.
 
   Arg* = ref object of RootObj
-    kind*: ArgKind
-    variants*: seq[string]
+    kind: ArgKind
+      ## Read-only outside this module, like `variants`, `seenBy` and
+      ## `CommandArg.spec`: the Spec is built from them -- see `initBase`.
+    variants: seq[string]
       ## The forms in which the argument may appear
     help*: HelpText
       ## The argument's Help Text (`short`) and optional Long-Form Help Text
@@ -84,14 +86,14 @@ type
       ## How shell completion offers this Arg's value; the zero value offers
       ## its enumerable values, else files -- see
       ## `docs/adr/0071-runtime-completers.md`.
-    seenBy*: SeenBy
+    seenBy: SeenBy
       ## Which Value Precedence tier supplied this Arg -- written by `parse`
       ## right after `accept` stores the value, so provenance can never outrun
       ## the value it describes. `byNone` is the zero value, so an unsupplied
       ## Arg is correct with no code on the default path. See `seen*` and ADR 0039.
 
   CommandArg* = ref object of Arg
-    spec*: Spec
+    spec: Spec
 
   MessageArg* = ref object of Arg
     message*: string
@@ -293,6 +295,38 @@ proc hash*(self: Arg): Hash =
   ## Hash function for args so they can be used as keys in tables.
   hash(self.name)
 
+proc kind*(self: Arg): ArgKind =
+  ## Whether `self` is a Positional, an Option, a Flag or a Command.
+  self.kind
+
+proc variants*(self: Arg): seq[string] =
+  ## The forms in which `self` may appear, as declared.
+  self.variants
+
+proc seenBy*(self: Arg): SeenBy =
+  ## Which Value Precedence tier supplied `self`, or `byNone` -- see `seen`.
+  self.seenBy
+
+proc spec*(self: CommandArg): Spec =
+  ## The nested Spec `self` routes to.
+  self.spec
+
+proc initBase*(self: Arg, kind: ArgKind, variants: seq[string]) =
+  ## Sets the fields a Spec is built from. Withheld: Custom Args call
+  ## `customarg.initArg`, which guards against a second call.
+  self.kind = kind
+  self.variants = variants
+
+proc setSeenBy*(self: Arg, seenBy: SeenBy) =
+  ## Records `seenBy` as `self`'s tier. Withheld: in the library only the
+  ## write side (`arbitrated`, `replaceImpl`) calls it, so the tier always
+  ## agrees with the stored value.
+  self.seenBy = seenBy
+
+proc setSpec*(self: CommandArg, spec: Spec) =
+  ## Sets the nested Spec `self` routes to. Withheld, for `command*`.
+  self.spec = spec
+
 proc hash*(self: State): Hash =
   ## Identity hash, matching `ref`'s default `==`; see docs/gotchas.md.
   ## Remove it once `nimPreviewHashRef` is Nim's default.
@@ -353,7 +387,7 @@ template arbitrated*(self: Arg, tier: Option[SeenBy], store: untyped) =
     let how {.inject.} = decision.get
     store
     if how == arReplace:
-      target.seenBy = wanted.get
+      target.setSeenBy(wanted.get)
 
 method accept*(self: Arg, c: Contribution, how: Arbitration) {.base.} =
   ## Converts, validates and stores `c` onto `self` -- the one thing a

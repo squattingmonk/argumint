@@ -102,7 +102,9 @@ Parsing happens in two distinct phases at a high level, detailed fully in
    `FlagArg` convert, validate, and store matched values; flags apply Flag
    Operations instead of a plain converter. Every public name lives in
    `argumint.nim`; everything that touches a private field lives in
-   `argtypes.nim`, exported for the facade and withheld from users.
+   `argtypes.nim`, exported for the facade and withheld from users. What only a
+   Custom Arg needs (`initArg`, `accept`, `Contribution`, ...) is in the
+   opt-in public `argumint/customarg`.
 5. **Subcommands**: `command*` splices a nested `Spec`'s FSM into the
    parent's as a single `Command` transition.
 

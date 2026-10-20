@@ -100,34 +100,42 @@ suite "Types nameable after a bare `import argumint`":
     check compiles(env("PORT", ","))
     check compiles(toEnvSource("PORT"))
     check compiles(newSpec((verbose: flag("-v", help = ""),)))
-    check compiles(subject(Arg(nil), Contribution(variant: "-v")))
 
-  test "an Arg's value sources are readable, not just overridable":
-    # #59: `envSource`/`configKey` were overridable from a caller's module
-    # all along -- Nim attaches the override to `backend`'s method family
-    # because `Arg` is in scope -- but neither could be *read* back, which
-    # a caller rendering its own help needs (`genHelp` is opt-in, ADR 0042).
-    # `envName` is the derived proc over `envSource`, not a third method.
-    # See `docs/adr/0046-arg-value-source-contract.md`.
-    let port = opt("--port=<n>", env = env("PORT", ","),
-                   configKey = configKey("server", "port"), help = "")
-    check port.envSource.isSome
-    check port.envSource.get.name == "PORT"
-    check port.envSource.get.delim == some(",")
-    check port.envName == "PORT"
-    check port.configKey.join == "server.port"
+  test "a Custom Arg's surface stays in `argumint/customarg` (#269)":
+    # A CLI author reads an Arg; only a Custom Arg overrides or builds one.
+    # Mirrored by `test_customarg.nim`, which imports that module.
+    let port = opt("--port=<n>", default = 0, help = "")
+    check not compiles(port.envSource)
+    check not compiles(port.envName)
+    check not compiles(port.configKey)
+    check not compiles(port.isMessage)
+    check not compiles(Arg(nil).action(HookInfo()))
+    check not declared(Contribution)
+    check not declared(Arbitration)
+    check not declared(subject)
+    check not declared(initArg)
+    # The `configKey(...)` constructor is a different overload, and stays.
+    check compiles(configKey("server", "port"))
 
-    # An Arg with neither tier reads as empty rather than failing to compile.
-    let name = arg("<name>", help = "")
-    check name.envSource.isNone
-    check name.envName == ""
-    check name.configKey.len == 0
+  test "what a Spec is built from is read-only (#269)":
+    # Readable for `HookInfo.matched`; written only while an Arg is built.
+    let port = opt("--port=<n>", default = 0, help = "")
+    let cmd = command("go", ())
+    check port.variants == @["--port=<n>"]
+    check port.kind == ArgKind.Optional
+    check port.seenBy == byNone
+    check cmd.spec != nil
+    check not compiles(port.variants = @["--other"])
+    check not compiles(port.variants.add "--other")
+    check not compiles(port.kind = ArgKind.Flag)
+    check not compiles(port.seenBy = byCli)
+    check not compiles(cmd.spec = cmd.spec)
 
   test "`envDelim` is gone, folded into `envSource` (#59)":
     # The pair could disagree; one method can't. A `not compiles` also
-    # passes for a name that never existed, so this pairs with the positive
-    # above rather than with `test_argumint.nim` -- there is no internal
-    # `envDelim` left for that suite to name.
+    # passes for a name that never existed, so this pairs with
+    # `test_customarg.nim`'s positive -- there is no internal `envDelim`
+    # left for `test_argumint.nim` to name.
     let port = opt("--port=<n>", env = env("PORT", ","), help = "")
     check not compiles(port.envDelim)
 
@@ -435,7 +443,7 @@ suite "What naming the core types buys a caller":
     var sawMessageArg, sawFlag: bool
 
     proc onAction(spec: tuple, info: HookInfo) =
-      sawMessageArg = info.matched.anyIt(it.isMessage)
+      sawMessageArg = info.matched.anyIt(it of MessageArg)
       sawFlag = info.matched.anyIt(it.kind == ArgKind.Flag)
 
     let spec = (verbose: flag("-v", help = ""), help: help())

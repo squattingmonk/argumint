@@ -1,4 +1,4 @@
-# Custom types from a file that imports *only* `argumint`.
+# Custom types from a file that imports only public modules.
 #
 # This is the caller's-eye view of `docs/adr/0017-argumint-reexports-for-
 # custom-arg-types.md`: `opt` finds a value type's converter here (ADR
@@ -10,11 +10,11 @@
 # Issue #51 split the machinery (`argumint/values/argtypes`) from its public
 # names (`argumint.nim`); that boundary is exactly what this file guards. See
 # `docs/adr/0043-facade-machinery-seam.md`. It also covers a hand-written
-# `ref object of Arg`, which needs the same bare import.
+# `ref object of Arg`, which adds `argumint/customarg` (ADR 0076).
 
 import std/[os, osproc, strutils, unittest]
 
-import argumint
+import argumint, argumint/customarg
 
 # A value type with a hand-written converter, and a set flag below.
 type Rank = enum
@@ -161,11 +161,14 @@ method clear(self: PortArg) =
 method validatorHelp(self: PortArg): StyledText =
   styled("(1-") & styled(srLiteral, "65535") & styled(")")
 
-suite "a custom Arg through a bare `import argumint`":
+proc portArg(): PortArg =
+  result = PortArg(help: "Port", group: "Options")
+  result.initArg(Optional, "--port=<n>")
+
+suite "a custom Arg through `import argumint, argumint/customarg`":
   test "can describe its values in help with `validatorHelp`":
     let spec = (
-      port: PortArg(kind: Optional, variants: @["--port=<n>"], help: "Port",
-                    group: "Options"),
+      port: portArg(),
       help: help(),
     )
     var helpText = ""

@@ -1,5 +1,9 @@
 # `accept` is the override point; `parse` arbitrates for every Arg
 
+> **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
+> `accept`, `Contribution` and `Arbitration` are exported from
+> `argumint/customarg`, not the facade.
+
 > **Note (#213):** `ValueArg`/`ValuesArg` no longer override `accept` with a
 > generated method: their untyped base, `ValueArgBase`, overrides it once,
 > calling a hook its constructor fills in (ADR 0068). A custom `Arg` subtype

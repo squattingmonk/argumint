@@ -339,6 +339,8 @@ when isMainModule:
   import ./configsource, ./grammar/specbuild
 
   privateAccess(Spec) ## Builds bare `Spec`s for white-box tests (ADR 0030).
+  privateAccess(Arg) ## And bare Args, without `initArg` (#269).
+  privateAccess(CommandArg)
 
   type
     TestArg = ref object of Arg
