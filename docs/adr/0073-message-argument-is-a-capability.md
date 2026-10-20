@@ -1,5 +1,9 @@
 # A Message Argument is a capability, and its `action` takes a `HookInfo`
 
+> **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
+> `isMessage` and `action` are exported from `argumint/customarg`, not
+> `argumint.nim`.
+
 Amends ADRs 0021 and 0041.
 
 A Message Argument was a type: anything `of MessageArg`, always a Flag,

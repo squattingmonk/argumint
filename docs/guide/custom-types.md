@@ -230,19 +230,20 @@ needs one: with `converter toDateTime(value: string): DateTime`,
 A value type gives each match one value. When that doesn't fit, you can
 write your own kind of `Arg`, starting from `Arg` itself. The `ValueArg` and
 `FlagArg` that `arg`, `opt`, and `flag` build keep their fields private, so
-a type built on either couldn't reach its own value. This one collects `-D name=value` options into
-a table:
+a type built on either couldn't reach its own value. What an `Arg` of your
+own needs is in `argumint/customarg`. This one collects `-D name=value`
+options into a table:
 
 ```nim
 import std/[strutils, tables]
-import argumint
+import argumint, argumint/customarg
 
 type VarsArg = ref object of Arg
   vars: OrderedTable[string, string]
 
 proc vars(variants: string, help = ""): VarsArg =
-  VarsArg(kind: Optional, variants: variants.split(", "), help: help,
-          group: "Options")
+  result = VarsArg(help: help, group: "Options")
+  result.initArg(Optional, variants)
 
 method accept(self: VarsArg, c: Contribution, how: Arbitration) =
   let parts = c.value.split('=', maxsplit = 1)
@@ -280,13 +281,21 @@ Usage:
   build (-h | --help)
 ```
 
-The constructor sets the fields every `Arg` has:
+The constructor sets the fields every `Arg` has. `help` and `group` go in
+the object itself:
 
-- `kind` is `Positional` for an argument and `Optional` for an option.
-- `variants` holds its names, written the same way as for `arg` or `opt`.
 - `help` describes it in help.
 - `group` is the heading it appears under in help. `opt` uses `"Options"`,
   and `arg` uses `"Arguments"`. Leave it empty to get the one for its kind.
+
+`initArg` sets the two a spec is built from, and you can't change them
+afterwards:
+
+- The kind is `Positional` for an argument and `Optional` for an option.
+- The variants are its names, written the same way as for `arg` or `opt`.
+  They're checked when the spec is built, like any other `Arg`'s.
+
+Call `initArg` once. A second call raises a `SpecDefect`.
 
 `accept` stores one value. `c.value` is the text, and `self.subject(c)`
 names the `Arg` in an error the way argumint does, including where the value

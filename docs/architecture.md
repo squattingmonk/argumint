@@ -10,6 +10,7 @@ assumes that vocabulary and focuses on code-level mechanics. See
 ## 0. Module layering
 
 Only public import paths sit at the top of `src/argumint/`: `help.nim`,
+`customarg.nim` (what only a Custom Arg needs, ADR 0076),
 `configsource.nim` and its `configsource/` adapters. Every withheld module
 lives in a subdirectory for its layer:
 
@@ -280,6 +281,17 @@ instantiates in the caller's file — delegates its private-field work to two
 non-generic bookends, `beginSpec` and `finishSpec`, leaving only the
 field-free `addArgs` generic in between. Any new generic or template needing
 a private `Spec` field has to be split the same way; see `docs/gotchas.md`.
+
+`Arg`'s own `kind`, `variants` and `seenBy`, and `CommandArg.spec`, are
+private too, since the Spec's indexes and FSM are keyed by them (ADR
+0076). Each has a public getter of the same name. The library writes them
+through three procs `backend.nim` exports but the facade withholds:
+`initBase` (kind and Variants, from every constructor), `setSeenBy` (the
+write side only) and `setSpec` (`command*`). These need no
+`privateAccess`, since a proc declared in `backend` writes its own private
+fields wherever a template or generic expands it. A Custom Arg sets its
+kind and Variants with `customarg.initArg`, which calls `initBase` once
+and raises `SpecDefect` on a second call.
 
 ## 2. Usage-string compilation → FSM (`lexer.nim` → `parser.nim` → `backend.nim`/`fsmgraph.nim`)
 
@@ -871,8 +883,8 @@ which is where it needs to be.
 
 `Arg.parse` is the only thing that writes an Arg's value, on every tier and
 from application code alike. It is re-exported through the facade
-(`export backend.parse, backend.clear, backend.action`),
-so writing a value needs no backend import:
+(`export backend.parse, backend.clear`; `action` is in
+`argumint/customarg`), so writing a value needs no backend import:
 
 ```nim
 port.parse("8080", seenBy = some(byCli))  # declares a tier; visible to `get`
@@ -978,7 +990,8 @@ inversion is what's kept.
 
 A custom `Arg` subtype (ADR 0030) therefore owes two things: override
 `accept` (clearing on `arReplace` before it stores), and override `clear` if
-it carries a value. Both are reachable from `import argumint` alone.
+it carries a value. Both are reachable through `argumint/customarg`,
+whose `initArg` sets its kind and Variants (ADR 0076).
 
 To opt into either fallback tier it overrides one method per tier —
 `envSource` (returning the whole `Option[EnvSource]`, name and delimiter

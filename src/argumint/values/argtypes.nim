@@ -276,7 +276,7 @@ proc replaceImpl*[T: not seq](self: ValuesArg[T], values: seq[T], seenBy: Option
     let name = self.name() # Outside `fmt`: see docs/gotchas.md, openSym.
     raise newPlainError(ValidationError, fmt"for {name}, {e.msg}")
   self.value = some(values)
-  self.seenBy = seenBy.get(otherwise = self.seenBy)
+  self.setSeenBy(seenBy.get(otherwise = self.seenBy))
 
 proc storeImpl[T](self: AnyValueArg[T], value: T, c: Contribution, how: Arbitration, validate: bool) =
   ## Stores an already-arbitrated `value`: runs the Validator against the
@@ -693,8 +693,7 @@ template setValueArgFields(arg: typed, H: typedesc, isMulti: bool) =
   ## Sets every field `initValueArg`/`initValuesArg` share from their params,
   ## with `H`'s hooks. One field at a time, never `H(...)` -- see
   ## `initValueArg(A)`.
-  arg.kind = kind
-  arg.variants = splitVariants(variants)
+  arg.initBase(kind, splitVariants(variants))
   arg.default = default
   arg.help = help
   arg.group = group.groupOr(kind)
@@ -754,7 +753,7 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
   ## Bare spellings in `variants` run `T`'s Implicit Operation, and form one
   ## FlagOp Alias group; each of `ops` forms its own, even if two run the
   ## same operation (see docs/adr/0027).
-  result = FlagArg[T](kind: ArgKind.Flag, variants: @[], value: default, default: default,
+  result = FlagArg[T](value: default, default: default,
     help: help, group: group.groupOr(ArgKind.Flag), hidden: hidden, clamp: clamp, env: env, cfgKey: cfgKey,
     reset: resetFlagHook[FlagArg[T]], describe: describeFlagHook[FlagArg[T]])
   var implicit = implicitOp(default)
@@ -769,12 +768,14 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
       elif ops.len > 0 and ops[0].spellings.len > 0: ops[0].spellings[0]
       else: ""
     raise newException(SpecDefect, fmt"default {default} for flag {name} does not satisfy its own clamp")
+  var names: seq[string]
   for group, op in @[implicit] & @ops:
     let bound = bindOp(op, group)
     for name in op.spellings:
       if result.ops.hasKeyOrPut(name, bound):
         raise newException(SpecDefect, fmt"duplicate variant for {name}")
-      result.variants.add name
+      names.add name
+  result.initBase(ArgKind.Flag, names)
 
 when isMainModule:
   ## Tests for what no importer can name: the private conversions, the

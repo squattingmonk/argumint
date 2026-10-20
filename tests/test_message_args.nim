@@ -8,7 +8,7 @@
 
 import std/[strutils, unittest]
 
-import argumint
+import argumint, argumint/customarg
 import argumint/values/argtypes
 
 type

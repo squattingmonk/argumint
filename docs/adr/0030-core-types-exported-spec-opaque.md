@@ -1,5 +1,10 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
+> **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
+> `kind`, `variants`, `CommandArg.spec` and `seenBy` are no longer public
+> fields. Each is read through a getter, and a Custom Arg sets the first
+> two with `initArg` from `argumint/customarg`.
+
 > **Extended by [ADR 0046](0046-arg-value-source-contract.md)**: the
 > fallback half of the custom-`Arg` contract is now two methods, not three
 > — `envName`/`envDelim` collapsed into one `envSource*` returning

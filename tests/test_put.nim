@@ -6,11 +6,13 @@
 # overload's narrower signature.
 #
 # Imports `argumint` alone on purpose, matching `test_write_side.nim` --
-# reaching the write side must not require a backend import.
+# reaching the write side must not require a backend import. The one
+# exception, `setSeenBy`, builds a state no caller can reach (#269).
 
 import std/[options, unittest]
 
 import argumint
+from argumint/core/backend import setSeenBy
 
 suite "put is reachable from the facade and replaces/appends without converting":
   test "put on a scalar ValueArg replaces its one slot":
@@ -129,7 +131,7 @@ suite "ValueArg's read accessors test the stored value, not seen":
     # this pins the *reader*'s side of that invariant regardless of how the
     # empty-but-seen state was reached).
     let port = opt("--port=<n>", default = 80, help = "")
-    port.seenBy = byConfig # a tier declared with nothing ever stored
+    port.setSeenBy(byConfig) # a tier declared with nothing ever stored
     check port.get(otherwise = 1234) == 1234
 
   test "seen/seenBy themselves are unchanged: a tier-less write still leaves seenBy byNone":
@@ -144,7 +146,7 @@ suite "ValueArg's read accessors test the stored value, not seen":
     # `tests/test_replace.nim`). A tier claimed with nothing stored isn't
     # supplied-empty.
     let tags = opts("--tag=<t>", default = @["x"], help = "")
-    tags.seenBy = byCli
+    tags.setSeenBy(byCli)
     check tags.seen
     check tags.get == @["x"]
     check tags.get(otherwise = @["z"]) == @["z"]

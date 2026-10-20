@@ -1714,7 +1714,8 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check splitVariants("-v, --verbose") == @["-v", "--verbose"]
 
   test "the tier rule exists in `argumint/core/backend`":
-    let arg = Arg(variants: @["--port"])
+    let arg = Arg()
+    arg.initBase(Optional, @["--port"])
     var replaced = false
     arg.arbitrated(some(byCli)):
       replaced = how == arReplace

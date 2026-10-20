@@ -62,7 +62,8 @@ proc newTestArg(name: string, env = "", delim = none(string), cfg: ConfigKey = n
   let source =
     if env.len == 0: none(EnvSource)
     else: some(EnvSource(name: env, delim: delim))
-  TestArg(kind: Optional, variants: @[name], env: source, cfg: cfg, single: single)
+  result = TestArg(env: source, cfg: cfg, single: single)
+  result.initBase(Optional, @[name])
 
 proc tiersWith(sources: seq[ConfigSource] = @[]): Tiers =
   initTiers(SpecSettings(envDelim: ":", configSources: sources))
@@ -224,7 +225,7 @@ suite "applyFallbacks (env tier)":
     let args = @[Arg arg]
     # The gate is the Arg's own tier, which `parse*` sets from the match
     # table before calling this -- not a `matches` lookup here. See ADR 0039.
-    arg.seenBy = byCli
+    arg.setSeenBy(byCli)
     var report = initReport(reportSpec, "")
     applyFallbacks(tiers, @[args], report, fpRaise)
     check report.isEmpty
