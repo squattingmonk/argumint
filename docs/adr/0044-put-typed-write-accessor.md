@@ -1,5 +1,9 @@
 # `put` is the typed write accessor; reads test the stored value, not `seen`
 
+> **Note (ADR 0076):** `seenBy` is no longer a public field, so the
+> "supplied as empty" state below can't be reached from outside the
+> library at all.
+
 > **Amended by [ADR 0045](0045-replace-typed-atomic-multi-value-write.md)**:
 > the "typed one-call replace for a multi-valued Arg" left open below
 > shipped as `replace`, mirroring `put`'s shape (typed, optional `seenBy`,

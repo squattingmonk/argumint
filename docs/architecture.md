@@ -990,8 +990,8 @@ inversion is what's kept.
 
 A custom `Arg` subtype (ADR 0030) therefore owes two things: override
 `accept` (clearing on `arReplace` before it stores), and override `clear` if
-it carries a value. Both are reachable through `argumint/customarg`,
-whose `initArg` sets its kind and Variants (ADR 0076).
+it carries a value. `accept` comes from `argumint/customarg`, whose
+`initArg` sets its kind and Variants (ADR 0076); `clear` from the facade.
 
 To opt into either fallback tier it overrides one method per tier —
 `envSource` (returning the whole `Option[EnvSource]`, name and delimiter

@@ -1,5 +1,8 @@
 # Per-Arg provenance is a field on `Arg`, written centrally
 
+> **Note (ADR 0076):** `seenBy` is now a private field with a public
+> getter; the direct writes in the samples below go through `setSeenBy`.
+
 > **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)** in three
 > places. The field, its enum, the weakest-to-strongest ordering, and the
 > uniform-across-Arg-kinds semantics all stand as described here.

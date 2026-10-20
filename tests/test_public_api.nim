@@ -110,7 +110,6 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(port.configKey)
     check not compiles(port.isMessage)
     check not compiles(Arg(nil).action(HookInfo()))
-    check not compiles(Arg(nil).accept(Contribution(), arReplace))
     check not declared(Contribution)
     check not declared(Arbitration)
     check not declared(subject)

@@ -1,6 +1,6 @@
 # Custom Args build through `argumint/customarg`
 
-Amends ADRs 0017, 0030, 0046 and 0073.
+Amends ADRs 0017, 0030, 0046, 0062 and 0073.
 
 ADR 0030 kept every `Arg` field public so a hand-written subtype could
 construct one. That gave every caller of `import argumint` write access
@@ -24,7 +24,8 @@ through them.
    public fields, since writing one corrupts nothing.
 2. **The library writes them through three withheld procs in
    `backend`:** `initBase`, `setSeenBy` and `setSpec`. `seenBy` changes
-   only through the write side (`parse`, `put`, `replace`, `clear`).
+   only through the write side (`parse`, `put`, `replace`, `clear` and
+   the internal `arbitrated`).
    A proc declared in `backend` writes its private fields even when a
    template or generic expands it in the caller's module; only
    `privateAccess` fails across instantiation.

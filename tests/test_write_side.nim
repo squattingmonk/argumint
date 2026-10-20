@@ -388,7 +388,7 @@ suite "clear returns an Arg to its coded-default state":
 suite "a custom Arg subtype gets the tier rule without arbitrating (#145)":
   # ADR 0030's custom-Arg contract: `CustomArg` overrides only `accept` and
   # never calls `arbitrated` -- `parse` refuses, extends or replaces for
-  # it. Reachable from the facade alone -- this file imports no backend.
+  # it. Reachable from `argumint/customarg` -- this file imports no backend.
   test "an equal tier applies without clearing":
     let c = customArg("--foo")
     c.parse("a", seenBy = some(byEnv))

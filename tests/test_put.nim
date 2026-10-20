@@ -5,9 +5,9 @@
 # conversion, a `validate` opt-out at every arity, and the `FlagArg`
 # overload's narrower signature.
 #
-# Imports `argumint` alone on purpose, matching `test_write_side.nim` --
-# reaching the write side must not require a backend import. The one
-# exception, `setSeenBy`, builds a state no caller can reach (#269).
+# Imports public modules only, matching `test_write_side.nim` -- reaching
+# the write side must not require a backend import. Its one backend name,
+# `setSeenBy`, builds a state no caller can reach (#269).
 
 import std/[options, unittest]
 

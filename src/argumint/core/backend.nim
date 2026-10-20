@@ -318,9 +318,9 @@ proc initBase*(self: Arg, kind: ArgKind, variants: seq[string]) =
   self.variants = variants
 
 proc setSeenBy*(self: Arg, seenBy: SeenBy) =
-  ## Records `seenBy` as `self`'s tier. Withheld: only the write side
-  ## (`arbitrated`, `replaceImpl`) calls it, so the tier always agrees with
-  ## the stored value.
+  ## Records `seenBy` as `self`'s tier. Withheld: in the library only the
+  ## write side (`arbitrated`, `replaceImpl`) calls it, so the tier always
+  ## agrees with the stored value.
   self.seenBy = seenBy
 
 proc setSpec*(self: CommandArg, spec: Spec) =

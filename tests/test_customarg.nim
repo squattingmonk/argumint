@@ -68,5 +68,6 @@ suite "the Custom Arg surface":
     let port = opt("--port=<n>", default = 0, help = "")
     check not port.isMessage
     check compiles(Arg(nil).action(HookInfo()))
+    check compiles(Arg(nil).accept(Contribution(), arReplace))
     check compiles(subject(Arg(nil), Contribution(variant: "-v")))
     check arReplace is Arbitration
