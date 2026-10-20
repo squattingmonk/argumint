@@ -4,7 +4,7 @@
 
 import std/[os, strutils, unittest]
 
-import argumint
+import argumint, argumint/customarg
 
 proc complaints(msg: string): seq[string] =
   ## Just the bulleted complaint lines, without the usage block below them.
@@ -52,6 +52,7 @@ suite "every bad value is reported at once":
         "expected an integer for --port but got \"y\""]
 
   test "every valid value is still written; a failing one is not":
+    putEnv "ARGUMINT_TEST_NUM", "zz"
     let s = spec()
     expect ParseError:
       s.parse(args = @["--port", "x", "--name", "ok", "--count", "y"],
@@ -59,6 +60,7 @@ suite "every bad value is reported at once":
     check s.name.get == "ok"
     check not s.port.seen
     check not s.count.seen
+    check not s.num.seen
 
   test "a single failure reads as it always has":
     let s = spec()
@@ -140,3 +142,21 @@ suite "a failed value closes the weaker tiers":
       s.parse(args = @["--num", "x"], command = "app",
         settings = newSpecSettings(style = nil))
     check not s.num.seen
+
+type Boom = ref object of Arg
+  ## Fails storing with something other than a parse or validation error.
+
+method accept(self: Boom, c: Contribution, how: Arbitration) =
+  raise newException(IOError, "disk on fire")
+
+proc boom(variants: string): Boom =
+  result = Boom(help: "")
+  result.initArg(Optional, variants)
+
+suite "only conversion and validation failures are collected":
+  test "anything else propagates from parse as it is":
+    let s = (boom: boom("--boom=<b>"),
+             port: opt("--port=<n>", default = 0, help = ""))
+    expect IOError:
+      s.parse(args = @["--port", "x", "--boom", "a"], command = "app",
+        settings = newSpecSettings(style = nil))

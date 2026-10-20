@@ -721,6 +721,17 @@ suite "Completers see earlier values (#215)":
     discard gitSpec(log).wire("--repo", "nope", "checkout", "")
     check log.seen == @[0]
 
+  test "a store failure other than a bad value propagates from the fill":
+    # Only conversion and validation failures are skipped -- ADR 0077.
+    let boom = opt[int]("--boom=<n>", validator = argumint.check(proc (n: int): bool =
+      raise newException(IOError, "disk on fire")))
+    let spec = newSpec((boom: boom,
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        offer(newSeq[string]())),
+    ), usage = "[--boom=<n>] <host>")
+    expect IOError:
+      discard spec.wire("--boom=1", "")
+
   test "an ambiguous grammar binds the value as parse would":
     var seen: seq[(string, string)]
     let user = arg("<user>")
