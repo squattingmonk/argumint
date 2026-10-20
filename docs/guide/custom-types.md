@@ -248,7 +248,7 @@ proc vars(variants: string, help = ""): VarsArg =
 method accept(self: VarsArg, c: Contribution, how: Arbitration) =
   let parts = c.value.split('=', maxsplit = 1)
   if parts.len != 2 or parts[0].len == 0:
-    raise newException(ParseError,
+    raise newException(ConversionError,
       "expected name=value for " & self.subject(c) & " but got " & c.value)
   if how == arReplace:
     self.clear
@@ -302,7 +302,8 @@ names the `Arg` in an error the way argumint does, including where the value
 came from. `how` is `arReplace` when the value should replace what's there
 rather than add to it, for example when the command line overrides an
 environment variable. Check the value first, then call `clear` on
-`arReplace`, so a bad value leaves the `Arg` as it was.
+`arReplace`, so a bad value leaves the `Arg` as it was. Raise a
+`ConversionError` for a value it can't take, as `arg` and `opt` do.
 
 `clear` empties the value. It must call the base `clear` too, which resets
 `seen`.

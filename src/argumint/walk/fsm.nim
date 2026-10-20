@@ -4,7 +4,8 @@ import std/[algorithm, os, tables]
 
 import ./[complaints, completion, matching, tokens],
   ../core/[backend, errors], ../grammar/parser
-export ParseError, SpecDefect, CompletionError
+export ParseError, UsageError, ConversionError, ValidationError, SpecDefect,
+  CompletionError
 
 proc reach(pc: ParseContext): Reach =
   ## This path's Reach (`CONTEXT.md`): where the first token it could not
@@ -122,12 +123,13 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
     command = appName()) =
   ## Creates an FSM for `spec` and attempts to navigate it using `args`. If a
   ## terminal state was reached and all args were consumed, the parse was
-  ## successful and each match is parsed into its arg. Raises `ParseError`,
-  ## `ValidationError`, `HelpError`, `MessageError`, or `CompletionError` on
-  ## failure -- use `parseOrQuit*` (`argumint.nim`) if you want those to
-  ## print a message and `quit()` instead. Values that fail to convert or
-  ## validate are raised together, after every valid one is stored -- see
-  ## `storeValues` and `docs/adr/0077-report-every-bad-value.md`.
+  ## successful and each match is parsed into its arg. Raises a `ParseError`
+  ## on failure (see `docs/adr/0078-parse-error-hierarchy.md`), or a
+  ## `MessageError` such as `HelpError` or `CompletionError` -- use
+  ## `parseOrQuit*` (`argumint.nim`) if you want those to print a message
+  ## and `quit()` instead. Values that fail to convert or validate are
+  ## raised together, after every valid one is stored -- see `storeValues`
+  ## and `docs/adr/0077-report-every-bad-value.md`.
   ##
   ## `spec` is **single-use**: parsing more than once accumulates into the
   ## same Args rather than starting fresh -- a repeated `opts` appends, a

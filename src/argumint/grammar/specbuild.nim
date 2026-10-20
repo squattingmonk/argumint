@@ -158,11 +158,10 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
   ##   hook) applies live throughout the tree.
   ##
   ## Unlike `parseOrQuit*`, this doesn't catch `SpecDefect` (construction)
-  ## or `ParseError`/`ValidationError`/`HelpError`/`MessageError` (if you
-  ## call `result.parse(args, command)` yourself) -- use it when you need
-  ## to handle those yourself, or just call `parse*` on the spec tuple
-  ## directly for the same `newSpec` + parse in one step, still raising on
-  ## failure.
+  ## or `ParseError`/`MessageError` and their subtypes (if you call
+  ## `result.parse(args, command)` yourself) -- use it when you need to
+  ## handle those yourself, or just call `parse*` on the spec tuple directly
+  ## for the same `newSpec` + parse in one step, still raising on failure.
   ##
   ## `spec` is **single-use**: parsing more than once accumulates into the
   ## same Args rather than starting fresh. Use `parsed*`/`parsedOrQuit*` to

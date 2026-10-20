@@ -124,8 +124,12 @@ Parsing happens in two distinct phases at a high level, detailed fully in
   `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
   failures are deliberately different exception types).
 - `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
-  not meant to be caught), while `ParseError`/`ValidationError`/`MessageError`
-  are `CatchableError`s raised at user-input parse time. All of them live in
+  not meant to be caught), while `ParseError`/`MessageError` are
+  `CatchableError`s raised at user-input parse time. Every user-input
+  failure is a `ParseError`, raised as `UsageError`, `ConversionError` or
+  `ValidationError`, or as `ParseError` itself when one parse fails in more
+  than one of those ways (`docs/adr/0078-parse-error-hierarchy.md`); put
+  the subtype first in an `except`. All of them live in
   `errors.nim`, a leaf module with no local imports, so any module can name
   an exception without depending on whichever one raises it. `parse*`
   (`argumint.nim`, both the `Spec` and `tuple` overloads) lets all of these

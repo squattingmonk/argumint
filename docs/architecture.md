@@ -45,11 +45,12 @@ readable), anything else as its `$`. Validators use it for choices and
 ranges, arg types for defaults and conversion failures.
 
 `errors.nim` holds every exception argumint raises (`SpecDefect`,
-`ParseError`, `ValidationError`, `MessageError`, `HelpError`,
-`CompletionError`). Keeping them in a leaf is what lets any module name an
-exception without depending on whichever module raises it — `fsm.nim` needs
-`ValidationError` but has no business importing the validator combinators,
-and `lexer.nim` raises `SpecDefect` while staying free of everything above
+`ParseError` and its subtypes `UsageError`, `ConversionError` and
+`ValidationError`, `MessageError`, `HelpError`, `CompletionError`).
+Keeping them in a leaf is what lets any module name an exception without
+depending on whichever module raises it — `complaints.nim` names every
+`ParseError` subtype but has no business importing the validator
+combinators or the arg types, and `lexer.nim` raises `SpecDefect` while staying free of everything above
 it. The two modules whose own API would be incomplete without one
 (`lexer.nim` for `SpecDefect`, `validators.nim` for `ValidationError`)
 re-export it, so importing either alone still names what it raises.
@@ -105,8 +106,8 @@ and splits it the way `lookupConfigSources` answers for a Config Key.
 
 `outcome.nim` is what `parseOrQuit*` does with each exception it catches:
 `outcome(e, styler)` returns the text to print, whether it goes to stderr,
-and the exit code, as an `Outcome`. Failures (`ParseError`,
-`ValidationError`, `SpecDefect`) get an `srError` label and go to stderr
+and the exit code, as an `Outcome`. Failures (`ParseError` and its
+subtypes, `SpecDefect`) get an `srError` label and go to stderr
 with `QuitFailure`; messages (`MessageError` and its subtypes) go to stdout
 unlabelled with `QuitSuccess` (ADR 0050). Returning data rather than
 quitting is what makes the rule testable; the facade's private `quitWith`
@@ -634,10 +635,13 @@ shape, since its raise site in `arg.parse` has no view of the Spec. It
 seeds one `Report` with the live `(spec, command)`, catches each failure
 on every tier into it with `Report.store` (a bare line, as `note` makes),
 and returns it with `applyFallbacks`' oversupply complaints alongside.
-`raiseFailure` raises `ValidationError` when every complaint is a
-Validator's, and `ParseError` otherwise. See
-`docs/adr/0035-parse-failure-reporting.md` and
-`docs/adr/0077-report-every-bad-value.md`.
+Each complaint remembers which `ParseError` subtype it is a case of: a
+walk's are all usage, `Report.store` takes the type of what it caught, and
+oversupply counts as usage. `raiseFailure` raises the subtype they all
+share, or `ParseError` when they differ, so a failed walk raises
+`UsageError`. See `docs/adr/0035-parse-failure-reporting.md`,
+`docs/adr/0077-report-every-bad-value.md` and
+`docs/adr/0078-parse-error-hierarchy.md`.
 
 ## 3c. Value Precedence fallbacks (`precedence.nim`)
 
@@ -710,7 +714,7 @@ helper `applyTier`) applies exactly as many values as the walk consumed
 for each Arg from whichever tier supplied them (cached on that tier's own
 `ValueCursor`), falling through to the Config Source tier only when the
 env tier had nothing at all for that Arg; if values are left over (the
-tier had more than the grammar had positions for), that's a `ParseError`
+tier had more than the grammar had positions for), that's a `UsageError`
 — `"unexpected option"`/`"unexpected flag"`, the same wording already
 used for a genuinely excess CLI token — rather than a silent truncation to
 a prefix of the values. An Arg whose matcher was never consulted at all
@@ -719,7 +723,7 @@ the same spec) has no walk-derived count to bound it by, so every
 available value from whichever tier resolves is applied. Whatever the
 count, an Arg that doesn't `accumulate` (an `opt`, not an `opts` or flag)
 takes at most one value from a tier, so several are always the same
-`ParseError`, naming the source (`--url (env: URL)`) the way conversion
+`UsageError`, naming the source (`--url (env: URL)`) the way conversion
 errors do (#189). For `flag`, each
 value (from either tier) names one of the Arg's own declared Variants
 (matching `self.ops`' keys exactly) and is applied via *that* Variant's
@@ -848,7 +852,7 @@ flags never show a default.
 `Validator`, or for an enum argumint parses, a `choice` of the enum's values
 (gaps and all, via `std/enumutils`) -- replaced by the arg's own validator
 when that lists values of its own, and filtered by it with `all` otherwise.
-A bad enum value's `ParseError` lists the same values. Its `validatorHelp`
+A bad enum value's `ConversionError` lists the same values. Its `validatorHelp`
 describes the same Validator, except that a validator with no help of its
 own leaves just the enum's values.
 `Validator[T].styledHelp` returns a short styled description per kind, or
@@ -1038,7 +1042,7 @@ description and a group number, one per `FlagOp`; the base's methods read
 nothing else:
 
 - `accept` looks up the Variant (`c.value`, on every tier), raising
-  `ParseError` for one the flag doesn't have, clears on `arReplace`, and
+  `ConversionError` for one the flag doesn't have, clears on `arReplace`, and
   runs the bound op.
 - `aliases` compares group numbers: the bare spellings in `flag*`'s own
   `variants` are one group, and each `flagOp` another, even if two do the

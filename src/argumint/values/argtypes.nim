@@ -331,23 +331,23 @@ proc helpDescribedBy[T](self: AnyValueArg[T]): Validator[T] =
   self.describedBy
 
 proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
-  ## Converts `c.value` into a `T`, then stores it. Raises `ParseError` if it
-  ## can't convert.
+  ## Converts `c.value` into a `T`, then stores it. Raises `ConversionError`
+  ## if it can't convert.
   try:
     self.storeImpl(fromString[T](c.value), c, how, validate = true)
   except OutOfRangeError as e:
     # Outside `fmt`: see docs/gotchas.md, openSym.
     let (got, subject, expected) = (c.value.quoted, self.subject(c), e.msg)
-    raise newPlainError(ParseError, fmt"for {subject}, got {got} but {expected}")
+    raise newPlainError(ConversionError, fmt"for {subject}, got {got} but {expected}")
   except ValueError:
     # Outside `fmt`: see docs/gotchas.md, openSym.
     let (got, subject) = (c.value.quoted, self.subject(c))
     when parsesByName(T):
       let values = self.describedBy.completions.join(", ")
-      raise newPlainError(ParseError, fmt"for {subject}, got {got} but expected one of {values}")
+      raise newPlainError(ConversionError, fmt"for {subject}, got {got} but expected one of {values}")
     else:
       let what = typeNoun(T)
-      raise newPlainError(ParseError, fmt"expected {what} for {subject} but got {got}")
+      raise newPlainError(ConversionError, fmt"expected {what} for {subject} but got {got}")
 
 proc defaultText[T](self: ValueArg[T]): string =
   ## `self`'s default as help shows it, or "" if it's still `zeroValue` (e.g.
@@ -644,8 +644,9 @@ proc describeFlagHook[A](self: FlagArgBase): StyledText =
 
 method accept(self: FlagArgBase, c: Contribution, how: Arbitration) =
   ## `c.value` is the Variant whose Flag Operation applies, on every tier.
+  ## A Variant the flag doesn't have raises `ConversionError`.
   if not self.ops.hasKey(c.value):
-    raise newPlainError(ParseError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
+    raise newPlainError(ConversionError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
   if how == arReplace:
     self.clear
   self.ops[c.value].apply(self)

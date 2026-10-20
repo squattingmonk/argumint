@@ -1,6 +1,6 @@
 ## What `parseOrQuit*`, `parsedOrQuit*` and `dot*(tuple)` do with each
 ## exception they catch: the text printed, the stream, and the exit code,
-## as an `Outcome`. Covers the failures (`ParseError`, `ValidationError`,
+## as an `Outcome`. Covers the failures (`ParseError` and its subtypes,
 ## `SpecDefect`) and the messages (`MessageError` and its subtypes), not a
 ## successful parse. Withheld from the facade.
 
@@ -26,10 +26,10 @@ proc outcome*(e: ref Exception, styler: Styler): Outcome =
       toStderr: true, code: QuitFailure)
   if e of MessageError:
     Outcome(text: body((ref MessageError)(e).styledMsg), code: QuitSuccess)
+  elif e of ValidationError: # Before its parent, `ParseError`: ADR 0078.
+    failure("Validation error:", "\n", body((ref ValidationError)(e).styledMsg))
   elif e of ParseError:
     failure("Parsing error:", "\n", body((ref ParseError)(e).styledMsg))
-  elif e of ValidationError:
-    failure("Validation error:", "\n", body((ref ValidationError)(e).styledMsg))
   elif e of SpecDefect: failure("Error constructing spec:", " ", e.msg)
   else: raise newException(Defect, "no outcome for " & $e.name)
 
@@ -48,6 +48,11 @@ when isMainModule:
       let e = (ref ValidationError)(msg: "plain", styledMsg: "styled")
       check outcome(e, nil) ==
         Outcome(text: "Validation error:\nstyled", toStderr: true, code: QuitFailure)
+
+    test "a usage or conversion failure is labelled as any parse failure":
+      for e in [(ref ParseError)((ref UsageError)(msg: "p", styledMsg: "s")),
+                (ref ConversionError)(msg: "p", styledMsg: "s")]:
+        check outcome(e, nil).text == "Parsing error:\ns"
 
     test "a spec defect goes to stderr, labelled on the same line":
       let e = newException(SpecDefect, "bad variant")

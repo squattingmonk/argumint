@@ -522,12 +522,12 @@ _Avoid_: Accumulation, repeat handling
 **Validator**:
 A constraint attached to a Positional Argument or Option, checked against
 the converted value before it's stored. A value that fails to convert to
-the Arg's type raises `ParseError`; a value that converts successfully but
-fails the Validator raises `ValidationError` instead -- two distinct
-failure points, not one. Never applies to Flag, Command, or Message
-Argument, since a Flag's value comes from author-declared Flag Operations
-rather than arbitrary user-typed text (see Flag Clamp for the
-Flag-specific, non-raising analog). Always checked against
+the Arg's type raises `ConversionError`; a value that converts successfully
+but fails the Validator raises `ValidationError` instead -- two distinct
+failure points, not one, though both are `ParseError`s. Never applies to
+Flag, Command, or Message Argument, since a Flag's value comes from
+author-declared Flag Operations rather than arbitrary user-typed text (see
+Flag Clamp for the Flag-specific, non-raising analog). Always checked against
 the scalar element type, never a collected list, even for a multi-value
 Arg -- each match is validated individually as it arrives, though a Check
 built via `checkSeen`/`unique` may also consult Seen Values (see below).
@@ -652,8 +652,8 @@ the first failing child's own message through verbatim (already the most
 specific reason, since All short-circuits), while Any -- which has no
 single dispositive failing child, since none of them passed -- falls back
 to joining each child's own help text with "or".
-_Avoid_: error message (ambiguous with `ParseError`'s conversion-failure
-message, a separate failure point -- see Validator)
+_Avoid_: error message (ambiguous with `ConversionError`'s message, a
+separate failure point -- see Validator)
 
 **Usage String**:
 The complete docopt-style declaration of a Spec's valid argument patterns —
@@ -864,10 +864,9 @@ third-party subclassability. A built-in constructor reads and parses its
 file eagerly, at that construction call, in the caller's own code — before
 `parse*`/`parseOrQuit*` ever runs; a missing file or malformed syntax
 raises there as an ordinary exception, deliberately outside the
-`SpecDefect`/`ParseError`/`ValidationError`/`MessageError` taxonomy, since
-it happens before any Spec construction or parsing begins. Unlike Env
-Delimiter's central splitting (one raw string, always split), a Config
-Source hands back an already-split `seq[string]` directly — a JSON array's
+`SpecDefect`/`ParseError`/`MessageError` taxonomy, since it happens before
+any Spec construction or parsing begins. Unlike Env Delimiter's central
+splitting (one raw string, always split), a Config Source hands back an already-split `seq[string]` directly — a JSON array's
 elements, or a repeated INI key's accumulated occurrences, already know
 their own value boundaries, so there's nothing to split centrally. See
 `docs/adr/0018-config-source.md`.

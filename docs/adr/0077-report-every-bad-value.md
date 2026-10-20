@@ -1,5 +1,10 @@
 # A parse reports every bad value at once
 
+> **Amended by [ADR 0078](0078-parse-error-hierarchy.md)**: `ParseError`
+> now has three subtypes, `UsageError`, `ConversionError` and
+> `ValidationError`. Point 2 raises the subtype every complaint shares,
+> else `ParseError`, and point 7 records any `ParseError`.
+
 Amends ADRs 0035, 0039 and 0071.
 
 Once the walk succeeds, `parse` stores each value into its Arg: the

@@ -97,9 +97,8 @@ suite "the exception covers every failure":
       s.parse(args = @["--tag", "a", "--tag", "a", "--port", "x"],
         command = "app", settings = newSpecSettings(style = nil))
       fail()
-    except ValidationError:
-      fail()
     except ParseError as e:
+      check e.name == "ParseError"
       check e.msg.complaints.len == 2
 
   test "a validation failure beside oversupply is a ParseError":
@@ -112,9 +111,8 @@ suite "the exception covers every failure":
       s.parse(args = @["--tag", "a", "--tag", "a"], command = "app",
         settings = newSpecSettings(style = nil))
       fail()
-    except ValidationError:
-      fail()
     except ParseError as e:
+      check e.name == "ParseError"
       check e.msg.complaints == @[
         "for --tag, \"a\" did not meet condition: must be unique",
         "unexpected option: --name (env: ARGUMINT_TEST_NAMES)"]
@@ -153,7 +151,7 @@ proc boom(variants: string): Boom =
   result = Boom(help: "")
   result.initArg(Optional, variants)
 
-suite "only conversion and validation failures are collected":
+suite "only a ParseError is collected":
   test "anything else propagates from parse as it is":
     let s = (boom: boom("--boom=<b>"),
              port: opt("--port=<n>", default = 0, help = ""))
