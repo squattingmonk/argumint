@@ -181,7 +181,7 @@ to be four loose `ParseContext` fields (`messages`/`errorTokens`/
 (`walk`'s tie-break/adoption, and the one raise site). `Report`'s two-phase
 shape mirrors the walk itself: verbs like `missingOption`/`leftover`/
 `starved` record during the walk without wording anything, and
-`finalComplaints`/`failureMessage`/`raiseParseFailure` word and render only
+`finalComplaints`/`failureMessage`/`raiseFailure` word and render only
 once the walk is over. `matching.nim`'s `ParseContext` embeds one `Report`
 (`report`); neither `walk` (`fsm.nim`) nor `match`/`push` (`matching.nim`)
 reach into it directly, only through `Report`'s verbs. `fsm.nim` owns the
@@ -194,31 +194,31 @@ moved to `precedence.nim` below — see issue #65). Unlike `argtypes`,
 both import it, the same shape as `tokens.nim`.
 
 `precedence.nim` sits directly above `complaints`/`configsource`/`envvar`
-and below `matching`/`fsm`, and holds everything Value Precedence's fallback
-tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
+and below `matching`/`fsm`, and holds everything Value Precedence's
+fallback tiers name: `FallbackTier` (`range[byConfig..byEnv]`, the `SeenBy`
 members the two tiers supply) and `FallbackOrder` (`[byEnv, byConfig]`,
 strongest first, the order they're consulted in; iterating the type itself
 would run weakest first), `Tiers` (one `ValueCursor` per tier), `probe`,
-`applyFallbacks`, and `FailurePolicy` (`fpRaise`/`fpSkip`,
-what `applyFallbacks` does with an Arg whose fallback fails). `Tiers`
-replaces what used to be two loose `ParseContext` fields
-(`env`/`configValues`) plus six ad hoc closure constructions at their four
-call sites (`matching.match`'s `mkOption` arm, and `applyFallbacks`'s
-per-tier `resolve`/`setValue` pair) — a `resolve: proc ():
-Option[seq[string]]` parameter existed to keep `ValueCursor` tier-agnostic,
-but there are exactly two tiers, both compiled in, so it bought genericity
-nowhere it was spent; dispatching on `FallbackTier` via `case` inline
-replaces it, and also removes a `let spec = pc.cursor.spec` workaround
-`match`'s `mkOption` arm needed only because a closure can't capture a `var
-ParseContext` parameter. `fsm.nim` keeps only the walk itself and dispatch —
-`match`/`push` moved out to `matching.nim` entirely in issue #78, so this is
-no longer just a division of labor within one file. Unlike `argtypes`,
-`precedence` needs no withholding — `matching.nim` and `fsm.nim` both import
-it, the same shape as `tokens.nim`/`complaints.nim`. `initTiers(settings)`
-captures the parse's one `SpecSettings` (every level shares the root's), so
-`probe` and `applyFallbacks` take Args, never a `Spec`; `initParseContext`
-builds them for both the parse walk and completion's, since completion's
-walk probes too.
+and `applyFallbacks`, which records a fallback that fails into its `Report`
+and carries on. `Tiers` replaces what used to be two loose `ParseContext`
+fields (`env`/`configValues`) plus six ad hoc closure constructions at
+their four call sites (`matching.match`'s `mkOption` arm, and
+`applyFallbacks`'s per-tier `resolve`/`setValue` pair) — a `resolve: proc
+(): Option[seq[string]]` parameter existed to keep `ValueCursor`
+tier-agnostic, but there are exactly two tiers, both compiled in, so it
+bought genericity nowhere it was spent; dispatching on `FallbackTier` via
+`case` inline replaces it, and also removes a `let spec = pc.cursor.spec`
+workaround `match`'s `mkOption` arm needed only because a closure can't
+capture a `var ParseContext` parameter. `fsm.nim` keeps only the walk
+itself and dispatch — `match`/`push` moved out to `matching.nim` entirely
+in issue #78, so this is no longer just a division of labor within one
+file. Unlike `argtypes`, `precedence` needs no withholding — `matching.nim`
+and `fsm.nim` both import it, the same shape as
+`tokens.nim`/`complaints.nim`. `initTiers(settings)` captures the parse's
+one `SpecSettings` (every level shares the root's), so `probe` and
+`applyFallbacks` take Args, never a `Spec`; `initParseContext` builds them
+for both the parse walk and completion's, since completion's walk probes
+too.
 
 `matching.nim` sits directly above `precedence` and below `completion`/
 `fsm`, and holds the matching primitives both the parse walk and shell
@@ -529,7 +529,7 @@ merge-on-tied bookkeeping at the bottom of `walk`'s transition loop (replacing
 
 `Report` also carries the failing `spec`/`command` (what used to be
 `ParseContext.errorSpec`/`.errorCommand`) — all four pieces travel as one value,
-read together at the one raise site (`Report.raiseParseFailure`), rather than
+read together at the one raise site (`Report.raiseFailure`), rather than
 four fields kept in lockstep by convention. The level is set by `Report.clear`
 on every branch that matches, from the branch's live cursor at that moment, and
 `walk` takes a further-reaching sibling's `Report` whole, level and all. A
@@ -623,19 +623,21 @@ grouping never depend on a role.
 `formatComplaints` lays out the bullets with no leading newline;
 `Report.failureMessage` appends the usage block via `usage.usageBlock`,
 the same one help shows (so `complaints.nim` doesn't import `help.nim`),
-rendered with an optional styler, and `Report.raiseParseFailure` raises it
-as a `ParseError` via the private `failure`, which builds it with a plain
+rendered with an optional styler, and `Report.raiseFailure` raises it via
+the private `failure`, which builds it with a plain
 `msg` and a `styledMsg` rendered with the Spec's styler (the same text if it
 has none), so a caught error's `msg` never holds escape codes (ADR 0051,
 ADR 0059). `parseOrQuit*` prints its `outcome`: the `srError` label above
 `styledMsg`, or `msg` if something outside argumint raised it without one.
-`matching.storeValues` wraps its two phases in the `asComplaint` template
-(`applyFallbacks` reports oversupply through a `var Report` too, rather
-than a second shape) so a conversion or validation failure — whose raise
-site in `arg.parse` has no view of the Spec — comes out in that same shape:
-a one-off `Report` seeded with the live `(spec, command)`, given a single
-`note`, then raised as the same exception type. See
-`docs/adr/0035-parse-failure-reporting.md`.
+`matching.storeValues` gives a conversion or validation failure that same
+shape, since its raise site in `arg.parse` has no view of the Spec. It
+seeds one `Report` with the live `(spec, command)`, catches each failure
+on every tier into it with `Report.store` (a bare line, as `note` makes),
+and returns it with `applyFallbacks`' oversupply complaints alongside.
+`raiseFailure` raises `ValidationError` when every complaint is a
+Validator's, and `ParseError` otherwise. See
+`docs/adr/0035-parse-failure-reporting.md` and
+`docs/adr/0077-report-every-bad-value.md`.
 
 ## 3c. Value Precedence fallbacks (`precedence.nim`)
 
@@ -1367,7 +1369,7 @@ than one grammar level. Exactly one consumer relies on it:
 below), and neither does dispatch, which reads the chain of levels the
 walk recorded as it descended — see below.
 
-After a successful walk, `Spec.parse` calls `pc.storeValues(fpRaise)`, whose
+After a successful walk, `Spec.parse` calls `pc.storeValues`, whose
 first phase, before the env/Config Source sweep, parses every match in
 `pc.matches` — the whole tree, before any hook fires. Commands and Message
 Args are included rather than skipped: they hit the quiet base `accept`, and
@@ -1376,17 +1378,23 @@ provenance now that no blanket post-walk sweep writes it. Because
 `pc.matches` is already flat across every level, this is a plain loop over
 the table: no spec-tree recursion, no `Match.spec` filtering, and no dedupe
 pass, since an Arg shared by two levels holds all its matches under one key
-and so is parsed exactly once. Each Arg's own matches are still sorted by
-`Match.idx` individually, exactly as the per-level pass sorted them — not
-flattened into one sort across the whole table. That composes a shared Arg's
-matches identically to the old level-by-level walk, because ADR 0010 makes
-each level's tokens a contiguous run in command-line order.
+and so is parsed exactly once. Every match in the table is sorted by
+`Match.idx` together, so failures are reported in the order typed (ADR
+0077). Each Arg's own matches keep the relative order they had when they
+were sorted one Arg at a time, so a shared Arg composes identically to the
+old level-by-level walk, because ADR 0010 makes each level's tokens a
+contiguous run in command-line order.
 
 The env and Config Source tiers are likewise parsed up front, by
 `storeValues`' second phase, `applyFallbacks`; every tier is converted
 before `dispatch`, so a value that fails to convert or validate raises
-before any hook can run a side effect, on every tier. See
-`docs/adr/0032-parse-all-values-before-dispatch.md`.
+before any hook can run a side effect, on every tier. Nothing stops at the
+first failure: every value that passes is written, every one that fails is
+recorded, and `parse` raises them all together once both phases are done.
+An Arg whose command-line value failed is closed to the fallback tiers, so
+they neither write to it nor complain about it. See
+`docs/adr/0032-parse-all-values-before-dispatch.md` and
+`docs/adr/0077-report-every-bad-value.md`.
 
 The three supplied tiers run strongest-first, which is Value Precedence
 read top-down:
@@ -1410,7 +1418,7 @@ applies nothing. The first CLI match therefore clears any pre-seed and
 records `byCli`, which moves every later match into the append branch with
 no "is this the first value" bookkeeping. Ordering the passes
 strongest-first is a separate choice, with one consequence: a bad
-command-line value surfaces before a bad env or config one. See
+command-line value is listed before a bad env or config one. See
 `docs/adr/0039-per-arg-provenance.md` and
 `docs/adr/0041-parse-is-the-write-surface.md`.
 
@@ -1696,17 +1704,18 @@ any other candidate, and `reply*` puts descriptions through
 
 A proc Completer (`Completer.fills`) is first given the earlier values,
 through `Tab.fill`. The walk never converts a value: `matches` holds raw
-strings. So `fill` calls the branch's `pc.storeValues(fpSkip)`, the same
+strings. So `fill` calls the branch's `pc.storeValues`, the same
 store step `parse` runs: the matches in `Match.idx` order at `byCli`, then
 `applyFallbacks` with the branch's own `pc.tiers` over every level in
 `pc.levels`, root-first, as `initParseContext` seeds it on both paths.
 Reusing the walk's tiers keeps `parse`'s limit on how many values a tier
 supplies to an Arg the branch walked, and resolves no source twice (#260).
-Under `fpSkip`, a command-line value that fails is skipped and the rest
-still store, an Arg whose fallback fails is skipped for the next, and
-oversupply is dropped. `dispatch` never runs, so no hook does. The walk's
-own probes still read env vars and Config Sources, to judge whether an
-option is satisfied, but only the fill writes.
+A value that fails is skipped and the rest still store, as in `parse`, but
+`fill` drops the returned `Report` where `parse` raises it. A command-line
+value that fails still closes the fallback tiers to its Arg (ADR 0077).
+`dispatch` never runs, so no hook does. The walk's own probes still read
+env vars and Config Sources, to judge whether an option is satisfied, but
+only the fill writes.
 
 The fill runs once per Tab, from the first branch that needs it, and clears
 nothing. Filling per branch would have run each Completer once per live

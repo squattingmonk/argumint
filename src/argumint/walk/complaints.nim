@@ -4,7 +4,8 @@
 ## is the data model: `fsm.nim`'s `walk` records into it during the walk
 ## (`missingArgument`/`missingOption`/`missingCommand`/`leftover`/`starved`),
 ## never wording anything itself, then words and renders it once the walk is
-## over (`finalComplaints`/`failureMessage`/`raiseParseFailure`). See
+## over (`finalComplaints`/`failureMessage`/`raiseFailure`). Storing a
+## finished walk's values records its failures into one too (`failed`). See
 ## `docs/architecture.md` §3b.
 import std/[algorithm, options, sequtils, strformat, strutils, tables, unicode]
 
@@ -26,6 +27,9 @@ type
     aboutMessageArg: bool
       ## Whether it's about a Message Argument, which a Reach-tied merge drops
       ## beside any other complaint -- see ADR 0036
+    invalid: bool
+      ## Whether it's a `ValidationError`'s, so `raiseFailure` knows when
+      ## every complaint is one -- see ADR 0077
 
   Leftover = TokenCursor
     ## One failed branch's unconsumed tokens, plus the context to
@@ -46,7 +50,7 @@ type
     ## beside them on `ParseContext`, since the level is set when a branch
     ## matches (`clear`), carried up with the complaints when `walk` takes a
     ## sibling's `Report` whole, and read with them at the one raise site
-    ## (`raiseParseFailure`). Fields unexported -- callers go through the verbs
+    ## (`raiseFailure`). Fields unexported -- callers go through the verbs
     ## below, never the fields directly.
     messages: seq[Complaint]
     leftovers: seq[Leftover]
@@ -59,12 +63,12 @@ proc initReport*(spec: Spec, command: string): Report =
   Report(spec: spec, command: command)
 
 proc complaint(kind: string, subject: StyledText, names = false,
-    aboutMessageArg = false): Complaint =
+    aboutMessageArg = false, invalid = false): Complaint =
   ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
   ## pointing at a specific token the user typed -- see `Complaint.names`
   ## and ADR 0035. Pass `aboutMessageArg = true` for one about a Message
-  ## Argument.
-  (kind, subject, names, aboutMessageArg)
+  ## Argument, and `invalid = true` for a `ValidationError`'s.
+  (kind, subject, names, aboutMessageArg, invalid)
 
 proc dedupKey(c: Complaint): tuple[kind, subject: string, names: bool] =
   ## What makes two complaints the same: roles don't count, so styling never
@@ -209,6 +213,22 @@ proc note*(r: var Report, msg: string) =
   ## failure's own message takes, having no complaint kind of its own. See
   ## ADR 0035.
   r.messages.add complaint("", styled(msg))
+
+proc store*(r: var Report, arg: Arg, value: string, variant = "",
+    seenBy: Option[SeenBy]): bool =
+  ## Parses `value` into `arg`, returning whether it stored. A failure to
+  ## convert (`ParseError`) or validate (`ValidationError`) is recorded as
+  ## a bare sentence, as `note` does, remembering which it was for
+  ## `raiseFailure`; anything else propagates. `arg.parse` has no view of
+  ## its spec, so its failures are worded here, against the Report's. See
+  ## ADR 0077.
+  try:
+    arg.parse(value, variant, seenBy)
+    result = true
+  except ParseError as e:
+    r.messages.add complaint("", styled(e.msg))
+  except ValidationError as e:
+    r.messages.add complaint("", styled(e.msg), invalid = true)
 
 proc leftover*(r: var Report, cur: TokenCursor) =
   ## Records what a failed branch couldn't consume, for `finalComplaints` to
@@ -384,33 +404,19 @@ proc failureMessage*(r: Report, styler: Styler = nil): string =
     r.spec.usage.usageBlock(r.command, r.spec.settings.width).render(styler)
 
 proc failure[E: ParseError | ValidationError](r: Report, kind: typedesc[E]): ref E =
-  ## An `E` carrying `r.failureMessage` -- what `raiseParseFailure` raises,
-  ## and what `asComplaint` raises for a validation failure. Also rendered
-  ## with the Spec's styler as `styledMsg`, which is `msg` again if there's
-  ## none.
+  ## An `E` carrying `r.failureMessage` -- what `raiseFailure` raises. Also
+  ## rendered with the Spec's styler as `styledMsg`, which is `msg` again if
+  ## there's none.
   result = newException(E, r.failureMessage)
   result.styledMsg = r.failureMessage(r.spec.settings.style)
 
-proc raiseParseFailure*(r: Report) =
-  ## Raises `ParseError` with `r.failureMessage`.
-  raise r.failure(ParseError)
-
-template asComplaint*(spec: Spec, command: string, body: untyped) =
-  ## Runs `body`, giving a conversion or validation failure it raises the
-  ## same complaint-plus-usage shape as any other parse failure, against
-  ## `spec` and `command`. The exception keeps its type. Needed because
-  ## `arg.parse` has no view of its spec -- see ADR 0035.
-  bind failure # private; see docs/gotchas.md on templates' open symbols
-  try:
-    body
-  except ParseError as e:
-    var r = initReport(spec, command)
-    r.note(e.msg)
-    r.raiseParseFailure()
-  except ValidationError as e:
-    var r = initReport(spec, command)
-    r.note(e.msg)
+proc raiseFailure*(r: Report) =
+  ## Raises `r.failureMessage` as the most specific type covering every
+  ## complaint: `ValidationError` when each one is a Validator's, else
+  ## `ParseError`. See ADR 0077.
+  if r.messages.len > 0 and r.messages.allIt(it.invalid):
     raise r.failure(ValidationError)
+  raise r.failure(ParseError)
 
 when isMainModule:
   ## Direct tests for failure reporting -- ADR 0035 (parse-failure reporting),

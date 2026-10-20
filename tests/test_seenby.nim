@@ -220,10 +220,10 @@ suite "seenBy agrees with HookInfo.matched":
     check agreed
     check matchedCount == 2
 
-suite "a bad command-line value now surfaces before a bad env value":
+suite "a bad command-line value surfaces before a bad env value":
   test "the higher-precedence tier reports first":
-    # Behavior change from gating the fallback sweep on seenBy: the CLI tier
-    # is converted before the env tier is applied. See ADR 0039.
+    # The CLI tier is converted before the env tier is applied (ADR 0039),
+    # and both are reported, in that order (ADR 0077).
     let spec = (port: opt("--port=<n>", default = 0, help = ""),
                 host: opt("--host=<h>", default = 0, env = "ARGUMINT_SEENBY_HOST",
                           help = ""))
@@ -235,4 +235,4 @@ suite "a bad command-line value now surfaces before a bad env value":
       check false
     except ParseError as e:
       check "also-bad" in e.msg
-      check "not-an-int" notin e.msg
+      check e.msg.find("also-bad") < e.msg.find("not-an-int")

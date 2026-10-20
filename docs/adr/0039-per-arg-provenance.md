@@ -1,5 +1,10 @@
 # Per-Arg provenance is a field on `Arg`, written centrally
 
+> **Amended by [ADR 0077](0077-report-every-bad-value.md)**: a bad
+> command-line value and a bad env one are now reported together, the
+> command-line one first. An Arg whose command-line value failed is
+> closed to the fallback tiers.
+
 > **Note (ADR 0076):** `seenBy` is now a private field with a public
 > getter; the direct writes in the samples below go through `setSeenBy`.
 

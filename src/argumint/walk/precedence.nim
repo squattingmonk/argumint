@@ -18,12 +18,6 @@ type
     ## supply. Iterate `FallbackOrder`, not the type, which runs weakest
     ## first.
 
-  FailurePolicy* = enum
-    ## What storing a walk's values does with one that fails to convert or
-    ## validate: `fpRaise` raises it, as `parse` does; `fpSkip` drops it and
-    ## carries on, as a runtime Completer's fill does (ADR 0071).
-    fpRaise, fpSkip
-
   ValueCursor = object
     ## Owns one Value Precedence fallback tier's bookkeeping. `probe`
     ## resolves and caches an Arg's available values the first time it's
@@ -136,7 +130,9 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## takes at most one value (ADR 0005). Returns whether this tier had
   ## anything at all for `arg` -- a real application, or an oversupply
   ## complaint -- telling the caller whether to fall through to the
-  ## next-lower tier.
+  ## next-lower tier. A value that fails to convert or validate is recorded
+  ## in `report` and the rest still apply; the tier still counts as having
+  ## supplied `arg`, so a weaker one never steps in (ADR 0077).
   if arg in cursor.applied:
     return true
   # How many values the walk made room for; the catch-all, or a never-
@@ -165,10 +161,10 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   else:
     cursor.applied.incl arg
     for v in values:
-      arg.parse(v, seenBy = some(SeenBy(t)))
+      discard report.store(arg, v, seenBy = some(SeenBy(t)))
 
-proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report,
-    onFailure: FailurePolicy) =
+proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]],
+    closed: HashSet[Arg], report: var Report) =
   ## Sweeps every spec level actually entered during this parse (the chain
   ## the walk recorded -- see architecture.md §5), falling back to each
   ## not-yet-supplied Arg's env var, then (only if env had nothing) its
@@ -191,21 +187,21 @@ proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]], report: var Report
   ## See `docs/adr/0039-per-arg-provenance.md` and
   ## `docs/adr/0041-parse-is-the-write-surface.md`.
   ##
-  ## Runs to completion (or raises) entirely before `dispatch` is called --
-  ## so a fallback problem at any level blocks every level's hooks from
-  ## firing at all, not just that level's, since `dispatch` never starts.
-  ## With `fpSkip`, an Arg whose fallback fails is skipped and the sweep
-  ## moves on to the next; an oversupply complaint lands in `report` either
-  ## way.
+  ## An Arg in `closed` -- one whose command-line value failed -- is
+  ## skipped outright: the user did supply it, so no weaker tier writes to
+  ## it or complains about it.
+  ##
+  ## Never raises for the user's input: a value that fails to convert or
+  ## validate, and a tier supplying more values than the walk had room for,
+  ## are both recorded in `report` and the sweep carries on, so the caller
+  ## decides what a failure means. See ADR 0077.
   for args in levels:
     for arg in args:
-      try:
-        for t in FallbackOrder:
-          # `SeenBy(t)`, not `t`: see docs/gotchas.md on subrange comparisons.
-          if arg.seenBy > SeenBy(t):
-            break
-          if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
-            break
-      except CatchableError:
-        if onFailure == fpRaise:
-          raise
+      if arg in closed:
+        continue
+      for t in FallbackOrder:
+        # `SeenBy(t)`, not `t`: see docs/gotchas.md on subrange comparisons.
+        if arg.seenBy > SeenBy(t):
+          break
+        if tiers.cursors[t].applyTier(t, arg, tiers.settings, report):
+          break

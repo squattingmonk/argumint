@@ -9,7 +9,7 @@
 ## `fsm.nim`: only `walk`'s Reach-ranking (ADR 0036) needs it,
 ## `collectFrontier` never does. See `docs/architecture.md` §3 and issue #78.
 
-import std/[algorithm, options, strformat, sequtils, tables]
+import std/[algorithm, options, sets, strformat, sequtils, tables]
 
 import ./[complaints, precedence, tokens], ../core/backend, ../grammar/fsmgraph
 
@@ -221,36 +221,32 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       # probes went -- see `Report.starved`.
       discard pc.report.starved(pc.cursor)
 
-proc storeValues*(pc: var ParseContext, onFailure: FailurePolicy) =
+proc storeValues*(pc: var ParseContext): Report =
   ## Writes a finished walk's values into its Args: every match across the
-  ## *whole* matched tree at `byCli`, then the env and Config Source tiers
-  ## over every level entered (`applyFallbacks`). Tiers go strongest-first,
-  ## which is Value Precedence read top-down, so a bad command-line value
-  ## surfaces before a bad env one -- see ADR 0039.
+  ## *whole* matched tree at `byCli`, in the order typed, then the env and
+  ## Config Source tiers over every level entered (`applyFallbacks`). Tiers
+  ## go strongest-first, which is Value Precedence read top-down -- see ADR
+  ## 0039.
   ##
-  ## With `fpRaise`, `parse` calls this before `dispatch` fires any hook, so
-  ## no hook runs for an invocation carrying an unconvertible or invalid
-  ## value on any tier. A failure is raised as a complaint with usage
-  ## (`asComplaint`), and so is a tier supplying more values than the walk
-  ## had room for. A Message Argument's value is stored here too, so a bad
-  ## one fails before any hook; its `action` stays behind for `dispatch`,
-  ## per level, after that level's `before`. See
-  ## `docs/adr/0032-parse-all-values-before-dispatch.md` and
-  ## `docs/adr/0013-message-args-fire-after-before.md`.
-  ##
-  ## With `fpSkip`, a failing command-line value, or an Arg whose fallback
-  ## fails, is skipped and the rest still store; oversupply is dropped. This
-  ## is a runtime Completer's fill -- see `docs/adr/0071-runtime-completers.md`.
-  var oversupply = initReport(pc.cursor.spec, pc.command)
-  asComplaint(pc.cursor.spec, pc.command):
-    for arg, ms in pc.matches:
-      # Typed order: Flag Operations don't commute -- see `Match.idx`.
-      for (variant, value, _, _) in ms.sortedByIt(it.idx):
-        try:
-          arg.parse(value, variant, some(byCli))
-        except CatchableError:
-          if onFailure == fpRaise:
-            raise
-    applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), oversupply, onFailure)
-  if onFailure == fpRaise and not oversupply.isEmpty:
-    oversupply.raiseParseFailure()
+  ## Runs to the end whatever fails, and returns what did: every value that
+  ## failed to convert or validate, and any tier supplying more values than
+  ## the walk had room for. Every value that passes is still written, and an
+  ## Arg whose command-line value failed gets nothing from a weaker tier.
+  ## `parse` raises the result before `dispatch` fires any hook; a runtime
+  ## Completer's fill ignores it. A Message Argument's value is stored here
+  ## too, so a bad one fails before any hook; its `action` stays behind for
+  ## `dispatch`, per level, after that level's `before`. See ADR 0077,
+  ## `docs/adr/0032-parse-all-values-before-dispatch.md`,
+  ## `docs/adr/0013-message-args-fire-after-before.md` and
+  ## `docs/adr/0071-runtime-completers.md`.
+  result = initReport(pc.cursor.spec, pc.command)
+  var allMatches: seq[(Arg, Match)]
+  for arg, ms in pc.matches:
+    for m in ms:
+      allMatches.add (arg, m)
+  var closed: HashSet[Arg]
+  # Typed order: Flag Operations don't commute -- see `Match.idx`.
+  for (arg, m) in allMatches.sortedByIt(it[1].idx):
+    if not result.store(arg, m.value, m.variant, some(byCli)):
+      closed.incl arg
+  applyFallbacks(pc.tiers, pc.levels.mapIt(it.spec.args), closed, result)

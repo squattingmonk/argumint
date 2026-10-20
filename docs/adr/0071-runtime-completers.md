@@ -1,5 +1,9 @@
 # An Arg can supply its own completion candidates at runtime
 
+> **Amended by [ADR 0077](0077-report-every-bad-value.md)**: in point 4,
+> a command-line value that fails closes the env and Config Source tiers
+> to its Arg, so they no longer fill it.
+
 Amends ADR 0022 (value candidates stay description-less) and ADR 0066
 (points 2 and 3, and its "out of scope: a custom completer proc").
 

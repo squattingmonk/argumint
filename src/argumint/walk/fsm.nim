@@ -2,7 +2,7 @@
 ## command-line arguments.
 import std/[algorithm, os, tables]
 
-import ./[complaints, completion, matching, precedence, tokens],
+import ./[complaints, completion, matching, tokens],
   ../core/[backend, errors], ../grammar/parser
 export ParseError, SpecDefect, CompletionError
 
@@ -125,7 +125,9 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
   ## successful and each match is parsed into its arg. Raises `ParseError`,
   ## `ValidationError`, `HelpError`, `MessageError`, or `CompletionError` on
   ## failure -- use `parseOrQuit*` (`argumint.nim`) if you want those to
-  ## print a message and `quit()` instead.
+  ## print a message and `quit()` instead. Values that fail to convert or
+  ## validate are raised together, after every valid one is stored -- see
+  ## `storeValues` and `docs/adr/0077-report-every-bad-value.md`.
   ##
   ## `spec` is **single-use**: parsing more than once accumulates into the
   ## same Args rather than starting fresh -- a repeated `opts` appends, a
@@ -148,8 +150,10 @@ proc parse*(spec: Spec, args: seq[string] = commandLineParams(),
 
   var pc = initParseContext(spec, args, command)
   if not spec.fsm.walk(pc):
-    pc.report.raiseParseFailure()
-  pc.storeValues(fpRaise)
+    pc.report.raiseFailure()
+  let failures = pc.storeValues()
+  if not failures.isEmpty:
+    failures.raiseFailure()
 
   let info = HookInfo(matched: matchedArgs(pc.matches), root: pc.levels[0])
   dispatch(pc.levels, 0, pc.matches, info)

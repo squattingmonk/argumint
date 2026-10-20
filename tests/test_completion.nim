@@ -714,11 +714,23 @@ suite "Completers see earlier values (#215)":
     discard spec.wire("--tag=1", "--tag=x", "--tag=2", "")
     check seen == @[@[1, 2]]
 
-  test "a command-line value that fails leaves the env var to fill":
+  test "a command-line value that fails closes the env var to it":
+    # The user did supply `--repo`, so no weaker tier steps in -- ADR 0077.
     putEnv "ARGUMINT_TEST_REPO", "7"
     let log = Log()
     discard gitSpec(log).wire("--repo", "nope", "checkout", "")
-    check log.seen == @[7]
+    check log.seen == @[0]
+
+  test "a store failure other than a bad value propagates from the fill":
+    # Only conversion and validation failures are skipped -- ADR 0077.
+    let boom = opt[int]("--boom=<n>", validator = argumint.check(proc (n: int): bool =
+      raise newException(IOError, "disk on fire")))
+    let spec = newSpec((boom: boom,
+      host: arg("<host>", complete = proc (ctx: CompletionContext): Offer =
+        offer(newSeq[string]())),
+    ), usage = "[--boom=<n>] <host>")
+    expect IOError:
+      discard spec.wire("--boom=1", "")
 
   test "an ambiguous grammar binds the value as parse would":
     var seen: seq[(string, string)]

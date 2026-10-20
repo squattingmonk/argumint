@@ -1,5 +1,10 @@
 # A failed parse names the token the user got wrong
 
+> **Amended by [ADR 0077](0077-report-every-bad-value.md)**: a
+> conversion or validation failure is no longer raised alone. Every
+> store-time failure, on every tier, joins one complaint list, raised as
+> the most specific type covering them all. The one message shape stands.
+
 Builds on `docs/adr/0034-strict-option-checking.md`, which added the first
 Complaint that names a token.
 
