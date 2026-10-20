@@ -24,7 +24,7 @@ depth, seam, adapter, leverage, locality) as defined in the
 | [U](#u--backendnim-sheds-the-completer-and-specsettings) | `backend.nim` sheds the Completer and `SpecSettings` | Worth exploring | Shipped with P: #270, PR #276, `b694a67` |
 | [V](#v--the-facade-documents-each-parameter-once) | The facade documents each parameter once | Worth exploring | Shipped: #273, PR #279, `fa14e5a` |
 | [W](#w--one-enum-for-value-precedence-tiers) | One enum for Value Precedence tiers | Speculative | Shipped: #274, PR #280, `4e826c2` |
-| [X](#x--the-extender-surface-separates-from-the-user-surface) | The extender surface separates from the user surface | Worth exploring | Open: #269, needs grilling |
+| [X](#x--the-extender-surface-separates-from-the-user-surface) | The extender surface separates from the user surface | Worth exploring | Shipped: #269, PR #283, `2821cd2`; ADR 0076 |
 
 **Recommendation:** Q first. It is the only candidate where the duplication
 already carries a semantic split (`ParseContext.levels` means two things)
@@ -99,7 +99,7 @@ the lexer. `Arg` stores parsed Variants; the re-deriving sites read fields.
 **As shipped.** Variants stay strings and aren't parsed once at
 construction: `Arg` stores no parsed Variant,
 since a second record could disagree with `variants`, which is public and
-writable (that gap is [X](#x--the-extender-surface-separates-from-the-user-surface)).
+writable (a gap [X](#x--the-extender-surface-separates-from-the-user-surface) has since closed).
 Each site that needs a name or metavar calls `parseVariant` instead, and
 `splitVariants` replaces every comma split. The grammar had a third copy
 the card missed, `tokens.nim`'s runtime option shapes; the new leaf
@@ -404,6 +404,19 @@ Open questions include which fields an extender may set, and whether
 **ADRs.** Revisits [ADR 0030](../adr/0030-core-types-exported-spec-opaque.md)'s
 custom-`Arg` contract, and may give
 [ADR 0043](../adr/0043-facade-machinery-seam.md)'s seam a third tier.
+
+**As shipped.** The module is `argumint/customarg`, named for the
+glossary's Custom Arg, and it is an opt-in public module like
+`argumint/help` rather than a third tier of ADR 0043's seam. Only the four
+fields a Spec is built from became read-only (`kind`, `variants`, `seenBy`
+and `CommandArg.spec`); the presentation fields stay public, since writing
+one corrupts nothing. A Custom Arg sets its kind and Variants once with
+`initArg`, and the nine names only it needs moved out of the facade.
+`initValueArg` and `arbitrated` stay withheld, deferred until a Custom Arg
+needs them. The first win is withdrawn: the fallbacks in `metavars` and
+`subjectParts` also handle every Positional and Command, whose Variant
+isn't option-shaped, so they stay. See
+[ADR 0076](../adr/0076-custom-args-build-through-customarg.md).
 
 ## Smaller findings
 
