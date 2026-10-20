@@ -102,6 +102,12 @@ can decide what to do:
   subtypes are `HelpError`, for help, and `CompletionError`, for a
   [completion](completion.md) request.
 
+When the command line fits the usage but more than one value is wrong,
+`parse` lists them all in one message, in the order they were typed. It
+raises a `ValidationError` only when every one of them failed its
+validator, and a `ParseError` otherwise. The values that were fine are
+still stored.
+
 Each one's `msg` says what went wrong and shows the usage. This program
 prints it and exits with `2` for a mistake, as many tools do:
 
