@@ -698,3 +698,12 @@ debugging time. Read this before touching the constructors and `flagOp`/
   value instead (`arg.seenBy > SeenBy(t)`), and likewise `some(SeenBy(t))`
   where an `Option[SeenBy]` is wanted, since `some(t)` is an
   `Option[FallbackTier]`.
+
+- **A nimble task runs as NimScript, which has only part of `std/os`.**
+  `getFilePermissions` is undeclared there, and with `import std/os` it's
+  an `{.error.}` ("not available on the NimScript/js target");
+  `extractFilename` is missing too. So `cleanbins` (`argumint.nimble`)
+  can't test a file's executable bit and instead checks for an ELF, PE or
+  Mach-O header with `readFile`, which also works on Windows, where Nim
+  reports every file as executable anyway. Split a path with
+  `rsplit({'/', '\\'}, 1)[^1]`, as the `docs` task does.
