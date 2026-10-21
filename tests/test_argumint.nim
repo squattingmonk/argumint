@@ -1095,6 +1095,14 @@ suite "Empty specs":
     spec2.parse(usage = "(status | move)\n--help", args = @["move", "5"], command = "prog")
     check moveArgs.x == 5
 
+suite "Spec tuple members":
+  test "a member that is neither an Arg nor a tuple doesn't compile":
+    # Pins that this stays a compile error, not a runtime SpecDefect (#293).
+    # It can't catch #293 itself, which also failed to compile.
+    check compiles(newSpec((a: opt("-a"), nested: (b: flag("-b"),))))
+    check not compiles(newSpec((a: opt("-a"), c: 5)))
+    check not compiles(newSpec((a: opt("-a"), nested: (b: flag("-b"), c: "x"))))
+
 suite "Errors":
   test "raise ParseError for unrecognized options":
     # ADR 0019: an option-shaped token undeclared anywhere in the spec is
