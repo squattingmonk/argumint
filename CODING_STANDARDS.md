@@ -62,7 +62,8 @@ not a violation.
   compiler and the default already guarantee both.
 - **Uncoloured output.** A test that renders help or a parse error through
   default settings passes `newSpecSettings(style = nil)`; otherwise it
-  colours its output when run in a terminal.
+  colours its output when run in a terminal. `FORCE_COLOR=1 nimble test`
+  finds any that don't.
 - **Weak assertions.** Flag `contains`/`notin` where the full value is known
   and a gap or reordering bug could hide behind the partial check.
 - **No shadowing.** A local named like the proc under test (a `let
