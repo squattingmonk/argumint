@@ -49,9 +49,9 @@ registration.
   blocks starting with `import`) with `nimble docscheck`; the docs workflow
   runs it on pull requests. A block that doesn't start with `import` is a
   fragment and isn't checked. See `tools/guideblocks.nim`.
-- Delete the binaries that compiling a module or example on its own leaves
-  beside its source with `nimble cleanbins` (`src/`, `tests/`, `examples/`,
-  `tools/`; `nimcache/` is kept).
+- Delete stray binaries with `nimble cleanbins`: compiling a module or
+  example on its own leaves one beside its source (under `src/`, `tests/`,
+  `examples/` or `tools/`).
 - Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
   not classic nimble/nimble.lock.
 
