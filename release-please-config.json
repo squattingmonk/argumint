@@ -4,6 +4,7 @@
     ".": {
       "release-type": "simple",
       "include-v-in-tag": false,
+      "include-v-in-release-name": false,
       "extra-files": [
         {
           "type": "generic",
