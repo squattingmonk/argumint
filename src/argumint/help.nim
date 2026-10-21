@@ -94,6 +94,10 @@ proc styledVariant(arg: Arg, variant: string): StyledText =
   of ArgKind.Positional: styled(srPositional, variant)
   of ArgKind.Optional, ArgKind.Flag: styledOption(variant)
 
+proc shown(args: seq[Arg]): seq[Arg] =
+  ## `args` without the hidden ones, which help never lists.
+  args.filterIt(not it.hidden)
+
 proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
   ## each followed by the user-defined groups of its kind in declaration
@@ -105,7 +109,7 @@ proc groupOrder(spec: Spec): seq[string] =
       result.add canonical
     for group, args in spec.groups:
       if group notin CanonicalGroups:
-        let shown = args.filterIt(not it.hidden)
+        let shown = args.shown
         if shown.len > 0 and shown[0].kind.defaultGroup == canonical:
           result.add group
 
@@ -220,7 +224,7 @@ iterator groups*(ctx: HelpContext): tuple[name: string, args: seq[Arg]] =
   ## groups of its kind in declaration order. A group whose Args are all
   ## hidden is skipped.
   for group in ctx.spec.groupOrder:
-    let args = ctx.spec.groups[group].filterIt(not it.hidden)
+    let args = ctx.spec.groups[group].shown
     if args.len > 0:
       yield (name: group, args: args)
 
@@ -719,7 +723,7 @@ when isMainModule:
       check spec.groupOrder() == @["Commands", "Maintenance", "Arguments",
         "Inputs", "Options", "Output"]
 
-    test "a user-defined group keeps its kind's place when the canonical group is missing":
+    test "a user-defined group keeps its kind's place without its canonical group":
       let spec = plainSpec((
         x: Arg(kind: Optional, variants: @["-x"]),
         i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
@@ -736,7 +740,8 @@ when isMainModule:
     test "a mixed group takes the kind of its first shown Arg":
       let spec = plainSpec((
         x: Arg(kind: Optional, variants: @["-x"]),
-        s: Arg(kind: Flag, variants: @["--secret"], group: "Help", hidden: true),
+        s: Arg(kind: Flag, variants: @["--secret"], group: "Help",
+          hidden: true),
         a: cmd("about", group = "Help"),
         h: Arg(kind: Flag, variants: @["-h"], group: "Help"),
         y: Arg(kind: Positional, variants: @["<y>"])))
@@ -745,7 +750,8 @@ when isMainModule:
     test "a user-defined group with no shown Arg is left out":
       let spec = plainSpec((
         x: Arg(kind: Optional, variants: @["-x"]),
-        g: Arg(kind: Optional, variants: @["--ghost"], group: "Ghosts", hidden: true)))
+        g: Arg(kind: Optional, variants: @["--ghost"], group: "Ghosts",
+          hidden: true)))
       check spec.groupOrder() == @["Options"]
 
   suite "HelpContext.groups":
@@ -772,6 +778,15 @@ when isMainModule:
           x: Arg(kind: Optional, variants: @["-x"])))
         groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
       check groups == @["Commands", "Maintenance", "Options"]
+
+    test "a user-defined group of arguments is displayed where Arguments would be":
+      let
+        spec = plainSpec((
+          x: Arg(kind: Optional, variants: @["-x"]),
+          i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
+          c: CommandArg(kind: Command, variants: @["c"], spec: plainSpec(()))))
+        groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
+      check groups == @["Commands", "Inputs", "Options"]
 
     test "hidden args are not shown":
       let spec = plainSpec((

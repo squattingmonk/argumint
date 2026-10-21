@@ -111,8 +111,7 @@ Options. A group of commands follows Commands:
 import argumint
 
 let spec = (
-  install: command("install", (names: args("<name>", help = ""),),
-    help = "Install packages"),
+  install: command("install", (names: args("<name>"),), help = "Install packages"),
   clean: command("clean", (help: help(),), help = "Empty the download cache",
     group = "Maintenance"),
   help: help(),
@@ -138,9 +137,10 @@ Options:
 ```
 
 Your own groups of the same kind are listed in the order you first use them.
-A group that holds more than one kind goes with the kind of its first
-`Arg` that isn't hidden. Within a group, `Arg`s are listed in the order you declared them. An
-empty `group` puts an `Arg` in the built-in group for its kind.
+A group that holds more than one kind goes with the kind of its first `Arg`
+that isn't hidden. Within a group, `Arg`s are listed in the order you
+declared them. An empty `group` puts an `Arg` in the built-in group for its
+kind.
 
 `hidden = true` leaves an `Arg` out of these lists, and out of
 [shell completion](completion.md), but the user can still give it, as with
