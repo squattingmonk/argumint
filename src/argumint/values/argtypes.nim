@@ -120,7 +120,7 @@ type
   BuiltInValue = SomeNumber | string | bool | char
     ## The types `fromString` converts by name.
   ValueType = concept v
-    ## What `fromString` can convert to: see CONTEXT.md, Value Type. Not a
+    ## What `fromString` can convert to: see GLOSSARY.md, Value Type. Not a
     ## constraint, only checked with `isnot`: a failed match as a constraint
     ## says `concept predicate failed`, not which converter to write.
     v is BuiltInValue or v is enum or compiles((let converted: typeof(v) = ""))
@@ -518,7 +518,7 @@ proc namedOp*[T](op: string, value: T): proc (current: var T) =
 
 proc describeOp*[T](op: string, value: T): string =
   ## The Flag Operation Description generated for a named op: see
-  ## CONTEXT.md. A set's elements are listed.
+  ## GLOSSARY.md. A set's elements are listed.
   when T is set:
     var shown: seq[string]
     for element in value: shown.add display.showValue(element)

@@ -199,7 +199,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     check not compiles(spec.prolog = "Changed.")
 
 suite "a custom `HelpFormatter` can build on the Help Frame":
-  # See the Help Frame entry in CONTEXT.md.
+  # See the Help Frame entry in GLOSSARY.md.
   proc formatCompact(ctx: HelpContext): string =
     ctx.frame(proc (rows: seq[Row]): seq[StyledText] =
       for row in rows:

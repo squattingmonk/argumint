@@ -8,7 +8,7 @@ rule is written in more than one module, and where a module's interface asks
 more of its callers than it gives back.
 
 Reviewed at `defdf39`. Vocabulary: domain terms per
-[`CONTEXT.md`](../../CONTEXT.md); architecture terms (module, interface,
+[`GLOSSARY.md`](../../GLOSSARY.md); architecture terms (module, interface,
 depth, seam, adapter, leverage, locality) as defined in the
 `codebase-design` skill. Line numbers are as of the review date.
 

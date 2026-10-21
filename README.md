@@ -155,7 +155,7 @@ larger program step by step.
 
 If you'd like to work on argumint itself:
 
-- [`CONTEXT.md`](CONTEXT.md) defines the terms used in the code and docs.
+- [`GLOSSARY.md`](GLOSSARY.md) defines the terms used in the code and docs.
 - [`docs/architecture.md`](docs/architecture.md) explains how parsing works,
   file by file.
 - [`docs/adr/`](docs/adr/) records design decisions and the reasons for them.

@@ -1,6 +1,6 @@
 ## Value Precedence's env tier -- a value read from an environment variable,
 ## consulted for an Option/Flag between the command line and the Config
-## Source tier. See `CONTEXT.md`'s **Env Source**/**Env Delimiter** entries,
+## Source tier. See `GLOSSARY.md`'s **Env Source**/**Env Delimiter** entries,
 ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
 ## `docs/adr/0015-per-arg-env-delimiter-overrides.md`.
 ##

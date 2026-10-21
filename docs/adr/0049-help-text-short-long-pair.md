@@ -19,7 +19,7 @@ wants a longer, prose-form description available only to Paragraph Style
 writes
 `help = ("Speed in knots", "Speed in knots. Must be between 1 and 100...")`
 instead of a plain string; nothing else about
-`arg`/`opt`/`flag`/`command`'s signatures changes. See `CONTEXT.md`'s Help
+`arg`/`opt`/`flag`/`command`'s signatures changes. See `GLOSSARY.md`'s Help
 Text/Long-Form Help Text entries.
 
 ## Considered options

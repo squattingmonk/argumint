@@ -3,7 +3,7 @@
 This is the full implementation-detail walkthrough of the five phases
 summarized in `CLAUDE.md`. Read that file first for orientation; come here
 when you need the specifics of how a phase actually works. Domain vocabulary
-(Spec, Arg, Variant, Validator, etc.) is defined in `CONTEXT.md` — this file
+(Spec, Arg, Variant, Validator, etc.) is defined in `GLOSSARY.md` — this file
 assumes that vocabulary and focuses on code-level mechanics. See
 `docs/gotchas.md` for Nim-language/compiler traps hit while building this.
 
@@ -544,7 +544,7 @@ matters as much: without it a branch kept an earlier sibling's deeper level, and
 adopted that as its own. Nothing here writes `pc.cursor.spec`, which a failed
 sibling must never retroactively overwrite — see ADR 0019 point 7.
 
-Which branch wins is decided by **Reach** (`CONTEXT.md`), not by how many
+Which branch wins is decided by **Reach** (`GLOSSARY.md`), not by how many
 matchers it satisfied: where the first token it could not consume sits, whole
 input if it consumed everything. That position is an `(idx, subIdx)` pair
 compared lexicographically — a peeled Short-Option Cluster remainder keeps its
@@ -672,7 +672,7 @@ two spec levels (see §5 and `docs/adr/0039-per-arg-provenance.md`). See
 `docs/adr/0004-required-options-env-fallback.md`,
 `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
 `docs/adr/0018-config-source.md` for the design decisions behind the two
-fallback tiers; CONTEXT.md's Value Precedence / Env Delimiter / Config
+fallback tiers; GLOSSARY.md's Value Precedence / Env Delimiter / Config
 Source entries have the user-facing semantics.
 
 ### Env var / Config Source mechanics
@@ -713,7 +713,7 @@ keeping empty segments as literal values rather than dropping them. Config
 Source: `arg.configKey` is looked up via
 `lookupConfigSources(settings.configSources, key)`, which already returns
 an assembled `seq[string]` (the last layered source
-with a hit for that key, in full — see CONTEXT.md's Config Source entry
+with a hit for that key, in full — see GLOSSARY.md's Config Source entry
 for why there's no delimiter-splitting step here at all).
 
 After a successful walk, `applyFallbacks` (via the per-Arg, per-tier

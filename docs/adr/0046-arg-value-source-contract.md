@@ -60,7 +60,7 @@ paragraph is corrected as part of this change.
 ## Decision
 
 The fallback half of the custom-`Arg` contract is one method per tier, each
-returning a type `CONTEXT.md` already defines:
+returning a type `GLOSSARY.md` already defines:
 
 ```nim
 method envSource*(self: Arg): Option[EnvSource] {.base.} = none(EnvSource)
@@ -104,7 +104,7 @@ and the rest stay out.
 **A single `valueSources` record**, folding all three into one method
 returning `(env, configKey)`. The smallest possible contract, and it would
 have taken the generated stubs from nine to three rather than six.
-Rejected because it invents a domain term to bundle two things `CONTEXT.md`
+Rejected because it invents a domain term to bundle two things `GLOSSARY.md`
 deliberately keeps asymmetric: its **Config Key** entry states outright
 that a Config Key "has no delimiter-override concept the way Env Source
 does, since a Config Source's own values arrive already split." A shared

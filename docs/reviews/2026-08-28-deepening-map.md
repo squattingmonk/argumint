@@ -4,7 +4,7 @@ The first pre-1.0 architecture review: seven deepening opportunities in the
 internals, lettered A–G. Six shipped; F is parked. The next review,
 [2026-09-24](2026-09-24-pre-1-0-review.md), continues the lettering at H.
 
-Vocabulary: domain terms per [`CONTEXT.md`](../../CONTEXT.md); architecture
+Vocabulary: domain terms per [`GLOSSARY.md`](../../GLOSSARY.md); architecture
 terms (module, interface, depth, seam, adapter, leverage, locality) as
 defined in the `codebase-design` skill. Line numbers are as of the review
 date and have since drifted.
@@ -251,7 +251,7 @@ proc envName*(self: Arg): string   # derived, not dispatched
 
 **What changed against the proposal:** the card first proposed one
 `valueSources` record. Grilling rejected it: the Env Source and Config Key
-tiers are deliberately asymmetric in `CONTEXT.md`. It also found that
+tiers are deliberately asymmetric in `GLOSSARY.md`. It also found that
 `ValueArg.env` was already `Option[EnvSource]`, so `envName`/`envDelim` were
 one field that had been split. A scratch compile then found the real defect:
 the methods were overridable but not readable from a caller's module, the

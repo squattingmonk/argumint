@@ -111,7 +111,7 @@ Command-kind token once this hand-off happens.
 
 ### No `Variant` parameter on hooks
 
-CONTEXT.md's Command entry claimed a handler "could still branch on which
+GLOSSARY.md's Command entry claimed a handler "could still branch on which
 Variant was actually seen" -- verified false: `handler`/the new hooks
 never actually received the matched Variant. Rather than add a `variant`
 parameter to every hook to make that true, a caller wanting different

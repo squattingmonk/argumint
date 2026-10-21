@@ -105,7 +105,7 @@ convention to users.
    `--` disambiguates nothing, since typing it or not produces the
    identical parse outcome once the position is reached.
 
-New domain term: **End-of-Options Marker** (`CONTEXT.md`).
+New domain term: **End-of-Options Marker** (`GLOSSARY.md`).
 
 ## Considered options
 

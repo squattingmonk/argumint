@@ -16,7 +16,7 @@ Flags, where several variants are supposed to keep meaning the same thing
 and stay freely interchangeable. The fix therefore needed a way to tell
 "these two variants are the same operation, just spelled differently"
 apart from "these two variants genuinely conflict" -- this is what FlagOp
-Alias (`CONTEXT.md`) names.
+Alias (`GLOSSARY.md`) names.
 
 ## Decision
 
@@ -84,7 +84,7 @@ Alias (`CONTEXT.md`) names.
    catch-all) and `pendingOptionalArgs` stay unrestricted (`variant`
    blank), since both are genuinely alias-agnostic contexts.
 
-New domain term for `CONTEXT.md`: **FlagOp Alias**.
+New domain term for `GLOSSARY.md`: **FlagOp Alias**.
 
 ## Considered options
 

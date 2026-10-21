@@ -1,7 +1,7 @@
 ## Value Precedence's Config Source tier -- a value read from a config file
 ## (or any other external source), consulted for an Option/Flag between the
 ## env-var tier and the coded default. See
-## `docs/adr/0018-config-source.md` and `CONTEXT.md`'s **Config Source**/
+## `docs/adr/0018-config-source.md` and `GLOSSARY.md`'s **Config Source**/
 ## **Config Key** entries for the full design.
 ##
 ## This module is a leaf: only `std/options`, no dependency on `backend`/

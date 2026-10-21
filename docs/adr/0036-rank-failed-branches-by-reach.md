@@ -45,7 +45,7 @@ positional, and the help line's depth discarded it.
 
 ## Decision
 
-**Failed branches rank by Reach** (`CONTEXT.md`): the argv index of the first
+**Failed branches rank by Reach** (`GLOSSARY.md`): the argv index of the first
 token the branch could not consume, with a fully consumed token list ranking
 highest. `depth`/`maxDepth` are deleted rather than kept alongside; they drove
 nothing else.

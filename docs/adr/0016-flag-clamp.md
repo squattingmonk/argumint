@@ -19,7 +19,7 @@ independent reasons, either one of which would be enough on its own:
    There's no "transform the value instead" mode anywhere in that
    abstraction, and adding one would change what `Validator` fundamentally
    *is* for every existing caller, not just this one.
-2. `Validator` already never applies to a Flag (`CONTEXT.md`) — a Flag's
+2. `Validator` already never applies to a Flag (`GLOSSARY.md`) — a Flag's
    value comes from author-declared Flag Operations, not arbitrary
    user-typed text passed through a converter. `flag*()` doesn't even take
    a `validator` param.

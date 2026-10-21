@@ -193,10 +193,10 @@ since `get(otherwise)` is a template, instantiated only where called).
   write is always readable, and a `FlagArg`'s is readable whenever it
   changes the value — narrowed rather than left fully open, per the
   residue above.
-- **`CONTEXT.md`'s Validator entry** stops implying every stored value
+- **`GLOSSARY.md`'s Validator entry** stops implying every stored value
   satisfied the Validator: `put(v, validate = false)` is now the one
   exception, on both arities.
-- **`CONTEXT.md`'s Seen Arg entry** notes that `seen` is no longer the
+- **`GLOSSARY.md`'s Seen Arg entry** notes that `seen` is no longer the
   sole gate on any Arg kind's value reads except the scalar `ValueArg`
   case — a tier-less write leaves the Arg unseen but its value readable
   (unconditionally for a `ValueArg`, and for a `FlagArg` whenever the

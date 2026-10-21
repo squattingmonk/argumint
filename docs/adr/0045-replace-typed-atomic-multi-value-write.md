@@ -139,7 +139,7 @@ snapshot/restore bookkeeping.
   already gave: a scalar's single `parse`/`put` already replaces its one
   slot atomically, so there is no *n+1* problem to solve, and a `FlagArg`
   is scalar with Flag-Operation writes rather than value writes.
-- **`CONTEXT.md`'s Seen Arg entry** now notes `replace` as the one write
+- **`GLOSSARY.md`'s Seen Arg entry** now notes `replace` as the one write
   that does not arbitrate, alongside `parse`/`put`, which do.
 - **`README.md`'s write-surface section** gains a *Replacing a Multi Arg's
   Values in One Call* subsection.
