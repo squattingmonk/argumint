@@ -129,7 +129,9 @@ debugging time. Read this before touching the constructors and `flagOp`/
     every `flag` cost about 8.7 KB (issue #244).
   - **Copied often:** size it at its first insert, not when it's created.
     A pre-sized empty table allocates on every copy; a default empty one
-    copies for free.
+    copies for free. The parse walk copies its whole state per transition
+    it tries, so `MatchTable` is sized for 4 keys at its first `push`
+    (issue #292).
 
 - **`sequence`'s local `add` helper (`parser.nim`) copies each child atom's
   `Transition`s onto its own growing state rather than reusing them** — `for

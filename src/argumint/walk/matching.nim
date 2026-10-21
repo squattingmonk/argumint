@@ -78,6 +78,9 @@ proc push*(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value
   ## `docs/adr/0009-command-before-action-after-hooks.md`. `idx` is the
   ## originating token's `RawToken.idx`, or `0` for a Command match (never
   ## composed, so its ordering doesn't matter -- see `Match`).
+  # Sized here, not up front: see docs/gotchas.md, table default capacity.
+  if matches.len == 0:
+    matches = initOrderedTable[Arg, seq[Match]](4)
   if matches.hasKeyOrPut(arg, @[(variant, value, spec, idx)]):
     matches[arg].add (variant, value, spec, idx)
 

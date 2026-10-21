@@ -36,6 +36,8 @@ type
       ## Ensures `resolve` runs at most once per Arg for the life of this
       ## cursor, including caching a miss -- unlike an env lookup, a
       ## user-supplied `ConfigSource.lookup` may be arbitrarily expensive.
+      ## Holds only Args with a source in this tier (`hasSource`); the walk
+      ## copies it per transition, so the rest stay out.
     applied: HashSet[Arg]
       ## Ensures this tier applies to an Arg at most once, even when the Arg
       ## is reachable from more than one spec level. Used to ride on the
@@ -64,18 +66,20 @@ proc initTiers*(settings: SpecSettings): Tiers =
   ## `settings`. A default `Tiers` has none, so probing it crashes.
   Tiers(settings: settings)
 
-proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[string]] =
-  ## What `t` supplies for `arg` -- `argumint/core/envvar` and
-  ## `argumint/configsource` each answer for their own tier.
+proc hasSource(t: FallbackTier, arg: Arg): bool =
+  ## Whether `arg` names a source in `t` -- an Env Source, or a Config Key.
+  ## Without one, `t` can never supply it a value.
   case t
-  of byEnv:
-    let source = arg.envSource
-    if source.isSome: lookupEnv(source.get, settings.envDelim)
-    else: none(seq[string])
-  of byConfig:
-    let key = arg.configKey
-    if key.len > 0: lookupConfigSources(settings.configSources, key)
-    else: none(seq[string])
+  of byEnv: arg.envSource.isSome
+  of byConfig: arg.configKey.len > 0
+
+proc resolve(t: FallbackTier, arg: Arg, settings: SpecSettings): Option[seq[string]] =
+  ## What `t` supplies for `arg`, which must have a source in it
+  ## (`hasSource`) -- `argumint/core/envvar` and `argumint/configsource`
+  ## each answer for their own tier.
+  case t
+  of byEnv: lookupEnv(arg.envSource.get, settings.envDelim)
+  of byConfig: lookupConfigSources(settings.configSources, arg.configKey)
 
 proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
     settings: SpecSettings, catchAll: bool): bool =
@@ -86,6 +90,9 @@ proc probe(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## `applyFallbacks`'s post-walk sweep. A `catchAll` probe marks `arg`
   ## covered instead of taking a value, and succeeds only the first time, so
   ## the catch-all's loop ends.
+  # Kept out of `tried`: see docs/gotchas.md, table default capacity.
+  if not t.hasSource(arg):
+    return false
   if arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, settings)
@@ -121,9 +128,10 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
   ## `cursor.consumed`), there's nothing to apply -- and, per
   ## `ValueCursor.tried`'s own contract, `resolve` must not be called
   ## again here even though it would return the same answer, since it may
-  ## be an arbitrarily expensive user-supplied `ConfigSource.lookup`. Only
-  ## when the matcher was never visited at all this walk (reachable only
-  ## via a different, unmatched Usage Line -- `arg notin cursor.tried`)
+  ## be an arbitrarily expensive user-supplied `ConfigSource.lookup`. An
+  ## Arg with no source in `t` (`hasSource`) has nothing to apply either.
+  ## Only when the matcher was never visited at all this walk (reachable
+  ## only via a different, unmatched Usage Line -- `arg notin cursor.tried`)
   ## does this resolve fresh and apply every available value -- recording
   ## that in `cursor.tried` too, so an Arg reachable from two spec levels
   ## still only resolves once. Either way, an Arg that doesn't `accumulate`
@@ -143,7 +151,7 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
     values = cursor.values[arg]
     if arg notin cursor.covered:
       room = cursor.consumed[arg]
-  elif arg notin cursor.tried:
+  elif t.hasSource(arg) and arg notin cursor.tried:
     cursor.tried.incl arg
     let found = t.resolve(arg, settings)
     if found.isNone:
