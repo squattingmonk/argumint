@@ -110,6 +110,16 @@ debugging time. Read this before touching the constructors and `flagOp`/
   Expression: hash(key)", naming neither the type nor the flag. `State`
   defines an identity hash for this (issue #169); `Arg` hashes its name.
 
+- **A table filled by its first put gets 64 slots, and from 64-byte
+  entries up it costs about 8 KB.** A `Table`/`OrderedTable` never passed
+  through `initTable` sizes itself on the first put. Below 64-byte entries
+  that costs slots times entry size, about 2.6-3.7 KB, against a few
+  hundred bytes at most for a short `seq`; at 64 bytes or more the
+  allocation outgrows a small allocator chunk and costs about 8.3 KB (Nim
+  2.2, `-d:release`). `FlagArgBase.ops`, at 72-byte entries, made every
+  `flag` cost about 8.7 KB (issue #244), so it's a `seq` with a linear
+  scan.
+
 - **`sequence`'s local `add` helper (`parser.nim`) copies each child atom's
   `Transition`s onto its own growing state rather than reusing them** — `for
   tr in x.transitions: b.add(tr.next, tr.matcher)` constructs a brand new

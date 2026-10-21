@@ -726,7 +726,7 @@ takes at most one value from a tier, so several are always the same
 `UsageError`, naming the source (`--url (env: URL)`) the way conversion
 errors do (#189). For `flag`, each
 value (from either tier) names one of the Arg's own declared Variants
-(matching `self.ops`' keys exactly) and is applied via *that* Variant's
+(matching a Variant in `self.ops` exactly) and is applied via *that* Variant's
 own Flag Operation, not forced through `=`. The one-loop-two-tiers shape
 (`for arg... for t in FallbackOrder: if arg.seenBy > SeenBy(t): break; if
 tiers.applyTier(t, ...): break`) states this fallthrough once, instead of
@@ -816,7 +816,7 @@ instantiation elsewhere, the facade's constructors and accessors reach them
 only through bookends `argtypes` exports for that purpose:
 `initValueArg[T]`/`initValuesArg[T]` behind `arg*`/`args*`/`opt*`/`opts*`,
 a deliberately *fat* `initFlagArg[T]` behind `flag*` (it performs the whole
-build — ops table, alias groups, duplicate detection, clamp-versus-default
+build — ops, alias groups, duplicate detection, clamp-versus-default
 check — rather than exposing mutators that could leave `ops` and `aliases`
 disagreeing), and the `rawValue`/`rawDefault` templates behind
 `get*`/`toT*`/`toSeqT*`. Reads get accessors; writes go through `init*`.
@@ -1023,8 +1023,8 @@ its own `accept` override, remains the only write path into it.
 ### Flags
 
 `FlagArg[T]` follows the same two-class pattern as the values above:
-`FlagArgBase` holds what isn't typed -- `env`, `cfgKey`, and an ordered
-table from each Variant to its `BoundOp` -- and two hooks, `reset` (restore
+`FlagArgBase` holds what isn't typed -- `env`, `cfgKey`, and a seq
+pairing each Variant with its `BoundOp` -- and two hooks, `reset` (restore
 the default) and `describe` (the clamp's help). No flag type is
 registered; there's no `flagOps` table and nothing generated per type (ADR
 0070).
@@ -1084,7 +1084,7 @@ op it did find. Values go through `fromString[T]`, or for a `set[E]`
 through `fromString[E]` into a one-element set.
 
 `flag*` runs `initFlagArg`, which flattens every group (the implicit one,
-then each `FlagOp` in order) into the table, raising `SpecDefect` on a
+then each `FlagOp` in order) into `ops`, raising `SpecDefect` on a
 duplicate Variant.
 
 ### Flag Clamp

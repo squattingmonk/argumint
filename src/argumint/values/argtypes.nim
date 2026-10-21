@@ -18,7 +18,7 @@
 
 {.experimental: "openSym".}
 
-import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, tables, typetraits]
+import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, typetraits]
 
 import ./[display, flagclamp, validators], ../core/[backend, errors, variant],
   ../text/style, ../configsource
@@ -93,8 +93,9 @@ type
     env: Option[EnvSource]
     cfgKey: ConfigKey
       ## Not named `configKey` -- that's the base `Arg` method name.
-    ops: OrderedTable[string, BoundOp]
+    ops: seq[tuple[variant: string, op: BoundOp]]
       ## Every Variant, in declared order, and the Flag Operation it runs.
+      ## A seq, not a table: see docs/gotchas.md, table default capacity.
     reset: proc (self: FlagArgBase) {.nimcall.}
       ## Restores the default.
     describe: proc (self: FlagArgBase): StyledText {.nimcall.}
@@ -642,14 +643,21 @@ proc describeFlagHook[A](self: FlagArgBase): StyledText =
   let clamp = A(self).clamp
   if not clamp.isNil: result = clamp.styledHelp
 
+proc opIndex(self: FlagArgBase, variant: string): int =
+  ## The index of `variant`'s entry in `self.ops`, or -1.
+  for i, entry in self.ops:
+    if entry.variant == variant: return i
+  -1
+
 method accept(self: FlagArgBase, c: Contribution, how: Arbitration) =
   ## `c.value` is the Variant whose Flag Operation applies, on every tier.
   ## A Variant the flag doesn't have raises `ConversionError`.
-  if not self.ops.hasKey(c.value):
+  let i = self.opIndex(c.value)
+  if i < 0:
     raise newPlainError(ConversionError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
   if how == arReplace:
     self.clear
-  self.ops[c.value].apply(self)
+  self.ops[i].op.apply(self)
 
 method clear(self: FlagArgBase) =
   ## Removes the `seenBy` provenance and restores the default value of `self`.
@@ -663,10 +671,11 @@ method validatorHelp(self: FlagArgBase): StyledText = self.describe(self)
 method variantDesc(self: FlagArgBase, variant: string): string =
   ## `variant`'s Flag Operation Description, empty unless the flag's
   ## descriptions diverge: see ADR 0063.
-  if not self.ops.hasKey(variant): return ""
-  result = self.ops[variant].desc
-  for op in self.ops.values:
-    if op.desc != result: return
+  let i = self.opIndex(variant)
+  if i < 0: return ""
+  result = self.ops[i].op.desc
+  for entry in self.ops:
+    if entry.op.desc != result: return
   result = ""
 
 method envSource(self: FlagArgBase): Option[EnvSource] = self.env
@@ -676,7 +685,8 @@ method configKey(self: FlagArgBase): ConfigKey = self.cfgKey
 method aliases(self: FlagArgBase, a, b: string): bool =
   ## Whether `a` and `b`, both Variants of `self`, are FlagOp Aliases: the
   ## spellings of one `flagOp`, or both bare.
-  a == b or self.ops[a].group == self.ops[b].group
+  a == b or
+    self.ops[self.opIndex(a)].op.group == self.ops[self.opIndex(b)].op.group
 
 # ------------------------------------------------------------------------------
 # Constructors. `argumint.nim`'s `arg*`/`args*`/`opt*`/`opts*`/`flag*` are thin
@@ -773,8 +783,9 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
   for group, op in @[implicit] & @ops:
     let bound = bindOp(op, group)
     for name in op.spellings:
-      if result.ops.hasKeyOrPut(name, bound):
+      if result.opIndex(name) >= 0:
         raise newException(SpecDefect, fmt"duplicate variant for {name}")
+      result.ops.add (name, bound)
       names.add name
   result.initBase(ArgKind.Flag, names)
 
