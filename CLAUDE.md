@@ -1,172 +1,66 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this repository.
-
-## What this is
-
-`argumint` is a Nim command-line argument parsing library (Nim >= 2.2.4). Its
-distinguishing feature is that a spec is declared as a tuple of `arg`/`opt`/
-`flag`/`command`/`help` values, and a **docopt-style usage string** is
-compiled into a finite state machine (FSM) that drives actual parsing. This
-lets usage patterns express things like optional/repeated/mutually-exclusive
-args (`[-r] <src>... <dest>`) declaratively instead of via imperative flag
-registration.
+`argumint` is a Nim command-line argument parsing library (Nim >= 2.2.4). A
+spec is a tuple of `arg`/`opt`/`flag`/`command`/`help` values, and a
+docopt-style usage string (`[-r] <src>... <dest>`) is compiled into a finite
+state machine that drives parsing.
 
 ## Commands
 
-- Compile/run the full canonical Naval Fate demo at `examples/naval_fate.nim`
-  (`examples/config.nims` adds `src` to the path):
-
-  ```
-  nim c -r examples/naval_fate.nim -- ship move Titanic 1 2
-  ```
-
-  Note: `nim c -r file -- args` may pass a spurious leading `--` through to
-  the compiled binary depending on Nim version -- if a run fails with
-  unexpected "missing option"/"unexpected arg" errors, compile first (`nim c
-  file`) then run the binary directly with the same args to rule this out.
-- Run the full test suite with `nimble test`, which compiles and runs every
-  `.nim` file under `src/` (recursing into subdirectories like
-  `src/argumint/configsource/`) plus every `tests/test_*.nim` file. Many
-  source files under `src/` have a `when isMainModule` block testing their
-  own API with an embedded `std/unittest` suite, which gets run; one without
-  just gets a bare compile-check. Each `tests/test_*.nim` file is its own
-  standalone `std/unittest` suite (`tests/config.nims` adds `src` to the
-  path for anything placed there) -- reserved for cross-module integration
-  tests or ones needing extra fixtures (e.g. `test_precedence.nim`,
-  `configsource`'s tests). A helper module a test imports goes in
-  `tests/fixtures/`, which the runner doesn't build on its own. Add new
-  tests either as a `when isMainModule` block in the module under test or
-  as a new `tests/test_*.nim` file -- no per-file wiring needed beyond
-  that. `tools/runtests.nim` drives it
-  (parallel compile, serial run) -- see its module doc for how failures
-  are reported. A test that renders help or a parse error through
-  default settings must pass `newSpecSettings(style = nil)`, since the
-  default styler colours output whenever it runs in a terminal; running
-  the suite with `FORCE_COLOR=1` finds any that don't.
-- Lint the user guide's Markdown for what `nim md2html` renders
-  differently from GitHub (`tools/guidelint.nim`), then compile every
-  whole-program example in it (`docs/guide/*.md` blocks starting with
-  `import`), with `nimble docscheck`; the docs workflow runs it on pull
-  requests. A block that doesn't start with `import` is a fragment and
-  isn't checked. See `tools/guideblocks.nim`.
-- Delete stray binaries with `nimble cleanbins`: compiling a module or
-  example on its own leaves one beside its source (under `src/`, `tests/`,
-  `examples/` or `tools/`).
-- Dependencies are managed via Atlas (`atlas.workspace`, `deps/atlas.config`),
-  not classic nimble/nimble.lock.
+- `nimble test` runs every `.nim` file under `src/` (its `when isMainModule`
+  suite, or a bare compile-check) plus every `tests/test_*.nim`. Add a test
+  as a `when isMainModule` block in the module under test, or as a new
+  `tests/test_*.nim` for cross-module or fixture-heavy cases; neither needs
+  wiring. A helper module a test imports goes in `tests/fixtures/`.
+  `tests/config.nims` and `examples/config.nims` put `src` on the path. See
+  `tools/runtests.nim`.
+- `nimble docscheck` lints the guide's Markdown and compiles its examples;
+  `nimble docs` builds the API docs and fails on any doc-comment error.
+- `nimble cleanbins` deletes the stray binaries a lone `nim c` leaves beside
+  its source.
+- Run the Naval Fate demo with
+  `nim c -r examples/naval_fate.nim -- ship move Titanic 1 2`. Some Nim
+  versions pass the `--` through to the binary; if a run fails with
+  "missing option"/"unexpected arg", compile first and run the binary
+  directly.
 
 ## Where things live
 
 - **Coding standards** a reviewer checks a diff against are in
   `CODING_STANDARDS.md` — read it before writing or reviewing code; it also
   names which rules are automated checks instead.
-- **Domain vocabulary** (Spec, Arg, Variant, Validator, Value Precedence,
-  etc.) is defined in `GLOSSARY.md` — read it before naming a concept in an
-  issue, commit, or design discussion.
-- **Design decisions** live in `docs/adr/` — check for an existing ADR before
-  revisiting a decision (e.g. why catch-all options repeat by default, why
-  validators skip coded defaults).
-- **Architecture reviews** live in `docs/reviews/`, one file per review,
-  each a lettered list of deepening candidates (A–G, H–O, then P–X) with
-  their status. Link an issue to a candidate's heading there, and mark the
-  candidate shipped (issue, PR, squash hash) when it lands.
-- **Implementation-level architecture** (how spec construction, FSM
-  compilation, runtime matching, value conversion, and subcommands actually
-  work, file by file) is in `docs/architecture.md`. Read that when you need
-  to trace a bug through the pipeline or extend one of these phases.
-- **Nim/compiler gotchas** hit while building this (generics resolving
-  names in the caller's module, closures in loops, ORC seq-append
-  corruption, overload-resolution ambiguities) are in `docs/gotchas.md`.
-  Check it before fighting a confusing compile error in a constructor,
-  `flagOp`/`flagOpIt`, or the validator combinators.
-
-Parsing happens in two distinct phases at a high level, detailed fully in
-`docs/architecture.md`:
-
-1. **Spec construction** (`specbuild.nim`, `src/argumint.nim`): user calls
-   `arg`, `opt`, `flag`, `command`, `help` (`argumint.nim`) to build a tuple
-   of `Arg` objects; `newSpec` (`specbuild.nim`) assembles them into a `Spec`
-   (`backend.nim`), auto-generating a usage string from the declared args if
-   none was given. Two modules below `backend` hold what the model only
-   points at: `SpecSettings` (`settings.nim`) and an Arg's `Completer`
-   (`completer.nim`).
-2. **Usage-string compilation → FSM** (`lexer.nim` → `parser.nim` →
-   `backend.nim`/`fsmgraph.nim`): the usage string is tokenized and
-   recursively-descent parsed into a graph of `State`/`Transition` objects
-   (data model in `backend.nim`, graph construction/simplification in
-   `fsmgraph.nim`), one `Matcher` per token kind (`mkArgument`, `mkOption`,
-   `mkOptions`, `mkCommand`, `mkOptsEnd`, `mkShortcut`).
-3. **Runtime matching** (`fsm.nim`, token classification in `tokens.nim`,
-   failure reporting in `complaints.nim`, Value Precedence fallback tiers in
-   `precedence.nim`): command-line args are tokenized and classified against
-   the live `Spec` lazily via a `TokenCursor` (`tokens.nim`), walked against
-   the FSM with backtracking -- recording any failure into a `Report`
-   (`complaints.nim`) along the way -- then a post-walk sweep
-   (`precedence.applyFallbacks`) applies any configured environment-variable
-   or Config Source fallbacks.
-4. **Value conversion** (`argtypes.nim`, `src/argumint.nim`): `ValueArg`/
-   `FlagArg` convert, validate, and store matched values; flags apply Flag
-   Operations instead of a plain converter. Every public name lives in
-   `argumint.nim`; everything that touches a private field lives in
-   `argtypes.nim`, exported for the facade and withheld from users. What only a
-   Custom Arg needs (`initArg`, `accept`, `Contribution`, ...) is in the
-   opt-in public `argumint/customarg`.
-5. **Subcommands**: `command*` splices a nested `Spec`'s FSM into the
-   parent's as a single `Command` transition.
-
-## Key invariants / gotchas
-
-- Nothing in the type system or FSM prevents mixing any combination of
-  positional args, options, and commands in one usage line — the `usage`
-  string alone determines what's syntactically valid at each grammar
-  position (verified: `<name> [-v] doit` with `doit` a command works fine).
-  Convention, not enforcement, tends to keep positional args and commands in
-  separate spec levels (e.g. Naval Fate's top-level spec has commands only,
-  each subcommand's nested spec has positional args only) — but options
-  routinely appear alongside either.
-- `arg`/`opt`/`flag`/`command` variant strings are validated by
-  `parseVariant` in `src/argumint/core/variant.nim`, whose PEG fragments the
-  lexer and runtime token shapes share — errors here raise
-  `SpecDefect`, not `ParseError` (spec-construction-time vs. parse-time
-  failures are deliberately different exception types).
-- `SpecDefect` is a `Defect` (raised on malformed developer-authored specs;
-  not meant to be caught), while `ParseError`/`MessageError` are
-  `CatchableError`s raised at user-input parse time. Every user-input
-  failure is a `ParseError`, raised as `UsageError`, `ConversionError` or
-  `ValidationError`, or as `ParseError` itself when one parse fails in more
-  than one of those ways (`docs/adr/0078-parse-error-hierarchy.md`); put
-  the subtype first in an `except`. All of them live in
-  `errors.nim`, a leaf module with no local imports, so any module can name
-  an exception without depending on whichever one raises it. `parse*`
-  (`argumint.nim`, both the `Spec` and `tuple` overloads) lets all of these
-  propagate to the caller; `parseOrQuit*` catches them and `quit()`s with a
-  formatted message instead. `parse*` is the recommended entry point for
-  embedding argumint in a larger program; `parseOrQuit*` is for a bare CLI
-  `main()`.
-- `Arg.hash` is keyed on `self.variants[0]` (the arg's first declared name),
-  but there is no custom `==` for `Arg` — equality falls back to Nim's
-  identity-based `EqRef`. A hash collision between two distinct `Arg`s that
-  happen to share a first variant is harmless: the FSM/backend dedup logic
-  disambiguates by identity, not by name.
-- An `opt`/`opts`/`flag`'s `env` var is consulted regardless of whether that
-  Arg is required or optional in the usage grammar (see
-  `docs/adr/0004-required-options-env-fallback.md`, superseding
-  `docs/adr/0001`), and can supply more than one value (see
-  `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`). Full
-  mechanics in `docs/architecture.md`.
+- **Domain vocabulary** (Spec, Arg, Variant, Validator, Value Precedence, ...)
+  is in `GLOSSARY.md` — use its terms in issues, commits and designs.
+- **Design decisions** are in `docs/adr/` — check for an existing ADR before
+  revisiting a decision.
+- **How the pipeline works**, module by module (spec construction,
+  usage-string compilation, the walk, failure reporting, value conversion,
+  dispatch, help, completion), is in `docs/architecture.md`. Read it before
+  tracing a bug or extending a phase.
+- **Nim/compiler gotchas** (generics resolving names in the caller's module,
+  `privateAccess` across modules, nested closures capturing `result`,
+  overload ambiguities) are in `docs/gotchas.md`. Check it before fighting a
+  confusing compile error.
+- **Architecture reviews** are in `docs/reviews/`, one file per review, each
+  a lettered list of candidates. Link an issue to its candidate's heading,
+  and mark the candidate shipped (issue, PR, squash hash) when it lands.
+- **Errors**: a malformed developer-written spec raises `SpecDefect`; every
+  user-input failure is a `ParseError` subtype. See
+  `src/argumint/core/errors.nim` and ADR 0078.
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues live in GitHub Issues for squattingmonk/argumint, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for squattingmonk/argumint, via the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default five-role vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+Default five-role vocabulary (needs-triage, needs-info, ready-for-agent,
+ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context layout (GLOSSARY.md + docs/adr/ at repo root). See `docs/agents/domain.md`.
+Single-context layout (GLOSSARY.md + docs/adr/ at repo root). See
+`docs/agents/domain.md`.

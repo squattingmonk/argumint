@@ -242,6 +242,12 @@ parser and help: a blank line is dropped, an indented line continues the one
 before (even across a blank line, #137), and a leading `{cmd}` is stripped
 (anywhere else it is a `SpecDefect`). A line left empty is a Bare Call.
 
+One Usage Line may mix positional args, options and commands in any
+combination: the line alone decides what is valid at each position, and
+nothing in the types or the graph limits it (`<name> [-v] doit`, with `doit`
+a command, works). Keeping positional args and commands at separate
+Spec levels, as Naval Fate does, is convention only.
+
 ### Lexing and parsing
 
 `lexer.SpecLexer` tokenizes a line using the `variant` fragments. The
