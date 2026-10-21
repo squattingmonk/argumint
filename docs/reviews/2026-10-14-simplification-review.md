@@ -97,9 +97,10 @@ the lexer. `Arg` stores parsed Variants; the re-deriving sites read fields.
 - The Flag/value-Arg asymmetry disappears.
 
 **As shipped.** Variants stay strings and aren't parsed once at
-construction: `Arg` stores no parsed Variant,
-since a second record could disagree with `variants`, which is public and
-writable (a gap [X](#x--the-extender-surface-separates-from-the-user-surface) has since closed).
+construction: `Arg` stores no parsed Variant, since a second record could
+disagree with `variants`, which is public and writable (a gap
+[X](#x--the-extender-surface-separates-from-the-user-surface) has since
+closed).
 Each site that needs a name or metavar calls `parseVariant` instead, and
 `splitVariants` replaces every comma split. The grammar had a third copy
 the card missed, `tokens.nim`'s runtime option shapes; the new leaf

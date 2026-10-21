@@ -3,7 +3,8 @@
 The judgement calls a reviewer checks a diff against. Each rule names what to
 look for, then why. Mechanical rules are automated checks instead, so a review
 can skip them: doc-comment width and field doc-comment placement
-(`tests/test_doc_comments.nim`), what md2html renders differently in the guide
+(`tests/test_doc_comments.nim`), Markdown line width (markdownlint, configured
+in `.markdownlint-cli2.yaml`), what md2html renders differently in the guide
 (`tools/guidelint.nim`, run by `nimble docscheck`), and Conventional Commits PR
 titles (`.github/workflows/pr-title.yml`).
 

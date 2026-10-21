@@ -16,6 +16,10 @@ state machine that drives parsing.
   `tools/runtests.nim`.
 - `nimble docscheck` lints the guide's Markdown and compiles its examples;
   `nimble docs` builds the API docs and fails on any doc-comment error.
+- `markdownlint-cli2 "**/*.md"` checks every Markdown file's line width (an
+  80-column wrap; code blocks, tables and headings exempt). It is installed
+  separately (e.g. `npm i -g markdownlint-cli2`) and runs in the Docs
+  workflow.
 - `nimble cleanbins` deletes the stray binaries a lone `nim c` leaves beside
   its source.
 - Run the Naval Fate demo with
