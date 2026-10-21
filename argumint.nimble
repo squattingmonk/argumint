@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.1.0" # x-release-please-version
 author        = "Michael A. Sinclair"
 description   = "A fresh command-line argument parsing library"
 license       = "MIT"
