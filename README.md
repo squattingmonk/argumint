@@ -17,6 +17,7 @@ own. Parsed values come back typed, on the same tuple you declared.
 - [Quickstart](#quickstart)
 - [Features](#features)
 - [Documentation](#documentation)
+- [Stability](#stability)
 - [Examples](#examples)
 - [Prior Art and Alternatives](#prior-art-and-alternatives)
 - [License](#license)
@@ -159,6 +160,35 @@ If you'd like to work on argumint itself:
 - [`docs/architecture.md`](docs/architecture.md) explains how parsing works,
   file by file.
 - [`docs/adr/`](docs/adr/) records design decisions and the reasons for them.
+
+## Stability
+
+argumint follows [Semantic Versioning](https://semver.org/). Within 1.x, a
+program that builds and parses correctly against one release keeps doing so
+against later ones, apart from the exceptions below.
+
+These are covered, and changing them needs a new major version:
+
+- Every name exported by the modules meant to be imported: `argumint`,
+  `argumint/customarg`, `argumint/help`, `argumint/configsource`,
+  `argumint/configsource/ini` and `argumint/configsource/json`.
+- What you write a Custom Arg, Config Source or Help Formatter against: the
+  signatures of the methods a Custom Arg or Config Source overrides, and the
+  `HelpFormatter` type and the `HelpContext` it receives. A new method with a
+  default may be added.
+- The usage-string grammar. A usage string accepts and rejects the same
+  command lines in every 1.x release, unless a release fixes a bug.
+- The minimum Nim version, 2.2.4.
+
+Anything you import from deeper inside `argumint/`, such as
+`argumint/core/backend`, may change or move in any release, without warning.
+Nim can't hide these modules, but they aren't public.
+
+These may change in a minor release:
+
+- The wording, layout and colours of help text and error messages.
+- The contents of generated shell completion scripts. Regenerate them when
+  you upgrade.
 
 ## Examples
 
