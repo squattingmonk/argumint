@@ -689,7 +689,10 @@ values (via `resolve`, a `case` on `FallbackTier`) and handing out the
 next unconsumed value each time that Arg's matcher is visited. `resolve`
 runs at most once per Arg per cursor (cached in `ValueCursor.tried`, including a miss) — cheap either way for
 env (`existsEnv`), but load-bearing for Config Source, since a
-user-supplied `ConfigSource.lookup` may be arbitrarily expensive. Nothing
+user-supplied `ConfigSource.lookup` may be arbitrarily expensive. An Arg
+with no source in a tier (`hasSource`) is turned away before `tried`, so
+the per-transition copy of the parse state doesn't carry it
+(`docs/gotchas.md`, table default capacity). Nothing
 decides in advance how many times a matcher gets visited — it falls out
 entirely from however many times `walk` actually visits it: a `...` repeat
 loops back and keeps consuming until the list runs out; the same Arg named
