@@ -32,7 +32,7 @@ type
     ## its methods are ordinary methods that dispatch; the few that touch
     ## typed storage call a hook its leaf's constructor filled in. A new base
     ## method needs a hook only if it touches typed storage. See
-    ## `docs/architecture.md`, Value Conversion.
+    ## `docs/architecture.md`, "Value Args and Flags".
     env: Option[EnvSource]
     cfgKey: ConfigKey
       ## Not named `configKey` -- that's the base `Arg` method name.

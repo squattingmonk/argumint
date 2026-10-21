@@ -6,7 +6,7 @@
 ## never wording anything itself, then words and renders it once the walk is
 ## over (`finalComplaints`/`failureMessage`/`raiseFailure`). Storing a
 ## finished walk's values records its failures into one too (`failed`). See
-## `docs/architecture.md` §3b.
+## `docs/architecture.md`, "Failure reporting".
 import std/[algorithm, options, sequtils, strformat, strutils, tables, unicode]
 
 import ./tokens, ../core/[backend, errors], ../text/style, ../grammar/usage
@@ -192,7 +192,7 @@ proc missingArgument*(r: var Report, name: string) =
 
 proc missingCommand*(r: var Report, name: string) =
   ## Records that a `Command` matcher found nothing at the one position it
-  ## ever looks -- see `docs/architecture.md` §3.
+  ## ever looks -- see `docs/architecture.md`, "Matching".
   r.messages.add complaint("missing command", styled(srCommand, name))
 
 proc missingOption*(r: var Report, variant: string, aboutMessageArg = false) =
@@ -295,7 +295,7 @@ proc clear*(r: var Report, spec: Spec, command: string) =
   ## *earlier* transition on this same branch complained about is moot -- and
   ## so is the level an earlier sibling's failure was adopted at, which
   ## `walk` would otherwise carry up as this branch's (#192). See
-  ## `docs/architecture.md` §3b.
+  ## `docs/architecture.md`, "Failure reporting".
   r.messages.setLen(0)
   r.leftovers.setLen(0)
   r.spec = spec

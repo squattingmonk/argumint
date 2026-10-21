@@ -768,7 +768,8 @@ suite "Completers see earlier values (#215)":
     discard spec.wire("a", "b", "")
     check seen == @[@["a", "b"]]
 
-  # The walk's probes read Config Sources anyway -- see architecture.md §6.
+  # The walk's probes read Config Sources anyway -- see architecture.md,
+  # "Resolving candidates".
   test "a PathCompletion completer fills nothing":
     putEnv "ARGUMINT_TEST_REPO", "5"
     let repo = opt[int]("--repo=<n>", env = "ARGUMINT_TEST_REPO", configKey = "repo")

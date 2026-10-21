@@ -7,7 +7,7 @@
 ## side effect regardless of which caller is driving it, so this module sits
 ## below both rather than belonging to either. `reach` stays behind in
 ## `fsm.nim`: only `walk`'s Reach-ranking (ADR 0036) needs it,
-## `collectFrontier` never does. See `docs/architecture.md` §3 and issue #78.
+## `collectFrontier` never does. See `docs/architecture.md`, "Backtracking".
 
 import std/[algorithm, options, sets, strformat, sequtils, tables]
 
@@ -53,7 +53,7 @@ type
     report*: Report
       ## The furthest-reaching fsm path's own failure -- complaints,
       ## leftovers, and the Spec/command to render them against. See
-      ## `complaints.nim` and `docs/architecture.md` §3b.
+      ## `complaints.nim` and `docs/architecture.md`, "Failure reporting".
     matches*: MatchTable
       ## A table of processed matches
     tiers*: Tiers
@@ -157,8 +157,8 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
       pc.report.leftover(pc.cursor)
   of mkOption:
     # Skip tokens that don't classify as *this* opt so option/arg order
-    # doesn't matter, stopping at this level's Command -- see architecture.md
-    # §3, "Option scans stop at a Command".
+    # doesn't matter, stopping at this level's Command -- see architecture.md,
+    # "Matching".
     var pos = 0
     while pos < pc.cursor.len:
       if pc.cursor.consumeOptsEnd(pos):
@@ -188,11 +188,13 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
           break
       else:
         discard
+      # One token, never `c.consumed`: Strict Option Checking needs every
+      # token visited -- see architecture.md, "Matching".
       pos.inc
 
     # No CLI token matched; let the configured env var, then a Config
-    # Source, stand in instead -- see architecture.md's "Env var / Config
-    # Source mechanics" and `docs/adr/0018-config-source.md`. An empty
+    # Source, stand in instead -- see architecture.md's "Value Precedence
+    # fallbacks" and `docs/adr/0018-config-source.md`. An empty
     # `m.variant` means the catch-all reached it.
     if pc.tiers.probe(m.opt, catchAll = m.variant == ""):
       return true

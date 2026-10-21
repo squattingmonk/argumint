@@ -4,7 +4,8 @@
 ## down the command tree.
 ##
 ## Sits *above* FSM compilation rather than beside the data model in
-## `argumint/core/backend` -- see `docs/architecture.md` for why.
+## `argumint/core/backend` -- see `docs/architecture.md`, "Spec construction",
+## for why.
 ##
 ## Only `newSpec` is public API; `beginSpec`/`finishSpec`/`addArgs` are
 ## exported solely because generic `newSpec` instantiates in the caller's
@@ -93,8 +94,8 @@ proc addArgs*(self: Spec, spec: tuple) =
 proc autoFillUsage(spec: Spec) =
   ## Fills in usage lines for whatever's unreachable (commands, positional
   ## args, `[options]`) so callers only need to hand-write the parts they
-  ## want to customize -- see architecture.md's "autoFillUsage" section for
-  ## the exact per-category fill-in rules.
+  ## want to customize -- see architecture.md's "Auto-filled usage" section
+  ## for the exact per-category fill-in rules.
   var newLines: seq[string]
 
   proc addLine(line: string) =
@@ -123,7 +124,7 @@ proc autoFillUsage(spec: Spec) =
   if positionals.len > 0 and positionals.allIt(it notin reachable):
     let accumulating = positionals.filterIt(it.accumulates).mapIt(it.name)
     # How values split between several is the author's call -- see
-    # architecture.md's "autoFillUsage" section.
+    # architecture.md's "Auto-filled usage" section.
     if accumulating.len > 1:
       let names = accumulating.join(", ")
       raise newException(SpecDefect,
@@ -134,8 +135,8 @@ proc autoFillUsage(spec: Spec) =
     addLine prefix & names.join(" ")
     prefixUsed = prefixUsed or optionsUnreachable
 
-  # Before the Message Argument lines -- see architecture.md's "autoFillUsage"
-  # section.
+  # Before the Message Argument lines -- see architecture.md's "Auto-filled
+  # usage" section.
   if optionsUnreachable and not prefixUsed:
     addLine "[options]"
 
@@ -143,7 +144,7 @@ proc autoFillUsage(spec: Spec) =
   let messageArgs = spec.args.filterIt(it.isMessage and it.kind != Positional and
     it notin reachable)
   # Nothing else accepts an empty command line -- see architecture.md's
-  # "autoFillUsage" section.
+  # "Auto-filled usage" section.
   if spec.usage.len == 0 and messageArgs.len > 0:
     addLine "{cmd}"
 
@@ -181,7 +182,7 @@ proc newSpec*(spec: tuple, usage = "", prolog = "", epilog = "",
     settings = newSpecSettings()): Spec =
   ## Creates a new spec from a spec tuple and builds its FSM.
   ## - `usage` is the usage string used to build the FSM. See
-  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
+  ##   `docs/architecture.md`'s "Auto-filled usage" section for how gaps in
   ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.

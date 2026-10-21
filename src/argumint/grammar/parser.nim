@@ -179,8 +179,9 @@ proc atom(p: SpecParser, seenCommand: bool, seenOptsEnd: bool): tuple[a: State, 
     if p.peek {tkOptionValue}:
       p.next()
   of tkAnyOption:
-    # Built unfiltered; genFsm patches this matcher's opts once
-    # explicitOptions is final for the line -- see architecture.md §2.
+    # Built unfiltered; addUsageLines patches this matcher's opts once
+    # explicitOptions is final for the line -- see architecture.md, "Lexing
+    # and parsing".
     let matcher = newOptsMatcher(p.spec.options.values.toSeq.deduplicate()
       .filterIt(not it.isMessage))
     p.pendingOptions.add matcher

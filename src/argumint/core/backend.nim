@@ -11,10 +11,11 @@
 ##
 ## Alongside the model sit the pieces that belong beside it rather than in spec
 ## construction (`argumint/grammar/specbuild`), such as `subject`, which names
-## an Arg in a parse-failure message. See `docs/architecture.md` for where that
-## line falls and why. The env tier's types live in `argumint/core/envvar`, the
-## Completer model in `argumint/core/completer`, and `SpecSettings` in
-## `argumint/core/settings`; all three are re-exported from here.
+## an Arg in a parse-failure message. See `docs/architecture.md`, "Spec
+## construction", for where that line falls and why. The env tier's types
+## live in `argumint/core/envvar`, the Completer model in
+## `argumint/core/completer`, and `SpecSettings` in `argumint/core/settings`;
+## all three are re-exported from here.
 
 import std/[hashes, options, os, strformat, strutils, tables]
 
@@ -102,7 +103,7 @@ type
     ## One entered grammar level: the `Spec` owning it, plus the accumulated
     ## command string naming it (`"app"`, `"app go"`). Recorded root-first on
     ## `ParseContext.levels` as the walk descends, and read afterwards by
-    ## `dispatch` and `applyFallbacks` -- see architecture.md §5. Not
+    ## `dispatch` and `applyFallbacks` -- see architecture.md, "Dispatch". Not
     ## exported from the facade: a user reads its fields off `HookInfo`.
 
   HookInfo* = object

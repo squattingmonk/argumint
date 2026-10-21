@@ -1,6 +1,6 @@
 ## Help-text rendering: turns a built `Spec` into the message `--help`
-## prints. Sits directly above `argumint/core/backend` -- see
-## `docs/architecture.md` for why, and for how the variants column wraps.
+## prints. See `docs/architecture.md`, "Help rendering", for how it lays
+## out.
 ##
 ## `import argumint` alone does not bring `genHelp` into scope; importing
 ## this module directly is what makes it callable, so a program can render
