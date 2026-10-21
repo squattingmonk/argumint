@@ -94,15 +94,24 @@ proc styledVariant(arg: Arg, variant: string): StyledText =
   of ArgKind.Positional: styled(srPositional, variant)
   of ArgKind.Optional, ArgKind.Flag: styledOption(variant)
 
+proc shown(args: seq[Arg]): seq[Arg] =
+  ## `args` without the hidden ones, which help never lists.
+  args.filterIt(not it.hidden)
+
 proc groupOrder(spec: Spec): seq[string] =
   ## Returns `spec.groups`' keys ordered as `Commands`, `Arguments`, `Options`,
-  ## then any other (e.g. user-defined) groups in declaration order.
-  for group in CanonicalGroups:
-    if group in spec.groups:
-      result.add group
-  for group in spec.groups.keys:
-    if group notin CanonicalGroups:
-      result.add group
+  ## each followed by the user-defined groups of its kind in declaration
+  ## order. A user-defined group's kind is that of its first shown Arg, and
+  ## one with none is left out -- see
+  ## `docs/adr/0079-help-groups-sit-with-their-kind.md`.
+  for canonical in CanonicalGroups:
+    if canonical in spec.groups:
+      result.add canonical
+    for group, args in spec.groups:
+      if group notin CanonicalGroups:
+        let shown = args.shown
+        if shown.len > 0 and shown[0].kind.defaultGroup == canonical:
+          result.add group
 
 proc variantsByDesc(arg: Arg): seq[tuple[names: seq[string], desc: string]] =
   ## Buckets `arg.variants` by their `variantDesc` text, preserving declaration
@@ -211,10 +220,11 @@ proc resolved[T: StyledText | Prose](ctx: HelpContext, t: T): T =
 
 iterator groups*(ctx: HelpContext): tuple[name: string, args: seq[Arg]] =
   ## Each Help Group's name and its non-hidden Args, in display order:
-  ## `Commands`, `Arguments`, `Options`, then user-defined groups in
-  ## declaration order. A group whose Args are all hidden is skipped.
+  ## `Commands`, `Arguments`, `Options`, each followed by the user-defined
+  ## groups of its kind in declaration order. A group whose Args are all
+  ## hidden is skipped.
   for group in ctx.spec.groupOrder:
-    let args = ctx.spec.groups[group].filterIt(not it.hidden)
+    let args = ctx.spec.groups[group].shown
     if args.len > 0:
       yield (name: group, args: args)
 
@@ -691,30 +701,58 @@ when isMainModule:
         "  -m,         - One.\n    --abcdefgh  - Two."
 
   suite "groupOrder":
+    proc cmd(name: string, group = ""): CommandArg =
+      CommandArg(kind: Command, variants: @[name], group: group,
+        spec: plainSpec(()))
+
     test "canonical groups appear in Commands, Arguments, Options order regardless of insertion order":
-      var groups = initOrderedTable[string, seq[Arg]]()
-      groups["Options"] = @[]
-      groups["Commands"] = @[]
-      groups["Arguments"] = @[]
-      check Spec(groups: groups).groupOrder() == @["Commands", "Arguments", "Options"]
+      let spec = plainSpec((
+        x: Arg(kind: Optional, variants: @["-x"]),
+        c: cmd("c"),
+        y: Arg(kind: Positional, variants: @["<y>"])))
+      check spec.groupOrder() == @["Commands", "Arguments", "Options"]
 
-    test "a spec missing a canonical group skips it without leaving a gap":
-      for group in CanonicalGroups:
-        var groups = initOrderedTable[string, seq[Arg]]()
-        for g in CanonicalGroups:
-          groups[g] = @[]
-        groups.del(group)
-        var expected: seq[string]
-        for g in CanonicalGroups:
-          if g != group: expected.add g
-        check Spec(groups: groups).groupOrder() == expected
+    test "a user-defined group follows the canonical group of its kind":
+      let spec = plainSpec((
+        o: Arg(kind: Flag, variants: @["-o"], group: "Output"),
+        i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
+        m: cmd("m", group = "Maintenance"),
+        c: cmd("c"),
+        y: Arg(kind: Positional, variants: @["<y>"]),
+        x: Arg(kind: Optional, variants: @["-x"])))
+      check spec.groupOrder() == @["Commands", "Maintenance", "Arguments",
+        "Inputs", "Options", "Output"]
 
-    test "user-defined groups are appended after canonical groups in insertion order":
-      var groups = initOrderedTable[string, seq[Arg]]()
-      groups["Global Options"] = @[]
-      groups["Options"] = @[]
-      groups["Another Group"] = @[]
-      check Spec(groups: groups).groupOrder() == @["Options", "Global Options", "Another Group"]
+    test "a user-defined group keeps its kind's place without its canonical group":
+      let spec = plainSpec((
+        x: Arg(kind: Optional, variants: @["-x"]),
+        i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
+        m: cmd("m", group = "Maintenance")))
+      check spec.groupOrder() == @["Maintenance", "Inputs", "Options"]
+
+    test "user-defined groups of one kind keep their declaration order":
+      let spec = plainSpec((
+        b: cmd("b", group = "Beta"),
+        a: cmd("a", group = "Alpha"),
+        c: cmd("c", group = "Beta")))
+      check spec.groupOrder() == @["Beta", "Alpha"]
+
+    test "a mixed group takes the kind of its first shown Arg":
+      let spec = plainSpec((
+        x: Arg(kind: Optional, variants: @["-x"]),
+        s: Arg(kind: Flag, variants: @["--secret"], group: "Help",
+          hidden: true),
+        a: cmd("about", group = "Help"),
+        h: Arg(kind: Flag, variants: @["-h"], group: "Help"),
+        y: Arg(kind: Positional, variants: @["<y>"])))
+      check spec.groupOrder() == @["Help", "Arguments", "Options"]
+
+    test "a user-defined group with no shown Arg is left out":
+      let spec = plainSpec((
+        x: Arg(kind: Optional, variants: @["-x"]),
+        g: Arg(kind: Optional, variants: @["--ghost"], group: "Ghosts",
+          hidden: true)))
+      check spec.groupOrder() == @["Options"]
 
   suite "HelpContext.groups":
     test "a spec with no args has no groups":
@@ -730,6 +768,25 @@ when isMainModule:
           y: Arg(kind: Positional, variants: @["<y>"], group: "Arguments")))
         groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
       check groups == @["Commands", "Arguments", "Options", "Flags"]
+
+    test "a user-defined group of commands is displayed after Commands":
+      let
+        spec = plainSpec((
+          c: CommandArg(kind: Command, variants: @["c"], spec: plainSpec(())),
+          m: CommandArg(kind: Command, variants: @["m"], group: "Maintenance",
+            spec: plainSpec(())),
+          x: Arg(kind: Optional, variants: @["-x"])))
+        groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
+      check groups == @["Commands", "Maintenance", "Options"]
+
+    test "a user-defined group of arguments is displayed where Arguments would be":
+      let
+        spec = plainSpec((
+          x: Arg(kind: Optional, variants: @["-x"]),
+          i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
+          c: CommandArg(kind: Command, variants: @["c"], spec: plainSpec(()))))
+        groups = toSeq(spec.helpContext("p").groups).mapIt(it.name)
+      check groups == @["Commands", "Inputs", "Options"]
 
     test "hidden args are not shown":
       let spec = plainSpec((
