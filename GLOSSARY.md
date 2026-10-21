@@ -277,12 +277,12 @@ hierarchy. It may build on the Help Frame and lay out only the rows, as
 both built-ins do, or write the whole message itself. A parse error's usage
 block is not rendered by a Help Formatter. Two ship built-in: **Column
 Style**, which aligns every Arg's Variants and Help Text into a two-column
-table (the original, and still default, layout), and **Paragraph Style**, which instead puts each Arg's
-Variants on their own line with its Help Text (or Long-Form Help Text, if
-declared) wrapped as an indented paragraph below — trading column
-alignment for room to write longer descriptions without cramped wrapping.
-A Spec may register more than one Help Message Argument, each with its own
-Help Formatter, so one program could offer e.g. both a column format and a
+table (the original, and still default, layout), and **Paragraph Style**,
+which instead puts each Arg's Variants on their own line with its Help Text (or
+Long-Form Help Text, if declared) wrapped as an indented paragraph below —
+trading column alignment for room to write longer descriptions without cramped
+wrapping. A Spec may register more than one Help Message Argument, each with its
+own Help Formatter, so one program could offer e.g. both a column format and a
 paragraph format.
 _Avoid_: formatter (ambiguous outside this context), HelpFormatter
 (code-level name, fine in prose about the API itself), docopt style,
@@ -774,11 +774,11 @@ tier clears the Arg first, so a weaker tier's values are replaced; the same
 tier applies without clearing, which is what makes repeated values from one
 tier accumulate; a weaker tier is refused and applies nothing (see
 Arbitration). This is what makes a value written *before* parsing a
-pre-seed rather than something the tiers silently clobber — a pre-seed claiming the command-line tier is
-appended to by what the user typed, one claiming no tier is discarded by
-any tier that supplies the Arg, and one claiming a tier nothing else
-supplies survives untouched. A tier consulted but resolving nothing never
-clears, so it cannot destroy a pre-seed. See
+pre-seed rather than something the tiers silently clobber — a pre-seed
+claiming the command-line tier is appended to by what the user typed, one
+claiming no tier is discarded by any tier that supplies the Arg, and one
+claiming a tier nothing else supplies survives untouched. A tier consulted but
+resolving nothing never clears, so it cannot destroy a pre-seed. See
 `docs/adr/0041-parse-is-the-write-surface.md`.
 
 The coded-default tier is not stored anywhere — it is substituted at read
@@ -875,10 +875,10 @@ file eagerly, at that construction call, in the caller's own code — before
 raises there as an ordinary exception, deliberately outside the
 `SpecDefect`/`ParseError`/`MessageError` taxonomy, since it happens before
 any Spec construction or parsing begins. Unlike Env Delimiter's central
-splitting (one raw string, always split), a Config Source hands back an already-split `seq[string]` directly — a JSON array's
-elements, or a repeated INI key's accumulated occurrences, already know
-their own value boundaries, so there's nothing to split centrally. See
-`docs/adr/0018-config-source.md`.
+splitting (one raw string, always split), a Config Source hands back an
+already-split `seq[string]` directly — a JSON array's elements, or a repeated
+INI key's accumulated occurrences, already know their own value boundaries, so
+there's nothing to split centrally. See `docs/adr/0018-config-source.md`.
 _Avoid_: "config" alone (ambiguous with `SpecSettings`, the pre-existing
 Spec-wide width/maxVariantsWidth/envDelim settings bag — the two are
 unrelated); "config file" (a Config Source need not be file-backed);

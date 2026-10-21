@@ -5,7 +5,9 @@ name: Docs
 # fails on any error `nim doc` or `md2html` reports (see `docExec` in
 # argumint.nimble), and `nimble docscheck` on guide Markdown md2html renders
 # differently from GitHub (see tools/guidelint.nim) or a guide example that no
-# longer compiles (see tools/guideblocks.nim).
+# longer compiles (see tools/guideblocks.nim). markdownlint checks every
+# Markdown file's line width (see .markdownlint-cli2.yaml); it runs here, not
+# in test.yml, because test.yml skips Markdown-only changes.
 on:
   push:
     branches: [main]
@@ -27,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v24
+        with:
+          globs: "**/*.md"
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.4"
