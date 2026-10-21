@@ -188,7 +188,7 @@ suite "Short-option cluster in a Usage Line":
   test "-abc... doesn't require repetitions to be clean back-to-back passes":
     # An unconsumed letter from one repetition just waits for the matcher
     # whose turn it is to come back around and claim it -- order-independence
-    # (docs/architecture.md's forward-scan behavior) applies across
+    # (docs/architecture.md's "Matching") applies across
     # repetitions, not just within a single pass.
     let spec = (
       a: flag("-a", default = false, help = ""),
@@ -407,7 +407,7 @@ suite "An option given before its place in the Usage Line (#181)":
     check parsed("[options] <x> <y>", @["--name", "n", "a", "b"]) == "x=a y=b name=n"
 
 suite "A parent's options stop at its Command (#171)":
-  # See architecture.md's "Option scans stop at a Command".
+  # See architecture.md's "Matching".
   proc parsed(args: seq[string], usage = ""): string =
     let sub = (text: args("<text>", help = ""))
     let spec = (

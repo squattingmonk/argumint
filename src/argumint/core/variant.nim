@@ -2,7 +2,7 @@
 ## by the usage-string lexer (`lexer.nim`), the runtime option shapes
 ## (`tokens.nim`) and `parseVariant`, which checks one declared Variant and
 ## splits it into its bare name and metavar. A leaf module, so all three can
-## import it. See `docs/architecture.md` §0.
+## import it. See `docs/architecture.md`, "Module layout".
 
 import std/[options, pegs]
 

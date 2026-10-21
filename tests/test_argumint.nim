@@ -2647,7 +2647,7 @@ suite "Config Source":
     # fsm.parse*). A before hook mutating settings.configSources is
     # therefore always too late to affect the parse already in progress,
     # exactly the same carve-out Spec.settings.envDelim already has
-    # (architecture.md's "Env var / Config Source mechanics"). The mutation
+    # (architecture.md's "Spec construction"). The mutation
     # *is* visible to a later, separate parse() call reusing the same held
     # SpecSettings.
     let settings = newSpecSettings()

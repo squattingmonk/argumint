@@ -6,8 +6,8 @@
 ## sweep each consult one thing, not two. `probe` lets a tier's value stand
 ## in for a missing CLI value during the walk, and
 ## `applyFallbacks` is the post-walk sweep that actually writes whatever
-## the walk consumed. `fsm.nim` owns the walk itself and failure reporting
-## -- see `docs/architecture.md` §3.
+## the walk consumed. `fsm.nim` owns the walk itself, and `complaints.nim`
+## failure reporting -- see `docs/architecture.md`, "The walk".
 import std/[options, sets, tables]
 
 import ./complaints, ../core/[backend, envvar], ../configsource
@@ -174,11 +174,11 @@ proc applyTier(cursor: var ValueCursor, t: FallbackTier, arg: Arg,
 proc applyFallbacks*(tiers: var Tiers, levels: seq[seq[Arg]],
     closed: HashSet[Arg], report: var Report) =
   ## Sweeps every spec level actually entered during this parse (the chain
-  ## the walk recorded -- see architecture.md §5), falling back to each
-  ## not-yet-supplied Arg's env var, then (only if env had nothing) its
-  ## Config Source value. Deliberately outside `walk`'s FSM/backtracking,
-  ## so an Arg only reachable via `[options]` still picks up its fallback
-  ## values -- see architecture.md's "Env var / Config Source mechanics",
+  ## the walk recorded -- see architecture.md, "Storing values"), falling
+  ## back to each not-yet-supplied Arg's env var, then (only if env had
+  ## nothing) its Config Source value. Deliberately outside `walk`'s
+  ## FSM/backtracking, so an Arg only reachable via `[options]` still picks
+  ## up its fallback values -- see architecture.md's "Value Precedence fallbacks",
   ## `docs/adr/0005-env-supplied-multi-value-options-and-flags.md`, and
   ## `docs/adr/0018-config-source.md` for the value-count/`ParseError`
   ## rules, shared identically by both tiers.

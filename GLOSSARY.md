@@ -397,6 +397,14 @@ level's Hook Info too. See `docs/adr/0021-hook-info-matched-args.md` and
 `docs/adr/0073-message-argument-is-a-capability.md`.
 _Avoid_: hook context, hook args
 
+**Level**:
+One Spec a parse entered, paired with the command path that names it (`prog`,
+`prog ship`, `prog ship move`). The top-level Spec is the first Level; each
+matched Command adds the next, so one parse enters a chain of Levels, root
+first. Hook Info's `root` and `here` are Levels, and dispatch fires each
+Level's hooks in turn.
+_Avoid_: depth, scope, sub-spec
+
 **Message Argument**:
 An Arg whose match, via any of its Variants, displays a message and halts
 parsing instead of running the Spec's Action. Declared by the Arg's
@@ -467,7 +475,7 @@ a partial Cluster is never accepted. Only Variants with a single-letter
 spelling can appear in one; an Option/Flag with no short Variant has no
 folded form and is written out normally. Distinct from the runtime
 tokenizer's cluster-splitting of an actual command-line token
-(`docs/architecture.md` §3), which folds/unfolds `-abc`-shaped input
+(`docs/architecture.md`, "Tokens"), which folds/unfolds `-abc`-shaped input
 regardless of whether the governing Usage Line spells those options as a
 Cluster or writes them out individually -- a Usage Line's Cluster is an
 authoring-time shorthand for the Usage Line itself, not a statement about

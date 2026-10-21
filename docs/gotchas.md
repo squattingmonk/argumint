@@ -211,7 +211,8 @@ debugging time. Read this before touching the constructors and `flagOp`/
   epsilon-closure (`shortcutClosure`, same technique as epsilon-NFA→DFA
   construction): every state reachable from `s` via shortcuts, computed once
   with its own bounded visited-set, so it terminates regardless of chain
-  depth or cycle shape. See `docs/architecture.md` §2 and GitHub issue #4.
+  depth or cycle shape. See `docs/architecture.md`, "Preparing the graph",
+  and GitHub issue #4.
 
 - **A nested `proc` that captures an outer `var seq[T]` named `result` (a
   closure inside a proc, referencing `result` from its enclosing scope)

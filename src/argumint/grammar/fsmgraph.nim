@@ -1,9 +1,9 @@
 ## Builds and simplifies the FSM graph (`State`/`Transition`/`Matcher`,
 ## `backend.nim`) that drives parsing -- `parser.nim` calls these while
 ## compiling a Usage String, `fsm.nim`/`dot.nim` each call one directly (see
-## `docs/architecture.md` §2). The graph's own data model (the types
-## themselves) lives in `backend.nim`; this module is purely the
-## construction/simplification mechanics layered on top of it.
+## `docs/architecture.md`, "Usage-string compilation"). The graph's own data
+## model (the types themselves) lives in `backend.nim`; this module is purely
+## the construction/simplification mechanics layered on top of it.
 
 import std/[algorithm, hashes, sequtils, sets, strformat, strutils, sugar, tables]
 

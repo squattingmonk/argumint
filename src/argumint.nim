@@ -789,7 +789,7 @@ proc parse*[S: tuple](spec: S, usage = "", prolog = "", epilog = "",
   ## message, or completion) -- use `parseOrQuit*` if you want those to
   ## print a message and `quit()` instead.
   ## - `usage` is the usage string used to build the FSM. See
-  ##   `docs/architecture.md`'s "autoFillUsage" section for how gaps in
+  ##   `docs/architecture.md`'s "Auto-filled usage" section for how gaps in
   ##   `usage` are auto-filled.
   ## - `prolog` is the front matter for help messages generated from this spec.
   ## - `epilog` is the end matter for help messages generated from this spec.

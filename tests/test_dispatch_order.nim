@@ -136,7 +136,7 @@ suite "an Arg shared by two levels acts at the level it was typed":
   # storeValues drops the per-level `Match.spec` filter; parseMessageArgs
   # is the one consumer that still needs it. A shared Command is handled by
   # the walk's recorded command chain instead -- see ADR 0032 and
-  # architecture.md's "Dispatch order".
+  # architecture.md's "Dispatch".
 
   test "a Command shared by two levels dispatches at the level it was typed":
     var log: seq[string]
@@ -173,7 +173,8 @@ suite "an Arg shared by two levels acts at the level it was typed":
 suite "only the winning branch's commands dispatch":
   test "a failed command branch doesn't dispatch that command's hooks":
     # The matched command chain is recorded during the walk, so it must be
-    # discarded along with a branch that loses -- see architecture.md §5.
+    # discarded along with a branch that loses -- see architecture.md,
+    # "Backtracking".
     var log: seq[string]
     proc goBefore(spec: tuple, info: HookInfo) = log.add "go-before"
     proc goAction(spec: tuple, info: HookInfo) = log.add "go-action"

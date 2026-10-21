@@ -5,7 +5,7 @@
 ## crossed, since those three answer every question in this file together.
 ## `fsm.nim` owns the walk itself; failure reporting and the Value
 ## Precedence fallback tiers moved out to `complaints.nim`/`precedence.nim`
-## -- see `docs/architecture.md` §3.
+## -- see `docs/architecture.md`, "The walk".
 
 import std/[pegs, strformat, tables]
 
@@ -259,7 +259,7 @@ proc isSeparateValue*(cur: TokenCursor, pos: int): bool =
   ## Whether `cur.tokens[pos]` would be taken as an Optional's separate-token
   ## value when the tokens before it are read in order, peeling clusters as
   ## `consume` does. Lets an option scan tell a Command word from an option's
-  ## value -- see architecture.md §3, "Option scans stop at a Command".
+  ## value -- see architecture.md, "Matching".
   var
     walk = cur
     target = pos

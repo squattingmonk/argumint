@@ -172,7 +172,8 @@ proc pendingOptionalArgs(frontier: Frontier, name: string): seq[(Arg, ParseConte
 
 proc collectFrontier(s: State, pc: ParseContext, acc: var Frontier, seen: var HashSet[State]) =
   ## Generalizes `walk` into "every live branch, not just the first to
-  ## succeed" for shell completion -- see architecture.md §6.
+  ## succeed" for shell completion -- see architecture.md, "Resolving
+  ## candidates".
   ##
   ## `seen` only bounds zero-token transitions (a `mkShortcut`, or an
   ## env-satisfied `Option`); anything that consumes a real token recurses
@@ -217,7 +218,7 @@ iterator levelOptions(frontier: Frontier): (string, Arg) =
 
 proc accepts(spec: Spec, words: seq[string], command, variant: string, arg: Arg): bool =
   ## Whether parsing would accept `variant` after `words` -- see
-  ## architecture.md §6, "Options after a positional".
+  ## architecture.md, "Resolving candidates".
   # Any value will do: the walk never converts or validates one.
   let probe = if arg.kind == Optional: variant & "=x" else: variant
   spec.frontierAfter(words & probe, command).len > 0
@@ -254,7 +255,8 @@ proc resolveCompletion*(spec: Spec, words: seq[string], command: string): Comple
   let priorWords = if words.len > 0: words[0 ..< words.high] else: newSeq[string]()
 
   # Case (b): last word is a bare option name awaiting its value --
-  # short-circuit to that Arg's own values (see architecture.md §6).
+  # short-circuit to that Arg's own values (see architecture.md, "Resolving
+  # candidates").
   if priorWords.len > 0:
     let committed = priorWords[0 ..< priorWords.high]
     let name = priorWords[^1]
@@ -308,7 +310,7 @@ const CompletionMarker = "__complete"
 
 proc hasCompletionMarker*(args: seq[string]): bool =
   ## Returns whether `args` starts with `CompletionMarker` -- see
-  ## `docs/architecture.md` §6.
+  ## `docs/architecture.md`, "Protocol".
   args.len > 0 and args[0] == CompletionMarker
 
 proc reply*(spec: Spec, words: seq[string], command: string): string =
@@ -340,7 +342,7 @@ proc genCompletionScript*(shell: Shell, binaryName: string): string =
     of bash:
       fmt"""
       _{binaryName}_complete() {{
-        # Words before the cursor, minus `=`/`:` -- see architecture.md §6.
+        # Words before the cursor, minus `=`/`:` -- see architecture.md, "Protocol".
         local cur="${{COMP_WORDS[COMP_CWORD]}}"
         local -a args=()
         local i w
@@ -393,7 +395,7 @@ proc genCompletionScript*(shell: Shell, binaryName: string): string =
       fmt"""
       #compdef {binaryName}
       _{binaryName}_complete() {{
-        # `$words`/`$CURRENT`/`$PREFIX` are zsh's own -- see architecture.md §6.
+        # `$words`/`$CURRENT`/`$PREFIX` are zsh's own -- see architecture.md, "Protocol".
         local -a args=("${{(@)words[2,CURRENT-1]}}")
         local cur="$PREFIX"
         # Split `--opt=value`, as the fish script does.
