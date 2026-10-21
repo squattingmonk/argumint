@@ -1,0 +1,31 @@
+name: PR title
+
+# A squash merge makes the PR title the commit subject on main, and
+# release-please reads those subjects to pick the next version and write the
+# changelog. So the title must be a Conventional Commits subject:
+# `type(scope)!: description`, with `!` marking a breaking change. GitHub's
+# own revert titles (`Revert "..."`) pass too.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      # The title arrives through `env`, never spliced into the script, so a
+      # crafted title can't run as shell.
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+          if [[ "$TITLE" =~ ^($types)(\([a-z0-9._/-]+\))?!?:\ [^[:space:]] ]] ||
+             [[ "$TITLE" =~ ^Revert\ \" ]]; then
+            echo "OK: $TITLE"
+          else
+            echo "::error::PR title isn't a Conventional Commits subject: $TITLE"
+            echo "Expected type(scope)!: description, with type one of ${types//|/, }."
+            exit 1
+          fi

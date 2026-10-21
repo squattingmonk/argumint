@@ -3,8 +3,9 @@ name: Docs
 # A pull request builds the docs without deploying them, so a broken doc
 # comment or guide page fails review instead of the next deploy. `nimble docs`
 # fails on any error `nim doc` or `md2html` reports (see `docExec` in
-# argumint.nimble), and `nimble docscheck` on a guide example that no longer
-# compiles (see tools/guideblocks.nim).
+# argumint.nimble), and `nimble docscheck` on guide Markdown md2html renders
+# differently from GitHub (see tools/guidelint.nim) or a guide example that no
+# longer compiles (see tools/guideblocks.nim).
 on:
   push:
     branches: [main]
@@ -22,7 +23,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build:
+  docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +39,7 @@ jobs:
 
   deploy:
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: docs
     runs-on: ubuntu-latest
     permissions:
       pages: write

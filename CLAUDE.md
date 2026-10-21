@@ -45,10 +45,12 @@ registration.
   default settings must pass `newSpecSettings(style = nil)`, since the
   default styler colours output whenever it runs in a terminal; running
   the suite with `FORCE_COLOR=1` finds any that don't.
-- Compile every whole-program example in the user guide (`docs/guide/*.md`
-  blocks starting with `import`) with `nimble docscheck`; the docs workflow
-  runs it on pull requests. A block that doesn't start with `import` is a
-  fragment and isn't checked. See `tools/guideblocks.nim`.
+- Lint the user guide's Markdown for what `nim md2html` renders
+  differently from GitHub (`tools/guidelint.nim`), then compile every
+  whole-program example in it (`docs/guide/*.md` blocks starting with
+  `import`), with `nimble docscheck`; the docs workflow runs it on pull
+  requests. A block that doesn't start with `import` is a fragment and
+  isn't checked. See `tools/guideblocks.nim`.
 - Delete stray binaries with `nimble cleanbins`: compiling a module or
   example on its own leaves one beside its source (under `src/`, `tests/`,
   `examples/` or `tools/`).
@@ -57,6 +59,9 @@ registration.
 
 ## Where things live
 
+- **Coding standards** a reviewer checks a diff against are in
+  `CODING_STANDARDS.md` — read it before writing or reviewing code; it also
+  names which rules are automated checks instead.
 - **Domain vocabulary** (Spec, Arg, Variant, Validator, Value Precedence,
   etc.) is defined in `GLOSSARY.md` — read it before naming a concept in an
   issue, commit, or design discussion.
