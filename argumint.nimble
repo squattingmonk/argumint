@@ -30,6 +30,33 @@ task examples, "Compile every example":
     if file.endsWith(".nim"):
       exec "nim c " & file
 
+task cleanbins, "Delete compiled binaries from src/, tests/, examples/ and tools/":
+  # Not named `clean`: nimble's own command of that name shadows it. A file
+  # goes if .gitignore's binary rule matches it (no extension, or `.out`,
+  # `.exe`, `.pdb`) and, but for a `.pdb`, it starts with an executable's
+  # magic bytes, so a kept untracked note or expected-output file survives.
+  const magics = ["\x7FELF", "MZ", "\xCF\xFA\xED\xFE", "\xCE\xFA\xED\xFE",
+    "\xCA\xFE\xBA\xBE"] # ELF, PE, Mach-O 64/32, Mach-O fat
+  proc isBinary(file: string): bool =
+    let name = file.rsplit({'/', '\\'}, 1)[^1]
+    if name.endsWith(".pdb"):
+      return true
+    if '.' in name and not name.endsWith(".out") and not name.endsWith(".exe"):
+      return false
+    let head = readFile(file)
+    for magic in magics:
+      if head.startsWith(magic):
+        return true
+  proc sweep(dir: string) =
+    for file in listFiles(dir):
+      if file.isBinary:
+        echo "rm ", file
+        rmFile(file)
+    for sub in listDirs(dir):
+      sweep(sub)
+  for dir in ["src", "tests", "examples", "tools"]:
+    sweep(dir)
+
 proc docExec(command: string) =
   ## Runs `command` like `exec`, but also fails on an error it only prints:
   ## `nim doc` reports a malformed doc comment and still exits 0.
