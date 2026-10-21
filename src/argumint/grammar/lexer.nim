@@ -27,11 +27,16 @@ type
     tkOptsEnd = "end-of-options marker (e.g., --)"
 
   SpecToken* = object
-    kind*: SpecTokenKind ## The kind of token
-    line: int            ## The line of the spec the token was found on
-    column: int          ## The column of the spec the token was found at
-    literal*: string     ## The literal value of the token
-    context: string      ## A string showing the context of the token for errors
+    kind*: SpecTokenKind
+      ## The kind of token
+    line: int
+      ## The line of the spec the token was found on
+    column: int
+      ## The column of the spec the token was found at
+    literal*: string
+      ## The literal value of the token
+    context: string
+      ## A string showing the context of the token for errors
 
   SpecLexer* = object of BaseLexer
 

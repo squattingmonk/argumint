@@ -153,10 +153,10 @@ proc candidateWords(tab: var Tab, frontier: Frontier, prefix: string): seq[Compl
 
 proc pendingOptionalArgs(frontier: Frontier, name: string): seq[(Arg, ParseContext)] =
   ## Every distinct `Optional`-kind (value-taking, not `Flag`) Arg reachable
-  ## from a live frontier state whose variants include `name` exactly --
-  ## used by `resolveCompletion` to detect "the last already-typed word is itself
-  ## a bare option name still awaiting its value" (e.g. `--log-level` typed
-  ## with nothing after it yet). Each comes with the first branch reaching it.
+  ## from a live frontier state whose variants include `name` exactly -- used
+  ## by `resolveCompletion` to detect "the last already-typed word is itself a
+  ## bare option name still awaiting its value" (e.g. `--log-level` typed with
+  ## nothing after it yet). Each comes with the first branch reaching it.
   var seenArgs: HashSet[Arg]
   for (state, pc) in frontier:
     for tr in state.transitions:

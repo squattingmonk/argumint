@@ -20,8 +20,10 @@ type
   CustomArg = ref object of Arg
     ## A hand-rolled Arg per ADR 0030's custom-Arg contract.
     vals: seq[string]
-    envSrc: Option[EnvSource] ## Backs `envSource` -- see ADR 0046.
-    cfg: ConfigKey            ## Backs `configKey`.
+    envSrc: Option[EnvSource]
+      ## Backs `envSource` -- see ADR 0046.
+    cfg: ConfigKey
+      ## Backs `configKey`.
 
   VariantProbe = ref object of MessageArg
     ## Records which of its own Variants `action` was dispatched with.
