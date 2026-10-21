@@ -1,5 +1,9 @@
 # Help rendering goes through a pluggable `HelpFormatter`
 
+> **Amended by [ADR 0079](0079-help-groups-sit-with-their-kind.md)**: each
+> user-defined Help Group now follows the built-in group of its kind,
+> rather than all of them coming after `Options`.
+
 `genHelp` grows a `formatter: HelpFormatter = formatColumn` parameter
 (`HelpFormatter* = proc (spec: Spec, command: string): string`, defined in
 `help.nim`), so a caller -- and a third party -- can choose how a Spec's

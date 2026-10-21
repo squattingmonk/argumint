@@ -103,10 +103,44 @@ Output:
   -q, --quiet       Show nothing
 ```
 
-The built-in groups come first, in the order above, and then your own groups
-in the order you first use them. Within a group, `Arg`s are listed in the
-order you declared them. An empty `group` puts an `Arg` in the built-in
-group for its kind.
+The built-in groups are listed in the order above. Each of your own groups
+comes right after the built-in group for its kind, so `Output` follows
+Options. A group of commands follows Commands:
+
+```nim
+import argumint
+
+let spec = (
+  install: command("install", (names: args("<name>", help = ""),),
+    help = "Install packages"),
+  clean: command("clean", (help: help(),), help = "Empty the download cache",
+    group = "Maintenance"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+```
+
+```console
+$ ./pkg --help
+Usage:
+  pkg (install | clean)
+  pkg (-h | --help)
+
+Commands:
+  install     Install packages
+
+Maintenance:
+  clean       Empty the download cache
+
+Options:
+  -h, --help  Display this help message
+```
+
+Your own groups of the same kind are listed in the order you first use them.
+A group that holds more than one kind goes with the kind of its first
+`Arg` that isn't hidden. Within a group, `Arg`s are listed in the order you declared them. An
+empty `group` puts an `Arg` in the built-in group for its kind.
 
 `hidden = true` leaves an `Arg` out of these lists, and out of
 [shell completion](completion.md), but the user can still give it, as with
