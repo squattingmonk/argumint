@@ -110,15 +110,26 @@ debugging time. Read this before touching the constructors and `flagOp`/
   Expression: hash(key)", naming neither the type nor the flag. `State`
   defines an identity hash for this (issue #169); `Arg` hashes its name.
 
-- **A table filled by its first put gets 64 slots, and from 64-byte
-  entries up it costs about 8 KB.** A `Table`/`OrderedTable` never passed
-  through `initTable` sizes itself on the first put. Below 64-byte entries
-  that costs slots times entry size, about 2.6-3.7 KB, against a few
-  hundred bytes at most for a short `seq`; at 64 bytes or more the
+- **A table filled by its first put costs kilobytes, however few keys it
+  holds.** A `Table`/`OrderedTable` never passed through `initTable` makes
+  room for 32 keys (64 slots) on its first put; a `HashSet`, 64 keys (128
+  slots, about 2 KB for a `ref` key). Below 64-byte entries a table costs
+  slots times entry size, about 2.6-3.7 KB; at 64 bytes or more the
   allocation outgrows a small allocator chunk and costs about 8.3 KB (Nim
-  2.2, `-d:release`). `FlagArgBase.ops`, at 72-byte entries, made every
-  `flag` cost about 8.7 KB (issue #244), so it's a `seq` with a linear
-  scan.
+  2.2, `-d:release`). Pick the fix by what the container has to do:
+
+  - **Looked up by key on a hot path, may hold many keys, or read through
+    a table-typed API:** pre-size it, passing the key count (not a slot
+    count) to `initTable`/`initOrderedTable`/`initHashSet`, for a few
+    hundred bytes. A Spec's `commands`/`arguments`/`options`/`groups` cost
+    about 7.5 KB a Spec until `addArgs` sized them (issue #291).
+  - **A handful of keys, scanned rarely, and nothing outside its module
+    needs a table:** a `seq` of pairs with a linear scan, for tens to a
+    couple of hundred bytes. `FlagArgBase.ops`, at 72-byte entries, made
+    every `flag` cost about 8.7 KB (issue #244).
+  - **Copied often:** size it at its first insert, not when it's created.
+    A pre-sized empty table allocates on every copy; a default empty one
+    copies for free.
 
 - **`sequence`'s local `add` helper (`parser.nim`) copies each child atom's
   `Transition`s onto its own growing state rather than reusing them** — `for

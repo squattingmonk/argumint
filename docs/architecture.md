@@ -257,9 +257,11 @@ indexed into `spec.arguments` (positional, keyed by `<name>` or `NAME`),
 (subcommands, keyed by the command word), and filed under its Help Group in
 `spec.groups`. An empty `group` becomes its kind's `defaultGroup`: the Arg
 constructors fill it in, and `addArg` fills it in again on the Arg itself
-for a custom `Arg` that didn't, so everything reading `group` agrees. If no
-`usage` string is given, one is auto-generated from the declared args (see
-"autoFillUsage" below).
+for a custom `Arg` that didn't, so everything reading `group` agrees.
+`addArgs` gathers the whole tuple first, and `registerArgs` sizes each table
+for its keys before filling it (`docs/gotchas.md`, table default capacity).
+If no `usage` string is given, one is auto-generated from the declared args
+(see "autoFillUsage" below).
 
 Match Accumulation is per-`Arg` lifetime, not per-parse, so a spec tuple is
 single-use — parsing one twice appends to the same `ValuesArg.value` and
@@ -280,8 +282,10 @@ That call **does not survive template or generic instantiation in another
 module**, so `newSpec*` — which is generic over the spec tuple and therefore
 instantiates in the caller's file — delegates its private-field work to two
 non-generic bookends, `beginSpec` and `finishSpec`, leaving only the
-field-free `addArgs` generic in between. Any new generic or template needing
-a private `Spec` field has to be split the same way; see `docs/gotchas.md`.
+field-free `addArgs`/`gatherArgs` generics in between; they hand the
+gathered Args to the non-generic `registerArgs`, which fills the tables. Any
+new generic or template needing a private `Spec` field has to be split the
+same way; see `docs/gotchas.md`.
 
 `Arg`'s own `kind`, `variants` and `seenBy`, and `CommandArg.spec`, are
 private too, since the Spec's indexes and FSM are keyed by them (ADR
