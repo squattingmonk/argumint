@@ -139,13 +139,17 @@ type
     args: seq[Arg]
       ## List of all args known to this spec
     commands: OrderedTable[string, CommandArg]
-      ## Maps command variants to args
+      ## Maps command variants to args.
+      ## Pre-sized: see docs/gotchas.md, table default capacity.
     arguments: OrderedTable[string, Arg]
-      ## Maps positional arg variants to args
+      ## Maps positional arg variants to args.
+      ## Pre-sized: see docs/gotchas.md, table default capacity.
     options: OrderedTable[string, Arg]
-      ## Maps option and flag arg variants to args
+      ## Maps option and flag arg variants to args.
+      ## Pre-sized: see docs/gotchas.md, table default capacity.
     groups: OrderedTable[string, seq[Arg]]
-      ## List of args in each group
+      ## List of args in each group.
+      ## Pre-sized: see docs/gotchas.md, table default capacity.
     fsm: State
       ## The initial state for the FSM used for parsing
     settings*: SpecSettings

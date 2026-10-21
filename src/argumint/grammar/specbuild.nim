@@ -48,14 +48,45 @@ proc addArg(spec: Spec, arg: Arg, varName: string) =
       if spec.commands.hasKeyOrPut(name, CommandArg(arg)):
         raise newException(SpecDefect, fmt"command {name} already defined")
 
-proc addArgs*(self: Spec, spec: tuple) =
+proc registerArgs(spec: Spec, args: seq[(Arg, string)]) =
+  ## Adds each of `args` (an Arg and its tuple field name), first sizing
+  ## `spec`'s tables for them -- see docs/gotchas.md, table default capacity.
+  var arguments, options, commands = 0
+  var groups: seq[string]
+  for (arg, _) in args:
+    let group = arg.group.groupOr(arg.kind)
+    if group notin groups:
+      groups.add group
+    case arg.kind
+    of Positional: arguments += arg.variants.len
+    of Optional, Flag: options += arg.variants.len
+    of Command: commands += arg.variants.len
+  # Even pre-sized for 0 keys a table allocates, so an unused one is skipped.
+  if arguments > 0:
+    spec.arguments = initOrderedTable[string, Arg](arguments)
+  if options > 0:
+    spec.options = initOrderedTable[string, Arg](options)
+  if commands > 0:
+    spec.commands = initOrderedTable[string, CommandArg](commands)
+  if groups.len > 0:
+    spec.groups = initOrderedTable[string, seq[Arg]](groups.len)
+  for (arg, varName) in args:
+    spec.addArg(arg, varName)
+
+proc gatherArgs(spec: tuple, args: var seq[(Arg, string)]) =
+  ## Every Arg in `spec`, nested tuples included, with its field name.
   for varName, arg in spec.fieldPairs:
     when arg is Arg:
-      self.addArg(arg, varName)
+      args.add (Arg(arg), varName)
     elif arg is tuple:
-      self.addArgs(arg)
+      gatherArgs(arg, args)
     else:
       raise newException(SpecDefect, fmt"all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
+
+proc addArgs*(self: Spec, spec: tuple) =
+  var args: seq[(Arg, string)]
+  gatherArgs(spec, args)
+  self.registerArgs(args)
 
 proc autoFillUsage(spec: Spec) =
   ## Fills in usage lines for whatever's unreachable (commands, positional
