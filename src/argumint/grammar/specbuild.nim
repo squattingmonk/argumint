@@ -81,7 +81,9 @@ proc gatherArgs(spec: tuple, args: var seq[(Arg, string)]) =
     elif arg is tuple:
       gatherArgs(arg, args)
     else:
-      raise newException(SpecDefect, fmt"all members of a spec tuple must be args or tuples, but {varName} is {$typeof(arg)}")
+      # Not `fmt`: see docs/gotchas.md, `fmt`'s braces in a generic proc.
+      {.error: "all members of a spec tuple must be args or tuples, but " &
+        varName & " is " & $typeof(arg).}
 
 proc addArgs*(self: Spec, spec: tuple) =
   var args: seq[(Arg, string)]
