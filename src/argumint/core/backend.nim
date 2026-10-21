@@ -37,7 +37,7 @@ type
 
   SeenBy* = enum
     ## Which Value Precedence tier supplied an Arg this parse -- a Seen Arg's
-    ## provenance (`CONTEXT.md`). Ordered weakest-to-strongest, mirroring the
+    ## provenance (`GLOSSARY.md`). Ordered weakest-to-strongest, mirroring the
     ## precedence chain, so ordinal comparison is meaningful and part of the
     ## public contract: `arg.seenBy > byConfig` reads "supplied above the
     ## Config Source tier". Members must never be reordered. See
@@ -55,7 +55,7 @@ type
     arReplace ## A stronger tier: clear what is there, then store
 
   Contribution* = object
-    ## One value offered to an Arg by one Value Precedence tier (`CONTEXT.md`).
+    ## One value offered to an Arg by one Value Precedence tier (`GLOSSARY.md`).
     value*: string
       ## The raw string to convert; for a Flag, the Variant whose Flag
       ## Operation applies, whichever tier supplied it.
@@ -416,7 +416,7 @@ proc parse*(self: Arg, value: string, variant = "", seenBy: Option[SeenBy] = non
 
 method action*(self: Arg, info: HookInfo, variant = "") {.base.} =
   ## Fires this Arg's Action -- what a matched Message Argument does in place
-  ## of the enclosing Spec's own `action` hook (see `CONTEXT.md`'s Action
+  ## of the enclosing Spec's own `action` hook (see `GLOSSARY.md`'s Action
   ## entry and `docs/adr/0013-message-args-fire-after-before.md`). `info` is
   ## the dispatching level's, as its `action` hook would see it; `variant` is
   ## the spelling the user typed. Only called when `isMessage` is `true`, so
@@ -440,7 +440,7 @@ method defaultStr*(self: Arg): string {.base.} =
 
 method accumulates*(self: Arg): bool {.base.} = false
   ## Whether `self` builds its value from more than one match (see Match
-  ## Accumulation in CONTEXT.md): `args`/`opts` append, flags compose.
+  ## Accumulation in GLOSSARY.md): `args`/`opts` append, flags compose.
   ## `autoFillUsage` writes an accumulating Positional Argument as
   ## `<name>...`, though a usage string that says otherwise still wins, and
   ## a fallback tier gives one that doesn't at most one value (ADR 0005). A

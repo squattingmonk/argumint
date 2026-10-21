@@ -59,7 +59,7 @@ feature needing per-variant data would have meant a fourth side table.
    `flagOp*` calls is far more likely a coincidence than an intended
    alias; silently merging them would be surprising. This also simplifies
    the implementation: `Arg.aliases` is built directly from each group's
-   own spellings, no `O(n²)` cross-comparison needed. `CONTEXT.md`'s
+   own spellings, no `O(n²)` cross-comparison needed. `GLOSSARY.md`'s
    FlagOp Alias entry is updated accordingly.
 
 4. **`flag*`/`flagOp*` stay plain generic `proc`s -- no macro.** The
@@ -93,7 +93,7 @@ feature needing per-variant data would have meant a fourth side table.
    T]()` pattern) fixes it. `docs/gotchas.md` is updated with this as a
    variant of the same underlying gotcha.
 
-New domain-model consequence: `CONTEXT.md`'s **Flag Operation** and
+New domain-model consequence: `GLOSSARY.md`'s **Flag Operation** and
 **FlagOp Alias** entries are rewritten to describe authored declaration
 (implicit `variants` string vs. explicit `flagOp*` groups) rather than a
 string-embedded core plus side-table patches or post-hoc op/value

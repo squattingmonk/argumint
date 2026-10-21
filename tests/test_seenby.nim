@@ -1,5 +1,5 @@
 # Tests for per-Arg provenance -- `Arg.seenBy` and `seen` (Seen Arg in
-# CONTEXT.md). See `docs/adr/0039-per-arg-provenance.md`.
+# GLOSSARY.md). See `docs/adr/0039-per-arg-provenance.md`.
 
 import std/[options, os, strutils, unittest]
 

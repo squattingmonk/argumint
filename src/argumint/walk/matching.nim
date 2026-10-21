@@ -23,7 +23,7 @@ type
   MatchTable* = OrderedTable[Arg, seq[Match]]
 
   Reach* = tuple[idx, subIdx: int]
-    ## How far into the user's input a path got (`CONTEXT.md`): the argv
+    ## How far into the user's input a path got (`GLOSSARY.md`): the argv
     ## position of the first token it could not consume, plus how many letters
     ## of that token a Short-Option Cluster peel already accounted for.
     ## Lexicographic, so `subIdx` only ever breaks a tie *within* one physical

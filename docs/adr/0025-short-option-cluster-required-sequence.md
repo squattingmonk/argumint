@@ -53,7 +53,7 @@ option is enough, and it repeats."
    for a bracketed multi-atom group). See Considered Options for why this
    was explicitly evaluated and rejected rather than just not considered.
 
-New domain term for `CONTEXT.md`: **Short-Option Cluster**.
+New domain term for `GLOSSARY.md`: **Short-Option Cluster**.
 
 ## Considered options
 

@@ -66,7 +66,7 @@ magic leading arg because:
   consistent with how every other test in this codebase already drives
   `parse*` via an explicit `args` value.
 - It keeps "env var" meaning one thing in this library: Value Precedence's
-  value-fallback tier for an Option/Flag (see CONTEXT.md). Reusing env vars
+  value-fallback tier for an Option/Flag (see GLOSSARY.md). Reusing env vars
   for a second, unrelated purpose -- triggering a wholly different execution
   mode -- would make that term do double duty in the same codebase.
 - Generated shell adapters stay simpler: plain argv forwarding, no env-var

@@ -58,7 +58,7 @@ registration.
 ## Where things live
 
 - **Domain vocabulary** (Spec, Arg, Variant, Validator, Value Precedence,
-  etc.) is defined in `CONTEXT.md` — read it before naming a concept in an
+  etc.) is defined in `GLOSSARY.md` — read it before naming a concept in an
   issue, commit, or design discussion.
 - **Design decisions** live in `docs/adr/` — check for an existing ADR before
   revisiting a decision (e.g. why catch-all options repeat by default, why
@@ -164,4 +164,4 @@ Default five-role vocabulary (needs-triage, needs-info, ready-for-agent, ready-f
 
 ### Domain docs
 
-Single-context layout (CONTEXT.md + docs/adr/ at repo root). See `docs/agents/domain.md`.
+Single-context layout (GLOSSARY.md + docs/adr/ at repo root). See `docs/agents/domain.md`.

@@ -8,7 +8,7 @@ export ParseError, UsageError, ConversionError, ValidationError, SpecDefect,
   CompletionError
 
 proc reach(pc: ParseContext): Reach =
-  ## This path's Reach (`CONTEXT.md`): where the first token it could not
+  ## This path's Reach (`GLOSSARY.md`): where the first token it could not
   ## consume sits, or `int.high` if it consumed everything. Ranks failed
   ## branches in `walk` -- see ADR 0036.
   if pc.cursor.len == 0: (int.high, 0)

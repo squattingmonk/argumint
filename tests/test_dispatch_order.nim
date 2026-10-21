@@ -48,7 +48,7 @@ suite "values are parsed for the whole tree before any hook fires":
   test "a value that converts but fails validation also fires no hook":
     # The conversion tests above raise ParseError from the converter. A
     # validator failure is a separate path -- `99999` is a perfectly good
-    # int, so it gets stored and only then rejected -- and CONTEXT.md's
+    # int, so it gets stored and only then rejected -- and GLOSSARY.md's
     # Value Precedence entry promises an unconvertible *or invalid* value
     # raises before a hook. Covers both halves of that claim.
     var log: seq[string]

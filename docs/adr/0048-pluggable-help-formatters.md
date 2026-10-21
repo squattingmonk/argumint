@@ -62,7 +62,7 @@ docopt's (plenty of CLI tools use two columns), and Paragraph Style doesn't
 render real `man`-page section headers, so both borrowed names would
 overclaim. This also matches `therapist`, the library argumint originally
 forked from, which already draws this same distinction under these names.
-See `CONTEXT.md`'s Help/Help Formatter entries.
+See `GLOSSARY.md`'s Help/Help Formatter entries.
 
 ## Considered options
 

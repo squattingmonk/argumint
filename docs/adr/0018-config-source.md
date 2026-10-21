@@ -27,7 +27,7 @@ utils/options.nim), which layers a global `user.cfg`, then a package-local
 This adds a third tier, **Config Source**, between env and the coded
 default: **CLI > env > Config Source(s) > coded default**, for Option/Flag
 only (never positional args, matching env's existing scope). Reached
-through a structured design interview; see `CONTEXT.md`'s **Config
+through a structured design interview; see `GLOSSARY.md`'s **Config
 Source**/**Config Key** entries for the user-facing shape and updated
 **Value Precedence** entry for the full ordering.
 

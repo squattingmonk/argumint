@@ -47,7 +47,7 @@ tier's write site is distinct.
 
 ## Decision
 
-A **Seen Arg** (`CONTEXT.md`) is an Arg some tier supplied. Its provenance
+A **Seen Arg** (`GLOSSARY.md`) is an Arg some tier supplied. Its provenance
 is a field on the base `Arg`:
 
 ```nim
