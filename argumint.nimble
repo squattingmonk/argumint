@@ -30,6 +30,23 @@ task examples, "Compile every example":
     if file.endsWith(".nim"):
       exec "nim c " & file
 
+task cleanbins, "Delete compiled binaries from src/, tests/, examples/ and tools/":
+  # A binary is any file with no extension, or a `.out`, `.exe` or `.pdb`
+  # -- the same rule .gitignore uses, so nothing tracked matches. Leaves
+  # nimcache/, the test and docscheck build cache, alone. Not named `clean`:
+  # nimble's own command of that name shadows it.
+  proc sweep(dir: string) =
+    for file in listFiles(dir):
+      let name = file.rsplit({'/', '\\'}, 1)[^1]
+      if '.' notin name or name.endsWith(".out") or name.endsWith(".exe") or
+          name.endsWith(".pdb"):
+        echo "rm ", file
+        rmFile(file)
+    for sub in listDirs(dir):
+      sweep(sub)
+  for dir in ["src", "tests", "examples", "tools"]:
+    sweep(dir)
+
 proc docExec(command: string) =
   ## Runs `command` like `exec`, but also fails on an error it only prints:
   ## `nim doc` reports a malformed doc comment and still exits 0.
