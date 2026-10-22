@@ -410,6 +410,12 @@ the greater of its own and its descendants'. `maxReach` never goes down,
 even when a lesser branch's complaints are adopted because nothing had
 complained yet.
 
+The leftover `walk`'s tail records at a terminal State is ranked the same
+way. Its Reach is the State's own first token, so it is recorded only when
+no transition got further. Otherwise a Command that matched and then failed
+deeper in its own Spec would have the Command word itself blamed beside the
+real complaint (#309).
+
 When a transition matches, `Report.clear` empties the Report and points it
 at the live Level, so a failure carried up from a deeper level keeps that
 level's usage block (#192). `cursor.spec` itself is never written by a
