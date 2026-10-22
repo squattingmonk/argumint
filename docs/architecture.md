@@ -426,6 +426,9 @@ failed branch.
 - `mkArgument` reports nothing missing when its State was terminal (the
   grammar could have stopped there), passed down as `atTerminal` (ADR
   0037).
+- `mkCommand` at a terminal State still records `missing command`, since
+  wording the leftover needs it, but marks it not `owed`, so it is never
+  shown. A merge keeps it owed if either copy was (ADR 0081).
 - `mkOptions` never complains: anything the Options Catch-all reaches is
   optional.
 - A starved Option is always reported, even beside other complaints.
@@ -438,9 +441,9 @@ failed branch.
 yet, it words each leftover by classifying it again (an `unrecognized
 command` where a Command was expected, an `unrecognized option`, an
 `unexpected ...`). Once some complaint names a token, it drops every
-`missing option`, and `missing command` too if the named token sat where a
-Command was expected. With nothing named and no leftovers, every complaint
-stays.
+`missing option` and every `missing command` that was not `owed`, and the
+rest of `missing command` too if the named token sat where a Command was
+expected. With nothing named and no leftovers, every complaint stays.
 
 - **Did-You-Mean Suggestions**: `didYouMean` suggests Options and Commands
   within an edit distance (optimal string alignment over runes,

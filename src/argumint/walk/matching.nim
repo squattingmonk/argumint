@@ -151,7 +151,7 @@ proc match*(m: Matcher, pc: var ParseContext, atTerminal = false): bool =
         pc.cursor.consume(0, c)
         result = true
     if not result:
-      pc.report.missingCommand(m.cmd.name)
+      pc.report.missingCommand(m.cmd.name, owed = not atTerminal)
       # A Command matcher never scans past position 0, so it's the one place
       # that knows a Command was expected *here* -- see ADR 0035.
       pc.report.leftover(pc.cursor)
