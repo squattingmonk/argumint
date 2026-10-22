@@ -23,10 +23,10 @@ Reviewed at `658b5bd`. Vocabulary: domain terms per
 
 | | Candidate | Strength | Status |
 |---|---|---|---|
-| [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Open |
-| [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its level's help | Worth exploring | Open |
-| [AA](#aa--an-arg-reached-twice-in-one-spec-is-registered-once) | An Arg reached twice in one spec is registered once | Strong | Open |
-| [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Open |
+| [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Open: #317 |
+| [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its level's help | Worth exploring | Open: #318 |
+| [AA](#aa--an-arg-reached-twice-in-one-spec-is-registered-once) | An Arg reached twice in one spec is registered once | Strong | Open: #319 |
+| [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Open: #320 |
 
 **Recommendation:** Y and AA first. Both make the option-tuple idiom the
 guide teaches work at scale. Y removes copying a shared tuple into every
@@ -162,7 +162,7 @@ code: file formats vary too much for argumint to write them.
 
 - `docs/guide/flags.md`: a recipe for a default-true flag that can be set
   both ways, `flag(default = true, ops = "--x=true, --no-x=false")`. The
-  port wrote out each `flagOp` by hand.
+  port wrote out each `flagOp` by hand. Filed as #321.
 
 ## Considered and dropped
 
