@@ -499,6 +499,17 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
         settings = newSpecSettings(style = nil))
     check msg.complaints == @["missing option: (--list | --all)"]
 
+  test "a terminal state's leftover can't outrank a deeper branch either (#308)":
+    # `[options]` makes the root terminal, so once `set` has matched and its
+    # own Spec failed further on, the root's tail still has `set k` left
+    # over. Recorded, it named `set` beside the real complaint.
+    let sub = (key: arg("<key>", help = ""), value: arg("<value>", help = ""))
+    let spec = (set: command("set", sub, usage = "<key> <value>", help = ""),
+                port: opt("--port=<n>", default = 80, help = ""))
+    for usage in ["[options]\nset", "set\n[options]"]:
+      let msg = failure: spec.parse(args = @["set", "k"], command = "app", usage = usage)
+      check msg.complaints == @["missing argument: <value>"]
+
 suite "a `missing argument` complaint is only ever about a genuine deficiency":
   # The positional analogue of the `missing option` suite above (issue #38).
   # See docs/adr/0037-missing-argument-only-where-required.md.
