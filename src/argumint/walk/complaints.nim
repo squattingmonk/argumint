@@ -179,11 +179,11 @@ proc addUnique(r: var Report, entry: Complaint) =
   ## down more than one branch, and the same line twice reads as a bug in
   ## the parser rather than in the input. A copy owed anywhere stays owed,
   ## whichever arrived first (ADR 0081).
-  let i = r.messages.findIt(it.dedupKey == entry.dedupKey)
-  if i < 0:
-    r.messages.add entry
-  elif entry.owed:
-    r.messages[i].owed = true
+  for c in r.messages.mitems:
+    if c.dedupKey == entry.dedupKey:
+      c.owed = c.owed or entry.owed
+      return
+  r.messages.add entry
 
 proc addLeftoverRaw(r: var Report, leftover: Leftover) =
   ## Records `leftover` unless one naming the same token is already there --
