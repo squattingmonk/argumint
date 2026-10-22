@@ -24,7 +24,7 @@ Reviewed at `658b5bd`. Vocabulary: domain terms per
 | | Candidate | Strength | Status |
 |---|---|---|---|
 | [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Open: #317 |
-| [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its level's help | Worth exploring | Open: #318 |
+| [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its Level's help | Worth exploring | Open: #318 |
 | [AA](#aa--an-arg-reached-twice-in-one-spec-is-registered-once) | An Arg reached twice in one spec is registered once | Strong | Open: #319 |
 | [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Open: #320 |
 
@@ -39,9 +39,9 @@ reading argumint's source:
 
 - Nesting each pipeline step's option tuple in the next declared every
   option once, and `group` reproduced nasher's help sections.
-- Shared Args let one tuple of global options, and one spec, serve several
-  commands. `serve`, `play` and `test` share a spec, and the hook tells
-  them apart by `info.here.command`.
+- Sharing an Arg between specs let one tuple of global options, and one
+  spec, serve several commands. `serve`, `play` and `test` share a spec,
+  and the hook tells them apart by `info.here.command`.
 - Flag Operations replaced groups of independent booleans: `--yes/--no/
   --default` became one value, as did `--quiet/--verbose/--debug`.
 - Enum and `range` types gave choices in help, validation and did-you-mean,
@@ -92,7 +92,7 @@ open. The guide would show it where it now shows a nested `global` tuple.
 **Wins.** Copying the global options into a spec is one call, and swapping
 one of them can't miss a field added later.
 
-### Z — A hook can show its level's help
+### Z — A hook can show its Level's help
 
 **Worth exploring.** Files: `help.nim:326` (`genHelp`), `help.nim:334`
 (`HelpArg.action`), `backend.nim:110` (`HookInfo`).
@@ -101,15 +101,15 @@ one of them can't miss a field added later.
 command has nothing to act on. A hook has no way to do that. The sketch
 imports `argumint/help`, calls `genHelp(info.here.spec, info.here.command,
 formatConfig)`, and quits. It names the formatter a second time, though the
-level's `help()` flag already holds it, and it skips the styled/plain split
+Level's `help()` flag already holds it, and it skips the styled/plain split
 that `HelpArg.action` makes.
 
 **Solution.** A proc taking `HookInfo` that renders `info.here`'s help the
-way that level's help flag would, with its formatter and styling. Raising
+way that Level's help flag would, with its formatter and styling. Raising
 `HelpError` from a hook already reaches `parseOrQuit`, which prints it and
 exits successfully (checked with a scratch compile), so the proc can raise
 the same error `HelpArg.action` builds. Open: its name, and what it does
-for a level with no help flag (fall back to `formatColumn`, or raise
+for a Level with no help flag (fall back to `formatColumn`, or raise
 `SpecDefect`).
 
 **Wins.** One call, and the help matches `--help` exactly.
@@ -131,8 +131,8 @@ the overlapping tuples out by hand.
 **Solution.** Register an Arg once, however many times the spec tuple
 reaches it, so it appears once in `args`, `groups` and help. A different
 Arg with a name already taken still raises. `gatherArgs` can skip an Arg
-it has already gathered. This accepts specs that raised before, so ADR
-0080 allows it.
+it has already gathered. This only accepts specs that raised before, and
+ADR 0080 doesn't freeze spec-construction errors.
 
 **Wins.** Overlapping option tuples, which Y makes easier to build, combine
 without the author tracking which Args each one contains.
@@ -167,7 +167,8 @@ code: file formats vary too much for argumint to write them.
 ## Considered and dropped
 
 - **A `--[no-]x` Variant shorthand.** It saves little over the ops string
-  above, and would add a form to the Variant grammar.
+  above, and would add a form to the Variant grammar. nasher moves from
+  `--x:false` to `--no-x` instead.
 - **Re-flowing each piece of a concatenated prolog.** Joining an indented
   `"""` piece to an unindented one leaves no shared indent to remove, so
   the indented lines print as they are. ADR 0054 already explains this, and
@@ -182,7 +183,12 @@ code: file formats vary too much for argumint to write them.
   already handles it.
 - **Case-insensitive option names.** No opt-in setting. Did-you-mean
   covers a port's move to exact names.
-- **A default Config Key from the Arg's name.** Each option repeating its
-  name as its `configKey` is what ADR 0018 chose.
+- **Mapping nasher's `user.cfg` files onto Config Sources.** It needs no
+  argumint change: a global and a local `iniConfigSource`, last one
+  winning, already give nasher's layering. A Config Key is set per Arg, so
+  each option names its own rather than argumint deriving one from its
+  name. A Flag's value in a config file is one of its Variant names (ADR
+  0005), and per-target settings from `nasher.cfg` depend on the parsed
+  target, so nasher applies them in a `before` hook.
 - **Splitting one command-line value on a delimiter.** A list option takes
   repeated values, and a repeated INI key gives several.
