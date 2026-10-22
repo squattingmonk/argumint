@@ -5,7 +5,9 @@ Message Arguments as a capability (#255) and `completion()` (#252) landed.
 It continues the [pre-1.0 review](2026-09-24-pre-1-0-review.md)'s lettering
 at P. Its focus is understandability and maintainability: places where one
 rule is written in more than one module, and where a module's interface asks
-more of its callers than it gives back.
+more of its callers than it gives back. The next review,
+[2026-10-22](2026-10-22-nasher-port-review.md), continues the lettering at
+Y.
 
 Reviewed at `defdf39`. Vocabulary: domain terms per
 [`GLOSSARY.md`](../../GLOSSARY.md); architecture terms (module, interface,
