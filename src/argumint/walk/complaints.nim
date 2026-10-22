@@ -36,6 +36,9 @@ type
       ## beside any other complaint -- see ADR 0036
     cause: FailureKind
       ## Which `ParseError` subtype it's a case of
+    owed: bool
+      ## False for a `missing command` at a terminal State: still read when
+      ## wording a leftover, then dropped -- see ADR 0081
 
   Leftover = TokenCursor
     ## One failed branch's unconsumed tokens, plus the context to
@@ -69,12 +72,12 @@ proc initReport*(spec: Spec, command: string): Report =
   Report(spec: spec, command: command)
 
 proc complaint(kind: string, subject: StyledText, names = false,
-    aboutMessageArg = false, cause = fkUsage): Complaint =
+    aboutMessageArg = false, cause = fkUsage, owed = true): Complaint =
   ## Builds a `Complaint`. Pass `names = true` for a Naming Complaint, one
   ## pointing at a specific token the user typed -- see `Complaint.names`
   ## and ADR 0035. Pass `aboutMessageArg = true` for one about a Message
   ## Argument. `cause` defaults to the walk's own kind, `fkUsage`.
-  (kind, subject, names, aboutMessageArg, cause)
+  (kind, subject, names, aboutMessageArg, cause, owed)
 
 proc dedupKey(c: Complaint): tuple[kind, subject: string, names: bool] =
   ## What makes two complaints the same: roles don't count, so styling never
@@ -174,9 +177,13 @@ proc unknownCommand(word: string, spec: Spec): Complaint =
 proc addUnique(r: var Report, entry: Complaint) =
   ## Adds `entry` unless already present -- a starved option is reachable
   ## down more than one branch, and the same line twice reads as a bug in
-  ## the parser rather than in the input.
-  if not r.messages.anyIt(it.dedupKey == entry.dedupKey):
+  ## the parser rather than in the input. A copy owed anywhere stays owed,
+  ## whichever arrived first (ADR 0081).
+  let i = r.messages.findIt(it.dedupKey == entry.dedupKey)
+  if i < 0:
     r.messages.add entry
+  elif entry.owed:
+    r.messages[i].owed = true
 
 proc addLeftoverRaw(r: var Report, leftover: Leftover) =
   ## Records `leftover` unless one naming the same token is already there --
@@ -190,10 +197,14 @@ proc missingArgument*(r: var Report, name: string) =
   ## the caller only calls this when it wasn't).
   r.messages.add complaint("missing argument", styled(srPositional, name))
 
-proc missingCommand*(r: var Report, name: string) =
+proc missingCommand*(r: var Report, name: string, owed = true) =
   ## Records that a `Command` matcher found nothing at the one position it
-  ## ever looks -- see `docs/architecture.md`, "Matching".
-  r.messages.add complaint("missing command", styled(srCommand, name))
+  ## ever looks -- see `docs/architecture.md`, "Matching". Pass
+  ## `owed = false` when the grammar could have stopped there: the complaint
+  ## still tells `handleLeftovers` a command was wanted, but is never shown
+  ## (ADR 0081).
+  r.messages.add complaint("missing command", styled(srCommand, name),
+    owed = owed)
 
 proc missingOption*(r: var Report, variant: string, aboutMessageArg = false) =
   ## Records that a required `opt`/`flag` was never matched. Unconditional
@@ -374,9 +385,11 @@ proc finalComplaints(r: Report): seq[Complaint] =
     return
 
   # ADR 0035 rule 2: once something is named, what the FSM had left to try is
-  # noise. "missing command" is supressed only when the named token stood in a
-  # command's position; the valid set stays visible in the usage block.
+  # noise -- including a "missing command" never owed (ADR 0081). Any other is
+  # suppressed only when the named token stood in a command's position; the
+  # valid set stays visible in the usage block.
   result = result.filterIt(it.kind != "missing option")
+  result = result.filterIt(it.owed)
   if result.anyIt(it.kind in ["unrecognized command", "unexpected command"]):
     result = result.filterIt(it.kind != "missing command")
 
@@ -665,7 +678,7 @@ when isMainModule:
         (kind: "unexpected argument", subject: "nope", names: true),
       ]
 
-    test "suppressed for an option-shaped token: missing command survives too":
+    test "suppressed for an option-shaped token: a required missing command survives too":
       var r = initReport(spec, "app")
       r.missingCommand("go")
       r.leftover(initCursor(spec, @["--nope"]))
@@ -673,6 +686,21 @@ when isMainModule:
         (kind: "missing command", subject: "go", names: false),
         (kind: "unrecognized option", subject: "--nope", names: true),
       ]
+
+    test "an unowed missing command is dropped once something is named":
+      # A terminal State's Command matcher -- see ADR 0081.
+      var r = initReport(spec, "app")
+      r.missingCommand("go", owed = false)
+      r.leftover(initCursor(spec, @["--nope"]))
+      check r.finalComplaints.flat == @[
+        (kind: "unrecognized option", subject: "--nope", names: true),
+      ]
+
+    test "but still words a mistyped command as one":
+      var r = initReport(spec, "app")
+      r.missingCommand("go", owed = false)
+      r.leftover(initCursor(spec, @["og"]))
+      check r.finalComplaints.flat.mapIt(it.kind) == @["unrecognized command"]
 
   suite "formatComplaints":
     test "no complaint messages yields an empty string":

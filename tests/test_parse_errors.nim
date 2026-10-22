@@ -578,6 +578,53 @@ suite "a `missing argument` complaint is only ever about a genuine deficiency":
     spec.parse(args = @[], command = "app", usage = "[<rest>...]")
     check spec.rest.len == 0
 
+suite "a `missing command` complaint is only ever about a genuine deficiency":
+  # The command analogue of the `missing argument` suite above (issue #310).
+  # `[options]` makes the root terminal, so `set` was never required.
+  proc optionalCommand(args: seq[string]): seq[string] =
+    let spec = (set: command("set", (help: help()), help = ""),
+                port: opt("--port=<n>", default = 80, help = ""),
+                help: help())
+    let msg = failure:
+      spec.parse(args = args, command = "app", usage = "[options]\nset")
+    msg.complaints
+
+  test "a command reached from a terminal state is never reported missing":
+    check optionalCommand(@["--prot=1"]) ==
+      @["unrecognized option: --prot=1"]
+
+  test "nor alongside the starved option that emptied the line":
+    check optionalCommand(@["--port"]) ==
+      @["missing value: option --port requires a value"]
+
+  test "a mistyped command is still worded as one, with its suggestion":
+    # The unowed complaint still tells the leftover a command was wanted.
+    check optionalCommand(@["sett"]) ==
+      @["unrecognized command: sett; did you mean set?"]
+
+  test "but a required command still is, even next to an option complaint":
+    # `[options] add`, auto-filled: `add` is owed whatever else went wrong.
+    proc requiredCommand(args: seq[string]): seq[string] =
+      let msg = failure: commandSpec().parse(args = args, command = "app")
+      msg.complaints
+    check requiredCommand(@["--port", "9090"]) == @["missing command: add"]
+    check requiredCommand(@["--prot=1"]) ==
+      @["missing command: add", "unrecognized option: --prot=1"]
+    check requiredCommand(@["--port"]) ==
+      @["missing value: option --port requires a value",
+        "missing command: add"]
+
+  test "owed on one Usage Line and not another, it's owed in either order":
+    # The two copies tie at Reach and merge; the owed one must survive
+    # whichever line runs first, as ADR 0037's `missing argument` does.
+    let spec = (set: command("set", (help: help()), help = ""),
+                v: flag("-v", help = ""), help: help())
+    for usage in ["-v [set]\n-v set", "-v set\n-v [set]"]:
+      let msg = failure:
+        spec.parse(args = @["-v", "--prot=1"], command = "app", usage = usage)
+      check msg.complaints ==
+        @["missing command: set", "unrecognized option: --prot=1"]
+
 suite "an unresolved cluster names the short option that failed, and its origin":
   # Issue #37. ADR 0035 already settled that a short-form token is cluster
   # syntax, so the failing unit is a letter inside it -- that is why it gets

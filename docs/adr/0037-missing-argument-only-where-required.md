@@ -1,5 +1,9 @@
 # `missing argument` is only reported where the grammar actually required one
 
+> **Extended by [ADR 0081](0081-missing-command-only-where-required.md)**:
+> a `missing command` at a terminal State is dropped too, though it is still
+> recorded, since wording a leftover needs it.
+
 Extends the suppression rules of
 [ADR 0035](0035-parse-failure-reporting.md) to positionals. Nothing in
 [ADR 0034](0034-strict-option-checking.md) is overturned — its requirement
