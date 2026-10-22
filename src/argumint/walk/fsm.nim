@@ -54,9 +54,11 @@ proc walk(s: State, pc: var ParseContext): bool =
       pc.report.merge(fresh.report)
 
   # Every transition failed at a state the grammar would have stopped at, so
-  # what's left is the token the user got wrong. Starved goes first (ADR
-  # 0034); the guard keeps a deeper offender surfacing over this one (0035).
-  if s.terminal and pc.cursor.len > 0 and not pc.report.hasLeftovers:
+  # what's left is the token the user got wrong, unless a transition reached
+  # further (architecture.md, "Choosing the branch to blame"). Starved goes
+  # first (ADR 0034); the leftover check is ADR 0035's.
+  if s.terminal and pc.cursor.len > 0 and not pc.report.hasLeftovers and
+      pc.reach >= pc.maxReach:
     if not pc.report.starved(pc.cursor):
       pc.report.leftover(pc.cursor)
 
