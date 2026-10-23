@@ -205,3 +205,23 @@ mine)`.
 
 Filtering in `finalComplaints` instead gave the same output on every case
 tried; `merge` is where ties meet, so the rule lives there.
+
+## Addendum: a suggestion is withheld for an option typed after the Command
+
+The #41 consequence above applies when the option comes *after* the
+mistyped Command too. `naval_fate shp --version` used to suggest `ship`, but
+`ship --version` fails, since `--version` is only the root's. So a Command
+is now suggested only if its subtree (its own nested Spec, or any Spec
+below it) declares every option typed after the mistyped word, up to a
+literal `--`. "Declares" means the token classifies there as an Optional or
+Flag, or as one starved of its value. A Non-Option Short is never checked.
+If no Command passes, the complaint is the bare `unrecognized command: shp`
+(#313).
+
+The subtree counts, not just the Command's own Spec: `--speed` belongs to
+`ship move`, so `shp move a 1 2 --speed=5` still suggests `ship`. The check
+reads the whole command line rather than the leftover, because an
+`[options]` matcher on the same Usage Line may already have consumed the
+option. That also makes the result independent of option order: `sett
+--port=1` and `--port=1 sett` agree whether or not `[options]` shares the
+Command's line.

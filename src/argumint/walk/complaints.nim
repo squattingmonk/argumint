@@ -65,11 +65,15 @@ type
     leftovers: seq[Leftover]
     spec: Spec
     command: string
+    argv: seq[RawToken]
+      ## The whole tokenized command line, never cleared or merged, for
+      ## `unknownCommand` -- see ADR 0036's last addendum
 
-proc initReport*(spec: Spec, command: string): Report =
+proc initReport*(spec: Spec, command: string,
+    argv: seq[RawToken] = @[]): Report =
   ## A `Report` with nothing recorded yet, for `spec`/`command`'s usage
-  ## block -- see `Report`.
-  Report(spec: spec, command: command)
+  ## block, over the command line `argv` -- see `Report`.
+  Report(spec: spec, command: command, argv: argv)
 
 proc complaint(kind: string, subject: StyledText, names = false,
     aboutMessageArg = false, cause = fkUsage, owed = true): Complaint =
@@ -169,10 +173,42 @@ proc unknownOption(token: RawToken, spec: Spec): Complaint =
         didYouMean(token.raw, toSeq(spec.options.keys), srOption)
   complaint("unrecognized option", subject, names = true)
 
-proc unknownCommand(word: string, spec: Spec): Complaint =
-  ## Names a token sitting where `spec` expected one of its commands.
+proc subtreeDeclares(spec: Spec, cur: TokenCursor, pos: int): bool =
+  ## Whether `spec` or any Spec nested below it declares `cur.tokens[pos]`:
+  ## it classifies there as an Optional or Flag, or as one starved of its
+  ## value. Classified, never compared by name, so `--port=1` resolves as the
+  ## walk would resolve it.
+  var at = cur
+  at.spec = spec
+  let c = at.classify(pos)
+  if c.kind in {Optional, Flag} or not c.starvedOpt.isNil:
+    return true
+  for cmd in spec.commands.values:
+    if cmd.spec.subtreeDeclares(cur, pos):
+      return true
+
+proc typedAfter(argv: seq[RawToken], word: RawToken): TokenCursor =
+  ## What the user typed after `word`, up to a literal `--` -- past it,
+  ## nothing is an option.
+  for token in argv:
+    if token.idx <= word.idx:
+      continue
+    if token.raw == "--":
+      break
+    result.tokens.add token
+
+proc unknownCommand(word: string, spec: Spec, after = TokenCursor()): Complaint =
+  ## Names a token sitting where `spec` expected one of its commands. A
+  ## command is suggested only if its subtree declares every option in
+  ## `after`, what was typed after `word`: taking the suggestion must not
+  ## fail on one of them. See ADR 0036.
+  var candidates: seq[string]
+  for name, cmd in spec.commands:
+    if toSeq(0 ..< after.len).allIt(
+        not after[it].mustResolve or cmd.spec.subtreeDeclares(after, it)):
+      candidates.add name
   complaint("unrecognized command", styled(srInvalid, word) &
-    didYouMean(word, toSeq(spec.commands.keys), srCommand), names = true)
+    didYouMean(word, candidates, srCommand), names = true)
 
 proc addUnique(r: var Report, entry: Complaint) =
   ## Adds `entry` unless already present -- a starved option is reachable
@@ -338,10 +374,11 @@ proc merge*(r: var Report, other: Report) =
   if r.messages.anyIt(not it.aboutMessageArg):
     r.messages.keepItIf(not it.aboutMessageArg)
 
-proc handleLeftovers(complaints: var seq[Complaint], leftovers: seq[Leftover]): bool =
+proc handleLeftovers(complaints: var seq[Complaint], leftovers: seq[Leftover],
+    argv: seq[RawToken] = @[]): bool =
   ## Generates complaints for any leftover tokens if there are no naming
-  ## complaints in `complaints`. Returns whether any such complaints were
-  ## generated.
+  ## complaints in `complaints`, reading `argv` for what was typed after a
+  ## mistyped command. Returns whether any such complaints were generated.
   result = complaints.anyIt(it.names)
   if not result:
     let wantedCommand = complaints.anyIt(it.kind == "missing command")
@@ -356,7 +393,8 @@ proc handleLeftovers(complaints: var seq[Complaint], leftovers: seq[Leftover]): 
         if not c.starvedOpt.isNil:
           starvedComplaint(c)
         elif mistypedCommand:
-          unknownCommand(leftover.tokens[0].raw, leftover.spec)
+          unknownCommand(leftover.tokens[0].raw, leftover.spec,
+            argv.typedAfter(leftover.tokens[0]))
         else:
           case c.kind
           of Command:
@@ -381,7 +419,7 @@ proc finalComplaints(r: Report): seq[Complaint] =
   ## name the offending token, then drop the complaints that naming makes
   ## redundant. See ADR 0035.
   result = r.messages
-  if not result.handleLeftovers(r.leftovers):
+  if not result.handleLeftovers(r.leftovers, r.argv):
     return
 
   # ADR 0035 rule 2: once something is named, what the FSM had left to try is
@@ -578,6 +616,36 @@ when isMainModule:
     test "one-character commands can have suggestions":
       check unknownCommand("S", spec).dedupKey ==
         (kind: "unrecognized command", subject: "S; did you mean s?", names: true)
+
+    let nested = newSpec((
+      ship: command("ship", (
+        move: command("move", (speed: opt("--speed=<kn>"),), usage = "[options]"),
+        help: help())),
+      version: flag("--version")))
+
+    proc rest(args: seq[string]): TokenCursor = initCursor(nested, args)
+
+    test "a command whose subtree declares every option typed after it is suggested":
+      check unknownCommand("shp", nested, rest(@["--help"])).dedupKey.subject ==
+        "shp; did you mean ship?"
+      check unknownCommand("shp", nested, rest(@["move", "--speed=5"])).dedupKey.subject ==
+        "shp; did you mean ship?"
+
+    test "a declared option starved of its value still counts as declared":
+      check unknownCommand("shp", nested, rest(@["--speed"])).dedupKey.subject ==
+        "shp; did you mean ship?"
+
+    test "a command whose subtree doesn't declare one is not":
+      check unknownCommand("shp", nested, rest(@["--help", "--version"])).dedupKey.subject ==
+        "shp"
+
+    test "a Non-Option Short is never checked":
+      check unknownCommand("shp", nested, rest(@["-5"])).dedupKey.subject ==
+        "shp; did you mean ship?"
+
+    test "typedAfter stops at a literal `--`":
+      let argv = initCursor(nested, @["x", "shp", "--help", "--", "--version"]).tokens
+      check argv.typedAfter(argv[1]).tokens.mapIt(it.raw) == @["--help"]
 
   suite "handleLeftovers":
     let spec = newSpec((

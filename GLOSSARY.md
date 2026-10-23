@@ -734,7 +734,11 @@ directions: one is never offered as a suggestion (every one-character name
 is one edit from every other, so they carry no signal), and a short-form
 token never receives one (it is cluster syntax, so what failed is a letter
 inside it rather than the run as a whole). One rule serves Options and
-Commands alike. See `docs/adr/0035-parse-failure-reporting.md`.
+Commands alike, except that a Command is a candidate only if it or a Spec
+nested below it declares every option typed after the mistyped word (up
+to a literal `--`), so the corrected input can't fail on one of them. See
+`docs/adr/0035-parse-failure-reporting.md` and
+`docs/adr/0036-rank-failed-branches-by-reach.md`.
 _Avoid_: Spell check, autocorrect (nothing is corrected — the token is
 named either way, and the suggestion is additive)
 
