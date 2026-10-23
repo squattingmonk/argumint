@@ -71,7 +71,7 @@ suite "completion()":
     except HelpError as e:
       text = e.msg
     check "Usage:\n  prog completion <shell>\n" in text
-    check "[choices: bash, zsh, fish]" in text
+    check "[choices: bash, zsh, fish; default: bash]" in text
     check "source <(prog completion bash)" in text
 
   test "Tab offers the shells":

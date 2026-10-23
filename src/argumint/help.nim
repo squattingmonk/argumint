@@ -346,7 +346,7 @@ method action(self: HelpArg, info: HookInfo, variant = "") =
 
 when isMainModule:
   import std/[importutils, options, unittest]
-  import ./configsource, ./grammar/specbuild
+  import ./configsource, ./grammar/specbuild, ./values/argtypes
 
   privateAccess(Spec) ## Builds bare `Spec`s for white-box tests (ADR 0030).
   privateAccess(Arg) ## And bare Args, without `initArg` (#269).
@@ -439,6 +439,32 @@ when isMainModule:
           "action: a"
         ]
       check arg.annotations(action = "a").mapIt(it.plain) == expected
+
+  suite "a ValueArg's default in help":
+    type Fmt = enum json, nwnt
+
+    proc annotated[T](default: T): seq[string] =
+      initValueArg(kind = Optional, variants = "--x=<x>", default = default)
+        .annotations().mapIt(it.plain)
+
+    test "an enum Arg shows its first member as its default":
+      check annotated(Fmt.json) == @["choices: json, nwnt", "default: json"]
+
+    test "an enum Arg given no default shows its fallback":
+      check annotated(zeroValue[Fmt]()) == @["choices: json, nwnt", "default: json"]
+
+    test "an enum with holes shows its lowest member":
+      type Holey = enum a = 1, b = 5
+      check annotated(zeroValue[Holey]()) == @["choices: a, b", "default: a"]
+
+    test "a non-enum default equal to its fallback stays hidden":
+      check annotated(0).len == 0
+      check annotated("").len == 0
+      check annotated(false).len == 0
+      check annotated(zeroValue[Positive]()).len == 0
+
+    test "a non-enum default other than its fallback shows":
+      check annotated(5) == @["default: 5"]
 
   suite "variantsByDesc":
     test "an arg with no variants has no buckets":
