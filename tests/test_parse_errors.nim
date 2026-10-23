@@ -388,9 +388,24 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
   test "a trailing option no longer costs a mistyped command its suggestion":
     # The `(-h | --help)` line skipped `shp` to match at index 1, scoring a
     # depth the command lines couldn't reach; `missing command` was discarded
-    # and `shp` fell through to `classify` as a bare positional.
-    for args in [@["shp", "--help"], @["shp", "-h"], @["shp", "--version"]]:
+    # and `shp` fell through to `classify` as a bare positional. `ship`
+    # declares `--help` too, so the corrected input works.
+    for args in [@["shp", "--help"], @["shp", "-h"]]:
       check navalFailure(args) == @["unrecognized command: shp; did you mean ship?"]
+
+  test "but a trailing option the Command doesn't declare withholds it":
+    # `--version` is only the root's, so `ship --version` would fail too: a
+    # suggestion must not walk the user into a second error (#313, ADR 0036).
+    for args in [@["shp", "--version"], @["shp", "-v"]]:
+      check navalFailure(args) == @["unrecognized command: shp"]
+
+  test "an option declared deeper in the Command's subtree still counts":
+    check navalFailure(@["shp", "move", "a", "1", "2", "--speed=5"]) ==
+      @["unrecognized command: shp; did you mean ship?"]
+
+  test "and nothing past a literal `--` is checked":
+    check navalFailure(@["shp", "--", "--version"]) ==
+      @["unrecognized command: shp; did you mean ship?"]
 
   test "and the cases that already worked still do":
     for args in [@["shp"], @["shp", "foo"]]:
@@ -398,9 +413,12 @@ suite "a failed branch is ranked by Reach, not by matchers satisfied":
 
   test "a correctly typed command is no longer named as the offender":
     # `ship` matched, then the nested spec failed on `mve`; a branch that
-    # understood none of that used to tie and merge its leftover in.
-    for args in [@["ship", "mve", "-v"], @["ship", "mve", "--help"]]:
-      check navalFailure(args) == @["unrecognized command: mve; did you mean move?"]
+    # understood none of that used to tie and merge its leftover in. `move`
+    # declares `--help`, but not the root's `-v`, so only `--help` keeps the
+    # suggestion (#313).
+    check navalFailure(@["ship", "mve", "--help"]) ==
+      @["unrecognized command: mve; did you mean move?"]
+    check navalFailure(@["ship", "mve", "-v"]) == @["unrecognized command: mve"]
 
   test "nor at a deeper nesting level":
     check navalFailure(@["mine", "st", "--help"]) ==
@@ -600,6 +618,29 @@ suite "a `missing command` complaint is only ever about a genuine deficiency":
   test "a mistyped command is still worded as one, with its suggestion":
     # The unowed complaint still tells the leftover a command was wanted.
     check optionalCommand(@["sett"]) ==
+      @["unrecognized command: sett; did you mean set?"]
+
+  test "but not when the Command doesn't declare an option typed after it":
+    # `set k v --port=1` fails too -- `--port` is only the root's (#313).
+    check optionalCommand(@["sett", "--port=1"]) ==
+      @["unrecognized command: sett"]
+
+  test "whether or not the options share the Command's Usage Line":
+    # Here the `[options]` matcher consumes `--port=1` before the leftover is
+    # recorded, so only argv still has it (#313).
+    proc sameLine(args: seq[string]): seq[string] =
+      let spec = (set: command("set", (key: arg("<key>", help = ""),
+                                       value: arg("<value>", help = ""),
+                                       help: help()),
+                               usage = "<key> <value>", help = ""),
+                  port: opt("--port=<n>", default = 80, help = ""),
+                  help: help())
+      let msg = failure:
+        spec.parse(args = args, command = "app", usage = "[options] set",
+          settings = newSpecSettings(style = nil))
+      msg.complaints
+    check sameLine(@["sett", "--port=1"]) == @["unrecognized command: sett"]
+    check sameLine(@["--port=1", "sett"]) ==
       @["unrecognized command: sett; did you mean set?"]
 
   test "but a required command still is, even next to an option complaint":

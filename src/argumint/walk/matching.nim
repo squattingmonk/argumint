@@ -64,9 +64,10 @@ proc initParseContext*(spec: Spec, args: seq[string], command: string): ParseCon
   ## The parse state before any of `args` is matched against `spec`, whose
   ## level `command` names: the root level entered, nothing matched, and
   ## no fallback tier yet consulted.
-  ParseContext(cursor: initCursor(spec, args), command: command,
-    report: initReport(spec, command), tiers: initTiers(spec.settings),
-    levels: @[(spec: spec, command: command)])
+  let cursor = initCursor(spec, args)
+  ParseContext(cursor: cursor, command: command,
+    report: initReport(spec, command, cursor.tokens),
+    tiers: initTiers(spec.settings), levels: @[(spec: spec, command: command)])
 
 proc push*(matches: var MatchTable, arg: Arg, spec: Spec, variant: string, value = "", idx = 0) =
   ## Adds a matched arg's seen variant and value to the table of matches,

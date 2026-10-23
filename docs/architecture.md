@@ -448,7 +448,10 @@ expected. With nothing named and no leftovers, every complaint stays.
 - **Did-You-Mean Suggestions**: `didYouMean` suggests Options and Commands
   within an edit distance (optimal string alignment over runes,
   `osaDistance`) scaled to the candidate's length. It never suggests a
-  short option.
+  short option. `unknownCommand` first drops every Command whose subtree
+  doesn't declare an option typed after the mistyped word, read from the
+  Report's tokenized command line (`argv`), since the leftover may have
+  lost options the walk consumed (ADR 0036's last addendum).
 - **Short-Option Clusters**: an unknown one is named by its first two
   characters, with the typed token added (`-x (in -1x)`, ADR 0038).
 - **Styling**: subjects are `StyledText` with roles set where they are
