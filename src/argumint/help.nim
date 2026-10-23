@@ -192,10 +192,12 @@ proc resolved[T: StyledText | Prose](ctx: HelpContext, t: T): T =
 proc filter*(ctx: HelpContext, keep: proc (arg: Arg): bool): HelpContext =
   ## `ctx`, but showing only the Args `keep` accepts, on top of any earlier
   ## `filter`: `groups`, `frame` and the built-in formatters skip the rest.
-  ## Help only: the Args still parse and complete, and the usage lines are
-  ## unchanged -- unlike `hidden`. See
+  ## A nil `keep` keeps every Arg. Help only: the Args still parse and
+  ## complete, and the usage lines are unchanged -- unlike `hidden`. See
   ## `docs/adr/0082-help-context-filter.md`.
   result = ctx
+  if keep.isNil:
+    return
   let earlier = ctx.keep
   if earlier.isNil:
     result.keep = keep
@@ -900,6 +902,12 @@ when isMainModule:
       check spec.helpContext("p").filter(notNamed("-x")).filter(
         notNamed("<in>")).names == @[("Arguments", @["<out>"]),
         ("Options", @["-y"])]
+
+    test "a nil predicate keeps every Arg, alone or after another filter":
+      check spec.helpContext("p").filter(nil).names ==
+        @[("Arguments", @["<in>", "<out>"]), ("Options", @["-x", "-y"])]
+      check spec.helpContext("p").filter(notNamed("-x")).filter(nil).names ==
+        @[("Arguments", @["<in>", "<out>"]), ("Options", @["-y"])]
 
     test "the context it was called on is unchanged":
       let ctx = spec.helpContext("p")

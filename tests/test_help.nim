@@ -3,7 +3,7 @@
 # `tests/test_public_api.nim` holds the other half (a bare `import argumint`
 # can't reach it); neither half means much alone.
 
-import std/[strutils, unittest]
+import std/[strutils, sugar, unittest]
 
 import argumint
 import argumint/help
@@ -253,7 +253,7 @@ suite "a custom `HelpFormatter` can show fewer Args with `filter`":
   let format = opt("--format=<fmt>", default = "json", help = "Output format")
 
   proc withoutFormat(ctx: HelpContext): string =
-    formatColumn(ctx.filter(proc (arg: Arg): bool = arg != Arg(format)))
+    formatColumn(ctx.filter((arg) => arg != Arg(format)))
 
   proc helpOf(spec: tuple): string =
     try: spec.parse(args = @["--help"], command = "cfg",

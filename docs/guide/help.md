@@ -594,10 +594,11 @@ To leave some `Arg`s out of one help message, filter the context and hand it
 to a built-in formatter:
 
 ```nim
+import std/sugar
 import argumint, argumint/help
 
 proc formatBasic(ctx: HelpContext): string =
-  formatColumn(ctx.filter(proc (arg: Arg): bool = arg.group != "Advanced"))
+  formatColumn(ctx.filter((arg) => arg.group != "Advanced"))
 
 let spec = (
   name: arg("<name>", help = "Ship to move"),
@@ -632,7 +633,8 @@ $ ./ship Titanic --ballast=40
 Moving Titanic with 40t of ballast
 ```
 
-`filter` keeps the `Arg`s your proc returns `true` for. `--help` leaves out
+`filter` keeps the `Arg`s your proc returns `true` for, and `=>` from
+`std/sugar` writes that proc in one line. `--help` leaves out
 the `Advanced` group, and `--help-all` shows it. The user can still give
 `--ballast`, and the shell still completes it. Only `hidden` takes an `Arg`
 out of completion too. Call `filter` again to drop more.

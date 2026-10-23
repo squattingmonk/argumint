@@ -24,7 +24,7 @@ Args shown.
 1. **`ctx.filter(keep: proc (arg: Arg): bool): HelpContext`** is public in
    `argumint/help`. It returns a copy of `ctx` that shows only the Args
    `keep` accepts. A second `filter` ANDs with the first, and the context
-   it was called on is unchanged.
+   it was called on is unchanged. A nil `keep` keeps every Arg.
 2. **Everything that lists Args honors it.** `groups` skips an Arg that is
    hidden or that the filter drops, and skips a group left with none. So
    `frame`, `formatColumn` and `formatParagraph` honor it too. A
@@ -41,8 +41,10 @@ A formatter that leaves some Args out is then one line:
 
 ```nim
 proc formatConfig(ctx: HelpContext): string =
-  formatColumn(ctx.filter(proc (arg: Arg): bool = arg notin configKeyArgs))
+  formatColumn(ctx.filter((arg) => arg notin configKeyArgs))
 ```
+
+(`=>` is from `std/sugar`.)
 
 The name follows `std/sequtils.filter`, which also returns a new value
 narrowed by a predicate. `ctx.filter(...)` resolves beside it without
