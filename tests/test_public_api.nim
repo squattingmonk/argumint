@@ -306,6 +306,8 @@ suite "`Spec` is an opaque handle":
     check not compiles(proc (ctx: HelpContext) = discard ctx.rows(Arg()))
     check not compiles(proc (ctx: HelpContext) = discard ctx.markup("x"))
     check not compiles(proc (ctx: HelpContext): string = ctx.render([]))
+    check not compiles(proc (ctx: HelpContext) =
+      discard ctx.filter(proc (arg: Arg): bool = true))
     check compiles(block:
       let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
 

@@ -672,7 +672,8 @@ ancestor's `before` skip expensive setup for `--help` (ADR 0021).
 calls the Help Formatter with it (ADR 0048, 0057). The context hands out
 pieces ready to lay out:
 
-- `groups`: Help Groups in display order (ADR 0079), hidden Args removed;
+- `groups`: Help Groups in display order (ADR 0079), with hidden Args and
+  Args a `filter` drops removed (ADR 0082);
 - `rows`: one `Row` per set of an Arg's Variants that share a description;
 - `prose`, `markup`, `usage`;
 - `render`.
@@ -685,9 +686,10 @@ Both built-in formatters are the Help Frame (`frame`, ADR 0075) with a
 heading and rows, and epilog with `joinSections`.
 
 - **Column Style** (`formatColumn`) aligns rows into two columns shared by
-  every group. The variants column is the widest Row's, capped at
-  `maxVariantsWidth`. A Row starts at the 2-space `Margin`, a variants
-  continuation at 4 spaces, and every text line at the text column.
+  every group. The variants column is the widest Row's among the Args
+  `groups` shows, capped at `maxVariantsWidth`. A Row starts at the
+  2-space `Margin`, a variants continuation at 4 spaces, and every text
+  line at the text column.
 - **Paragraph Style** (`formatParagraph`) puts the variants on their own
   line and the help text, long form if declared, indented below it.
 

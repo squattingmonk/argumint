@@ -247,3 +247,41 @@ suite "a custom `HelpFormatter` can build on the Help Frame":
     let help = spec.genHelp("p", long)
     check "Who, at length" in help
     check "How many" in help
+
+suite "a custom `HelpFormatter` can show fewer Args with `filter`":
+  # The Args stay in the Spec, so they parse; only help leaves them out.
+  let format = opt("--format=<fmt>", default = "json", help = "Output format")
+
+  proc withoutFormat(ctx: HelpContext): string =
+    formatColumn(ctx.filter(proc (arg: Arg): bool = arg != Arg(format)))
+
+  proc helpOf(spec: tuple): string =
+    try: spec.parse(args = @["--help"], command = "cfg",
+      settings = newSpecSettings(style = nil))
+    except HelpError as e: result = e.msg
+
+  test "help leaves out the Args the filter drops":
+    check helpOf((format: format, verbose: flag("-v", help = "Talk more"),
+      help: help(formatter = withoutFormat))) == """
+      Usage:
+        cfg [options]
+        cfg (-h | --help)
+
+      Options:
+        -v          Talk more
+        -h, --help  Display this help message""".dedent
+
+  test "another Spec holding the same Arg still shows it":
+    check helpOf((format: format, help: help())) == """
+      Usage:
+        cfg [options]
+        cfg (-h | --help)
+
+      Options:
+        --format=<fmt>  Output format [default: "json"]
+        -h, --help      Display this help message""".dedent
+
+  test "the Args it drops still parse":
+    let spec = (format: format, help: help(formatter = withoutFormat))
+    spec.parse(args = @["--format=yaml"], command = "cfg")
+    check spec.format == "yaml"

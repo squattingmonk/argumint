@@ -295,7 +295,9 @@ path, the width (never under 20), and the Styler, with the choice of
 whether Help Markup's backticks survive already made. It hands out the
 parts a formatter builds the whole Help message from (each Help Group's
 Args, an Arg's rows, prose, the usage lines) ready to lay out, and renders
-them with its Styler. Read-only, and scoped to one render.
+them with its Styler. Read-only, and scoped to one render. A filtered copy
+shows only the Args a predicate keeps (`filter`), for Help only: those Args
+still parse and complete, unlike hidden ones.
 _Avoid_: help page, help message (that's the formatter's output), help
 renderer (that's the Help Formatter), help view
 
