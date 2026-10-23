@@ -639,6 +639,11 @@ when isMainModule:
       check unknownCommand("shp", nested, rest(@["--help", "--version"])).dedupKey.subject ==
         "shp"
 
+    test "a positional is never checked":
+      # Only declared options are checked, never arity -- see #313.
+      check unknownCommand("shp", nested, rest(@["Titanic"])).dedupKey.subject ==
+        "shp; did you mean ship?"
+
     test "a Non-Option Short is never checked":
       check unknownCommand("shp", nested, rest(@["-5"])).dedupKey.subject ==
         "shp; did you mean ship?"
