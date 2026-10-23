@@ -590,6 +590,55 @@ out with `wrap`. The frame shows each `Arg`'s short help; pass
 `HelpTextForm.Long` as its last argument to show the long help where there
 is one, as Paragraph Style does.
 
+To leave some `Arg`s out of one help message, filter the context and hand it
+to a built-in formatter:
+
+```nim
+import std/sugar
+import argumint, argumint/help
+
+proc formatBasic(ctx: HelpContext): string =
+  formatColumn(ctx.filter((arg) => arg.group != "Advanced"))
+
+let spec = (
+  name: arg("<name>", help = "Ship to move"),
+  speed: opt("-s, --speed=<kn>", default = 10, help = "Speed in knots"),
+  ballast: opt("--ballast=<t>", default = 0, help = "Extra ballast in tonnes",
+    group = "Advanced"),
+  help: help(formatter = formatBasic),
+  helpAll: help("--help-all", help = "Display every option"),
+)
+
+spec.parseOrQuit(prolog = "Moves a ship to its next port.")
+echo "Moving ", spec.name, " with ", spec.ballast, "t of ballast"
+```
+
+```console
+$ ./ship --help
+Moves a ship to its next port.
+
+Usage:
+  ship [options] <name>
+  ship (-h | --help)
+  ship --help-all
+
+Arguments:
+  <name>            Ship to move
+
+Options:
+  -s, --speed=<kn>  Speed in knots [default: 10]
+  -h, --help        Display this help message
+  --help-all        Display every option
+$ ./ship Titanic --ballast=40
+Moving Titanic with 40t of ballast
+```
+
+`filter` keeps the `Arg`s your proc returns `true` for, and `=>` from
+`std/sugar` writes that proc in one line. `--help` leaves out
+the `Advanced` group, and `--help-all` shows it. The user can still give
+`--ballast`, and the shell still completes it. Only `hidden` takes an `Arg`
+out of completion too. Call `filter` again to drop more.
+
 To change anything else, such as the section labels or their order, write
 the whole message yourself:
 

@@ -1,5 +1,9 @@
 # Help Formatters can build on the Help Frame
 
+> **Amended by [ADR 0082](0082-help-context-filter.md)**: `ctx.filter`
+> narrows a Help Context to the Args a predicate keeps, and Column Style's
+> variants column fits only the Args shown.
+
 Amends ADR 0057.
 
 ADR 0057's Help Context hands a formatter the pieces of the standard

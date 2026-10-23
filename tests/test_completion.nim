@@ -4,7 +4,8 @@
 # `docs/adr/0012-fsm-driven-shell-completion.md` and
 # `docs/adr/0022-completion-candidate-help-text.md`.
 
-import std/[algorithm, options, os, osproc, sequtils, strutils, unittest]
+import std/[algorithm, options, os, osproc, sequtils, strutils, sugar,
+  unittest]
 
 import argumint
 import argumint/walk/completion, argumint/help
@@ -245,6 +246,20 @@ suite "Hidden args aren't offered (#199)":
     check spec.new.seen
     spec.parse(args = @["old", "-x"], command = "prog")
     check spec.old.seen
+
+suite "A help filter doesn't change completion (#316)":
+  test "an Arg the help formatter filters out is still offered":
+    let format = opt("--format=<fmt>", validator = choice(["json", "yaml"]),
+      help = "Output format")
+    proc withoutFormat(ctx: HelpContext): string =
+      formatColumn(ctx.filter((arg) => arg != Arg(format)))
+    let spec = newSpec((format: format, help: help(formatter = withoutFormat)),
+      settings = newSpecSettings(style = nil))
+    check "--format" notin spec.genHelp("prog", withoutFormat)
+    check spec.completeArgs(@[""], "prog").values ==
+      @["-h", "--help", "--format"]
+    check spec.completeArgs(@["--format", ""], "prog").values ==
+      @["json", "yaml"]
 
 suite "Options after a positional (#197)":
   let deploySpec = (

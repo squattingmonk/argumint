@@ -3,7 +3,7 @@
 # `tests/test_public_api.nim` holds the other half (a bare `import argumint`
 # can't reach it); neither half means much alone.
 
-import std/[strutils, unittest]
+import std/[strutils, sugar, unittest]
 
 import argumint
 import argumint/help
@@ -15,6 +15,12 @@ proc greeter(): Spec =
     help: help(),
   ), prolog = "Greeter.", epilog = "See the README.",
      usage = "<name> [--times=<n>]", settings = newSpecSettings(style = nil))
+
+proc helpRaised(spec: Spec, command: string): ref HelpError =
+  ## The `HelpError` that `--help` raises for `spec`.
+  try: spec.parse(args = @["--help"], command = command)
+  except HelpError as e: result = e
+  doAssert not result.isNil, "--help raised no HelpError"
 
 suite "`genHelp` is callable by importing `argumint/help` directly":
   test "it renders the full message without raising":
@@ -33,30 +39,20 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
   test "it returns exactly what `--help` would have raised":
     # The affordance is "render it yourself instead of catching HelpError",
     # so the two must not drift apart.
-    let direct = greeter().genHelp("greet")
-    var raised = ""
-    try:
-      greeter().parse(args = @["--help"], command = "greet")
-    except HelpError as e:
-      raised = e.msg
-    check raised == direct
+    check greeter().helpRaised("greet").msg == greeter().genHelp("greet")
 
   test "with a styler, msg stays plain and styledMsg is what genHelp renders":
     proc tagged(role: StyleRole, text: string): string = "{" & $role & ":" & text & "}"
     proc build(style: Styler): Spec =
       newSpec((name: arg("<name>", help = "Who to `greet`"), help: help()),
         settings = newSpecSettings(style = style))
-    var e: ref HelpError
-    try: build(tagged).parse(args = @["--help"], command = "greet")
-    except HelpError as err: e = err
+    let e = build(tagged).helpRaised("greet")
     check e.msg == build(nil).genHelp("greet")
     check e.styledMsg == build(tagged).genHelp("greet")
     check e.styledMsg != e.msg
 
   test "without a styler, styledMsg is msg":
-    var e: ref HelpError
-    try: greeter().parse(args = @["--help"], command = "greet")
-    except HelpError as err: e = err
+    let e = greeter().helpRaised("greet")
     check e.styledMsg == e.msg
 
   test "a formatter reaches rows and prose only through the Help Context":
@@ -148,12 +144,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
       name: arg("<name>", help = "Who to greet"),
       help: help(formatter = formatShouty),
     ), usage = "<name>", settings = newSpecSettings(style = nil))
-    var raised = ""
-    try:
-      spec.parse(args = @["--help"], command = "greet")
-    except HelpError as e:
-      raised = e.msg
-    check raised.startsWith("USAGE:\n  greet <name>")
+    check spec.helpRaised("greet").msg.startsWith("USAGE:\n  greet <name>")
 
   test "styled, it drops Help Markup's backticks like the built-ins":
     # See docs/adr/0057-help-context.md.
@@ -247,3 +238,39 @@ suite "a custom `HelpFormatter` can build on the Help Frame":
     let help = spec.genHelp("p", long)
     check "Who, at length" in help
     check "How many" in help
+
+suite "a custom `HelpFormatter` can show fewer Args with `filter`":
+  # The Args stay in the Spec, so they parse; only help leaves them out.
+  let format = opt("--format=<fmt>", default = "json", help = "Output format")
+
+  proc withoutFormat(ctx: HelpContext): string =
+    formatColumn(ctx.filter((arg) => arg != Arg(format)))
+
+  proc helpOf(spec: tuple): string =
+    newSpec(spec, settings = newSpecSettings(style = nil)).helpRaised("cfg").msg
+
+  test "help leaves out the Args the filter drops":
+    check helpOf((format: format, verbose: flag("-v", help = "Talk more"),
+      help: help(formatter = withoutFormat))) == """
+      Usage:
+        cfg [options]
+        cfg (-h | --help)
+
+      Options:
+        -v          Talk more
+        -h, --help  Display this help message""".dedent
+
+  test "another Spec holding the same Arg still shows it":
+    check helpOf((format: format, help: help())) == """
+      Usage:
+        cfg [options]
+        cfg (-h | --help)
+
+      Options:
+        --format=<fmt>  Output format [default: "json"]
+        -h, --help      Display this help message""".dedent
+
+  test "the Args it drops still parse":
+    let spec = (format: format, help: help(formatter = withoutFormat))
+    spec.parse(args = @["--format=yaml"], command = "cfg")
+    check spec.format == "yaml"

@@ -438,7 +438,7 @@ Not candidates, but worth a cleanup pass:
   names `fsm.nim` as the caller of `len`/`[]`.
 - `help.variantsColWidth` counts hidden Args, so a hidden one widens the
   visible column, the same family as a hidden command appearing in
-  auto-filled usage lines.
+  auto-filled usage lines. Fixed by #316 (ADR 0082).
 - `ValueArgBase` and `FlagArgBase` duplicate the `env` and config-key
   fields, `envSource`, `configKey` and `clear`; the field is `cfgKey`, the
   method and public parameter `configKey`.
