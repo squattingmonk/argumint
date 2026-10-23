@@ -2,6 +2,10 @@
 
 > **Note (#248):** flags need no registering either now, so the last
 > consequence below no longer holds (ADR 0070).
+>
+> **Note (#315):** help now always shows an enum Arg's default, even when
+> it equals the fallback, its lowest member. Decision 6's rule of leaving
+> out a default equal to the fallback still holds for every other type.
 
 Amends ADR 0068, decision 16.
 

@@ -351,12 +351,12 @@ proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
       raise newPlainError(ConversionError, fmt"expected {what} for {subject} but got {got}")
 
 proc defaultText[T](self: ValueArg[T]): string =
-  ## `self`'s default as help shows it, or "" if it's still `zeroValue` (e.g.
-  ## "", 0, or false) -- the fallback used when no default was given (see
-  ## `arg*`). Requires `T` to support `default(T)` and `==`, which nearly
-  ## every type does; a `{.requiresInit.}` object would be a rare exception
-  ## that fails to compile here.
-  if self.default != zeroValue[T](): display.showValue(self.default) else: ""
+  ## `self`'s default as help shows it: always for an enum, otherwise "" if
+  ## it's still `zeroValue` (e.g. "", 0, or false). See ADR 0069's #315 note
+  ## and docs/gotchas.md on `defaultText`.
+  when T is enum: display.showValue(self.default)
+  else:
+    if self.default != zeroValue[T](): display.showValue(self.default) else: ""
 
 proc defaultText[T](self: ValuesArg[T]): string =
   ## `self`'s defaults comma-joined, or "" if there are none.
@@ -903,7 +903,7 @@ when isMainModule:
         help = "", group = "", hidden = false, validator = noValidator[Rank]())
       a.parse("rHigh")
       check a.value == some(rHigh)
-      check a.defaultStr() == ""
+      check a.defaultStr() == "rLow"
 
     test "a flag rejects a Variant it doesn't have, naming its own":
       let f = rankFlag("-b", setTo("-r", rHigh))

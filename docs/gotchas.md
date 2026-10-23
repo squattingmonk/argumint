@@ -81,7 +81,8 @@ debugging time. Read this before touching the constructors and `flagOp`/
 - **A `ValueArg[T]`'s help default requires `T` to support both `default(T)`
   and `==`** (`defaultText`, behind its `defaultStr`, compares
   `self.default` against `zeroValue[T]()` to decide whether a default is
-  "meaningfully set"). Nearly every type does, but a `{.requiresInit.}`
+  "meaningfully set"; an enum skips the comparison and always shows its
+  default, #315). Nearly every type does, but a `{.requiresInit.}`
   object would fail to compile here if used as an `arg`/`opt` value type.
   Not considered worth guarding against, but worth knowing if `opt` ever
   fails to compile for a custom `T` with an unhelpful-looking error.

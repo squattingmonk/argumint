@@ -84,7 +84,7 @@ suite "an enum with no converter":
   test "with gaps in its values still lists every one":
     let spec = (level: opt("--level=<level>", default = low, help = "Level"),
                 help: help())
-    check "[choices: low, high]" in spec.helpOf
+    check "[choices: low, high; default: low]" in spec.helpOf
     spec.parse(args = @["--level", "high"], command = "prog")
     check spec.level.get == high
 
@@ -93,6 +93,10 @@ suite "an enum with no converter":
     spec.parse(args = @[], command = "prog")
     check spec.level.get == low
     check spec.color.get == red
+
+  test "with no default shows its first value in help":
+    let spec = (level: opt[Level]("--level=<level>", help = "Level"), help: help())
+    check "Level [choices: low, high; default: low]" in spec.helpOf
 
   test "works in multi-value `args` and `opts`":
     let spec = (colors: args[Color]("<color>"), levels: opts[Level]("--level=<l>"))

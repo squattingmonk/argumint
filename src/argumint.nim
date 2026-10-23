@@ -284,7 +284,9 @@ proc arg*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   presented to the user. These must take the form `<arg>`.
   ## - `default` is the default value of the argument if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
-  ##   `false`), or a range type's lowest value if that excludes zero.
+  ##   `false`), a range type's lowest value if that excludes zero, or an
+  ##   enum's lowest member. Help shows it unless it equals that fallback;
+  ##   an enum's always shows, since its fallback is a real choice.
   ## - `help` is the argument's Help Text, shown in help messages: a string,
   ##   or a `(short, long)` pair whose `long` Paragraph Style prefers -- see
   ##   `docs/adr/0049-help-text-short-long-pair.md`.
@@ -358,7 +360,9 @@ proc opt*[T: not seq](variants: string, default: T = zeroValue[T](),
   ##   may optionally include a help var (e.g., `--option=<value>`).
   ## - `default` is the default value of the option if not given by the
   ##   user; defaults to `T`'s zero value (`default(T)`, e.g. `""`, `0`, or
-  ##   `false`), or a range type's lowest value if that excludes zero.
+  ##   `false`), a range type's lowest value if that excludes zero, or an
+  ##   enum's lowest member. Help shows it unless it equals that fallback;
+  ##   an enum's always shows, since its fallback is a real choice.
   ## - `group` determines how options are grouped in help messages; empty
   ##   means `Options`.
   ## - `env` optionally names an environment variable supplying this
