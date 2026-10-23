@@ -75,10 +75,12 @@ proc registerArgs(spec: Spec, args: seq[(Arg, string)]) =
     spec.addArg(arg, varName)
 
 proc gatherArgs(spec: tuple, args: var seq[(Arg, string)]) =
-  ## Every Arg in `spec`, nested tuples included, with its field name.
+  ## Every Arg in `spec`, nested tuples included, with its field name. An
+  ## Arg reached twice is gathered once, under its first field name (#319).
   for varName, arg in spec.fieldPairs:
     when arg is Arg:
-      args.add (Arg(arg), varName)
+      if not args.anyIt(it[0] == Arg(arg)):
+        args.add (Arg(arg), varName)
     elif arg is tuple:
       gatherArgs(arg, args)
     else:
