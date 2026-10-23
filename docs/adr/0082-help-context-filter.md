@@ -24,7 +24,7 @@ Args shown.
 1. **`ctx.filter(keep: proc (arg: Arg): bool): HelpContext`** is public in
    `argumint/help`. It returns a copy of `ctx` that shows only the Args
    `keep` accepts. A second `filter` ANDs with the first, and the context
-   it was called on is unchanged. A nil `keep` keeps every Arg.
+   it was called on is unchanged. A nil `keep` drops nothing further.
 2. **Everything that lists Args honors it.** `groups` skips an Arg that is
    hidden or that the filter drops, and skips a group left with none. So
    `frame`, `formatColumn` and `formatParagraph` honor it too. A

@@ -192,7 +192,7 @@ proc resolved[T: StyledText | Prose](ctx: HelpContext, t: T): T =
 proc filter*(ctx: HelpContext, keep: proc (arg: Arg): bool): HelpContext =
   ## `ctx`, but showing only the Args `keep` accepts, on top of any earlier
   ## `filter`: `groups`, `frame` and the built-in formatters skip the rest.
-  ## A nil `keep` keeps every Arg. Help only: the Args still parse and
+  ## A nil `keep` drops nothing further. Help only: the Args still parse and
   ## complete, and the usage lines are unchanged -- unlike `hidden`. See
   ## `docs/adr/0082-help-context-filter.md`.
   result = ctx
@@ -209,30 +209,33 @@ proc shown(ctx: HelpContext, args: seq[Arg]): seq[Arg] =
   ## `ctx`'s `filter` drops.
   args.filterIt(not it.hidden and (ctx.keep.isNil or ctx.keep(it)))
 
-proc groupOrder(ctx: HelpContext): seq[string] =
-  ## Returns `ctx.spec.groups`' keys ordered as `Commands`, `Arguments`,
-  ## `Options`, each followed by the user-defined groups of its kind in
-  ## declaration order. A user-defined group's kind is that of its first
-  ## shown Arg, and one with none is left out -- see
+proc shownGroups(ctx: HelpContext): seq[tuple[name: string, args: seq[Arg]]] =
+  ## `ctx.spec.groups` with only their shown Args, ordered as `Commands`,
+  ## `Arguments`, `Options`, each followed by the user-defined groups of its
+  ## kind in declaration order. A user-defined group's kind is that of its
+  ## first shown Arg, and a group with none is left out -- see
   ## `docs/adr/0079-help-groups-sit-with-their-kind.md`.
+  var nonEmpty: seq[tuple[name: string, args: seq[Arg]]]
+  for group, args in ctx.spec.groups:
+    let shown = ctx.shown(args)
+    if shown.len > 0:
+      nonEmpty.add (name: group, args: shown)
   for canonical in CanonicalGroups:
-    if canonical in ctx.spec.groups:
-      result.add canonical
-    for group, args in ctx.spec.groups:
-      if group notin CanonicalGroups:
-        let shown = ctx.shown(args)
-        if shown.len > 0 and shown[0].kind.defaultGroup == canonical:
-          result.add group
+    for group in nonEmpty:
+      if group.name == canonical:
+        result.add group
+    for group in nonEmpty:
+      if group.name notin CanonicalGroups and
+          group.args[0].kind.defaultGroup == canonical:
+        result.add group
 
 iterator groups*(ctx: HelpContext): tuple[name: string, args: seq[Arg]] =
   ## Each Help Group's name and the Args it shows (not hidden, and kept by
   ## any `filter`), in display order: `Commands`, `Arguments`, `Options`,
   ## each followed by the user-defined groups of its kind in declaration
   ## order. A group that shows no Args is skipped.
-  for group in ctx.groupOrder:
-    let args = ctx.shown(ctx.spec.groups[group])
-    if args.len > 0:
-      yield (name: group, args: args)
+  for group in ctx.shownGroups:
+    yield group
 
 proc variantsColWidth(ctx: HelpContext): int =
   ## Widest single `Row.variants` across the Args `ctx.groups` shows, capped
@@ -597,30 +600,30 @@ when isMainModule:
       check longOrShort("short") == "short"
 
   suite "variantsColWidth":
-    proc colWidth(spec: tuple, maxVariantsWidth = 0): int =
+    proc colWidthOf(spec: tuple, maxVariantsWidth = 0): int =
       plainSpec(spec, settings = newSpecSettings(style = nil,
         maxVariantsWidth = maxVariantsWidth)).helpContext("p").variantsColWidth
 
     test "colWidth matches the length of the longest joined variants row across the shown args":
-      check colWidth((
+      check colWidthOf((
         x: Arg(kind: Optional, variants: @["-x"]),
         s: Arg(kind: Optional, variants: @["-s", "--speed=<speed>"]))) ==
         "-s, --speed=<speed>".len
-      check colWidth((
+      check colWidthOf((
         s: Arg(kind: Optional, variants: @["-s", "--speed=<speed>"]),
         x: Arg(kind: Optional, variants: @["-x"]))) ==
         "-s, --speed=<speed>".len
 
     test "colWidth spans every group":
-      check colWidth((
+      check colWidthOf((
         x: Arg(kind: Optional, variants: @["-x"]),
         f: Arg(kind: Positional, variants: @["<file>"], group: "Inputs"))) ==
         "<file>".len
 
     test "colWidth does not exceed maxVariantsWidth":
-      check colWidth((x: Arg(kind: Optional, variants: @["-x"]),),
+      check colWidthOf((x: Arg(kind: Optional, variants: @["-x"]),),
         maxVariantsWidth = 10) == "-x".len
-      check colWidth((s: Arg(kind: Optional, variants: @["-s", "--speed=<speed>"]),),
+      check colWidthOf((s: Arg(kind: Optional, variants: @["-s", "--speed=<speed>"]),),
         maxVariantsWidth = 10) == 10
 
     test "colWidth counts visible width, not bytes":
@@ -631,7 +634,7 @@ when isMainModule:
       check spec.helpContext("p").variantsColWidth == 7
 
     test "colWidth ignores hidden args":
-      check colWidth((
+      check colWidthOf((
         x: Arg(kind: Optional, variants: @["-x"]),
         s: Arg(kind: Optional, variants: @["-s", "--speed=<speed>"],
           hidden: true))) == "-x".len
@@ -762,7 +765,7 @@ when isMainModule:
           width = 40, colWidth = 10) ==
         "  -m,         - One.\n    --abcdefgh  - Two."
 
-  suite "groupOrder":
+  suite "shownGroups":
     proc cmd(name: string, group = ""): CommandArg =
       CommandArg(kind: Command, variants: @[name], group: group,
         spec: plainSpec(()))
@@ -772,7 +775,7 @@ when isMainModule:
         x: Arg(kind: Optional, variants: @["-x"]),
         c: cmd("c"),
         y: Arg(kind: Positional, variants: @["<y>"])))
-      check spec.helpContext("p").groupOrder() == @["Commands", "Arguments", "Options"]
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Commands", "Arguments", "Options"]
 
     test "a user-defined group follows the canonical group of its kind":
       let spec = plainSpec((
@@ -782,7 +785,7 @@ when isMainModule:
         c: cmd("c"),
         y: Arg(kind: Positional, variants: @["<y>"]),
         x: Arg(kind: Optional, variants: @["-x"])))
-      check spec.helpContext("p").groupOrder() == @["Commands", "Maintenance", "Arguments",
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Commands", "Maintenance", "Arguments",
         "Inputs", "Options", "Output"]
 
     test "a user-defined group keeps its kind's place without its canonical group":
@@ -790,14 +793,14 @@ when isMainModule:
         x: Arg(kind: Optional, variants: @["-x"]),
         i: Arg(kind: Positional, variants: @["<i>"], group: "Inputs"),
         m: cmd("m", group = "Maintenance")))
-      check spec.helpContext("p").groupOrder() == @["Maintenance", "Inputs", "Options"]
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Maintenance", "Inputs", "Options"]
 
     test "user-defined groups of one kind keep their declaration order":
       let spec = plainSpec((
         b: cmd("b", group = "Beta"),
         a: cmd("a", group = "Alpha"),
         c: cmd("c", group = "Beta")))
-      check spec.helpContext("p").groupOrder() == @["Beta", "Alpha"]
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Beta", "Alpha"]
 
     test "a mixed group takes the kind of its first shown Arg":
       let spec = plainSpec((
@@ -807,14 +810,14 @@ when isMainModule:
         a: cmd("about", group = "Help"),
         h: Arg(kind: Flag, variants: @["-h"], group: "Help"),
         y: Arg(kind: Positional, variants: @["<y>"])))
-      check spec.helpContext("p").groupOrder() == @["Help", "Arguments", "Options"]
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Help", "Arguments", "Options"]
 
     test "a user-defined group with no shown Arg is left out":
       let spec = plainSpec((
         x: Arg(kind: Optional, variants: @["-x"]),
         g: Arg(kind: Optional, variants: @["--ghost"], group: "Ghosts",
           hidden: true)))
-      check spec.helpContext("p").groupOrder() == @["Options"]
+      check spec.helpContext("p").shownGroups.mapIt(it.name) == @["Options"]
 
   suite "HelpContext.groups":
     test "a spec with no args has no groups":
@@ -903,7 +906,7 @@ when isMainModule:
         notNamed("<in>")).names == @[("Arguments", @["<out>"]),
         ("Options", @["-y"])]
 
-    test "a nil predicate keeps every Arg, alone or after another filter":
+    test "a nil predicate drops nothing further, alone or after another filter":
       check spec.helpContext("p").filter(nil).names ==
         @[("Arguments", @["<in>", "<out>"]), ("Options", @["-x", "-y"])]
       check spec.helpContext("p").filter(notNamed("-x")).filter(nil).names ==
@@ -1178,6 +1181,18 @@ when isMainModule:
         Options:
           --foo  A sample option""".dedent
       check spec.genHelp("prog", formatColumn) == expected
+
+    test "a hidden arg doesn't widen the column":
+      let spec = plainSpec((
+        x: Arg(kind: Optional, variants: @["-x"], help: "Short"),
+        s: Arg(kind: Optional, variants: @["-s", "--super-long-speed=<speed>"],
+          help: "Long", hidden: true)), usage = "[options]")
+      check spec.genHelp("p", formatColumn) == """
+        Usage:
+          p [options]
+
+        Options:
+          -x  Short""".dedent
 
     test "a group is not shown if its only member is hidden":
       let
