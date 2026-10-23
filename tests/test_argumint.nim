@@ -1103,6 +1103,48 @@ suite "Spec tuple members":
     check not compiles(newSpec((a: opt("-a"), c: 5)))
     check not compiles(newSpec((a: opt("-a"), nested: (b: flag("-b"), c: "x"))))
 
+  test "an Option reached twice through a nested tuple is one Arg (#319)":
+    let branch = opt("--branch", default = "main")
+    let spec = (inner: (branch: branch, extra: flag("--extra")), branch: branch)
+    spec.parse(args = @["--branch", "dev"])
+    check branch.get == "dev"
+
+  test "an Option reached twice through a nested tuple is listed once in help (#319)":
+    let branch = opt("--branch", default = "main")
+    var helpText = ""
+    try:
+      (inner: (branch: branch, extra: flag("--extra")), branch: branch, help: help())
+        .parse(args = @["--help"], command = "demo",
+               settings = newSpecSettings(style = nil))
+    except HelpError as e:
+      helpText = e.msg
+    check helpText.count("--branch") == 1
+
+  test "an Arg under two field names of one tuple is one Arg (#319)":
+    let shared = opt("--shared=<v>")
+    (a: shared, b: shared).parse(args = @["--shared", "x"])
+    check shared.get == "x"
+
+  test "a Positional Argument reached twice is one Arg (#319)":
+    let src = arg("<src>")
+    (inner: (src: src,), src: src).parse(args = @["a.txt"])
+    check src.get == "a.txt"
+
+  test "a Command reached twice is one Arg (#319)":
+    let x = flag("-x")
+    let build = command("build", (x: x,))
+    (inner: (build: build,), build: build).parse(args = @["build", "-x"])
+    check build.seen
+    check x.get
+
+  test "two distinct Args with one name still raise SpecDefect (#319)":
+    var caught = ""
+    try:
+      (a: opt("--cc"), b: opt("--cc")).parse(args = @[])
+    except SpecDefect as e:
+      caught = e.msg
+    check caught == "option --cc already defined"
+
 suite "Errors":
   test "raise ParseError for unrecognized options":
     # ADR 0019: an option-shaped token undeclared anywhere in the spec is
