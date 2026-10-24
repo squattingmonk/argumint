@@ -200,12 +200,13 @@ Options:
 ```
 
 In the string form, help describes each name by its value, as in "Set to
-true". To describe them in your own words, use `flagOp`:
+true". To describe them in your own words, use `flagOp`. Leave out the flag's
+own `help`, and each name shows only its own:
 
 ```nim
-color: flag(default = true, help = "Colour the output",
-  ops = [flagOp("--color", "=", true, help = "Always"),
-         flagOp("--no-color", "=", false, help = "Never")]),
+color: flag(default = true,
+  ops = [flagOp("--color", "=", true, help = "Colour the output"),
+         flagOp("--no-color", "=", false, help = "Don't colour the output")]),
 ```
 
 ```console
@@ -215,8 +216,8 @@ Usage:
   paint (-h | --help)
 
 Options:
-  --color     Colour the output [action: Always]
-  --no-color  Colour the output [action: Never]
+  --color     Colour the output
+  --no-color  Don't colour the output
   -h, --help  Display this help message
 ```
 
