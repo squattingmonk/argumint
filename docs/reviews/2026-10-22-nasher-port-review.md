@@ -23,7 +23,7 @@ Reviewed at `658b5bd`. Vocabulary: domain terms per
 
 | | Candidate | Strength | Status |
 |---|---|---|---|
-| [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Open: #317 |
+| [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Shipped: #317, PR #337, `1e76888` |
 | [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its Level's help | Worth exploring | Shipped: #318, PR #335, `0bb6fc6` |
 | [AA](#aa--an-arg-reached-twice-in-one-spec-is-registered-once) | An Arg reached twice in one spec is registered once | Strong | Shipped: #319, PR #328, `59a8cb3` |
 | [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Dropped: #320 |
