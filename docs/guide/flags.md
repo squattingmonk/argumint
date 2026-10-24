@@ -179,7 +179,7 @@ spec.parseOrQuit()
 echo "color=", spec.color
 ```
 
-The operations run in the order typed, so the last name given wins:
+The operations run in the order typed, so the last one given wins:
 
 ```console
 $ ./paint
@@ -199,9 +199,10 @@ Options:
   -h, --help  Display this help message
 ```
 
-In the string form, help describes each name by its value, as in "Set to
-true". To describe them in your own words, use `flagOp`. Leave out the flag's
-own `help`, and each name shows only its own:
+In the string form, help's action text describes each name by its value, as
+in "Set to true". To describe them in your own words, use `flagOp`, and leave
+out the flag's own `help` so each name shows only its own. Swap the `color`
+entry above for:
 
 ```nim
 color: flag(default = true,
