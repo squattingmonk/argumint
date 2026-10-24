@@ -421,6 +421,47 @@ reached its level, like `pkg install`, and `info.here.spec` is that level's
 `Spec`. `info.root.command` and `info.root.spec` are the same at every level:
 the name the program was run as, and the `Spec` being parsed.
 
+A hook can show its level's help, as `--help` would there. Call
+`showHelp(info)`. Here a bare `config` shows its help instead of reading a
+setting:
+
+```nim
+import argumint
+
+proc config(spec: tuple, info: HookInfo) =
+  let key = if spec.key.get.len > 0: spec.key.get else: showHelp(info)
+  echo "Reading ", key
+
+let
+  configSpec = (key: arg("<key>", help = "The setting to read"), help: help())
+  spec = (
+    config: command("config", configSpec, action = config, usage = "[<key>]",
+      help = "Read a setting"),
+    help: help(),
+  )
+
+spec.parseOrQuit()
+```
+
+`showHelp` never returns, so it can end a branch of an `if`. It uses the
+level's `help()` and its formatter, or the default layout if the level has
+no `help()`.
+
+```console
+$ ./pkg config color
+Reading color
+$ ./pkg config
+Usage:
+  pkg config [<key>]
+  pkg config (-h | --help)
+
+Arguments:
+  <key>       The setting to read
+
+Options:
+  -h, --help  Display this help message
+```
+
 ### Passing Extra Context to Hooks
 
 A hook receives only its own level's spec. To read a value from another

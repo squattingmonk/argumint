@@ -407,8 +407,11 @@ Hook can see a descendant's about-to-fire Message Argument match. It also
 carries `root` — the Spec `parse*` was called on and its command, the same
 at every level — and `here`, the same pair for the level being dispatched
 (e.g. `prog ship move`). A Message Argument's `action` receives its
-level's Hook Info too. See `docs/adr/0021-hook-info-matched-args.md` and
-`docs/adr/0073-message-argument-is-a-capability.md`.
+level's Hook Info too. `showHelp(info)` shows `here`'s help from a hook, as
+that level's Help Message Argument would. See
+`docs/adr/0021-hook-info-matched-args.md`,
+`docs/adr/0073-message-argument-is-a-capability.md` and
+`docs/adr/0083-a-hook-can-show-its-levels-help.md`.
 _Avoid_: hook context, hook args
 
 **Level**:
