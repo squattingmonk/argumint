@@ -6,20 +6,32 @@ string is compiled into a finite state machine that drives parsing.
 ## Language
 
 **Spec**:
-The complete declaration of a command-line interface: every argument it
-accepts, its Usage String, and its help text. A Command owns its own
-nested Spec, scoped to that subcommand — there is no separate concept for
-a "sub-spec." A Spec may also carry a Before Hook, an Action, and an After
-Hook, fired around its own dispatch — this applies equally to a Command's
-own nested Spec and to the top-level Spec, which carries no Command of its
-own. See those entries. As a value (`newSpec*`'s return), a Spec is an
-_opaque handle_ — nameable and passable, but its internals belong to
-argumint (see `docs/adr/0030-core-types-exported-spec-opaque.md`). A Spec is
-also _single-use_: parsing one twice accumulates into the same Args instead
-of starting fresh, so parsing repeatedly means a **fresh spec** per parse
+The complete declaration of a command-line interface, compiled from a Spec
+Tuple: every argument it accepts, its Usage String, and its help text. A
+Command owns its own nested Spec, scoped to that subcommand — there is no
+separate concept for a "sub-spec." A Spec may also carry a Before Hook, an
+Action, and an After Hook, fired around its own dispatch — this applies
+equally to a Command's own nested Spec and to the top-level Spec, which
+carries no Command of its own. See those entries. As a value (`newSpec*`'s
+return), a Spec is an _opaque handle_ — nameable and passable, but its
+internals belong to argumint (see
+`docs/adr/0030-core-types-exported-spec-opaque.md`). A Spec is also
+_single-use_: parsing one twice accumulates into the same Args instead of
+starting fresh, so parsing repeatedly means a **fresh spec** per parse
 (`parsed*`/`parsedOrQuit*`, see
 `docs/adr/0031-parsed-fresh-spec-per-parse.md`).
 _Avoid_: Parser, schema, config
+
+**Spec Tuple**:
+The tuple of Args a developer writes, which `newSpec*` compiles into a Spec.
+The tuple overloads of `parse*` and `parseOrQuit*`, and `command`, call it
+for you, and `parsed*`/`parsedOrQuit*` take a builder proc that returns one.
+In prose, the noun "spec" in lower case means a Spec Tuple, and a
+capitalised "Spec" means the compiled handle. A tuple of Args shared
+between several Spec Tuples (a group of global options, say) is a Spec
+Tuple too, even if it is never parsed on its own. See
+`docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+_Avoid_: builder (that's the proc `parsed*` takes), fields tuple
 
 **Arg**:
 The umbrella concept for anything a Spec declares: a Positional Argument,
@@ -569,9 +581,9 @@ The sequence of values already matched for the same multi-value Option or
 Positional Argument at the moment a new candidate value is being checked --
 consulted only by a Check Validator built via `checkSeen`/`checkSeenIt`/
 `unique` (every other Validator kind ignores it). Reflects everything ever
-matched across every `parse` call made on that Arg's spec tuple, not just
+matched across every `parse` call made on that Arg's Spec Tuple, not just
 the current call, since nothing resets an Arg's accumulated state between
-`parse` calls on a reused spec tuple (deliberately; see
+`parse` calls on a reused Spec Tuple (deliberately; see
 `docs/adr/0007-history-aware-validators.md`). Never includes the candidate
 value currently being checked. A caller wanting Seen Values scoped to a
 single `parse` call should wrap spec construction in a builder proc and
