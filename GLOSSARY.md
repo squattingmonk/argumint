@@ -31,7 +31,8 @@ capitalised "Spec" means the compiled handle. A tuple of Args shared
 between several Spec Tuples (a group of global options, say) is a Spec
 Tuple too, even if it is never parsed on its own. A Spec Tuple is built
 either as a plain tuple literal or with the `specTuple` macro. See
-`docs/adr/0031-parsed-fresh-spec-per-parse.md`.
+`docs/adr/0031-parsed-fresh-spec-per-parse.md` and
+`docs/adr/0084-spec-tuple-macro-flattens-a-base.md`.
 _Avoid_: builder (that's the proc `parsed*` takes), fields tuple
 
 **Arg**:

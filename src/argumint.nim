@@ -787,6 +787,8 @@ macro specTuple*(args: varargs[untyped]): untyped =
   ## - The base's fields come next, in base order. A replacement of the
   ##   same type takes the base field's place, so `config`'s `--help`
   ##   above sits where `global`'s did.
+  ##
+  ## See `docs/adr/0084-spec-tuple-macro-flattens-a-base.md`.
   if args.len == 0 or args[^1].kind != nnkStmtList:
     error("specTuple: expected a body of `name: expr` lines", args)
   if args.len > 2:
