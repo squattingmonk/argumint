@@ -158,6 +158,70 @@ its `converter` from `string`. For an operation with more than one name, a
 value you can't write as a string, or an [operation of your
 own](#your-own-flag-operations), use `flagOp`.
 
+### A Flag You Can Set Both Ways
+
+`flag("--no-color", default = true)` can only turn colour off. If an
+environment variable or config file has already turned it off, the command
+line has no way to turn it back on. (See [Flags from a
+Variable](precedence.md#flags-from-a-variable) for how those set a flag.)
+Give the flag one name for each value instead:
+
+```nim
+import argumint
+
+let spec = (
+  color: flag(default = true, help = "Use colour",
+    ops = "--color=true, --no-color=false"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "color=", spec.color
+```
+
+The operations run in the order typed, so the last one given wins:
+
+```console
+$ ./paint
+color=true
+$ ./paint --no-color
+color=false
+$ ./paint --no-color --color
+color=true
+$ ./paint --help
+Usage:
+  paint [options]
+  paint (-h | --help)
+
+Options:
+  --color     Use colour [action: Set to true]
+  --no-color  Use colour [action: Set to false]
+  -h, --help  Display this help message
+```
+
+In the string form, help's action text describes each name by its value, as
+in "Set to true". To describe them in your own words, use `flagOp`, and leave
+out the flag's own `help` so each name shows only its own. Swap the `color`
+entry above for:
+
+```nim
+color: flag(default = true,
+  ops = [flagOp("--color", "=", true, help = "Colour the output"),
+         flagOp("--no-color", "=", false, help = "Don't colour the output")]),
+```
+
+```console
+$ ./paint --help
+Usage:
+  paint [options]
+  paint (-h | --help)
+
+Options:
+  --color     Colour the output
+  --no-color  Don't colour the output
+  -h, --help  Display this help message
+```
+
 ## Flags in a Usage String
 
 A [usage string](usage-strings.md) names only a flag's names, never an
