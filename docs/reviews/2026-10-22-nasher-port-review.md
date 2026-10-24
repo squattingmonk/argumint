@@ -26,7 +26,7 @@ Reviewed at `658b5bd`. Vocabulary: domain terms per
 | [Y](#y--a-helper-that-merges-spec-tuples) | A helper that merges spec tuples | Strong | Open: #317 |
 | [Z](#z--a-hook-can-show-its-levels-help) | A hook can show its Level's help | Worth exploring | Open: #318 |
 | [AA](#aa--an-arg-reached-twice-in-one-spec-is-registered-once) | An Arg reached twice in one spec is registered once | Strong | Shipped: #319, PR #328, `59a8cb3` |
-| [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Open: #320 |
+| [AB](#ab--an-arg-can-write-its-value-back-as-strings) | An Arg can write its value back as strings | Speculative | Dropped: #320 |
 
 **Recommendation:** Y and AA first. Both make the option-tuple idiom the
 guide teaches work at scale. Y removes copying a shared tuple into every
@@ -157,6 +157,10 @@ default. The walk over the spec and the config-file writer stay in user
 code: file formats vary too much for argumint to write them.
 
 **Wins.** A `config set` command needs no per-type code.
+
+**Dropped** (#320): the method would save a couple of lines of user code
+at the cost of a method every Custom Arg should override. See
+[`.out-of-scope/arg-value-writeback.md`](../../.out-of-scope/arg-value-writeback.md).
 
 ## Docs
 

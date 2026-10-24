@@ -48,6 +48,11 @@ state machine that drives parsing.
 - **Architecture reviews** are in `docs/reviews/`, one file per review, each
   a lettered list of candidates. Link an issue to its candidate's heading,
   and mark the candidate shipped (issue, PR, squash hash) when it lands.
+- **Rejected requests** are in `.out-of-scope/`, one file per concept: a
+  `wontfix` enhancement and why it was turned down (not one closed as
+  already implemented). Read it before triaging a request, so one turned
+  down before comes back with its reasoning; delete a concept's file if
+  it's reconsidered.
 - **Errors**: a malformed developer-written spec raises `SpecDefect`; every
   user-input failure is a `ParseError` subtype. See
   `src/argumint/core/errors.nim` and ADR 0078.
