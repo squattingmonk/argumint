@@ -705,14 +705,17 @@ proc completion*(variants = "completion",
 # Building a Spec Tuple
 # ------------------------------------------------------------------------------
 
-proc indexOf(pairs: seq[(NimNode, NimNode)], name: NimNode): int =
-  ## The index of the pair named `name` in `pairs`, or -1.
-  result = -1
-  for i, (other, _) in pairs:
-    if other.eqIdent(name): return i
+type SpecField = tuple[name, node: NimNode]
+  ## A `specTuple` field: its name, and its expression or its type.
 
-proc specFields(body: NimNode): seq[(NimNode, NimNode)] =
-  ## The `(name, expr)` pairs of a `specTuple` body.
+proc indexOf(fields: seq[SpecField], name: NimNode): int =
+  ## The index of the field named `name` in `fields`, or -1.
+  result = -1
+  for i, field in fields:
+    if field.name.eqIdent(name): return i
+
+proc specFields(body: NimNode): seq[SpecField] =
+  ## The fields of a `specTuple` body, each with its expression.
   for line in body:
     if line.kind == nnkCommentStmt: continue
     if line.kind != nnkCall or line.len != 2 or
@@ -722,36 +725,39 @@ proc specFields(body: NimNode): seq[(NimNode, NimNode)] =
         if line.kind == nnkCall: line[0] else: line)
     if result.indexOf(line[0]) >= 0:
       error("specTuple: field `" & $line[0] & "` is named twice", line[0])
-    result.add (line[0], line[1][0])
+    result.add (name: line[0], node: line[1][0])
 
-proc tupleFields(t: NimNode): seq[(NimNode, NimNode)] =
-  ## The `(name, type)` pairs of the named tuple `t` is typed as, or `@[]`
-  ## for anything else.
+proc tupleFields(t: NimNode): seq[SpecField] =
+  ## The fields of the named tuple `t` is typed as, each with its type, or
+  ## `@[]` for anything else.
   let impl = t.getTypeImpl
   if impl.kind == nnkTupleTy:
     for defs in impl:
       for name in defs[0 ..^ 3]:
-        result.add (name, defs[^2])
+        result.add (name: name, node: defs[^2])
 
-macro mergeSpecTuple(base, fields: typed): untyped =
-  ## `specTuple(base)`'s flat tuple, from `base` and the tuple of `fields`
-  ## its body describes.
-  let baseFields = tupleFields(base)
+proc copiedField(source, name: NimNode): NimNode =
+  ## The tuple-constructor field `name: source.name`.
+  newColonExpr(ident($name), newDotExpr(source, ident($name)))
+
+macro mergeSpecTuple(base, body: typed): untyped =
+  ## `specTuple(base)`'s flat tuple, from `base` and the tuple its body
+  ## describes. The field order is ADR 0084's.
+  let
+    baseFields = tupleFields(base)
+    bodyFields = tupleFields(body)
   if baseFields.len == 0:
     error("specTuple: the base must be a tuple with named fields", base)
-  proc field(source, name: NimNode): NimNode =
-    newColonExpr(ident($name), newDotExpr(source, ident($name)))
-  let bodyFields = tupleFields(fields)
-  result = newNimNode(nnkTupleConstr, fields)
-  var inPlace: seq[bool]
-  for (name, typ) in bodyFields:
-    let i = baseFields.indexOf(name)
-    inPlace.add i >= 0 and sameType(baseFields[i][1], typ)
-    if not inPlace[^1]: result.add field(fields, name)
-  for (name, _) in baseFields:
-    let i = bodyFields.indexOf(name)
-    if i < 0: result.add field(base, name)
-    elif inPlace[i]: result.add field(fields, name)
+  proc keepsSlot(field: SpecField): bool =
+    let i = baseFields.indexOf(field.name)
+    i >= 0 and sameType(baseFields[i].node, field.node)
+  result = newNimNode(nnkTupleConstr, body)
+  for field in bodyFields:
+    if not field.keepsSlot: result.add copiedField(body, field.name)
+  for field in baseFields:
+    let i = bodyFields.indexOf(field.name)
+    if i < 0: result.add copiedField(base, field.name)
+    elif bodyFields[i].keepsSlot: result.add copiedField(body, field.name)
 
 # One `varargs` macro, not an overload per form: see docs/gotchas.md.
 macro specTuple*(args: varargs[untyped]): untyped =
@@ -795,8 +801,8 @@ macro specTuple*(args: varargs[untyped]): untyped =
     error("specTuple: expected at most one base before the body", args[1])
   let body = args[^1]
   result = newNimNode(nnkTupleConstr, body)
-  for (name, value) in specFields(body):
-    result.add newColonExpr(name, value)
+  for field in specFields(body):
+    result.add newColonExpr(field.name, field.node)
   if args.len == 2:
     let
       base = genSym(nskLet, "base")

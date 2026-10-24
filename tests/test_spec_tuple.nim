@@ -29,6 +29,18 @@ suite "specTuple with no base":
     check built.verbose.get
     check built.name.get == "Ann"
 
+  test "it has the plain literal's type and parses the same command lines":
+    let
+      built = specTuple:
+        verbose: flag("-v, --verbose")
+        names: args("<name>")
+      plain = (verbose: flag("-v, --verbose"), names: args("<name>"))
+    check typeof(built) is typeof(plain)
+    built.parse(args = @["Ann", "-v", "Bo"], command = "prog")
+    plain.parse(args = @["Ann", "-v", "Bo"], command = "prog")
+    check (built.verbose.get, built.names.get) == (true, @["Ann", "Bo"])
+    check (plain.verbose.get, plain.names.get) == (true, @["Ann", "Bo"])
+
 suite "specTuple with a base":
   test "it flattens the base's fields into the new tuple, sharing their Args":
     let
