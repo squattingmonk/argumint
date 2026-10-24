@@ -199,12 +199,25 @@ Options:
   -h, --help  Display this help message
 ```
 
-In the string form, both names share the flag's `help`. To give each name its
-own help text, use `flagOp`:
+In the string form, help describes each name by its value, as in "Set to
+true". To describe them in your own words, use `flagOp`:
 
 ```nim
-ops = [flagOp("--color", "=", true, help = "Use colour"),
-       flagOp("--no-color", "=", false, help = "Don't use colour")]
+color: flag(default = true, help = "Colour the output",
+  ops = [flagOp("--color", "=", true, help = "Always"),
+         flagOp("--no-color", "=", false, help = "Never")]),
+```
+
+```console
+$ ./paint --help
+Usage:
+  paint [options]
+  paint (-h | --help)
+
+Options:
+  --color     Colour the output [action: Always]
+  --no-color  Colour the output [action: Never]
+  -h, --help  Display this help message
 ```
 
 ## Flags in a Usage String
