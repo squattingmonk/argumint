@@ -732,3 +732,12 @@ debugging time. Read this before touching the constructors and `flagOp`/
   Mach-O header with `readFile`, which also works on Windows, where Nim
   reports every file as executable anyway. Split a path with
   `rsplit({'/', '\\'}, 1)[^1]`, as the `docs` task does.
+
+- **A macro taking an untyped body can't be overloaded with one that also
+  takes a typed argument.** With `macro sp(body: untyped)` and `macro
+  sp(base: typed, body: untyped)` both declared, resolving `sp(g): a: 1`
+  typechecks the body against the typed overload and fails with
+  `undeclared identifier: 'a'`. So `specTuple` (`src/argumint.nim`) is one
+  `varargs[untyped]` macro that builds the tuple literal itself and, given
+  a base, hands the base and that literal to the typed `mergeSpecTuple`,
+  which reads their types.

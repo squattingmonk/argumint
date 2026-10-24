@@ -486,15 +486,17 @@ let
     dryRun: flag("-n, --dry-run", help = "Show what would happen"),
   )
   installSpec = (names: args("<name>", help = "Packages to install"))
-  spec = (
-    dryRun: global.dryRun,
+  spec = specTuple(global):
     install: command("install", installSpec, global, action = install,
-      help = "Install packages"),
-    help: help(),
-  )
+      help = "Install packages")
+    help: help()
 
 spec.parseOrQuit()
 ```
+
+`specTuple(global)` builds a spec from the fields listed under it plus every
+field of `global`, so `spec.dryRun` is `global.dryRun`. See
+[Building a Spec with `specTuple`](specs.md#building-a-spec-with-spectuple).
 
 `dryRun` belongs to the program's spec, so the user gives it before
 `install`, and the hook reads it from `global`:
