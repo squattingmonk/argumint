@@ -13,7 +13,7 @@
 
 {.experimental: "openSym".}
 
-import std/[os, options, pegs, sugar, strutils, terminal]
+import std/[macros, os, options, pegs, sugar, strutils, terminal]
 
 import ./argumint/[configsource, help]
 import ./argumint/core/[backend, envvar, errors, outcome, variant]
@@ -700,6 +700,109 @@ proc completion*(variants = "completion",
     default = Shell.bash, help = "The shell to complete in")
   command(variants, (shell: shell, help: help()), help, prolog, epilog,
     group = group, hidden = hidden)
+
+# ------------------------------------------------------------------------------
+# Building a Spec Tuple
+# ------------------------------------------------------------------------------
+
+proc indexOf(pairs: seq[(NimNode, NimNode)], name: NimNode): int =
+  ## The index of the pair named `name` in `pairs`, or -1.
+  result = -1
+  for i, (other, _) in pairs:
+    if other.eqIdent(name): return i
+
+proc specFields(body: NimNode): seq[(NimNode, NimNode)] =
+  ## The `(name, expr)` pairs of a `specTuple` body.
+  for line in body:
+    if line.kind == nnkCommentStmt: continue
+    if line.kind != nnkCall or line.len != 2 or
+        line[0].kind notin {nnkIdent, nnkAccQuoted} or
+        line[1].kind != nnkStmtList or line[1].len != 1:
+      error("specTuple: each line must be `name: expr`",
+        if line.kind == nnkCall: line[0] else: line)
+    if result.indexOf(line[0]) >= 0:
+      error("specTuple: field `" & $line[0] & "` is named twice", line[0])
+    result.add (line[0], line[1][0])
+
+proc tupleFields(t: NimNode): seq[(NimNode, NimNode)] =
+  ## The `(name, type)` pairs of the named tuple `t` is typed as, or `@[]`
+  ## for anything else.
+  let impl = t.getTypeImpl
+  if impl.kind == nnkTupleTy:
+    for defs in impl:
+      for name in defs[0 ..^ 3]:
+        result.add (name, defs[^2])
+
+macro mergeSpecTuple(base, fields: typed): untyped =
+  ## `specTuple(base)`'s flat tuple, from `base` and the tuple of `fields`
+  ## its body describes.
+  let baseFields = tupleFields(base)
+  if baseFields.len == 0:
+    error("specTuple: the base must be a tuple with named fields", base)
+  proc field(source, name: NimNode): NimNode =
+    newColonExpr(ident($name), newDotExpr(source, ident($name)))
+  let bodyFields = tupleFields(fields)
+  result = newNimNode(nnkTupleConstr, fields)
+  var inPlace: seq[bool]
+  for (name, typ) in bodyFields:
+    let i = baseFields.indexOf(name)
+    inPlace.add i >= 0 and sameType(baseFields[i][1], typ)
+    if not inPlace[^1]: result.add field(fields, name)
+  for (name, _) in baseFields:
+    let i = bodyFields.indexOf(name)
+    if i < 0: result.add field(base, name)
+    elif inPlace[i]: result.add field(fields, name)
+
+# One `varargs` macro, not an overload per form: see docs/gotchas.md.
+macro specTuple*(args: varargs[untyped]): untyped =
+  ## Builds a spec from a list of `name: expr` fields, one per line, with no
+  ## commas between them:
+  ##
+  ## ```nim
+  ## let
+  ##   global = specTuple:
+  ##     verbose: flag("-v, --verbose", help = "Talk more")
+  ##     help: help()
+  ##   convert = specTuple(global):
+  ##     branch: opt("--branch=<branch>")
+  ##   config = specTuple(global):
+  ##     help: help(formatter = formatParagraph)
+  ## ```
+  ##
+  ## With no base, `specTuple` gives the tuple its fields describe, the same
+  ## as writing `(verbose: ..., help: ...)`. It works inline too:
+  ## `command("test", specTuple do: ...)`.
+  ##
+  ## Given a base tuple, `specTuple(base)` gives a flat tuple of every field
+  ## of `base` plus the body's fields, so `convert.verbose` works. The
+  ## copied fields are the base's own Args, so after parsing,
+  ## `convert.verbose` and `global.verbose` read the same value. A body
+  ## field named like a base field replaces it. Only the top level is
+  ## copied: a field of `base` that is itself a tuple stays nested. `base`
+  ## is evaluated once.
+  ##
+  ## The fields' order sets the order of their Args and groups in help:
+  ## - The body's fields come first, in body order, along with any
+  ##   replacement whose type differs from the base field's.
+  ## - The base's fields come next, in base order. A replacement of the
+  ##   same type takes the base field's place, so `config`'s `--help`
+  ##   above sits where `global`'s did.
+  if args.len == 0 or args[^1].kind != nnkStmtList:
+    error("specTuple: expected a body of `name: expr` lines", args)
+  if args.len > 2:
+    error("specTuple: expected at most one base before the body", args[1])
+  let body = args[^1]
+  result = newNimNode(nnkTupleConstr, body)
+  for (name, value) in specFields(body):
+    result.add newColonExpr(name, value)
+  if args.len == 2:
+    let
+      base = genSym(nskLet, "base")
+      fields = genSym(nskLet, "fields")
+      merged = newCall(bindSym"mergeSpecTuple", base, fields)
+    base.copyLineInfo(args[0])
+    result = newStmtList(newLetStmt(base, args[0]), newLetStmt(fields, result),
+      merged)
 
 # ------------------------------------------------------------------------------
 # These are the functions that handle shell completion and initiate parsing.
