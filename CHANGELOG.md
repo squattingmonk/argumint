@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.0](https://github.com/squattingmonk/argumint/compare/1.0.0...1.1.0) (2026-10-24)
+
+
+### Features
+
+* add a specTuple macro that builds and extends a Spec Tuple ([#317](https://github.com/squattingmonk/argumint/issues/317)) ([#337](https://github.com/squattingmonk/argumint/issues/337)) ([1e76888](https://github.com/squattingmonk/argumint/commit/1e7688891b86eb1cb9c47db653cd072fee0c53b4))
+* filter a Help Context to the Args a predicate keeps ([#325](https://github.com/squattingmonk/argumint/issues/325)) ([32c68aa](https://github.com/squattingmonk/argumint/commit/32c68aa0a9deb0c205accf397a84e34d5cc95211))
+* let a hook show its level's help with showHelp ([#318](https://github.com/squattingmonk/argumint/issues/318)) ([#335](https://github.com/squattingmonk/argumint/issues/335)) ([0bb6fc6](https://github.com/squattingmonk/argumint/commit/0bb6fc6c4b9d03db02b1c3af1327ffe135c779b4))
+* register an Arg reached twice in one spec once ([#319](https://github.com/squattingmonk/argumint/issues/319)) ([#328](https://github.com/squattingmonk/argumint/issues/328)) ([59a8cb3](https://github.com/squattingmonk/argumint/commit/59a8cb358146e56d6dc7e83950f6ee52e8ee4964))
+* show an enum Arg's default in help even when it's the first member ([#315](https://github.com/squattingmonk/argumint/issues/315)) ([#323](https://github.com/squattingmonk/argumint/issues/323)) ([f679168](https://github.com/squattingmonk/argumint/commit/f6791684fee7988e71b9604d726eeb166bc93f00))
+
+
+### Bug Fixes
+
+* rank a terminal state's leftover by Reach ([#311](https://github.com/squattingmonk/argumint/issues/311)) ([4034c2c](https://github.com/squattingmonk/argumint/commit/4034c2c0668d91764f65d1134ddc934253a5a449))
+* report missing command only where the grammar required one ([#314](https://github.com/squattingmonk/argumint/issues/314)) ([658b5bd](https://github.com/squattingmonk/argumint/commit/658b5bda3e419b885fb6dc1bdf60fb25687723bd))
+* withhold a command suggestion its subtree can't parse ([#313](https://github.com/squattingmonk/argumint/issues/313)) ([#327](https://github.com/squattingmonk/argumint/issues/327)) ([2dad0b5](https://github.com/squattingmonk/argumint/commit/2dad0b59e5eaa0ea0dfc6ad4cc7911b323ac849f))
+
 ## [1.0.0](https://github.com/squattingmonk/argumint/compare/0.1.0...1.0.0) (2026-10-21)
 
 
