@@ -85,6 +85,94 @@ $ ./bad
 Error constructing spec: invalid positional arg variant for bad: bad
 ```
 
+### Building a Spec with `specTuple`
+
+`specTuple` builds a spec from fields listed one per line, with no commas.
+Given another spec, it adds that spec's fields too:
+
+```nim
+import argumint
+
+let
+  common = specTuple:
+    verbose: flag("-v, --verbose", help = "Show extra output")
+    help: help()
+  spec = specTuple(common):
+    name: arg("<name>", help = "Who to greet")
+
+spec.parseOrQuit()
+if spec.verbose:
+  echo "Greeting ", spec.name
+echo "Hello, ", spec.name, "!"
+```
+
+`spec` holds `name`, then every field of `common`, so you read
+`spec.verbose`, not `spec.common.verbose`. Both specs hold the same
+`verbose`, so `common.verbose` is set too. The spec's own fields come
+first in help:
+
+```console
+$ ./hello -v Ada
+Greeting Ada
+Hello, Ada!
+$ ./hello --help
+Usage:
+  hello [options] <name>
+  hello (-h | --help)
+
+Arguments:
+  <name>         Who to greet
+
+Options:
+  -v, --verbose  Show extra output
+  -h, --help     Display this help message
+```
+
+A field with the same name as one in `common` replaces it. Here `spec`
+keeps `common`'s `verbose` but gets a `help` of its own, which lays its help
+out in paragraphs:
+
+```nim
+import argumint
+
+let
+  common = specTuple:
+    verbose: flag("-v, --verbose", help = "Show extra output")
+    help: help()
+  spec = specTuple(common):
+    name: arg("<name>", help = "Who to greet")
+    help: help(formatter = formatParagraph)
+
+spec.parseOrQuit()
+echo "Hello, ", spec.name, "!"
+```
+
+The new `help` takes the old one's place, so `-h, --help` still comes after
+`-v, --verbose`:
+
+```console
+$ ./hello --help
+Usage:
+  hello [options] <name>
+  hello (-h | --help)
+
+Arguments:
+  <name>
+    Who to greet
+
+Options:
+  -v, --verbose
+    Show extra output
+
+  -h, --help
+    Display this help message
+```
+
+A replacement keeps that place only if it's the same kind of `Arg` with the
+same value type. Otherwise it comes first, with the spec's own fields.
+`specTuple` also works where a spec is passed inline, as in
+`command("add", specTuple do: ...)`.
+
 ## Keeping a Built Spec
 
 Calling `parse` or `parseOrQuit` on a tuple builds it into a `Spec`, parses,
