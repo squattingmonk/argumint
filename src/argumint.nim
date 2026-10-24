@@ -117,7 +117,7 @@ export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOp
 # writing your own formatter needs `import argumint/help` (ADR 0048/0049/0057).
 export backend.HelpText, backend.toHelpText
 export help.HelpArg, help.HelpFormatter, help.HelpContext, help.formatColumn,
-  help.formatParagraph
+  help.formatParagraph, help.showHelp
 
 # Styling configuration, and enough Styled Text for a custom Arg's
 # `validatorHelp`; the span model needs `argumint/help` (ADR 0051).

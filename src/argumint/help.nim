@@ -352,6 +352,15 @@ proc genHelp*(spec: Spec, command: string, formatter: HelpFormatter = formatColu
   ## `prog ship move`).
   formatter(helpContext(spec, command))
 
+proc helpError(info: HookInfo, formatter: HelpFormatter): ref HelpError =
+  ## `info.here`'s help rendered by `formatter`: `msg` without a Styler, and
+  ## `styledMsg` with the Spec's (ADR 0059).
+  let plain = formatter(helpContext(info.here.spec, info.here.command, nil))
+  let styled =
+    if info.here.spec.settings.style.isNil: plain
+    else: info.here.spec.genHelp(info.here.command, formatter)
+  (ref HelpError)(msg: plain, styledMsg: styled)
+
 method action(self: HelpArg, info: HookInfo, variant = "") =
   ## Raises `HelpError` with `info.here`'s generated help text,
   ## short-circuiting the rest of parsing so `parse*`/`parseOrQuit*` can
@@ -359,11 +368,19 @@ method action(self: HelpArg, info: HookInfo, variant = "") =
   ## and `styledMsg` with the Spec's.
   # Explicit conversion needed -- see docs/gotchas.md.
   let formatter = if self.formatter.isNil: HelpFormatter(formatColumn) else: self.formatter
-  let plain = formatter(helpContext(info.here.spec, info.here.command, nil))
-  let styled =
-    if info.here.spec.settings.style.isNil: plain
-    else: info.here.spec.genHelp(info.here.command, formatter)
-  raise (ref HelpError)(msg: plain, styledMsg: styled)
+  raise info.helpError(formatter)
+
+proc showHelp*(info: HookInfo) {.noreturn.} =
+  ## Shows `info.here`'s help from a hook: raises the `HelpError` its
+  ## first-declared Help flag would, or one rendered by `formatColumn` if it
+  ## has none. `parseOrQuit*` prints it and exits successfully. Never
+  ## returns, so it can end an `if` or `case` expression's branch -- see
+  ## `docs/adr/0083-a-hook-can-show-its-levels-help.md`.
+  for arg in info.here.spec.args:
+    if arg of HelpArg:
+      arg.action(info)
+      raiseAssert "a HelpArg's action returned without raising HelpError"
+  raise info.helpError(formatColumn)
 
 when isMainModule:
   import std/[importutils, options, unittest]
@@ -379,6 +396,8 @@ when isMainModule:
       env: Option[EnvSource]
       cfg: ConfigKey
       descs: Table[string, string]
+    QuietHelp = ref object of HelpArg
+      ## A Help flag whose `action` forgets to raise.
 
   method validatorHelp(self: TestArg): StyledText =
     styled(self.validatorHelpVal)
@@ -387,6 +406,7 @@ when isMainModule:
   method configKey(self: TestArg): ConfigKey = self.cfg
   method variantDesc(self: TestArg, variant: string): string =
     self.descs.getOrDefault(variant, "")
+  method action(self: QuietHelp, info: HookInfo, variant = "") = discard
 
   proc plainSpec(spec: tuple, usage = "", prolog = "", epilog = "",
       settings = newSpecSettings(style = nil)): Spec =
@@ -1506,6 +1526,12 @@ when isMainModule:
       except HelpError as e:
         raised = e.msg
       check raised == expected
+
+  suite "showHelp":
+    test "a Help flag whose action returns doesn't let it return":
+      let spec = plainSpec((help: QuietHelp(kind: Flag, variants: @["--help"])))
+      expect AssertionDefect:
+        showHelp(HookInfo(here: (spec, "prog")))
 
   suite "roles":
     test "row variants are tagged by kind, with an option's placeholder a metavar":
