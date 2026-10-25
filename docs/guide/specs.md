@@ -339,10 +339,10 @@ proc fromCommandLine(spec: tuple): seq[(string, string)] =
         result.add (name, $arg.get)
 
 let
-  branch = opt("--branch=<b>", default = "main")
+  target = opt("--target=<t>", default = "native")
   spec = (
-    launch: (branch: branch, gameBin: opt("--game-bin=<path>")),
-    unpack: (branch: branch, files: opts("--file=<f>")),
+    build: (target: target, jobs: opt("--jobs=<n>", default = 1)),
+    test: (target: target, filters: opts("--filter=<f>")),
     verbose: flag("-v, --verbose"),
     help: help())
 
@@ -352,9 +352,9 @@ for (key, value) in fromCommandLine(spec):
 ```
 
 ```console
-$ ./keys --file a.erf --branch dev --file b.erf -v
-branch = dev
-files = a.erf,b.erf
+$ ./build --filter io --target arm64 --filter net -v
+target = arm64
+filters = io,net
 verbose = true
 ```
 
@@ -368,8 +368,8 @@ compile for every kind of `Arg` in the spec.
 - It goes into nested tuples, in field order. A field of an unnamed tuple
   is named `Field0`, `Field1`, and so on.
 - An `Arg` that appears more than once is visited once, under the field
-  name where it first appears. `branch` above is in both `launch` and
-  `unpack`, and is visited as `branch`.
+  name where it first appears. `target` above is in both `build` and
+  `test`, and is visited as `target`.
 - A `command` is visited, but not the `Arg`s of its own spec. Use
   `when arg is CommandArg` to pick it out, and call `eachArg` on its spec
   tuple yourself if you need those too.
