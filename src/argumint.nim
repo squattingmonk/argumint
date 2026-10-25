@@ -853,6 +853,37 @@ macro specTuple*(args: varargs[untyped]): untyped =
       merged)
 
 # ------------------------------------------------------------------------------
+# Visiting a Spec Tuple's Args
+# ------------------------------------------------------------------------------
+
+# A wrapper, not an `export`, so it shows on this module's doc page.
+template eachArg*(spec: tuple, name, arg, body: untyped) =
+  ## Runs `body` once for each Arg `newSpec(spec)` registers, with `name`
+  ## bound to its field name and `arg` to the field, with its own type:
+  ##
+  ## ```nim
+  ## spec.eachArg(name, arg):
+  ##   when arg is ValueArg:
+  ##     if arg.seen: echo name, " = ", arg.get
+  ## ```
+  ##
+  ## - It goes into nested tuples, in field order. An unnamed tuple's
+  ##   fields are named `Field0`, `Field1`, ...
+  ## - An Arg reached more than once is visited once, under the field name
+  ##   where it's first reached.
+  ## - A Command is visited, but its own spec's Args are not.
+  ## - Message Arguments (`help()`, `version()`, ...) are visited.
+  ## - `break` ends the walk and `continue` skips to the next Arg. Inside a
+  ##   loop, block or nested `eachArg` that `body` opens, they keep their
+  ##   usual meaning.
+  ##
+  ## A member of `spec` that is neither an Arg nor a tuple is a compile
+  ## error. See the guide's
+  ## [Visiting Every Arg](guide/specs.html#visiting-every-arg) and
+  ## `docs/adr/0087-each-arg-mirrors-registration.md`.
+  specbuild.eachArg(spec, name, arg, body)
+
+# ------------------------------------------------------------------------------
 # These are the functions that handle shell completion and initiate parsing.
 # ------------------------------------------------------------------------------
 

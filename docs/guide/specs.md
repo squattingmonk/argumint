@@ -319,6 +319,67 @@ The sources are ordered from weakest to strongest, so `spec.port.seenBy >
 byConfig` means the value came from the environment or the command line. See
 [Value Precedence](precedence.md).
 
+## Visiting Every Arg
+
+`eachArg` runs a block of code once for each `Arg` in a spec, nested tuples
+included. This proc collects the values the user typed on the command line,
+whatever spec it's given:
+
+```nim
+import std/strutils
+import argumint
+
+proc fromCommandLine(spec: tuple): seq[(string, string)] =
+  spec.eachArg(name, arg):
+    when arg is ValuesArg:
+      if arg.seenBy == byCli:
+        result.add (name, arg.get.join(","))
+    elif arg is ValueArg or arg is FlagArg:
+      if arg.seenBy == byCli:
+        result.add (name, $arg.get)
+
+let
+  target = opt("--target=<t>", default = "native")
+  spec = (
+    build: (target: target, jobs: opt("--jobs=<n>", default = 1)),
+    test: (target: target, filters: opts("--filter=<f>")),
+    verbose: flag("-v, --verbose"),
+    help: help())
+
+spec.parseOrQuit()
+for (key, value) in fromCommandLine(spec):
+  echo key, " = ", value
+```
+
+```console
+$ ./build --filter io --target arm64 --filter net -v
+target = arm64
+filters = io,net
+verbose = true
+```
+
+You choose the two names. `name` is the field's name, as a string. `arg` is
+the field itself, with its own type, so `when arg is ValuesArg` picks out
+the `opts` and `arg.get` gives a `seq`. Without the `when`, the code has to
+compile for every kind of `Arg` in the spec.
+
+`eachArg` visits the `Arg`s that `newSpec` would build the spec from:
+
+- It goes into nested tuples, in field order. A field of an unnamed tuple
+  is named `Field0`, `Field1`, and so on.
+- An `Arg` that appears more than once is visited once, under the field
+  name where it first appears. `target` above is in both `build` and
+  `test`, and is visited as `target`.
+- A `command` is visited, but not the `Arg`s of its own spec. Use
+  `when arg is CommandArg` to pick it out, and call `eachArg` on its spec
+  tuple yourself if you need those too.
+- `help()`, `version()` and `message()` are visited like any other `Arg`.
+  They're `MessageArg`s, so `when arg is MessageArg` picks them out.
+
+`break` stops visiting, and `continue` skips to the next `Arg`, as they
+would in a `for` loop. Inside a loop of your own in the block, or another
+`eachArg`, they work on that one as usual.
+
 ## Setting Values Yourself
 
 Sometimes your program needs to set a value itself, such as a default worked

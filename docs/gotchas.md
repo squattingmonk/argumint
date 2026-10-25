@@ -741,3 +741,17 @@ debugging time. Read this before touching the constructors and `flagOp`/
   `varargs[untyped]` macro that builds the tuple literal itself and, given
   a base, hands the base and that literal to the typed `mergeSpecTuple`,
   which reads their types.
+
+- **A generic's prepass binds a macro's loop names to whatever they name
+  in scope.** In a generic proc, `spec.eachArg(name, arg): ... arg.get`
+  reaches the macro with `name` and `arg` already bound to argumint's
+  `name` and `arg` procs (an `nnkOpenSymChoice`), in the parameters and in
+  the body. Declaring `let arg = ...` from those symbols fails as `ambiguous
+  identifier`. So `eachArg` (`specbuild.nim`) turns every symbol spelled
+  like a loop name back into an ident first. A body that means argumint's
+  `arg` proc can't call it by that name; that's the cost of the loop name.
+
+- **A self-recursive template over `fieldPairs` can't call itself when it
+  expands in another module,** and a `fieldPairs` loop rejects `continue`.
+  Both ruled out a template for `eachArg`, which is a macro that reads the
+  tuple's type and writes one block per Arg instead.
