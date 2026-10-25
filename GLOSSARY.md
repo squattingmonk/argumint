@@ -110,7 +110,10 @@ rather than overflowing. `ops` also accepts a comma-separated
 each — see `docs/adr/0028-flag-ops-string-convenience.md` — but this is a
 syntactic shortcut for the same explicit path, not a third authoring path.
 See FlagOp Alias for how either path groups the Variants that share one
-Flag Operation.
+Flag Operation. Only an `=` op and a `bool`'s Implicit Operation *have a
+value*, the one value they always set, which an env or config value may
+name instead of a Variant (see Contribution); every other op is relative or
+opaque.
 _Avoid_: blank op, op handler, variant behavior; FlagOp (the type
 `flagOp*` returns; fine in prose when referring to it)
 
@@ -753,9 +756,12 @@ token never receives one (it is cluster syntax, so what failed is a letter
 inside it rather than the run as a whole). One rule serves Options and
 Commands alike, except that a Command is a candidate only if it or a Spec
 nested below it declares every option typed after the mistyped word (up
-to a literal `--`), so the corrected input can't fail on one of them. See
-`docs/adr/0035-parse-failure-reporting.md` and
-`docs/adr/0036-rank-failed-branches-by-reach.md`.
+to a literal `--`), so the corrected input can't fail on one of them. The
+same rule suggests a Flag's own Variants for an option-shaped env or config
+value that names none of its Flag Operations; anything else there gets no
+suggestion. See `docs/adr/0035-parse-failure-reporting.md`,
+`docs/adr/0036-rank-failed-branches-by-reach.md` and
+`docs/adr/0085-flag-env-and-config-values.md`.
 _Avoid_: Spell check, autocorrect (nothing is corrected — the token is
 named either way, and the suggestion is additive)
 
@@ -835,8 +841,12 @@ _Avoid_: Fallback order, resolution order
 **Contribution**:
 One value offered to an Arg by one Value Precedence tier: the raw string, the
 Variant typed for it (command line only), and the tier it claims — `none`
-for a write that declares no tier. For a Flag the value is always the
-Variant whose Flag Operation applies, whichever tier supplied it. Carries no
+for a write that declares no tier. For a Flag the value names the Flag
+Operation that applies: the Variant, or from env or config a value one of
+the Flag's Flag Operations has (an `=` op's, or either value of a `bool`'s,
+its default resetting it). A Variant is tried first, and of two ops with the
+same value the first declared wins. See
+`docs/adr/0085-flag-env-and-config-values.md`. Carries no
 source label: an error names `(env: PORT)` or `(configKey: a.b.c)` by
 reading the Arg's own Env Source or Config Key for the claimed tier. What an
 Arg does with a Contribution is its `accept`, the one method a custom Arg

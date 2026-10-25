@@ -453,7 +453,7 @@ proc flagOp*[T](variants: string, op: static string, value: T, help = ""): FlagO
   ## overflowing; a range type stops at its own.
   const error = opError[T](op)
   when error.len > 0: {.error: error.}
-  initFlagOp(variants, namedOp(op, value), if help.len > 0: help else: describeOp(op, value))
+  initFlagOp(variants, op, value, help)
 
 proc flagOp*[T](variants: string, apply: proc (value: var T), help = ""): FlagOp[T] =
   ## Declares a Flag Operation that runs `apply` on the flag's value, for
@@ -500,16 +500,17 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ##   the first place). `default` must already satisfy `clamp`, or spec
   ##   construction raises `SpecDefect` -- see
   ##   `docs/adr/0016-flag-clamp.md`.
-  ## - `env` is as on `opt[T]`, except that each env value isn't converted
-  ##   but names one of the flag's own declared Variants (e.g. `--verbose`),
-  ##   whose Flag Operation applies; an unrecognized name raises
-  ##   `ConversionError`.
+  ## - `env` is as on `opt[T]`, except that each env value names a Flag
+  ##   Operation, which applies: one of the flag's own declared Variants
+  ##   (e.g. `--verbose`), or else a value an `=` op sets (`2` for
+  ##   `flagOp("--level2", "=", 2)`) or, for a `bool`, `true` or `false`
+  ##   (`default` resets it). Anything else raises `ConversionError`. See
+  ##   `docs/adr/0085-flag-env-and-config-values.md`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
-  ##   the command line or via env -- each value must name one of the
-  ##   flag's own declared Variants, same as `env`. Consulted below env in
-  ##   Value Precedence, above the coded default. See
-  ##   `docs/adr/0018-config-source.md`.
+  ##   the command line or via env -- each value names a Flag Operation,
+  ##   same as `env`. Consulted below env in Value Precedence, above the
+  ##   coded default. See `docs/adr/0018-config-source.md`.
   ##
   ## `help` and `hidden` are as on `arg[T]`.
   initFlagArg[T](variants = variants, ops = ops, default = default,

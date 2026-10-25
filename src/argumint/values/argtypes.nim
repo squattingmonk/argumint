@@ -21,7 +21,7 @@
 import std/[enumutils, fenv, math, options, pegs, sequtils, strformat, strutils, typetraits]
 
 import ./[display, flagclamp, validators], ../core/[backend, errors, variant],
-  ../text/style, ../configsource
+  ../text/[style, suggest], ../configsource
 
 type
   Description = tuple[defaultStr: string, validatorHelp: StyledText, completions: seq[string]]
@@ -76,11 +76,17 @@ type
     desc: string
       ## The Flag Operation Description: the `help` given, else one
       ## generated from a named op, else empty.
+    value: Option[T]
+      ## What it sets the flag to, if that's always one value: an `=` op's.
 
   BoundOp = object
     ## A Flag Operation stored on a `FlagArgBase`: its `FlagOp`'s `apply`,
     ## bound to the flag's storage and clamp.
     apply: proc (self: FlagArgBase)
+    matches: proc (text: string): bool
+      ## Whether `text`, read as the flag's `T`, is the value `apply` sets;
+      ## nil unless its `FlagOp` has a `value` and `T` has `fromString`
+      ## and `==`.
     desc: string
     group: int
       ## Which `FlagOp` it came from: two Variants are FlagOp Aliases if
@@ -89,13 +95,16 @@ type
   FlagArgBase* = ref object of Arg
     ## The untyped base of `FlagArg[T]`, on the same terms as
     ## `ValueArgBase`. After construction, nothing reads anything of a
-    ## Flag Operation but its Variant.
+    ## Flag Operation but its Variant and the value it sets.
     env: Option[EnvSource]
     cfgKey: ConfigKey
       ## Not named `configKey` -- that's the base `Arg` method name.
     ops: seq[tuple[variant: string, op: BoundOp]]
       ## Every Variant, in declared order, and the Flag Operation it runs.
       ## A seq, not a table: see docs/gotchas.md, table default capacity.
+    valueOps: seq[BoundOp]
+      ## Every op with a `matches`, in the order an env or config value is
+      ## matched against them: see `valueOp`.
     reset: proc (self: FlagArgBase) {.nimcall.}
       ## Restores the default.
     describe: proc (self: FlagArgBase): StyledText {.nimcall.}
@@ -552,12 +561,20 @@ proc initFlagOp*[T](variants: string, apply: proc (value: var T), desc: string):
   ## spellings.
   FlagOp[T](spellings: splitFlagSpellings(variants), apply: apply, desc: desc)
 
+proc initFlagOp*[T](variants: string, op: string, value: T, help: string): FlagOp[T] =
+  ## A `FlagOp` for the named op `op` with `value`, described by `help` or
+  ## else `describeOp`. An `=` op keeps `value`, for an env or config value
+  ## to name.
+  result = initFlagOp(variants, namedOp(op, value), if help.len > 0: help else: describeOp(op, value))
+  if op == "=": result.value = some(value)
+
 proc implicitOp[T](default: T): FlagOp[T] =
   ## `T`'s Implicit Operation, which a flag's bare variants run, or one with
   ## no `apply` if `T` has none.
   when T is bool:
     let opposite = not default
-    FlagOp[T](apply: proc (value: var T) = value = opposite, desc: "Set to " & $opposite)
+    FlagOp[T](apply: proc (value: var T) = value = opposite, desc: "Set to " & $opposite,
+      value: some(opposite))
   elif T is SomeInteger:
     FlagOp[T](apply: proc (value: var T) = value = value.stepped('+', 1), desc: "Increase by 1")
   elif T is enum:
@@ -565,11 +582,21 @@ proc implicitOp[T](default: T): FlagOp[T] =
   else:
     FlagOp[T]()
 
+proc matcher[T](value: Option[T]): proc (text: string): bool =
+  ## Whether a string, read as a `T`, is `value`; nil if there's no `value`,
+  ## or `T` can't be read from a string or compared.
+  when T is ValueType and compiles(default(T) == default(T)):
+    if value.isSome:
+      let expected = value.get
+      return proc (text: string): bool =
+        try: fromString[T](text) == expected
+        except ValueError: false
+
 proc bindOp[T](op: FlagOp[T], group: int): BoundOp =
   ## `op` bound to a `FlagArg[T]`'s value, then its clamp. Its own proc, not
   ## inline in `initFlagArg`'s loop: see docs/gotchas.md, closures in loops.
   let apply = op.apply
-  BoundOp(desc: op.desc, group: group, apply: proc (self: FlagArgBase) =
+  BoundOp(desc: op.desc, group: group, matches: matcher(op.value), apply: proc (self: FlagArgBase) =
     let flag = FlagArg[T](self)
     apply(flag.value)
     if not flag.clamp.isNil:
@@ -617,7 +644,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOp[T]] =
         else: fromString[T](text)
       except ValueError as e:
         raise newException(SpecDefect, fmt"unexpected flag value for {spelling}: {e.msg}")
-    result.add FlagOp[T](spellings: @[spelling], apply: namedOp(op, value), desc: describeOp(op, value))
+    result.add initFlagOp(spelling, op, value, help = "")
 
 proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## Sets the value of `self` directly, arbitrating against `seenBy` like
@@ -649,15 +676,29 @@ proc opIndex(self: FlagArgBase, variant: string): int =
     if entry.variant == variant: return i
   -1
 
+proc valueOp(self: FlagArgBase, text: string): int =
+  ## The index of the first of `self.valueOps` that sets the value `text`
+  ## names, or -1.
+  for i, op in self.valueOps:
+    if op.matches(text): return i
+  -1
+
 method accept(self: FlagArgBase, c: Contribution, how: Arbitration) =
-  ## `c.value` is the Variant whose Flag Operation applies, on every tier.
-  ## A Variant the flag doesn't have raises `ConversionError`.
-  let i = self.opIndex(c.value)
-  if i < 0:
-    raise newPlainError(ConversionError, "$# is not a known variant for the flag $#" % [c.value.quoted, self.subject(c)])
+  ## `c.value` is the Variant whose Flag Operation applies, or failing that
+  ## a value one of its `=` ops sets. Anything else raises
+  ## `ConversionError`, with a Did-You-Mean Suggestion from this flag's own
+  ## Variants.
+  let op =
+    if (let i = self.opIndex(c.value); i >= 0): self.ops[i].op
+    elif (let i = self.valueOp(c.value); i >= 0): self.valueOps[i]
+    else:
+      # Only option-shaped input draws a suggestion, as on the command line.
+      let hint = if c.value.startsWith('-'): didYouMean(c.value, self.variants, srOption).plain else: ""
+      raise newPlainError(ConversionError, "$# is not a known variant or value for the flag $#$#" %
+        [c.value.quoted, self.subject(c), hint])
   if how == arReplace:
     self.clear
-  self.ops[i].op.apply(self)
+  op.apply(self)
 
 method clear(self: FlagArgBase) =
   ## Removes the `seenBy` provenance and restores the default value of `self`.
@@ -787,6 +828,13 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
         raise newException(SpecDefect, fmt"duplicate variant for {name}")
       result.ops.add (name, bound)
       names.add name
+    if op.spellings.len > 0 and not bound.matches.isNil:
+      result.valueOps.add bound
+  when T is bool:
+    # A bool's Implicit Operation also matches its default: see ADR 0085.
+    if implicit.spellings.len > 0:
+      let reset = FlagOp[T](apply: proc (value: var T) = value = default, value: some(default))
+      result.valueOps.add bindOp(reset, group = 0)  # the Implicit Operation's
   result.initBase(ArgKind.Flag, names)
 
 when isMainModule:
@@ -895,7 +943,8 @@ when isMainModule:
       hidden = false, clamp = noClamp[Rank](), env = none(EnvSource), cfgKey = noConfigKey())
 
   proc setTo(variants: string, value: Rank, desc = ""): FlagOp[Rank] =
-    initFlagOp[Rank](variants, namedOp("=", value), desc)
+    result = initFlagOp(variants, "=", value, desc)
+    result.desc = desc
 
   suite "ValueArgBase and FlagArgBase, built directly":
     test "a ValueArg's parse/defaultStr work when built directly, bypassing arg()":
@@ -937,3 +986,40 @@ when isMainModule:
       a.parse("rMid")
       a.parse("rHigh")
       check a.value == some(@[rLow, rMid, rHigh])
+
+  suite "a FlagArgBase matching an env or config value (#330)":
+    test "the first `=` op declared that sets a value is the one it runs":
+      let f = rankFlag("", setTo("--mid", rMid, "first"), setTo("--middle", rMid, "second"))
+      check f.valueOps[f.valueOp("rMid")].desc == "first"
+      check f.valueOp("rHigh") == -1
+
+    test "a Variant is tried before a value":
+      # `-r` is a Variant setting "high", and also the value `--low` sets.
+      let f = initFlagArg[string](variants = "", ops = [initFlagOp("-r", "=", "high", ""),
+        initFlagOp("--low", "=", "-r", "")], default = "",
+        help = "", group = "", hidden = false, clamp = noClamp[string](), env = none(EnvSource),
+        cfgKey = noConfigKey())
+      f.parse("-r")
+      check f.value == "high"
+
+    test "an enum's value is read through its converter":
+      let f = rankFlag("", setTo("--high", rHigh))
+      f.parse("rHigh")
+      check f.value == rHigh
+
+    test "a bool's value may be its default, after its Implicit Operation ran":
+      let f = initFlagArg[bool](variants = "-q", ops = [], default = true, help = "", group = "",
+        hidden = false, clamp = noClamp[bool](), env = none(EnvSource), cfgKey = noConfigKey())
+      f.parse("false")
+      check f.value == false
+      f.parse("true")
+      check f.value == true
+
+    test "a set flag builds with no matcher, so only a Variant matches":
+      let f = initFlagArg[set[Rank]](variants = "", ops = [initFlagOp("--all", "=", {rLow, rMid, rHigh}, "")],
+        default = {},
+        help = "", group = "", hidden = false, clamp = noClamp[set[Rank]](), env = none(EnvSource),
+        cfgKey = noConfigKey())
+      check f.valueOps.len == 0
+      expect ConversionError:
+        f.parse("rLow")

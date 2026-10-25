@@ -48,7 +48,7 @@ Every withheld module lives in a subdirectory for its layer:
 
 | Layer      | Modules                                                      | Job                                    |
 |------------|--------------------------------------------------------------|----------------------------------------|
-| `text/`    | `style`, `console`, `prose`                                  | Styled text, terminal detection, wrapping |
+| `text/`    | `style`, `console`, `prose`, `suggest`                       | Styled text, terminal detection, wrapping, suggestions |
 | `core/`    | `errors`, `variant`, `completer`, `envvar`, `settings`, `backend`, `outcome` | The data model and what it points at |
 | `grammar/` | `lexer`, `parser`, `usage`, `fsmgraph`, `specbuild`, `dot`   | Spec tuple and usage string to FSM     |
 | `values/`  | `argtypes`, `validators`, `flagclamp`, `display`             | Converting, validating, storing values |
@@ -445,7 +445,8 @@ command` where a Command was expected, an `unrecognized option`, an
 rest of `missing command` too if the named token sat where a Command was
 expected. With nothing named and no leftovers, every complaint stays.
 
-- **Did-You-Mean Suggestions**: `didYouMean` suggests Options and Commands
+- **Did-You-Mean Suggestions**: `didYouMean` (`text/suggest`, below
+  `values` so a Flag's `accept` can share it) suggests Options and Commands
   within an edit distance (optimal string alignment over runes,
   `osaDistance`) scaled to the candidate's length. It never suggests a
   short option. `unknownCommand` first drops every Command whose subtree
@@ -618,8 +619,11 @@ message as a `SpecDefect`.
 `initFlagArg` builds the whole flag in one call: it binds each op to the
 flag (`bindOp`, which runs the op and then the clamp), assigns each
 `FlagOp` its own alias group (ADR 0027), and rejects a duplicate Variant or
-a default its own clamp would change. `accept` looks up the contributed
-Variant and runs its op. `aliases` compares groups. `variantDesc` returns
+a default its own clamp would change. It also lists, in `valueOps`, each op
+that sets one value an env or config value can name: an `=` op, and a
+`bool`'s Implicit Operation, with one more entry that resets a `bool` to
+its default (ADR 0085). `accept` looks up the contributed Variant, then
+that value, and runs its op. `aliases` compares groups. `variantDesc` returns
 an op's description only when the flag's descriptions differ (ADR 0063).
 
 A `FlagClamp[T]` (`values/flagclamp.nim`, ADR 0016) is `clamp(slice)` or
