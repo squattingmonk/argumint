@@ -22,6 +22,9 @@ proc `-`(a, b: Hue): Hue {.borrow.}
 proc `*`(a, b: Hue): Hue {.borrow.}
 proc `==`(a, b: Hue): bool {.borrow.}
 proc `$`(a: Hue): string {.borrow.}
+converter toHue(value: string): Hue =
+  ## Reads only `seven`, so a match can't be `parseInt`'s.
+  if value == "seven": Hue(7) else: raise newException(ValueError, "not a hue")
 
 proc `+`(a, b: Tally): Tally = Tally(total: a.total + b.total, via: "+")
 proc `+=`(a: var Tally, b: Tally) =
@@ -33,6 +36,11 @@ type Fives = ref object of ConfigSource
 
 method lookup(self: Fives, key: ConfigKey): Option[seq[string]] =
   some(@["--up"])
+
+type Two = ref object of ConfigSource
+
+method lookup(self: Two, key: ConfigKey): Option[seq[string]] =
+  some(@["2"])
 
 # Each spec holds its flag as a plain `Arg`: two tuples that differ only in
 # a range type miscompile (docs/gotchas.md).
@@ -263,3 +271,103 @@ suite "where a flag's value comes from":
     let f = flag[int](ops = [flagOp("--up", "+=", 5)], clamp = clamp(0..10))
     f.put(20)
     check f.get == 10
+
+const LevelVar = "ARGUMINT_FLAG_OPS_LEVEL"
+
+proc fromEnv[T](flag: FlagArg[T], value: string): T =
+  ## `flag`'s value after a parse with `LevelVar` set to `value`.
+  putEnv(LevelVar, value)
+  defer: delEnv(LevelVar)
+  flag.run()
+
+suite "an env or config value can name the value an `=` op sets (#330)":
+  test "an env value runs the `=` op that sets it":
+    let f = flag[int](ops = [flagOp("--level2", "=", 2)], env = LevelVar)
+    check f.fromEnv("2") == 2
+
+  test "so does the string form of `ops`":
+    let f = flag[int](ops = "--level2=2", env = LevelVar)
+    check f.fromEnv("2") == 2
+
+  test "so does a Config Source":
+    let f = flag[int](ops = [flagOp("--level2", "=", 2)], configKey = configKey("level"))
+    (f: Arg(f),).parse(args = @[], command = "prog",
+      settings = newSpecSettings(configSources = @[ConfigSource(Two())]))
+    check f.get == 2
+
+  test "an enum's `=` op matches its value by name":
+    let f = flag[Size](ops = [flagOp("--big", "=", large)], env = LevelVar)
+    check f.fromEnv("large") == large
+
+  test "a type read by the user's converter matches through it":
+    let f = flag[Hue](ops = [flagOp("--red", "=", Hue(7))], env = LevelVar)
+    check int(f.fromEnv("seven")) == 7
+
+  test "a bool's Implicit Operation matches either value, whatever the default":
+    for default in [false, true]:
+      let f = flag("-v, --verbose", default = default, env = LevelVar)
+      check f.fromEnv("true") == true
+      check f.fromEnv("false") == false
+
+  test "no relative or opaque op matches a value":
+    let flags = [
+      flag[int]("-v", env = LevelVar),
+      flag[int](ops = [flagOp("--up", "+=", 1), flagOp("--down", "-=", -1), flagOp("--times", "*=", 1)],
+                env = LevelVar),
+      flag[int](ops = [flagOp("--one", proc (value: var int) = value = 1), flagOpIt[int]("--it", 1)],
+                env = LevelVar)]
+    for f in flags:
+      expect ConversionError:
+        discard f.fromEnv("1")
+    let e = flag[Size]("-s", env = LevelVar)
+    expect ConversionError:
+      discard e.fromEnv("medium")
+
+  test "a Flag Clamp applies after a value match":
+    let f = flag[int](ops = [flagOp("--level9", "=", 9)], clamp = clamp(0..5), env = LevelVar)
+    check f.fromEnv("9") == 5
+
+  test "each value of several resolves on its own, in order":
+    let f = flag[int](ops = [flagOp("--boost", "+=", 5), flagOp("--level2", "=", 2)], env = LevelVar)
+    check f.fromEnv("2:--boost") == 7
+    check f.fromEnv("--boost:2") == 2
+
+  test "a set flag matches by Variant only":
+    let f = flag[set[Size]](ops = [flagOp("--all", "=", {small, medium, large})], env = LevelVar)
+    check f.fromEnv("--all") == {small, medium, large}
+    expect ConversionError:
+      discard f.fromEnv("small")
+
+proc complaintOf[T](flag: FlagArg[T], value: string): string =
+  ## The first line of the error a parse with `LevelVar` set to `value`
+  ## raises.
+  try:
+    discard flag.fromEnv(value)
+  except ConversionError as e:
+    result = e.msg.splitLines[0]
+
+suite "an env or config value no Flag Operation names (#330)":
+  test "says it's neither a Variant nor a value":
+    let f = flag[int]("--level", ops = [flagOp("--level2", "=", 2)], env = LevelVar)
+    check f.complaintOf("3") ==
+      "  - \"3\" is not a known variant or value for the flag --level (env: ARGUMINT_FLAG_OPS_LEVEL)"
+
+  test "an option-shaped near miss suggests one of the flag's own Variants":
+    # `--verbsoes` is as near as `--verbose`, but belongs to another flag.
+    putEnv(LevelVar, "--verbsoe")
+    defer: delEnv(LevelVar)
+    let spec = (v: flag("--verbose", env = LevelVar), w: flag("--verbsoes"))
+    try:
+      spec.parse(args = @[], command = "prog")
+      fail()
+    except ConversionError as e:
+      check e.msg.splitLines[0] ==
+        "  - \"--verbsoe\" is not a known variant or value for the flag --verbose (env: ARGUMINT_FLAG_OPS_LEVEL); " &
+        "did you mean --verbose?"
+
+  test "input that isn't option-shaped gets no suggestion":
+    let f = flag("--verbose", env = LevelVar)
+    check f.complaintOf("verbose") ==
+      "  - \"verbose\" is not a known variant or value for the flag --verbose (env: ARGUMINT_FLAG_OPS_LEVEL)"
+    check f.complaintOf("-5") ==
+      "  - \"-5\" is not a known variant or value for the flag --verbose (env: ARGUMINT_FLAG_OPS_LEVEL)"

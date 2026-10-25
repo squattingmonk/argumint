@@ -619,8 +619,11 @@ message as a `SpecDefect`.
 `initFlagArg` builds the whole flag in one call: it binds each op to the
 flag (`bindOp`, which runs the op and then the clamp), assigns each
 `FlagOp` its own alias group (ADR 0027), and rejects a duplicate Variant or
-a default its own clamp would change. `accept` looks up the contributed
-Variant and runs its op. `aliases` compares groups. `variantDesc` returns
+a default its own clamp would change. It also lists, in `valueOps`, each op
+that sets one value an env or config value can name: an `=` op, and a
+`bool`'s Implicit Operation, with one more entry that resets a `bool` to
+its default (ADR 0085). `accept` looks up the contributed Variant, then
+that value, and runs its op. `aliases` compares groups. `variantDesc` returns
 an op's description only when the flag's descriptions differ (ADR 0063).
 
 A `FlagClamp[T]` (`values/flagclamp.nim`, ADR 0016) is `clamp(slice)` or

@@ -42,8 +42,8 @@ proc didYouMean*(typed: string, candidates: seq[string],
   ## `"; did you mean --port?"`, each suggestion styled as `role`, for whichever
   ## of `candidates` sit within `min(2, max(1, n div 4))` of `typed`, `n` being
   ## the candidate's own dash-stripped length; all tied at the best distance,
-  ## sorted. The cap is load-bearing. Eligibility of `typed` is
-  ## `unknownOption`'s call, not this one's. See ADR 0035.
+  ## sorted. The cap is load-bearing. Eligibility of `typed` is the caller's
+  ## (`unknownOption`, or a Flag's `accept`), not this one's. See ADR 0035.
   if typed.isShortForm:
     return
   var

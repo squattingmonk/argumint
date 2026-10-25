@@ -163,13 +163,15 @@ Usage:
 ### Flags from a Variable
 
 A flag's variable holds the names of the flag to apply, as if the user had
-typed them:
+typed them. It can also hold a value that one of the flag's `=` operations
+sets, like `0` for `--quiet` here:
 
 ```nim
 import argumint
 
 let spec = (
-  verbose: flag[int]("-v, --verbose", env = "VERBOSE", help = "Show more"),
+  verbose: flag[int]("-v, --verbose", ops = "--quiet=0", default = 1,
+    env = "VERBOSE", help = "Show more"),
 )
 
 spec.parseOrQuit()
@@ -178,16 +180,32 @@ echo "verbose=", spec.verbose
 
 ```console
 $ VERBOSE=--verbose ./talk
-verbose=1
-$ VERBOSE=-v:-v ./talk
 verbose=2
+$ VERBOSE=-v:-v ./talk
+verbose=3
+$ VERBOSE=0 ./talk
+verbose=0
+```
+
+`--verbose` adds 1 rather than setting a value, so `2` is neither a name nor
+a value. A name that's nearly right gets a suggestion:
+
+```console
 $ VERBOSE=2 ./talk
 Parsing error:
-  - "2" is not a known variant for the flag -v (env: VERBOSE)
+  - "2" is not a known variant or value for the flag -v (env: VERBOSE)
+
+Usage:
+  talk [options]
+$ VERBOSE=--verbsoe ./talk
+Parsing error:
+  - "--verbsoe" is not a known variant or value for the flag -v (env: VERBOSE); did you mean --verbose?
 
 Usage:
   talk [options]
 ```
+
+A `bool` flag also takes `true` or `false`, whatever its default.
 
 ## Config Files
 
@@ -234,7 +252,7 @@ echo "host=", spec.host, " port=", spec.port, " tags=", spec.tags, " verbose=", 
 ```
 
 A JSON array gives several values. As with an environment variable, a flag's
-values are its names.
+values are its names, or values its `=` operations set.
 
 When there's more than one config source, the last one with a value for a key
 wins. With a `local.json` of `{"server": {"port": 7000}}`:

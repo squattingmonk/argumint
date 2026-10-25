@@ -2,7 +2,9 @@
 
 > **Partly superseded by
 > [ADR 0064](0064-no-record-separator-env-split.md)**: an env value is no
-> longer split on `\x1e`. The rest of this ADR stands.
+> longer split on `\x1e`. Its section on Flag env values is superseded by
+> [ADR 0085](0085-flag-env-and-config-values.md). The rest of this ADR
+> stands.
 
 Extends ADR 0004.
 
@@ -60,6 +62,10 @@ value is applied, generalizing the single-value fallback ADR 0004 already
 established for that case.
 
 ## Flag env values are now Variant names, not raw values
+
+> **Superseded by [ADR 0085](0085-flag-env-and-config-values.md)**: a value
+> may also name the value one of the Flag's `=` ops (or a `bool`'s Implicit
+> Operation) sets.
 
 Flag env fallback previously converted the env string straight to `T` and
 applied it via a hardcoded `=` -- a workaround forced by env only ever

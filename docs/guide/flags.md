@@ -34,7 +34,8 @@ verbose=3 force=true color=false
 - An enum flag moves to the next value each time it's given.
 
 A flag can also be set by an environment variable or a config file, whose
-value is one of the flag's names. See [Value Precedence](precedence.md).
+value is one of the flag's names, or a value one of its `=` operations sets
+(`true` or `false` for a `bool` flag). See [Value Precedence](precedence.md).
 
 ## Types and Defaults
 

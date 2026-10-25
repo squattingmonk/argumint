@@ -248,7 +248,7 @@ suite "a bad value names the source it came from (#145)":
     defer: delEnv("ARGUMINT_WRITE_V")
     let spec = (v: flag[int](ops = [flagOp("-v", "+=", 1)], default = 0,
                              env = "ARGUMINT_WRITE_V", help = ""))
-    check "\"--nope\" is not a known variant for the flag -v (env: ARGUMINT_WRITE_V)" in failure(proc () =
+    check "\"--nope\" is not a known variant or value for the flag -v (env: ARGUMINT_WRITE_V)" in failure(proc () =
       spec.parse(usage = "[-v]", args = @[], command = "app",
                  settings = newSpecSettings(style = nil)))
 
@@ -257,7 +257,7 @@ suite "a bad value names the source it came from (#145)":
     defer: delEnv("ARGUMINT_WRITE_V")
     let spec = (v: flag[int](ops = [flagOp("-v", "+=", 1)], default = 0,
                              env = "ARGUMINT_WRITE_V", help = ""))
-    check "\"--café\" is not a known variant for the flag -v" in failure(proc () =
+    check "\"--café\" is not a known variant or value for the flag -v" in failure(proc () =
       spec.parse(usage = "[-v]", args = @[], command = "app",
                  settings = newSpecSettings(style = nil)))
 
