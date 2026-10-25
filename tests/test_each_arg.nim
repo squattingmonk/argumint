@@ -23,15 +23,15 @@ proc checkErrors(code: string): string =
 suite "eachArg":
   test "an Arg in two nested tuples is visited once, under its first leaf name":
     let
-      branch = opt("--branch=<b>")
+      target = opt("--target=<t>")
       spec = (
-        launch: (branch: branch, gameBin: opt("--gameBin=<g>")),
-        unpack: (branch: branch, files: opts("--file=<f>")),
-        global: flag("--global"))
+        build: (target: target, jobs: opt("--jobs=<n>")),
+        test: (target: target, filters: opts("--filter=<f>")),
+        verbose: flag("-v"))
     var names: seq[string]
     spec.eachArg(name, arg):
       names.add name
-    check names == @["branch", "gameBin", "files", "global"]
+    check names == @["target", "jobs", "filters", "verbose"]
 
   test "an anonymous tuple's fields are named Field0, Field1, ...":
     let spec = (flag("-a"), (flag("-b"), flag("-c")))
@@ -43,12 +43,12 @@ suite "eachArg":
   test "a generic proc in another module reads each Arg by its own type":
     let spec = (
       verbose: flag[int](ops = "-v+=1"),
-      keys: (branch: opt("--branch=<b>"), files: opts("--file=<f>")),
+      keys: (target: opt("--target=<t>"), filters: opts("--filter=<f>")),
       dryRun: flag("--dry-run"))
-    spec.parse(args = @["--file=a", "-vv", "--branch=dev", "--file=b"],
-      command = "prog")
-    check seenValues(spec) == @["verbose=2", "branch=dev", "files=a",
-      "files=b"]
+    spec.parse(args = @["--filter=io", "-vv", "--target=arm64",
+      "--filter=net"], command = "prog")
+    check seenValues(spec) == @["verbose=2", "target=arm64", "filters=io",
+      "filters=net"]
 
   test "a Command is visited, but not its own spec's Args":
     let spec = (
