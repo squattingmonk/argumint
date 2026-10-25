@@ -1,5 +1,9 @@
 # Flag Clamp is a new mechanism, not a Validator extension
 
+> **Note (#332):** A Flag can now take a `validator`, which checks only a
+> value it receives as text (env or config), never a Flag Operation's
+> result. The clamp still applies afterward (ADR 0086).
+
 > **Note (#248):** Flag Operations are now closures, with no
 > `defineFlagArg`; the clamp runs after each one. Named ops and Implicit
 > Operations on a number now stop at its type's bounds, an implicit clamp

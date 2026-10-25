@@ -1679,6 +1679,10 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   # existing (a rename, a deleted field). These positives are its other
   # half: together they mean "exists, but not exported". Keep the two lists
   # in sync -- see docs/adr/0030-core-types-exported-spec-opaque.md.
+  test "a validated flag's type guard exists":
+    check compiles(requireValidatedFlagType(int))
+    check not compiles(requireValidatedFlagType(string))
+
   test "the value-display helpers exist":
     check quoted("x") == "\"x\""
     check showValue(1) == "1"
@@ -1818,11 +1822,13 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
           check not field.isNil
 
   test "a `FlagArg` constructor sets every hook on its base":
-    let base = FlagArgBase(flag[int]("-v"))
+    # Each but `assign`, which only a `validator` sets (ADR 0086).
+    let base = FlagArgBase(flag[int]("-v", env = "LEVEL", validator = range(0..5)))
     for name, field in base[].fieldPairs:
       when (field is proc):
         checkpoint name
         check not field.isNil
+    check FlagArgBase(flag[int]("-v"))[].assign.isNil
 
   test "the read accessors behind `get` exist in `argumint/values/argtypes`":
     let

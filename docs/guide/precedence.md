@@ -207,6 +207,55 @@ Usage:
 
 A `bool` flag also takes `true` or `false`, whatever its default.
 
+### Values a Validator Allows
+
+Give a flag a `validator` and its variable can hold any value the validator
+allows, not only the ones its `=` operations set:
+
+```nim
+import argumint
+
+let spec = (
+  level: flag[int]("-v, --verbose", ops = "--quiet=0", default = 1,
+    env = "LEVEL", validator = range(0..5), help = "Log level"),
+  help: help(),
+)
+
+spec.parseOrQuit()
+echo "level=", spec.level
+```
+
+```console
+$ LEVEL=3 ./log
+level=3
+$ LEVEL=3:--verbose ./log
+level=4
+$ LEVEL=7 ./log
+Validation error:
+  - for -v (env: LEVEL), got 7 but expected a value in 0..5
+
+Usage:
+  log [options]
+  log (-h | --help)
+$ ./log --help
+Usage:
+  log [options]
+  log (-h | --help)
+
+Options:
+  -v, --verbose  Log level [env/config values: range: 0..5; env: LEVEL; action:
+                 Increase by 1]
+  --quiet        Log level [env/config values: range: 0..5; env: LEVEL; action:
+                 Set to 0]
+  -h, --help     Display this help message
+```
+
+The validator checks only a value from a variable or config file, never what
+the flag's operations do on the command line. Use `clamp` to keep those in
+bounds too. Each `=` operation has to set a value the validator allows, or
+building the spec raises a `SpecDefect`. A `string` or `bool` flag can't
+take a validator: use an `opt` for a string that can be anything.
+
 ## Config Files
 
 A **config source** reads values from a file. Pass a list of them to

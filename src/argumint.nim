@@ -28,7 +28,7 @@ export errors except newPlainError
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
-export validators except styledHelp
+export validators except styledHelp, seesHistory
 export flagclamp except styledHelp
 export configsource
 export backend.name
@@ -495,16 +495,18 @@ proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
   ## - `group` determines how flags are grouped in help messages; empty
   ##   means `Options`.
   ## - `clamp` optionally attaches a `FlagClamp` (`argumint/values/flagclamp`),
-  ##   silently adjusting this flag's value after every Flag Operation --
-  ##   never raises, unlike a `Validator` (which never applies to a Flag in
-  ##   the first place). `default` must already satisfy `clamp`, or spec
+  ##   silently adjusting this flag's value after every Flag Operation, or
+  ##   after a `validator` accepts a value (see the overload below) --
+  ##   never raises, unlike a `Validator`. `default` must already satisfy
+  ##   `clamp`, or spec
   ##   construction raises `SpecDefect` -- see
   ##   `docs/adr/0016-flag-clamp.md`.
   ## - `env` is as on `opt[T]`, except that each env value names a Flag
   ##   Operation, which applies: one of the flag's own declared Variants
   ##   (e.g. `--verbose`), or else a value an `=` op sets (`2` for
   ##   `flagOp("--level2", "=", 2)`) or, for a `bool`, `true` or `false`
-  ##   (`default` resets it). Anything else raises `ConversionError`. See
+  ##   (`default` resets it). Anything else raises `ConversionError`,
+  ##   unless the overload below's `validator` allows it. See
   ##   `docs/adr/0085-flag-env-and-config-values.md`.
   ## - `configKey` optionally names a structured path supplying this
   ##   flag's value from a registered Config Source when none is given on
@@ -532,6 +534,43 @@ proc flag*[T](variants: string = "", ops: string, default: T = zeroValue[T](),
   ## `docs/adr/0028-flag-ops-string-convenience.md` for why this is a
   ## separate overload rather than folded into `variants` itself.
   flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env, configKey)
+
+proc flag*[T](variants: string = "", ops: varargs[FlagOp[T]] = @[],
+    default: T = zeroValue[T](), help: HelpText = "", group = "",
+    hidden = false, clamp: FlagClamp[T] = noClamp[T](),
+    env: Option[EnvSource] = none(EnvSource), configKey: ConfigKey = noConfigKey(),
+    validator: Validator[T]): FlagArg[T] =
+  ## `flag[T]` above, plus a `validator` that lets an env or config value
+  ## be any value it allows, not only a Variant or what an `=` op sets, e.g.
+  ## `flag[int]("--level", ops = [...], env = "LEVEL", validator =
+  ## range(0..5))`. A value no Flag Operation names is converted as an
+  ## `opt[T]`'s would be, checked by `validator`, then assigned as by `=`,
+  ## and `clamp` applies after. A value that doesn't convert raises
+  ## `ConversionError`, and one `validator` rejects `ValidationError`. A
+  ## command-line Variant is unchanged, and `default` isn't checked.
+  ##
+  ## Spec construction raises `SpecDefect` if an `=` op sets a value
+  ## `validator` rejects, if `validator` is or contains a `checkSeen`,
+  ## `checkSeenIt` or `unique` (a flag holds one value), or if there's
+  ## neither `env` nor `configKey` for it to check. `T` can't be `string`,
+  ## since any text would convert, or `bool`, which already takes `true` and
+  ## `false`. A `distinct` string, or a type whose converter accepts any
+  ## text, compiles, but stores a mistyped Variant as its value. See
+  ## `docs/adr/0086-flag-validator.md`.
+  requireValidatedFlagType(T)
+  initFlagArg[T](variants = variants, ops = ops, default = default,
+    help = help, group = group, hidden = hidden, clamp = clamp,
+    env = env, cfgKey = configKey, validator = validator)
+
+proc flag*[T](variants: string = "", ops: string, default: T = zeroValue[T](),
+    help: HelpText = "", group = "", hidden = false,
+    clamp: FlagClamp[T] = noClamp[T](), env: Option[EnvSource] = none(EnvSource),
+    configKey: ConfigKey = noConfigKey(), validator: Validator[T]): FlagArg[T] =
+  ## `flag[T]`'s `ops: string` overload, plus a `validator` as on the
+  ## overload above.
+  requireValidatedFlagType(T)
+  flag[T](variants, parseFlagOpsString[T](ops), default, help, group, hidden, clamp, env,
+    configKey, validator)
 
 proc flag*(variants: string = "", ops: varargs[FlagOp[bool]] = @[],
     default: bool = false, help: HelpText = "", group = "",

@@ -562,7 +562,7 @@ Arg
 │   ├── ValueArg[T]     arg*/opt*:   Option[T],      default T,      Validator[T]
 │   └── ValuesArg[T]    args*/opts*: Option[seq[T]], default seq[T], Validator[T]
 └── FlagArgBase         env, configKey, bound ops; hooks
-    └── FlagArg[T]      flag*:       T,              default T,      FlagClamp[T]
+    └── FlagArg[T]      flag*:       T,              default T,      FlagClamp[T], Validator[T]
 ```
 
 The base's methods that need `T` call **hooks**: `{.nimcall.}` procs the
@@ -570,7 +570,9 @@ leaf's constructor instantiates for its own type and stores on the base.
 `ValueArgBase` has three: `write` (convert, validate, store), `reset`
 (back to `none`), and `describe` (`defaultStr`, `validatorHelp` and
 `completions` together, computed on demand). `FlagArgBase` has `reset`
-(restore the default) and `describe` (the clamp's help). A new base method
+(restore the default), `describe` (the clamp's and `validator`'s help), and
+`assign` (convert, validate and assign a value no op names; nil without a
+`validator`). A new base method
 needs a hook only if it touches typed storage; `tests/test_argumint.nim`
 fails if a constructor leaves one unset.
 
@@ -618,13 +620,16 @@ message as a `SpecDefect`.
 
 `initFlagArg` builds the whole flag in one call: it binds each op to the
 flag (`bindOp`, which runs the op and then the clamp), assigns each
-`FlagOp` its own alias group (ADR 0027), and rejects a duplicate Variant or
-a default its own clamp would change. It also lists, in `valueOps`, each op
-that sets one value an env or config value can name: an `=` op, and a
-`bool`'s Implicit Operation, with one more entry that resets a `bool` to
-its default (ADR 0085). `accept` looks up the contributed Variant, then
-that value, and runs its op. `aliases` compares groups. `variantDesc` returns
-an op's description only when the flag's descriptions differ (ADR 0063).
+`FlagOp` its own alias group (ADR 0027), and rejects a duplicate Variant or a
+default its own clamp would change. It also lists, in `valueOps`, each op that
+sets one value an env or config value can name: an `=` op, and a `bool`'s
+Implicit Operation, with one more entry that resets a `bool` to its default (ADR
+0085). `accept` looks up the contributed Variant, then that value, and runs its
+op. Failing both, a flag with a `validator` calls `assign`, which converts like
+`acceptImpl` (the shared `converted`), then validates, assigns and clamps (ADR
+0086). `initFlagArg` checks each `=` op's value against that `validator` up
+front, so neither lookup needs it. `aliases` compares groups. `variantDesc`
+returns an op's description only when the flag's descriptions differ (ADR 0063).
 
 A `FlagClamp[T]` (`values/flagclamp.nim`, ADR 0016) is `clamp(slice)` or
 `adjust(proc)`, applied silently after every Flag Operation. It is

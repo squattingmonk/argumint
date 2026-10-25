@@ -194,6 +194,7 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(initFlagOp[int]("-v", proc (value: var int) = discard, ""))
     check not compiles(splitFlagSpellings("-v"))
     check not compiles(parseFlagOpsString[int]("--n+=1"))
+    check not declared(requireValidatedFlagType)
     # Fully private to `argtypes`, not merely withheld. Mirrored in that
     # file's own embedded suite -- see the third exception in this file's
     # header.
@@ -338,6 +339,7 @@ suite "`Spec` is an opaque handle":
     check not declared(markup)
     check not declared(plainMarkup)
     check not declared(styledHelp)
+    check not declared(seesHistory)
     check not declared(heading)
     check not declared(styledOption)
     check not declared(firstParagraph)
