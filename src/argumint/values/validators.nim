@@ -233,6 +233,14 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
       let help = self.help() # Outside `fmt`: see docs/gotchas.md, openSym.
       raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {help}")
 
+proc seesHistory*[T](self: Validator[T]): bool =
+  ## Whether `self` is, or contains, a `checkSeen` (`checkSeenIt`, `unique`).
+  ## Withheld from the facade.
+  case self.kind
+  of vkCheckSeen: true
+  of vkAll, vkAny: self.validators.anyIt(it.seesHistory)
+  else: false
+
 proc candidateValues[T](self: Validator[T]): seq[T] =
   ## Every value `self` would accept, or `@[]` if `self` isn't enumerable.
   ## Stays in `T`-space so `vkAll`'s re-validation step below can call
@@ -554,6 +562,13 @@ when isMainModule:
       # union of the nested any's completions (4, 7, 101, 200), filtered by
       # the outer range (0..100) via re-validation
       check validator.completions() == @["4", "7"]
+
+  suite "seesHistory":
+    test "a checkSeen anywhere in the tree sees history; nothing else does":
+      let unseen = checkSeenIt[int](it notin seen)
+      check unique[int]().seesHistory
+      check any(range(0..5), all(unseen)).seesHistory
+      check not all(range(0..5), choice([1]), checkIt[int](it > 0)).seesHistory
 
   suite "styledHelp":
     proc roles(t: StyledText): seq[(StyleRole, string)] =

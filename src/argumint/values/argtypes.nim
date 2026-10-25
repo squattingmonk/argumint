@@ -107,8 +107,11 @@ type
       ## matched against them: see `valueOp`.
     reset: proc (self: FlagArgBase) {.nimcall.}
       ## Restores the default.
+    assign: proc (self: FlagArgBase, c: Contribution, how: Arbitration) {.nimcall.}
+      ## Converts, validates and assigns `c` when no Flag Operation names
+      ## it; nil unless the flag has a `validator`.
     describe: proc (self: FlagArgBase): StyledText {.nimcall.}
-      ## The clamp's help, if any.
+      ## The clamp's and `validator`'s help, if any.
 
   FlagArg*[T] = ref object of FlagArgBase
     ## What `flag*` returns. Nameable on the same terms as `ValueArg` --
@@ -116,6 +119,9 @@ type
     value: T
     default: T
     clamp: FlagClamp[T]
+    validator: Validator[T]
+      ## Checks an env or config value no Flag Operation names: see
+      ## `assignFlagHook`.
 
 # ------------------------------------------------------------------------------
 # String conversion. Every string-to-`T` conversion goes through `fromString`,
@@ -320,17 +326,19 @@ proc enumValues[T: enum](): seq[T] =
   else:
     for value in T: result.add value
 
-proc describedBy[T](self: AnyValueArg[T]): Validator[T] =
-  ## The Validator completion and a conversion error describe `self` with.
-  ## An enum argumint parses lists its values, filtered by `self`'s own
-  ## Validator, unless that lists values of its own.
+proc describedBy[T](validator: Validator[T]): Validator[T] =
+  ## The Validator completion and a conversion error describe an Arg with
+  ## `validator` by. An enum argumint parses lists its values, filtered by
+  ## `validator`, unless that lists values of its own.
   when parsesByName(T):
     let values = choice(enumValues[T]())
-    if self.validator.isNil: values
-    elif self.validator.completions.len > 0: self.validator
-    else: all(values, self.validator)
+    if validator.isNil: values
+    elif validator.completions.len > 0: validator
+    else: all(values, validator)
   else:
-    self.validator
+    validator
+
+proc describedBy[T](self: AnyValueArg[T]): Validator[T] = self.validator.describedBy
 
 proc helpDescribedBy[T](self: AnyValueArg[T]): Validator[T] =
   ## `describedBy` for help: the enum's values alone when `self`'s Validator
@@ -340,24 +348,29 @@ proc helpDescribedBy[T](self: AnyValueArg[T]): Validator[T] =
       return choice(enumValues[T]())
   self.describedBy
 
+proc converted[T](text, subject: string, validator: Validator[T], hint = ""): T =
+  ## `text` as a `T`, for the Arg `subject` names. Raises `ConversionError`
+  ## if it can't convert, ending with `hint`; an enum's lists the values
+  ## `validator` allows.
+  try:
+    fromString[T](text)
+  except OutOfRangeError as e:
+    # Outside `fmt`: see docs/gotchas.md, openSym.
+    let (got, expected) = (text.quoted, e.msg)
+    raise newPlainError(ConversionError, fmt"for {subject}, got {got} but {expected}{hint}")
+  except ValueError:
+    let got = text.quoted # Outside `fmt`: see docs/gotchas.md, openSym.
+    when parsesByName(T):
+      let values = validator.describedBy.completions.join(", ")
+      raise newPlainError(ConversionError, fmt"for {subject}, got {got} but expected one of {values}{hint}")
+    else:
+      let what = typeNoun(T)
+      raise newPlainError(ConversionError, fmt"expected {what} for {subject} but got {got}{hint}")
+
 proc acceptImpl[T](self: AnyValueArg[T], c: Contribution, how: Arbitration) =
   ## Converts `c.value` into a `T`, then stores it. Raises `ConversionError`
   ## if it can't convert.
-  try:
-    self.storeImpl(fromString[T](c.value), c, how, validate = true)
-  except OutOfRangeError as e:
-    # Outside `fmt`: see docs/gotchas.md, openSym.
-    let (got, subject, expected) = (c.value.quoted, self.subject(c), e.msg)
-    raise newPlainError(ConversionError, fmt"for {subject}, got {got} but {expected}")
-  except ValueError:
-    # Outside `fmt`: see docs/gotchas.md, openSym.
-    let (got, subject) = (c.value.quoted, self.subject(c))
-    when parsesByName(T):
-      let values = self.describedBy.completions.join(", ")
-      raise newPlainError(ConversionError, fmt"for {subject}, got {got} but expected one of {values}")
-    else:
-      let what = typeNoun(T)
-      raise newPlainError(ConversionError, fmt"expected {what} for {subject} but got {got}")
+  self.storeImpl(converted(c.value, self.subject(c), self.validator), c, how, validate = true)
 
 proc defaultText[T](self: ValueArg[T]): string =
   ## `self`'s default as help shows it: always for an enum, otherwise "" if
@@ -649,7 +662,7 @@ proc parseFlagOpsString*[T](ops: string): seq[FlagOp[T]] =
 proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
   ## Sets the value of `self` directly, arbitrating against `seenBy` like
   ## every other write, then clamping -- unconditionally and with no
-  ## Validator, since a `FlagArg` has neither. No `variant`/`validate`
+  ## Validator, which checks only text. No `variant`/`validate`
   ## params: nothing here can raise, so there's no message to give context
   ## to and no check to opt out of. See
   ## `docs/adr/0044-put-typed-write-accessor.md`.
@@ -667,8 +680,35 @@ proc resetFlagHook[A](self: FlagArgBase) =
   A(self).value = A(self).default
 
 proc describeFlagHook[A](self: FlagArgBase): StyledText =
-  let clamp = A(self).clamp
+  ## The clamp's help, then the `validator`'s, labelled: two of help's
+  ## bracket entries, joined as it joins them.
+  let (clamp, validator) = (A(self).clamp, A(self).validator)
   if not clamp.isNil: result = clamp.styledHelp
+  if not validator.isNil and validator.styledHelp.len > 0:
+    if result.len > 0: result.add styled(srAnnotation, "; ")
+    result.add styled(srAnnotation, "env/config values: ") & validator.styledHelp
+
+proc suggestion(self: FlagArgBase, text: string): string =
+  ## A Did-You-Mean Suggestion for `text` from `self`'s own Variants, if
+  ## it's option-shaped, as on the command line; else "".
+  if text.startsWith('-'): didYouMean(text, self.variants, srOption).plain else: ""
+
+proc assignFlagHook[A](self: FlagArgBase, c: Contribution, how: Arbitration) =
+  ## Converts `c.value` to the flag's `T`, checks it against its `validator`,
+  ## then assigns it as an `=` op would, clamp and all.
+  let
+    flag = A(self)
+    subject = self.subject(c)
+    value = converted(c.value, subject, flag.validator, self.suggestion(c.value))
+  try:
+    flag.validator.validate(value)
+  except ValidationError as e:
+    raise newPlainError(ValidationError, fmt"for {subject}, {e.msg}")
+  if how == arReplace:
+    flag.clear
+  flag.value = value
+  if not flag.clamp.isNil:
+    flag.value = flag.clamp.apply(flag.value)
 
 proc opIndex(self: FlagArgBase, variant: string): int =
   ## The index of `variant`'s entry in `self.ops`, or -1.
@@ -685,17 +725,19 @@ proc valueOp(self: FlagArgBase, text: string): int =
 
 method accept(self: FlagArgBase, c: Contribution, how: Arbitration) =
   ## `c.value` is the Variant whose Flag Operation applies, or failing that
-  ## a value one of its `=` ops sets. Anything else raises
-  ## `ConversionError`, with a Did-You-Mean Suggestion from this flag's own
-  ## Variants.
+  ## a value one of its `=` ops sets, or failing both a value its
+  ## `validator` allows (`assign`). Without a `validator`, anything else
+  ## raises `ConversionError`, with a Did-You-Mean Suggestion from this
+  ## flag's own Variants.
   let op =
     if (let i = self.opIndex(c.value); i >= 0): self.ops[i].op
     elif (let i = self.valueOp(c.value); i >= 0): self.valueOps[i]
+    elif not self.assign.isNil:
+      self.assign(self, c, how)
+      return
     else:
-      # Only option-shaped input draws a suggestion, as on the command line.
-      let hint = if c.value.startsWith('-'): didYouMean(c.value, self.variants, srOption).plain else: ""
       raise newPlainError(ConversionError, "$# is not a known variant or value for the flag $#$#" %
-        [c.value.quoted, self.subject(c), hint])
+        [c.value.quoted, self.subject(c), self.suggestion(c.value)])
   if how == arReplace:
     self.clear
   op.apply(self)
@@ -740,6 +782,18 @@ template requireValueType(T: typedesc) =
   when T isnot ValueType:
     {.error: $T & " is not a value type: define `converter to" & $T & "(value: string): " &
       $T & "` where its Arg is built".}
+
+template requireValidatedFlagType*(T: typedesc) =
+  ## Stops compilation unless a `flag[T]` can take a `validator`: a Value
+  ## Type, but not `string` or `bool`. See ADR 0086.
+  when T is string:
+    {.error: "a string flag can't take a validator: any text converts to a string, so a " &
+      "mistyped variant would be stored as its value; use an opt[string] instead".}
+  elif T is bool:
+    {.error: "a bool flag can't take a validator: its env and config values already " &
+      "accept true and false".}
+  else:
+    requireValueType(T)
 
 template setValueArgFields(arg: typed, H: typedesc, isMulti: bool) =
   ## Sets every field `initValueArg`/`initValuesArg` share from their params,
@@ -798,7 +852,8 @@ proc initValuesArg*[T: not seq](kind: ArgKind, variants: string, default: seq[T]
 
 proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
     help: HelpText, group: string, hidden: bool, clamp: FlagClamp[T],
-    env: Option[EnvSource], cfgKey: ConfigKey): FlagArg[T] =
+    env: Option[EnvSource], cfgKey: ConfigKey,
+    validator: Validator[T] = noValidator[T]()): FlagArg[T] =
   ## Builds a `FlagArg[T]` in full -- its bound ops, duplicate-variant
   ## detection, and the clamp-versus-default check -- behind `argumint.nim`'s
   ## `flag*`. Call it with named arguments, same as `initValueArg` above.
@@ -814,12 +869,31 @@ proc initFlagArg*[T](variants: string, ops: openArray[FlagOp[T]], default: T,
     let name = implicit.spellings[0]
     raise newException(SpecDefect,
       fmt"{name} has no operation: {$T} has no Implicit Operation; give it a proc with `flagOp`")
+  let name =
+    if implicit.spellings.len > 0: implicit.spellings[0]
+    elif ops.len > 0 and ops[0].spellings.len > 0: ops[0].spellings[0]
+    else: ""
   if not clamp.isNil and clamp.apply(default) != default:
-    let name =
-      if implicit.spellings.len > 0: implicit.spellings[0]
-      elif ops.len > 0 and ops[0].spellings.len > 0: ops[0].spellings[0]
-      else: ""
     raise newException(SpecDefect, fmt"default {default} for flag {name} does not satisfy its own clamp")
+  when T is ValueType:
+    if not validator.isNil:
+      if validator.seesHistory:
+        raise newException(SpecDefect, fmt"flag {name}'s validator checks the values seen before, " &
+          "but a flag holds one value: drop its unique, checkSeen or checkSeenIt")
+      if env.isNone and cfgKey.len == 0:
+        raise newException(SpecDefect,
+          fmt"flag {name} has a validator but neither env nor configKey for it to check")
+      # So env or config can't store what `validator` rejects: see ADR 0086.
+      for op in ops:
+        if op.value.isSome and op.spellings.len > 0:
+          try:
+            validator.validate(op.value.get)
+          except ValidationError as e:
+            let (spelling, value) = (op.spellings[0], display.showValue(op.value.get))
+            raise newException(SpecDefect,
+              fmt"flag {name}'s op {spelling} sets {value}, which its validator rejects: {e.msg}")
+      result.validator = validator
+      result.assign = assignFlagHook[FlagArg[T]]
   var names: seq[string]
   for group, op in @[implicit] & @ops:
     let bound = bindOp(op, group)
@@ -1023,3 +1097,12 @@ when isMainModule:
       check f.valueOps.len == 0
       expect ConversionError:
         f.parse("rLow")
+
+  suite "a FlagArgBase's `validator` help (#332)":
+    test "its label is srAnnotation, and the Validator styles its own text":
+      let f = initFlagArg[int](variants = "-v", ops = [], default = 0, help = "", group = "",
+        hidden = false, clamp = noClamp[int](), env = toEnvSource("LEVEL"), cfgKey = noConfigKey(),
+        validator = range(0..5))
+      # Adjacent spans of one role merge.
+      check f.validatorHelp.spans == @[Span(role: srAnnotation, text: "env/config values: range: "),
+        Span(role: srLiteral, text: "0..5")]

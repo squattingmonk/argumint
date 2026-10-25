@@ -376,9 +376,10 @@ ham". In the string form of `ops`, each value is one element, as in
 
 ## Keeping Values in Bounds
 
-A flag can't have a [validator](args-and-options.md#validating-values), since
-its value comes from its operations. Instead, `clamp` keeps the value in a
-range. It runs after every operation, and never raises an error:
+A [validator](args-and-options.md#validating-values) can't check what a
+flag's operations do. It only checks a value from a [variable or config
+file](precedence.md#values-a-validator-allows). To keep the value in a range,
+use `clamp`. It runs after every operation, and never raises an error:
 
 ```nim
 import argumint

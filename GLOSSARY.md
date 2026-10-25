@@ -169,8 +169,9 @@ A silent, non-raising constraint attached to a Flag, applied to its shared
 value after every Flag Operation -- CLI- or environment-triggered alike,
 since both already funnel through the same operation-application step (see
 Flag Operation). Deliberately not a Validator: a Validator raises on failure
-and never applies to a Flag in the first place (see Validator); a Flag Clamp
-instead adjusts the value in place and never raises. Built via
+and checks only the values a Flag receives as text, never a Flag Operation's
+result (see Validator); a Flag Clamp instead adjusts the value in place and
+never raises, and applies after a Validator's accepted value too. Built via
 `clamp(bounds: Slice[T], desc = "")` (requires `T` to support `<`;
 auto-generates help text, e.g. `clamp: 0..10`; not named `range` because
 that name collides with Validator's own `range` constructor when both are
@@ -551,17 +552,20 @@ final stored value, which differs by Arg kind:
 _Avoid_: Accumulation, repeat handling
 
 **Validator**:
-A constraint attached to a Positional Argument or Option, checked against
-the converted value before it's stored. A value that fails to convert to
-the Arg's type raises `ConversionError`; a value that converts successfully
-but fails the Validator raises `ValidationError` instead -- two distinct
-failure points, not one, though both are `ParseError`s. Never applies to
-Flag, Command, or Message Argument, since a Flag's value comes from
-author-declared Flag Operations rather than arbitrary user-typed text (see
-Flag Clamp for the Flag-specific, non-raising analog). Always checked against
-the scalar element type, never a collected list, even for a multi-value
-Arg -- each match is validated individually as it arrives, though a Check
-built via `checkSeen`/`unique` may also consult Seen Values (see below).
+A constraint attached to a Positional Argument or Option, checked against the
+converted value before it's stored. A value that fails to convert to the Arg's
+type raises `ConversionError`; a value that converts successfully but fails the
+Validator raises `ValidationError` instead -- two distinct failure points, not
+one, though both are `ParseError`s. Never applies to a Command or Message
+Argument. On a Flag of any Value Type but `string` and `bool`, an optional
+`validator` checks any value the Flag receives as text rather than through a
+Flag Operation -- today, env and config values only -- and spec construction
+checks each `=` op's value against it (see `docs/adr/0086-flag-validator.md`); a
+Flag Operation's own result is never checked (see Flag Clamp for the
+Flag-specific, non-raising analog). Always checked against the scalar element
+type, never a collected list, even for a multi-value Arg -- each match is
+validated individually as it arrives, though a Check built via
+`checkSeen`/`unique` may also consult Seen Values (see below).
 Six kinds: Choice (value must be one of an enumerated set), Range (value
 must fall within a range), Check (value must satisfy an arbitrary
 predicate, with an optional description for help text), a history-aware
