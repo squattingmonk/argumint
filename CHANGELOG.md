@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/squattingmonk/argumint/compare/1.1.0...1.2.0) (2026-10-25)
+
+
+### Features
+
+* add eachArg, which visits a Spec Tuple's Args as newSpec registers them ([#340](https://github.com/squattingmonk/argumint/issues/340)) ([#344](https://github.com/squattingmonk/argumint/issues/344)) ([e3d187a](https://github.com/squattingmonk/argumint/commit/e3d187a5daeb622cacc8c5841232d04c62102ec2))
+* let a Flag's validator allow any env or config value ([#332](https://github.com/squattingmonk/argumint/issues/332)) ([#343](https://github.com/squattingmonk/argumint/issues/343)) ([8a047d5](https://github.com/squattingmonk/argumint/commit/8a047d5ae1af82f425d20385acad19664e4f3868))
+* let env and config give a Flag a value, not just a Variant ([#341](https://github.com/squattingmonk/argumint/issues/341)) ([9e6a50c](https://github.com/squattingmonk/argumint/commit/9e6a50cd8d898823fc29970b1ee6e0a833bcacfd))
+
 ## [1.1.0](https://github.com/squattingmonk/argumint/compare/1.0.0...1.1.0) (2026-10-24)
 
 
