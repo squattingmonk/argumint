@@ -181,8 +181,10 @@ Arg matched anywhere), `root` and `here` (two Levels).
 `newSpec` runs three steps:
 
 1. **`beginSpec`** creates an empty Spec.
-2. **`addArgs`** gathers every Arg from the tuple, recursing into nested
-   tuples; any other member is a compile error. `registerArgs` sizes each
+2. **`addArgs`** gathers every Arg from the tuple with the public
+   `eachArg` macro, so registration and `eachArg` agree (ADR 0087): it
+   goes into nested tuples, takes an Arg reached twice once, and makes any
+   other member a compile error. `registerArgs` sizes each
    table for its keys first (`docs/gotchas.md`, table default capacity),
    then `addArg` checks each Variant with `parseVariant`, files the Arg
    into its table, and fills an empty `group` with its kind's

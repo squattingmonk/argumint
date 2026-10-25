@@ -7,11 +7,12 @@
 ## `argumint/core/backend` -- see `docs/architecture.md`, "Spec construction",
 ## for why.
 ##
-## Only `newSpec` is public API; `beginSpec`/`finishSpec`/`addArgs` are
-## exported solely because generic `newSpec` instantiates in the caller's
-## file (ADR 0030), and are not re-exported by the facade.
+## `newSpec` and `eachArg` are public API (the facade wraps `eachArg`, ADR
+## 0087); `beginSpec`/`finishSpec`/`addArgs` are exported solely because
+## generic `newSpec` instantiates in the caller's file (ADR 0030), and are
+## not re-exported by the facade.
 
-import std/[importutils, options, sequtils, sets, strformat, strutils, tables]
+import std/[importutils, macros, options, sequtils, sets, strformat, strutils, tables]
 
 import ./[fsmgraph, parser, usage], ../core/[backend, errors, variant]
 
@@ -74,23 +75,107 @@ proc registerArgs(spec: Spec, args: seq[(Arg, string)]) =
   for (arg, varName) in args:
     spec.addArg(arg, varName)
 
-proc gatherArgs(spec: tuple, args: var seq[(Arg, string)]) =
-  ## Every Arg in `spec`, nested tuples included, with its field name. An
-  ## Arg reached twice is gathered once, under its first field name (#319).
-  for varName, arg in spec.fieldPairs:
-    when arg is Arg:
-      if not args.anyIt(it[0] == Arg(arg)):
-        args.add (Arg(arg), varName)
-    elif arg is tuple:
-      gatherArgs(arg, args)
-    else:
-      # Not `fmt`: see docs/gotchas.md, `fmt`'s braces in a generic proc.
-      {.error: "all members of a spec tuple must be args or tuples, but " &
-        varName & " is " & $typeof(arg).}
+proc spelling(n: NimNode): string =
+  ## The name an ident, symbol or symbol choice spells.
+  if n.kind in {nnkOpenSymChoice, nnkClosedSymChoice}: n[0].strVal
+  else: n.strVal
+
+proc unbind(n: NimNode, names: openArray[string]): NimNode =
+  ## `n` with each symbol spelled like one of `names` turned back into an
+  ## ident -- see docs/gotchas.md, a generic's prepass binding a macro's
+  ## loop names.
+  if n.kind in {nnkSym, nnkOpenSymChoice, nnkClosedSymChoice} and
+      n.spelling in names:
+    return ident(n.spelling)
+  result = n
+  for i in 0 ..< n.len:
+    result[i] = unbind(n[i], names)
+
+proc retarget(n: NimNode, walk, visit: NimNode, inLoop = false,
+    inBlock = false): NimNode =
+  ## `n` with each bare `break` sent to `walk` and each `continue` to
+  ## `visit`, but for a `break` in a loop or block, a `continue` in a loop,
+  ## or either in a routine or nested `eachArg` that `n` opens itself.
+  result = n
+  if n.kind in CallNodes and n[0].kind != nnkEmpty:
+    let callee = if n[0].kind == nnkDotExpr: n[0][1] else: n[0]
+    if callee.kind in {nnkIdent, nnkSym, nnkOpenSymChoice,
+        nnkClosedSymChoice} and callee.spelling == "eachArg":
+      return
+  case n.kind
+  of nnkBreakStmt:
+    if n[0].kind == nnkEmpty and not (inLoop or inBlock):
+      return nnkBreakStmt.newTree(walk)
+  of nnkContinueStmt:
+    if not inLoop:
+      return nnkBreakStmt.newTree(visit)
+  of RoutineNodes:
+    return
+  of nnkForStmt, nnkWhileStmt:
+    for i in 0 ..< n.len:
+      result[i] = retarget(n[i], walk, visit, true, inBlock)
+  of nnkBlockStmt, nnkBlockExpr:
+    for i in 0 ..< n.len:
+      result[i] = retarget(n[i], walk, visit, inLoop, true)
+  else:
+    for i in 0 ..< n.len:
+      result[i] = retarget(n[i], walk, visit, inLoop, inBlock)
+
+macro eachArg*(spec: tuple, name, arg, body: untyped): untyped =
+  ## Runs `body` once for each Arg `newSpec(spec)` registers -- see the
+  ## facade's `eachArg`.
+  let
+    names = [name.spelling, arg.spelling]
+    name = ident(name.spelling)
+    arg = ident(arg.spelling)
+    body = unbind(body, names)
+    walk = genSym(nskLabel, "walk")
+    tup = genSym(nskLet, "spec")
+    seen = genSym(nskVar, "seen")
+    argType = bindSym"Arg"
+  var visits = newStmtList()
+
+  proc visitLeaves(access, tupleType: NimNode) =
+    ## Adds to `visits` a visit of each Arg in the tuple `access`, of type
+    ## `tupleType`, going into nested tuples in field order.
+    var i = 0
+    for def in tupleType.getTypeImpl:
+      let (fieldNames, fieldType) =
+        if def.kind == nnkIdentDefs: (def[0 ..^ 3].mapIt(it.strVal), def[^2])
+        else: (@["Field" & $i], def)
+      for fieldName in fieldNames:
+        let field = nnkBracketExpr.newTree(access, newLit(i))
+        inc i
+        if fieldType.getTypeImpl.kind in {nnkTupleTy, nnkTupleConstr}:
+          visitLeaves(field, fieldType)
+          continue
+        let
+          visit = genSym(nskLabel, "visit")
+          visitBody = retarget(body.copyNimTree, walk, visit)
+        # Not `fmt`: see docs/gotchas.md, `fmt`'s braces in a generic proc.
+        visits.add quote do:
+          when `field` is `argType`:
+            if `argType`(`field`) notin `seen`:
+              `seen`.add `argType`(`field`)
+              block `visit`:
+                let `name` {.used.} = `fieldName`
+                let `arg` {.used.} = `field`
+                `visitBody`
+          else:
+            {.error: "all members of a spec tuple must be args or tuples, " &
+              "but " & `fieldName` & " is " & $typeof(`field`).}
+
+  visitLeaves(tup, spec.getTypeInst)
+  result = quote do:
+    block `walk`:
+      let `tup` = `spec`
+      var `seen`: seq[`argType`]
+      `visits`
 
 proc addArgs*(self: Spec, spec: tuple) =
   var args: seq[(Arg, string)]
-  gatherArgs(spec, args)
+  spec.eachArg(name, arg):
+    args.add (Arg(arg), name)
   self.registerArgs(args)
 
 proc autoFillUsage(spec: Spec) =
