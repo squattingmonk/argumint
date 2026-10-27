@@ -110,7 +110,7 @@ type
     assign: proc (self: FlagArgBase, c: Contribution, how: Arbitration) {.nimcall.}
       ## Converts, validates and assigns `c` when no Flag Operation names
       ## it; nil unless the flag has a `validator`.
-    describe: proc (self: FlagArgBase): StyledText {.nimcall.}
+    describe: proc (self: FlagArgBase): tuple[clamp, validator: StyledText] {.nimcall.}
       ## The clamp's and `validator`'s help, if any.
 
   FlagArg*[T] = ref object of FlagArgBase
@@ -679,14 +679,13 @@ proc putImpl*[T](self: FlagArg[T], value: T, seenBy: Option[SeenBy]) =
 proc resetFlagHook[A](self: FlagArgBase) =
   A(self).value = A(self).default
 
-proc describeFlagHook[A](self: FlagArgBase): StyledText =
-  ## The clamp's help, then the `validator`'s, labelled: two of help's
-  ## bracket entries, joined as it joins them.
+proc describeFlagHook[A](self: FlagArgBase): tuple[clamp, validator: StyledText] =
+  ## The clamp's help, and the `validator`'s, labelled: two of help's
+  ## bracket entries.
   let (clamp, validator) = (A(self).clamp, A(self).validator)
-  if not clamp.isNil: result = clamp.styledHelp
+  if not clamp.isNil: result.clamp = clamp.styledHelp
   if not validator.isNil and validator.styledHelp.len > 0:
-    if result.len > 0: result.add styled(srAnnotation, "; ")
-    result.add styled(srAnnotation, "env/config values: ") & validator.styledHelp
+    result.validator = styled(srAnnotation, "env/config values: ") & validator.styledHelp
 
 proc suggestion(self: FlagArgBase, text: string): string =
   ## A Did-You-Mean Suggestion for `text` from `self`'s own Variants, if
@@ -749,7 +748,9 @@ method clear(self: FlagArgBase) =
 
 method accumulates(self: FlagArgBase): bool = true
 
-method validatorHelp(self: FlagArgBase): StyledText = self.describe(self)
+method validatorHelp(self: FlagArgBase): StyledText = self.describe(self).validator
+
+method clampHelp(self: FlagArgBase): StyledText = self.describe(self).clamp
 
 method variantDesc(self: FlagArgBase, variant: string): string =
   ## `variant`'s Flag Operation Description, empty unless the flag's

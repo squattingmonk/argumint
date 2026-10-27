@@ -309,6 +309,9 @@ suite "`Spec` is an opaque handle":
     check not compiles(proc (ctx: HelpContext): string = ctx.render([]))
     check not compiles(proc (ctx: HelpContext) =
       discard ctx.filter(proc (arg: Arg): bool = true))
+    check not declared(HelpAnnotation)
+    check not declared(haConfigKey)
+    check not declared(filterAnnotations)
     check compiles(block:
       let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
 

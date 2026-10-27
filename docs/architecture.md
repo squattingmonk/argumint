@@ -152,7 +152,7 @@ first Variant; `==` is identity.
 | `accumulates`                           | fallback counts, auto-filled `...`        |
 | `envSource`, `configKey`                | the fallback tiers                        |
 | `isMessage`, `action`                   | dispatch                                  |
-| `defaultStr`, `validatorHelp`, `variantDesc` | help                                 |
+| `defaultStr`, `validatorHelp`, `clampHelp`, `variantDesc` | help                    |
 | `completions`, `aliases`                | completion, FlagOp Aliases                |
 
 The subtypes are `CommandArg` (holds its nested Spec), `MessageArg` (raises
@@ -688,7 +688,8 @@ pieces ready to lay out:
 
 - `groups`: Help Groups in display order (ADR 0079), with hidden Args and
   Args a `filter` drops removed (ADR 0082);
-- `rows`: one `Row` per set of an Arg's Variants that share a description;
+- `rows`: one `Row` per set of an Arg's Variants that share a description,
+  less the Help Annotations a `filterAnnotations` drops (ADR 0088);
 - `prose`, `markup`, `usage`;
 - `render`.
 
@@ -709,8 +710,12 @@ heading and rows, and epilog with `joinSections`.
 
 A Row's text is the Arg's help (or its divergent Flag Operation
 Description), followed by an annotation bracket from `annotations`:
-validator help, default, env var, config key, and `action:` for a
-divergent Variant (`[choices: "a", "b"; default: "a"]`).
+a Flag Clamp's help, validator help, default, env var, config key, and
+`action:` for a divergent Variant (`[choices: "a", "b"; default: "a"]`).
+Each entry is a `HelpAnnotation` with its kind, so `filterAnnotations` can
+drop it before `annotate` joins the rest. A Flag's clamp and `env/config
+values:` help come from the separate `clampHelp` and `validatorHelp`
+methods.
 
 `HelpArg.action` renders twice: plain for `msg`, then styled for
 `styledMsg` if the Spec has a Styler (ADR 0059).
