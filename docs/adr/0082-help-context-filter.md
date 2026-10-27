@@ -1,5 +1,9 @@
 # A Help Context can be filtered to the Args a predicate keeps
 
+> **Amended by [ADR 0088](0088-help-context-filters-help-annotations.md)**:
+> `ctx.filterAnnotations` leaves out the Help Annotations a predicate
+> drops.
+
 Amends [ADR 0075](0075-help-formatters-build-on-the-help-frame.md), whose
 toolkit [ADR 0080](0080-1x-freezes-the-public-modules-and-the-usage-grammar.md)
 freezes for 1.x. This is an addition, so a minor release can ship it.

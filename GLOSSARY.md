@@ -285,6 +285,14 @@ Help Text, since a fixed-width column has no room for a longer description
 anyway.
 _Avoid_: long help, extended description
 
+**Help Annotation**:
+One labelled entry in the `[...]` bracket help appends to an Arg's Help
+Text, generated from how the Arg was declared rather than written by its
+author: its Validator's or Flag Clamp's help, its default, its env
+variable, its Config Key, or a divergent Flag Operation's action. An Arg's
+Help Annotations are the whole bracket; they repeat on each of its rows.
+_Avoid_: note, tag, bracket entry
+
 **Help Formatter**:
 The pluggable renderer that produces a Spec's whole Help message — its
 prolog, Usage, groups of Args, and epilog, including their order and
@@ -315,7 +323,9 @@ parts a formatter builds the whole Help message from (each Help Group's
 Args, an Arg's rows, prose, the usage lines) ready to lay out, and renders
 them with its Styler. Read-only, and scoped to one render. A filtered copy
 shows only the Args a predicate keeps (`filter`), for Help only: those Args
-still parse and complete, unlike hidden ones.
+still parse and complete, unlike hidden ones. Another can leave out the
+Help Annotations a predicate drops (`filterAnnotations`), so a terse and a
+detailed help message can share one Spec.
 _Avoid_: help page, help message (that's the formatter's output), help
 renderer (that's the Help Formatter), help view
 
