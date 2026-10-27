@@ -1,10 +1,12 @@
 # A Flag's `validator` (#332): an env or config value no Variant or `=` op
-# names is converted, checked and assigned. Imports only `argumint`, like
-# `test_flag_ops.nim`, so it sees what a user sees.
+# names is converted, checked and assigned. Imports only `argumint` (and
+# `argumint/help` for its help), like `test_flag_ops.nim`, so it sees what a
+# user sees.
 
-import std/[options, os, strutils, unittest]
+import std/[options, os, strutils, sugar, unittest]
 
 import argumint
+import argumint/help
 
 type
   Size = enum small, medium, large
@@ -173,10 +175,13 @@ suite "the Flags that can't take a `validator`":
     check not compiles(flag[set[Size]](ops = [flagOp("--all", "=", {small, large})], env = LevelVar,
       validator = choice([{small}])))
 
-proc bracketOf[T](flag: FlagArg[T]): string =
-  ## The `[...]` bracket help shows for a spec holding only `flag`.
+proc bracketOf[T](flag: FlagArg[T],
+    keep: proc (arg: Arg, annotation: HelpAnnotation): bool = nil): string =
+  ## The `[...]` bracket help shows for a spec holding only `flag`, with
+  ## only the Help Annotations `keep` (if not nil) accepts.
+  let formatter = (ctx: HelpContext) => formatColumn(ctx.filterAnnotations(keep))
   try:
-    (f: Arg(flag), help: help()).parse(args = @["--help"], command = "prog",
+    (f: Arg(flag), help: help(formatter = formatter)).parse(args = @["--help"], command = "prog",
       settings = newSpecSettings(style = nil, width = 200))
   except HelpError as e:
     for line in e.msg.splitLines:
@@ -191,6 +196,11 @@ suite "help for a Flag's `validator`":
   test "comes after a clamp's":
     let f = flag[int]("--level", clamp = clamp(0..9), env = "LEVEL", validator = range(0..5))
     check f.bracketOf == "[clamp: 0..9; env/config values: range: 0..5; env: LEVEL]"
+
+  test "can be left out apart from a clamp's, and a clamp's apart from it":
+    let f = flag[int]("--level", clamp = clamp(0..9), env = "LEVEL", validator = range(0..5))
+    check f.bracketOf((arg, a) => a.kind != haValidator) == "[clamp: 0..9; env: LEVEL]"
+    check f.bracketOf((arg, a) => a.kind != haClamp) == "[env/config values: range: 0..5; env: LEVEL]"
 
   test "shows a Validator's `desc` after the label, ticks kept as on an opt":
     let f = flag[int]("--level", configKey = configKey("level"),

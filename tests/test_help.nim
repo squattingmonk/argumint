@@ -274,3 +274,67 @@ suite "a custom `HelpFormatter` can show fewer Args with `filter`":
     let spec = (format: format, help: help(formatter = withoutFormat))
     spec.parse(args = @["--format=yaml"], command = "cfg")
     check spec.format == "yaml"
+
+suite "a custom `HelpFormatter` can leave out Help Annotations with `filterAnnotations`":
+  # Issue #345's program: every option has a Config Key, and the Flag's
+  # `validator` help repeats on each of its rows.
+  type Level {.pure.} = enum debug, verbose, normal, quiet
+
+  proc logging(formatter: HelpFormatter = formatColumn): tuple =
+    (level: flag(default = Level.normal, configKey = "logLevel",
+      validator = choice([Level.debug, Level.verbose, Level.normal, Level.quiet]),
+      ops = [
+        flagOp("--quiet", "=", Level.quiet, help = "Log errors only"),
+        flagOp("--verbose", "=", Level.verbose, help = "Log more"),
+      ]),
+    port: opt("--port=<n>", default = 80, configKey = configKey("server", "port"),
+      help = "Port"),
+    help: help(formatter = formatter))
+
+  proc helpOf(spec: tuple): string =
+    newSpec(spec, settings = newSpecSettings(style = nil)).helpRaised("ann").msg
+
+  test "with no filter, every Help Annotation shows":
+    check helpOf(logging()) == """
+      Usage:
+        ann [options]
+        ann (-h | --help)
+
+      Options:
+        --quiet     Log errors only [env/config values: choices: debug, verbose,
+                    normal, quiet; configKey: logLevel]
+        --verbose   Log more [env/config values: choices: debug, verbose, normal,
+                    quiet; configKey: logLevel]
+        --port=<n>  Port [default: 80; configKey: server.port]
+        -h, --help  Display this help message""".dedent
+
+  test "help leaves out the kinds the predicate drops":
+    proc terse(ctx: HelpContext): string =
+      formatColumn(ctx.filterAnnotations((arg, a) => a.kind notin {haConfigKey, haValidator}))
+    check helpOf(logging(terse)) == """
+      Usage:
+        ann [options]
+        ann (-h | --help)
+
+      Options:
+        --quiet     Log errors only
+        --verbose   Log more
+        --port=<n>  Port [default: 80]
+        -h, --help  Display this help message""".dedent
+
+  test "the predicate can decide by the Arg":
+    proc noFlagValues(ctx: HelpContext): string =
+      formatColumn(ctx.filterAnnotations((arg, a) =>
+        not (arg.kind == ArgKind.Flag and a.kind == haValidator)))
+    check helpOf((
+      verbose: flag("-v", env = "VERBOSE", validator = range(0..3), help = "Talk more"),
+      port: opt("--port=<n>", default = 80, validator = range(1..65535), help = "Port"),
+      help: help(formatter = noFlagValues))) == """
+      Usage:
+        ann [options]
+        ann (-h | --help)
+
+      Options:
+        -v          Talk more [env: VERBOSE]
+        --port=<n>  Port [range: 1..65535; default: 80]
+        -h, --help  Display this help message""".dedent

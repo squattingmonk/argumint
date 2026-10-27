@@ -41,6 +41,32 @@ type
     width: int
     styler: Styler
     keep: proc (arg: Arg): bool # from `filter`; nil keeps every Arg
+    keepAnnotation: proc (arg: Arg, annotation: HelpAnnotation): bool
+      # from `filterAnnotations`; nil keeps every Help Annotation
+
+  HelpAnnotationKind* = enum
+    ## What a Help Annotation says. Not `{.pure.}`, so a predicate can name
+    ## its members unqualified: see ADR 0088.
+    haValidator
+      ## What values the Arg's Validator accepts, or a Flag's
+      ## `env/config values:`, or a Custom Arg's `validatorHelp`
+    haClamp
+      ## A Flag Clamp's bounds
+    haDefault
+      ## `default:`
+    haEnv
+      ## `env:`
+    haConfigKey
+      ## `configKey:`
+    haAction
+      ## `action:`, a divergent Flag Operation's own description
+
+  HelpAnnotation* = object
+    ## One entry in the `[...]` bracket after an Arg's Help Text, for a
+    ## `filterAnnotations` predicate.
+    kind*: HelpAnnotationKind
+    text*: StyledText
+      ## The entry as shown, label included (`configKey: server.port`)
 
   Row* = object
     ## One line-item in the help table, still unwrapped. An object rather than
@@ -66,26 +92,31 @@ const ContinuationIndent = "    "
 const CanonicalGroups = [ArgKind.Command.defaultGroup,
   ArgKind.Positional.defaultGroup, ArgKind.Optional.defaultGroup] # and Flag
 
-proc annotations(arg: Arg, action = ""): seq[StyledText] =
-  ## The `[...]` bracket's parts, in display order: validator, default, env,
-  ## configKey, then `action` (non-empty only for a divergent flag's own
-  ## `variantDesc`). Key labels are `srAnnotation`; values are `srLiteral`,
-  ## except env's `srEnv` and action's Help Markup, ticks kept.
-  proc entry(key: string, value: StyledText): StyledText =
-    styled(srAnnotation, key & ": ") & value
+proc annotations(arg: Arg, action = ""): seq[HelpAnnotation] =
+  ## The `[...]` bracket's parts, in display order: clamp, validator,
+  ## default, env, configKey, then `action` (non-empty only for a divergent
+  ## flag's own `variantDesc`). Key labels are `srAnnotation`; values are
+  ## `srLiteral`, except env's `srEnv` and action's Help Markup, ticks kept.
+  proc entry(kind: HelpAnnotationKind, key: string,
+      value: StyledText): HelpAnnotation =
+    HelpAnnotation(kind: kind, text: styled(srAnnotation, key & ": ") & value)
 
+  let clampHelp = arg.clampHelp
+  if clampHelp.len > 0:
+    result.add HelpAnnotation(kind: haClamp, text: clampHelp)
   let validatorHelp = arg.validatorHelp
   if validatorHelp.len > 0:
-    result.add validatorHelp
+    result.add HelpAnnotation(kind: haValidator, text: validatorHelp)
   if arg.defaultStr.len > 0:
-    result.add entry("default", styled(srLiteral, arg.defaultStr))
+    result.add entry(haDefault, "default", styled(srLiteral, arg.defaultStr))
   if arg.envName.len > 0:
-    result.add entry("env", styled(srEnv, arg.envName))
+    result.add entry(haEnv, "env", styled(srEnv, arg.envName))
   let configKey = arg.configKey()
   if configKey.len > 0:
-    result.add entry("configKey", styled(srLiteral, configKey.join))
+    result.add entry(haConfigKey, "configKey",
+      styled(srLiteral, configKey.join))
   if action.len > 0:
-    result.add entry("action", markup(action))
+    result.add entry(haAction, "action", markup(action))
 
 proc styledVariant(arg: Arg, variant: string): StyledText =
   ## `variant` with its role: `srCommand`, `srPositional`, or `srOption`
@@ -113,12 +144,14 @@ proc longOrShort*(help: HelpText): string =
   ## fallback rule (ADR 0049).
   if help.long.len > 0: help.long else: help.short
 
-proc rows(arg: Arg, help = arg.help.short): seq[Row] =
+proc rows(arg: Arg, help = arg.help.short,
+    keep: proc (arg: Arg, annotation: HelpAnnotation): bool = nil): seq[Row] =
   ## One Row per `arg.variantsByDesc()` bucket. Text is `help` (e.g.
   ## `arg.help.longOrShort` for Paragraph Style), falling back to the
   ## bucket's own `variantDesc` when that is non-empty (it only is when the
   ## arg's variants diverge), plus the `[...]` bracket from `annotations`
-  ## (`action` included only when divergent AND `help` is non-empty).
+  ## (`action` included only when divergent AND `help` is non-empty), less
+  ## those `keep` (if not nil) rejects.
   ## Callers skip the Args help doesn't show themselves.
   ##
   ## Variants get their roles (`srCommand`, `srOption`, `srPositional`,
@@ -132,7 +165,8 @@ proc rows(arg: Arg, help = arg.help.short): seq[Row] =
       primary = if help.len > 0: help elif divergent: bucket.desc else: ""
       action = if divergent and help.len > 0: bucket.desc else: ""
     var text = primary.toProse(arg.metavars)
-    text.annotate(arg.annotations(action))
+    text.annotate(arg.annotations(action)
+      .filterIt(keep.isNil or keep(arg, it)).mapIt(it.text))
     var variants: StyledText
     for i, name in bucket.names:
       if i > 0: variants.add styled(", ")
@@ -204,6 +238,22 @@ proc filter*(ctx: HelpContext, keep: proc (arg: Arg): bool): HelpContext =
   else:
     result.keep = proc (arg: Arg): bool = earlier(arg) and keep(arg)
 
+proc filterAnnotations*(ctx: HelpContext,
+    keep: proc (arg: Arg, annotation: HelpAnnotation): bool): HelpContext =
+  ## `ctx`, but with Rows showing only the Help Annotations `keep` accepts,
+  ## on top of any earlier `filterAnnotations`. An Arg left with none has no
+  ## bracket. A nil `keep` drops nothing further. See
+  ## `docs/adr/0088-help-context-filters-help-annotations.md`.
+  result = ctx
+  if keep.isNil:
+    return
+  let earlier = ctx.keepAnnotation
+  if earlier.isNil:
+    result.keepAnnotation = keep
+  else:
+    result.keepAnnotation = proc (arg: Arg, annotation: HelpAnnotation): bool =
+      earlier(arg, annotation) and keep(arg, annotation)
+
 proc shown(ctx: HelpContext, args: seq[Arg]): seq[Arg] =
   ## `args` without the hidden ones, which help never lists, or those
   ## `ctx`'s `filter` drops.
@@ -254,7 +304,7 @@ proc rows*(ctx: HelpContext, arg: Arg, help = arg.help.short): seq[Row] =
   ## `help` (e.g. `arg.help.longOrShort` for long-form text) re-flowed like
   ## `prose` and the `[...]` annotations appended. Callers skip the Args
   ## help doesn't show (`groups` already does).
-  for row in arg.rows(help):
+  for row in arg.rows(help, ctx.keepAnnotation):
     result.add Row(variants: row.variants, text: ctx.resolved(row.text))
 
 proc prose*(ctx: HelpContext, text: string): Prose =
@@ -392,7 +442,7 @@ when isMainModule:
 
   type
     TestArg = ref object of Arg
-      validatorHelpVal, defaultStrVal: string
+      validatorHelpVal, clampHelpVal, defaultStrVal: string
       env: Option[EnvSource]
       cfg: ConfigKey
       descs: Table[string, string]
@@ -401,6 +451,7 @@ when isMainModule:
 
   method validatorHelp(self: TestArg): StyledText =
     styled(self.validatorHelpVal)
+  method clampHelp(self: TestArg): StyledText = styled(self.clampHelpVal)
   method defaultStr(self: TestArg): string = self.defaultStrVal
   method envSource(self: TestArg): Option[EnvSource] = self.env
   method configKey(self: TestArg): ConfigKey = self.cfg
@@ -447,46 +498,54 @@ when isMainModule:
 
     test "includes validatorHelp when non-empty":
       let arg = TestArg(validatorHelpVal: "validatorHelp")
-      check arg.annotations().mapIt(it.plain) == @["validatorHelp"]
+      check arg.annotations().mapIt(it.text.plain) == @["validatorHelp"]
 
     test "includes default when non-empty":
       let arg = TestArg(defaultStrVal: "defaultStr")
-      check arg.annotations().mapIt(it.plain) == @["default: defaultStr"]
+      check arg.annotations().mapIt(it.text.plain) == @["default: defaultStr"]
 
     test "includes env if set":
       let arg = TestArg(env: "TEST_ARG_ENV")
-      check arg.annotations().mapIt(it.plain) == @["env: TEST_ARG_ENV"]
+      check arg.annotations().mapIt(it.text.plain) == @["env: TEST_ARG_ENV"]
 
     test "includes configKey if set":
       let arg = TestArg(cfg: configKey("section", "key"))
-      check arg.annotations().mapIt(it.plain) == @["configKey: section.key"]
+      check arg.annotations().mapIt(it.text.plain) == @["configKey: section.key"]
 
     test "includes action if non-empty":
-      check Arg().annotations(action = "foo").mapIt(it.plain) == @["action: foo"]
+      check Arg().annotations(action = "foo").mapIt(it.text.plain) == @["action: foo"]
 
-    test "order: validatorHelp, default, env, config, action":
+    test "includes clampHelp when non-empty":
+      let arg = TestArg(clampHelpVal: "clamp: 0..9")
+      check arg.annotations().mapIt(it.text.plain) == @["clamp: 0..9"]
+
+    test "order: clampHelp, validatorHelp, default, env, config, action":
       let
         arg = TestArg(
+          clampHelpVal: "c",
           validatorHelpVal: "v",
           defaultStrVal: "d",
           env: "e",
           cfg: "k"
         )
         expected = @[
+          "c",
           "v",
           "default: d",
           "env: e",
           "configKey: k",
           "action: a"
         ]
-      check arg.annotations(action = "a").mapIt(it.plain) == expected
+      check arg.annotations(action = "a").mapIt(it.text.plain) == expected
+      check arg.annotations(action = "a").mapIt(it.kind) == @[haClamp,
+        haValidator, haDefault, haEnv, haConfigKey, haAction]
 
   suite "a ValueArg's default in help":
     type Fmt = enum json, nwnt
 
     proc annotated[T](default: T): seq[string] =
       initValueArg(kind = Optional, variants = "--x=<x>", default = default)
-        .annotations().mapIt(it.plain)
+        .annotations().mapIt(it.text.plain)
 
     test "an enum Arg shows its first member as its default":
       check annotated(Fmt.json) == @["choices: json, nwnt", "default: json"]
@@ -976,6 +1035,68 @@ when isMainModule:
         Options:
           -x
             Short""".dedent
+
+  suite "HelpContext.filterAnnotations":
+    proc without(kinds: set[HelpAnnotationKind]):
+        proc (arg: Arg, annotation: HelpAnnotation): bool =
+      result = proc (arg: Arg, annotation: HelpAnnotation): bool =
+        annotation.kind notin kinds
+
+    let spec = plainSpec((
+      p: TestArg(kind: Optional, variants: @["--port=<n>"], help: "Port",
+        defaultStrVal: "80", cfg: configKey("server", "port")),
+      ), usage = "[options]")
+
+    test "formatColumn leaves out the Help Annotations the predicate drops":
+      check formatColumn(spec.helpContext("p").filterAnnotations(
+        without({haConfigKey}))) == """
+        Usage:
+          p [options]
+
+        Options:
+          --port=<n>  Port [default: 80]""".dedent
+
+    proc text(ctx: HelpContext): string =
+      ctx.rows(spec.args[0]).mapIt(it.text.plain).join("\n")
+
+    test "an Arg left with no Help Annotations has no bracket":
+      check spec.helpContext("p").filterAnnotations(
+        without({haDefault, haConfigKey})).text == "Port"
+
+    test "a second filterAnnotations drops what either one drops":
+      check spec.helpContext("p").filterAnnotations(without({haDefault}))
+        .filterAnnotations(without({haConfigKey})).text == "Port"
+
+    test "a nil predicate drops nothing further, alone or after another":
+      check spec.helpContext("p").filterAnnotations(nil).text ==
+        "Port [default: 80; configKey: server.port]"
+      check spec.helpContext("p").filterAnnotations(without({haDefault}))
+        .filterAnnotations(nil).text == "Port [configKey: server.port]"
+
+    test "the context it was called on is unchanged":
+      let ctx = spec.helpContext("p")
+      discard ctx.filterAnnotations(without({haDefault}))
+      check ctx.text == "Port [default: 80; configKey: server.port]"
+
+    test "the predicate is handed the Arg":
+      let both = plainSpec((
+        x: TestArg(kind: Optional, variants: @["-x"], defaultStrVal: "1"),
+        y: TestArg(kind: Optional, variants: @["-y"], defaultStrVal: "2"),
+        ), usage = "[options]")
+      let ctx = both.helpContext("p").filterAnnotations(
+        proc (arg: Arg, annotation: HelpAnnotation): bool = arg.name != "-x")
+      check both.args.mapIt(ctx.rows(it)[0].text.plain) ==
+        @["", "[default: 2]"]
+
+    test "formatParagraph leaves out the Help Annotations the predicate drops":
+      check formatParagraph(spec.helpContext("p").filterAnnotations(
+        without({haDefault}))) == """
+        Usage:
+          p [options]
+
+        Options:
+          --port=<n>
+            Port [configKey: server.port]""".dedent
 
 
   suite "HelpContext.prose":

@@ -639,6 +639,23 @@ the `Advanced` group, and `--help-all` shows it. The user can still give
 `--ballast`, and the shell still completes it. Only `hidden` takes an `Arg`
 out of completion too. Call `filter` again to drop more.
 
+To leave out some of the entries in the `[...]` bracket after each `Arg`'s
+help instead, filter them. This formatter leaves out every `configKey:`:
+
+```nim
+import std/sugar
+import argumint, argumint/help
+
+proc quietHelp(ctx: HelpContext): string =
+  formatColumn(ctx.filterAnnotations((arg, a) => a.kind != haConfigKey))
+```
+
+`a.kind` is one of `haClamp`, `haValidator`, `haDefault`, `haEnv`,
+`haConfigKey` and `haAction`, and `a.text` is the entry as shown. A
+`Flag`'s `env/config values:` entry is `haValidator`, so check `arg.kind`
+to leave it out on `Flag`s alone. An `Arg` left with nothing to show has
+no bracket. Call `filterAnnotations` again to drop more.
+
 To change anything else, such as the section labels or their order, write
 the whole message yourself:
 

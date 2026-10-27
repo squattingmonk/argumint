@@ -465,6 +465,14 @@ method validatorHelp*(self: Arg): StyledText {.base.} =
   ## bases (`argumint/values/argtypes`).
   discard
 
+method clampHelp*(self: Arg): StyledText {.base.} =
+  ## Returns a short description of `self`'s Flag Clamp (e.g. `clamp:
+  ## 0..10`), or empty text if it has none or nothing meaningful to show.
+  ## Apart from `validatorHelp` so help can tell them apart (ADR 0088). The
+  ## base case has none; `FlagArg` overrides it through its untyped base
+  ## (`argumint/values/argtypes`).
+  discard
+
 method variantDesc*(self: Arg, variant: string): string {.base.} =
   ## Returns `variant`'s Flag Operation Description (e.g. "Increase by 5"),
   ## or an empty string if there's nothing to disambiguate: every variant of
