@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/squattingmonk/argumint/compare/1.2.0...1.3.0) (2026-10-27)
+
+
+### Features
+
+* let a Help Context filter Help Annotations ([#345](https://github.com/squattingmonk/argumint/issues/345)) ([#346](https://github.com/squattingmonk/argumint/issues/346)) ([a1f8922](https://github.com/squattingmonk/argumint/commit/a1f8922a2c47959da7d0fc404406648b78ee9b40))
+
 ## [1.2.0](https://github.com/squattingmonk/argumint/compare/1.1.0...1.2.0) (2026-10-25)
 
 
