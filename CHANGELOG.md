@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/squattingmonk/argumint/compare/1.3.0...1.3.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* count only a Level's own Args when auto-filling usage ([#349](https://github.com/squattingmonk/argumint/issues/349)) ([#350](https://github.com/squattingmonk/argumint/issues/350)) ([e2bdb6f](https://github.com/squattingmonk/argumint/commit/e2bdb6f73663a0216af1c01c25b4eed104b7d74e))
+
 ## [1.3.0](https://github.com/squattingmonk/argumint/compare/1.2.0...1.3.0) (2026-10-27)
 
 
