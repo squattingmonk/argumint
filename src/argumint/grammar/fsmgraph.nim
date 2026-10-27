@@ -123,15 +123,21 @@ proc collectArgs(s: State, args: var HashSet[Arg], visited = newTable[State, boo
     of mkOptions:
       for opt in tr.matcher.opts:
         args.incl opt
-    of mkCommand: args.incl tr.matcher.cmd
+    of mkCommand:
+      # Its own FSM is the Command's Level, not this one -- see
+      # architecture.md's "Auto-filled usage" section and ADR 0010.
+      args.incl tr.matcher.cmd
+      continue
     of mkOptsEnd: discard
     of mkShortcut: discard
     tr.next.collectArgs(args, visited)
 
 proc referencedArgs*(s: State): HashSet[Arg] =
-  ## Returns every `Arg` referenced by a matcher reachable from `s`. Used to
-  ## detect whether a declared arg (e.g. one created by `help()`) is actually
-  ## reachable via the usage grammar, so it can be added automatically if not.
+  ## Returns every `Arg` referenced by a matcher reachable from `s` at this
+  ## Level, stopping at each Command rather than walking into its own
+  ## FSM. Used to detect whether a declared arg (e.g. one created by `help()`)
+  ## is actually reachable via the usage grammar, so it can be added
+  ## automatically if not.
   s.collectArgs(result)
 
 proc sortTransitions(s: State, visited = newTable[State, bool]()) =
