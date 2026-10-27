@@ -217,7 +217,11 @@ tuple per parse (ADR 0031).
 
 `autoFillUsage` finds every Arg the FSM references
 (`fsmgraph.referencedArgs`) and appends Usage Lines for the rest, whether
-or not a usage string was given:
+or not a usage string was given. A Command named in the usage string counts
+as referenced, but the Args inside its own Spec don't: the walk stops at
+the Command instead of following the parser's splice into its FSM, so an
+Arg shared with that Command (as `specTuple(global)` gives every Level)
+still gets its line here (#349).
 
 - **Commands** not reachable go on one `(a | b)` line.
 - **Positional Arguments** are appended as one line in declaration order,

@@ -2001,6 +2001,57 @@ suite "autoFillUsage":
     expect ParseError:
       s.parse(@["a", "b"], "prog")
 
+  test "a Message Argument shared with a Command named in the usage still gets a line (#349)":
+    let plain = newSpecSettings(style = nil)
+    for usage in ["(get)", "get", "[options] get", "(get | -x)", "[options]\n(get)"]:
+      let global = (
+        help: help(),
+        full: help("--full-help"),
+        version: version("-v", "1"),
+      )
+      let get = specTuple(global):
+        x: flag("-x", help = "")
+      let a = specTuple(global):
+        get: command("get", get, help = "")
+        x: flag("-x", help = "")
+      let spec = specTuple(global):
+        a: command("a", a, usage = usage, help = "")
+      for request in ["--help", "--full-help"]:
+        try:
+          spec.parse(args = @["a", request], command = "prog", settings = plain)
+          fail()
+        except HelpError as e:
+          check "  prog a (-h | --help)\n" in e.msg
+          check "  prog a --full-help\n" in e.msg
+          check "  prog a -v\n" in e.msg
+      try:
+        spec.parse(args = @["a", "-v"], command = "prog", settings = plain)
+        fail()
+      except MessageError as e:
+        check e.msg == "1"
+
+  test "a Flag shared with a Command named in the usage still gets an [options] line (#349)":
+    template withSharedFlag(body: untyped) =
+      ## Fresh Args for each check, since Args keep what they were given.
+      block:
+        var ranGet {.inject.} = false
+        proc runGet(spec: tuple, _: HookInfo) = ranGet = true
+        let shared {.inject.} = flag("-x", default = false, help = "")
+        let a {.inject.} = (sub: command("get", (x: shared), action = runGet, help = ""),
+          x: shared)
+        body
+
+    withSharedFlag:
+      check newSpec(a, usage = "get").usage == "get\n[options]"
+    withSharedFlag:
+      (a: command("a", a, usage = "get", help = "")).parse(args = @["a", "-x"], command = "prog")
+      check shared.get
+      check not ranGet
+    withSharedFlag:
+      (a: command("a", a, usage = "get", help = "")).parse(args = @["a", "get", "-x"], command = "prog")
+      check shared.get
+      check ranGet
+
   test "a standalone [options] line is added when nothing else needs appending":
     let spec = (
       verbose: flag("--verbose", default = false, help = ""),
