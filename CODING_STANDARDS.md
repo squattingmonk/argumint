@@ -45,12 +45,13 @@ not a violation.
 - **Deep imports stay undocumented.** User-facing docs never show
   `import argumint/<internal>`. The promised modules are the ones ADR 0080
   lists.
-- **1.x is frozen** (ADR 0080). Flag as needing a major release any change
-  to: a name exported by a public module, the signature of a method a Custom
-  Arg or Config Source overrides, `HelpFormatter`/`HelpContext`, what a
-  usage string accepts (bug fixes excepted), or `requires "nim >= 2.2.4"`.
-  Adding a method with a default, and changing help or error text, styling
-  or completion-script contents, are fine in a minor release.
+- **A major version is frozen** (ADR 0080). Flag as needing a major release
+  any change to: a name exported by a public module, the signature of a
+  method a Custom Arg or Config Source overrides, `HelpFormatter`/
+  `HelpContext`, what a usage string accepts (bug fixes excepted), or the
+  `requires "nim >= ..."` minimum. Adding a method with a default, and
+  changing help or error text, styling or completion-script contents, are
+  fine in a minor release.
 
 ## Tests
 

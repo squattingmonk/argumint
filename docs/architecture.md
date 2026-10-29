@@ -735,10 +735,10 @@ Everything laid out is `StyledText`: a run of `Span`s, each with a
 4. `render` each finished line with a `Styler`.
 
 Measurement happens before rendering, so escape codes never skew widths.
-`wrap` runs a corrected fork of `wrapWords` (`docs/gotchas.md`) on the
-plain text and maps each byte back to its span. Roles are assigned where
-text is built (ADR 0051): `rows` tags Variants by kind, and `usageLines`
-tags usage tokens through `lexer.displayTokens`.
+`wrap` runs `std/wordwrap.wrapWords` on the plain text and maps each byte
+back to its span. Roles are assigned where text is built (ADR 0051): `rows`
+tags Variants by kind, and `usageLines` tags usage tokens through
+`lexer.displayTokens`.
 
 Help Markup (`markup`) gives a backticked span a role by its shape alone
 (option, placeholder, env var), and keeps the backticks as `srTick` spans

@@ -9,7 +9,7 @@ srcDir        = "src"
 
 # Dependencies
 
-requires "nim >= 2.2.4"
+requires "nim >= 2.2.14"
 
 
 # Tasks

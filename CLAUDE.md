@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-`argumint` is a Nim command-line argument parsing library (Nim >= 2.2.4). A
+`argumint` is a Nim command-line argument parsing library (Nim >= 2.2.14). A
 spec is a tuple of `arg`/`opt`/`flag`/`command`/`help` values, and a
 docopt-style usage string (`[-r] <src>... <dest>`) is compiled into a finite
 state machine that drives parsing.

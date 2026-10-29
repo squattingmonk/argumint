@@ -9,7 +9,7 @@
 ##
 ## A leaf module with no local imports.
 
-import std/[pegs, strutils, terminal]
+import std/[pegs, strutils, terminal, wordwrap]
 import std/unicode except strip # Buggy -- see docs/gotchas.md.
 
 type
@@ -187,7 +187,7 @@ proc plain*(t: StyledText): string =
 
 proc graphemeCount(s: string; start, lastExclusive: int): int =
   ## The number of graphemes in `s[start ..< lastExclusive]`: its visible
-  ## width, as `wrapWords` measures it.
+  ## width, as `std/wordwrap.wrapWords` measures it.
   var i = start
   while i < lastExclusive:
     inc result
@@ -204,58 +204,6 @@ proc alignLeft*(t: StyledText, width: int): StyledText =
   ## already that wide.
   result = t
   result.add styled(' '.repeat(max(width - t.len, 0)))
-
-proc wrapWords(s: string, maxLineWidth: int, newLine = "\n"): string =
-  ## Word-wraps `s`, splitting a word longer than `maxLineWidth` at the
-  ## character level instead of overflowing it whole. Forked from
-  ## `std/wordwrap.wrapWords(splitLongWords = true)` to fix a bug there: it
-  ## drops the separator immediately before a word that needs splitting (e.g.
-  ## wrapping "-x, --longflag" at width 9 comes back as "-x,--lon", eating
-  ## the space) instead of flushing it first, like the "word fits" path does.
-  ## See docs/gotchas.md.
-  result = newStringOfCap(s.len + s.len shr 6)
-  var spaceLeft = maxLineWidth
-  var lastSep = ""
-
-  var i = 0
-  while true:
-    var j = i
-    let isSep = j < s.len and s[j] in Whitespace
-    while j < s.len and (s[j] in Whitespace) == isSep: inc(j)
-    if j <= i: break
-    if isSep:
-      lastSep.setLen 0
-      for k in i..<j:
-        if s[k] notin {'\L', '\C'}: lastSep.add s[k]
-      if lastSep.len == 0:
-        lastSep.add ' '
-        dec spaceLeft
-      else:
-        spaceLeft -= graphemeCount(lastSep, 0, lastSep.len)
-    else:
-      let wlen = graphemeCount(s, i, j)
-      if wlen > spaceLeft:
-        if wlen > maxLineWidth:
-          if lastSep.len > 0 and spaceLeft > 0:
-            result.add(lastSep)
-          var k = 0
-          while k < j - i:
-            if spaceLeft <= 0:
-              spaceLeft = maxLineWidth
-              result.add newLine
-            dec spaceLeft
-            let L = graphemeLen(s, k + i)
-            for m in 0 ..< L: result.add s[i + k + m]
-            inc k, L
-        else:
-          spaceLeft = maxLineWidth - wlen
-          result.add(newLine)
-          for k in i..<j: result.add(s[k])
-      else:
-        spaceLeft -= wlen
-        result.add(lastSep)
-        for k in i..<j: result.add(s[k])
-    i = j
 
 proc wrap*(t: StyledText, width: int): seq[StyledText] =
   ## Word-wraps `t` to `width` visible columns, one `StyledText` per line,
@@ -521,6 +469,12 @@ when isMainModule:
     test "a word longer than the width splits across lines, keeping its role":
       let t = styled(srOption, "--abcdef")
       check t.wrap(4) == @[styled(srOption, "--ab"), styled(srOption, "cdef")]
+
+    test "a split word keeps the separator before it":
+      # std/wordwrap dropped this space before Nim 2.2.14
+      # (nim-lang/Nim#26184).
+      check styled(srPlain, "-x, --longflag").wrap(9).mapIt(it.plain) ==
+        @["-x, --lon", "gflag"]
 
     test "the plain lines match the plain wrap":
       let t = styled(srPlain, "-x, ") & styled(srOption, "--longflag") &
