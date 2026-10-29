@@ -28,6 +28,18 @@ state machine that drives parsing.
   "missing option"/"unexpected arg", compile first and run the binary
   directly.
 
+## Branches
+
+- `main` is the 1.x line. Features and fixes branch from it and squash-merge
+  back into it; release-please releases from it.
+- `next` collects breaking changes for 2.0 and is never released from. A
+  breaking change (a `!` in its PR title) branches from `next` and
+  squash-merges back into it. Keep `next` current by merging `main` into it
+  with a merge commit, never a squash or rebase; nothing flows from `next`
+  to `main` until the 2.0 cut.
+- At the 2.0 cut, a `1.x` branch is made from the last 1.x tag for
+  backports, and `next` merges into `main`.
+
 ## Where things live
 
 - **Coding standards** a reviewer checks a diff against are in
