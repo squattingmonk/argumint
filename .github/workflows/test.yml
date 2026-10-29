@@ -1,7 +1,8 @@
 name: Test
 
 on:
-  # `push` is scoped to main so a PR branch fires `pull_request` only. Without
+  # `push` is scoped to the long-lived branches (`main` for 1.x, `next` for
+  # the next major release) so a PR branch fires `pull_request` only. Without
   # the filter both events fire and the matrix runs twice -- and the two test
   # different trees (`pull_request` builds the branch merged into the base,
   # `push` builds the branch tip alone), so which result you got was a race.
@@ -10,7 +11,7 @@ on:
   # `workflow_dispatch` has no paths filter, so a skipped run can still be
   # triggered by hand.
   push:
-    branches: [main]
+    branches: [main, next]
     paths-ignore: ["**.md", "docs/**"]
   pull_request:
     paths-ignore: ["**.md", "docs/**"]
@@ -20,12 +21,11 @@ permissions:
   contents: read
 
 # Pushing again to an open PR cancels the still-running check for the previous
-# commit, so only the tip is ever tested. `head_ref || ref_name` normalizes the
-# two events onto one group: `github.ref` differs between them
-# (`refs/heads/<branch>` vs `refs/pull/<n>/merge`), so grouping on it would
-# leave a push and its pull_request in separate groups and change nothing.
+# commit, so only the tip is ever tested. A PR groups by its number and a push
+# by its branch, so a PR from `main` into `next` (syncing the two) can't cancel
+# a run for a push to `main`.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +33,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nim-version: ["2.2.4", "stable"]
+        # `min` is the oldest Nim argumint supports, read from argumint.nimble
+        # below, so the leg's name -- and the required status checks named
+        # after it -- stay the same when the minimum is raised.
+        nim-version: [min, stable]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.nim-version == 'stable' }}
@@ -43,6 +46,17 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve Nim version
+        id: nim
+        run: |
+          if [ "${{ matrix.nim-version }}" = min ]; then
+            v=$(tr -d '\r' < argumint.nimble | sed -n 's/^requires "nim >= \(.*\)"$/\1/p')
+            [ -n "$v" ] || { echo "::error::no nim requirement in argumint.nimble"; exit 1; }
+          else
+            v=${{ matrix.nim-version }}
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
 
       # nim-lang.org publishes prebuilt binaries for Linux and Windows only, so
       # on macOS setup-nim-action falls through to downloading the source
@@ -67,12 +81,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.nim_runtime
-          key: nim-${{ runner.os }}-${{ runner.arch }}-${{ matrix.nim-version }}-${{ steps.week.outputs.v }}
+          key: nim-${{ runner.os }}-${{ runner.arch }}-${{ steps.nim.outputs.version }}-${{ steps.week.outputs.v }}
 
       - uses: jiro4989/setup-nim-action@v2
         if: steps.nim-cache.outputs.cache-hit != 'true'
         with:
-          nim-version: ${{ matrix.nim-version }}
+          nim-version: ${{ steps.nim.outputs.version }}
 
       # Mirrors the PATH the action would have set, since it was skipped above.
       - name: Use cached Nim

@@ -8,9 +8,12 @@ name: Docs
 # longer compiles (see tools/guideblocks.nim). markdownlint checks every
 # Markdown file's line width (see .markdownlint-cli2.yaml); it runs here, not
 # in test.yml, because test.yml skips Markdown-only changes.
+#
+# A push to `next` (the next major release) builds the docs as a check but
+# never deploys them: the published site documents the released 1.x line.
 on:
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
   workflow_dispatch:
 
@@ -18,10 +21,11 @@ permissions:
   contents: read
 
 # Pushing again to an open PR cancels the previous commit's build, as in
-# test.yml. Runs on main share one group and never cancel, so they deploy in
-# order.
+# test.yml. A PR groups by its number and a push by its branch, so a PR from
+# main into next can't cancel a deploy; pushes never cancel, so main's runs
+# deploy in order.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || 'main' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -32,18 +36,26 @@ jobs:
       - uses: DavidAnson/markdownlint-cli2-action@v24
         with:
           globs: "**/*.md"
+      # The docs build on the oldest supported Nim, the one argumint.nimble
+      # requires, like test.yml's `min` leg.
+      - name: Resolve Nim version
+        id: nim
+        run: |
+          v=$(tr -d '\r' < argumint.nimble | sed -n 's/^requires "nim >= \(.*\)"$/\1/p')
+          [ -n "$v" ] || { echo "::error::no nim requirement in argumint.nimble"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: jiro4989/setup-nim-action@v2
         with:
-          nim-version: "2.2.4"
+          nim-version: ${{ steps.nim.outputs.version }}
       - run: nimble docs
       - run: nimble docscheck
-      - if: github.event_name != 'pull_request'
+      - if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: htmldocs
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main'
     needs: docs
     runs-on: ubuntu-latest
     permissions:
