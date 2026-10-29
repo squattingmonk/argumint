@@ -1,5 +1,8 @@
 # `genHelp` splits an overlong variant name or help word instead of overflowing it
 
+> **Fork removed** by #77, once the minimum became Nim 2.2.14: `wrap` now
+> calls `std/wordwrap.wrapWords`, which has the fix.
+
 A variant name (`--extraordinarily-long-option-name`) or a help-text word
 too long to fit its column now splits at the character level across
 multiple lines, the same way a terminal hard-wraps an overlong URL. This

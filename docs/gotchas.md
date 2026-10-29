@@ -564,18 +564,6 @@ debugging time. Read this before touching the constructors and `flagOp`/
   inference that would otherwise let `@[]` take its type from `x`. Use
   `x.len == 0` instead.
 
-- **`std/wordwrap.wrapWords(splitLongWords = true)` drops the separator
-  before a word it has to split.** When a word longer than `maxLineWidth`
-  immediately follows a shorter word on the same line, the char-splitting
-  branch never flushes the pending separator before it starts emitting
-  characters -- e.g. wrapping `"-x, --longflag"` at width 9 comes back as
-  `"-x,--lon"` (the space after the comma is silently eaten), even though
-  the separator's width was already budgeted for. The "word fits normally"
-  branch a few lines up does flush it (`result.add(lastSep)`); the split
-  branch just forgets to. `style.nim` forks a corrected local `wrapWords`
-  with that one line added rather than depending on the buggy stdlib
-  version -- see `wrap()`. Present as of Nim 2.2.10.
-
 - **A seq literal of procs won't convert to `seq[HelpFormatter]`.**
   `let fs: seq[HelpFormatter] = @[formatColumn, formatParagraph]` fails
   with a type mismatch: the literal is inferred element-wise as a seq of
@@ -617,9 +605,8 @@ debugging time. Read this before touching the constructors and `flagOp`/
 - **`std/winlean` grows between patch releases.** `getConsoleMode`/
   `setConsoleMode` exist in 2.2.12's `winlean` but not 2.2.4's, so code
   that cross-compiled cleanly locally failed only on the 2.2.4 Windows CI
-  leg. `console.nim` declares its own `importc` wrappers under different
-  names (so they can't clash with newer `winlean`s). Cross-compile Windows
-  code with the oldest supported toolchain (`--os:windows --compileOnly`).
+  leg. Cross-compile Windows code with the oldest supported toolchain
+  (`--os:windows --compileOnly`).
 
 - **A getter proc doesn't shadow its private field inside the defining
   module.** `SpecSettings.width`/`.style` are private fields behind

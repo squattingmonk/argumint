@@ -24,7 +24,7 @@ own. Parsed values come back typed, on the same tuple you declared.
 
 ## Requirements
 
-- Nim >= 2.2.4
+- Nim >= 2.2.14
 
 ## Installation
 
@@ -163,9 +163,9 @@ If you'd like to work on argumint itself:
 
 ## Stability
 
-argumint follows [Semantic Versioning](https://semver.org/). Within 1.x, a
-program that builds and parses correctly against one release keeps doing so
-against later ones, apart from the exceptions below.
+argumint follows [Semantic Versioning](https://semver.org/). Within a major
+version, a program that builds and parses correctly against one release keeps
+doing so against later ones, apart from the exceptions below.
 
 These are covered, and changing them needs a new major version:
 
@@ -178,7 +178,7 @@ These are covered, and changing them needs a new major version:
   default may be added.
 - The usage-string grammar. A usage string accepts and rejects the same
   command lines in every 1.x release, unless a release fixes a bug.
-- The minimum Nim version, 2.2.4.
+- The minimum Nim version, 2.2.14.
 
 Anything you import from deeper inside `argumint/`, such as
 `argumint/core/backend`, may change or move in any release, without warning.

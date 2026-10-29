@@ -11,7 +11,7 @@ finished program is
 
 The first three steps are complete programs you can build with
 `nim c notes.nim` and run as `./notes`. Later steps change parts of the third.
-You need Nim 2.2.4 or later and argumint installed (see the
+You need Nim 2.2.14 or later and argumint installed (see the
 [README](https://github.com/squattingmonk/argumint#installation)).
 
 ## A First Spec
