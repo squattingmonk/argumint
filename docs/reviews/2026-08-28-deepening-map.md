@@ -18,7 +18,7 @@ date and have since drifted.
 | [C](#c--the-value-tiers-are-passed-as-closures) | The value tiers are passed as closures | Shipped | #65, PR #66, `3b1fa4b` |
 | [D](#d--three-arg-methods-answered-one-question) | Three `Arg` methods answered one question | Shipped | #59, PR #60, `e6a6d69`, ADR 0046 |
 | [E](#e--help-layout-is-one-77-line-proc) | Help layout is one 77-line proc | Shipped | #67, PR #71, `01c4032` |
-| [F](#f--backendnim-holds-two-unrelated-data-models) | `backend.nim` holds two data models | Parked | — |
+| [F](#f--backendnim-holds-two-unrelated-data-models) | `backend.nim` holds two data models | Parked | Revisited in [2026-10-29](2026-10-29-2-0-surface-review.md#f-revisited--the-graph-types-move-to-fsmgraph) |
 | [G](#g--shell-completions-fsm-walking-half-has-no-module) | Completion's FSM-walking half has no module | Shipped | #78, PR #80, `6a90df3` |
 
 Order taken: D (the only one with a 1.0 deadline, since it changed exported
@@ -310,7 +310,9 @@ the last row (#69), and overlong words desyncing variant/text pairing (#70).
 
 ### F — `backend.nim` holds two unrelated data models
 
-**Parked.** Files: `backend.nim` (graph types), `fsmgraph.nim`.
+**Parked.** Files: `backend.nim` (graph types), `fsmgraph.nim`. Revisited
+in the [2.0 surface review](2026-10-29-2-0-surface-review.md#f-revisited--the-graph-types-move-to-fsmgraph),
+which prototyped it with Nim 2.4's cyclic imports.
 
 `backend.nim` carries the Arg/Spec domain model and the
 `State`/`Transition`/`Matcher` graph model. A previous split moved the graph
