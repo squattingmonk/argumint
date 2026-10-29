@@ -8,7 +8,9 @@ whose keys are the other commands' options. Its command line was rewritten
 with argumint as a throwaway sketch that parses and reports but builds
 nothing. It continues the
 [simplification review](2026-10-14-simplification-review.md)'s lettering at
-Y.
+Y. The next review,
+[2026-10-29](2026-10-29-2-0-surface-review.md), continues the lettering at
+AC.
 
 The parse-error bugs the port found are already fixed (#308–#310, PRs #311
 and #314, ADR 0081), and two help gaps are filed (#315, #316). This review
