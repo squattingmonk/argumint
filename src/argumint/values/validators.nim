@@ -78,8 +78,8 @@ proc check*[T](checker: proc (x: T): bool, desc: AnnotationText = ""): Validator
 
 proc withCondition[T](self: Validator[T], condition: string): Validator[T] =
   ## `self`, with `condition` as its generated text. For `checkIt` and
-  ## `checkSeenIt`, which can't name the private field from the caller's
-  ## module.
+  ## `checkSeenIt`, whose field access would resolve in the caller's module:
+  ## see `docs/gotchas.md`, on `privateAccess` and instantiation.
   self.condition = condition
   self
 
@@ -181,15 +181,23 @@ proc generatedHelp[T](self: Validator[T]): StyledText =
   of vkCheck, vkCheckSeen:
     result = markup(self.condition & self.expected)
   of vkAll, vkAny:
-    for i, v in self.validators:
-      if i > 0: result.add styled(if self.kind == vkAll: " and " else: " or ")
+    for v in self.validators:
       let h = v.styledHelp
+      if h.len == 0: continue # hidden, or nothing to say
+      if result.len > 0: result.add styled(if self.kind == vkAll: " and " else: " or ")
       result.add(if v.kind in {vkAll, vkAny}: styled("(") & h & styled(")") else: h)
 
 proc styledHelp*[T](self: Validator[T]): StyledText =
   ## `help` as Styled Text: key labels are `srAnnotation`, values
   ## `srLiteral`, and a `desc` gets Help Markup.
   if self.desc.isSome: markup(self.desc.get) else: self.generatedHelp
+
+proc hidesHelp*[T](self: Validator[T]): bool =
+  ## Whether `self`'s `desc` is hidden, or `self` is an `all`/`any` with no
+  ## `desc` whose every child hides its help. Withheld from the facade.
+  if self.desc.isSome: self.desc.get.len == 0
+  elif self.kind in {vkAll, vkAny}: self.validators.allIt(it.hidesHelp)
+  else: false
 
 proc help*[T](self: Validator[T]): string =
   ## Returns a short description of what values `self` accepts, suitable for
@@ -243,9 +251,9 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
   # Locals outside `fmt`: see docs/gotchas.md, openSym.
   let
     tmpVal = value.showValue
-    custom = plainMarkup(self.desc.custom)
-  if custom.len > 0:
-    raise newPlainError(ValidationError, fmt"got {tmpVal} but expected {custom}")
+    described = plainMarkup(self.desc.custom)
+  if described.len > 0:
+    raise newPlainError(ValidationError, fmt"got {tmpVal} but expected {described}")
   case self.kind
   of vkChoice:
     let choices = self.choices.mapIt(it.showValue).join(", ")
@@ -605,6 +613,14 @@ when isMainModule:
       check any(range(0..5), all(unseen)).seesHistory
       check not all(range(0..5), choice([1]), checkIt[int](it > 0)).seesHistory
 
+  suite "hidesHelp":
+    test "a hidden desc hides, as does an all or any of only hidden children":
+      check range(0..4, desc = some("")).hidesHelp
+      check all(unique[int](desc = some("")), any(checkIt[int](it > 0, some("")))).hidesHelp
+      check not all(unique[int](desc = some("")), range(0..4)).hidesHelp
+      check not all(unique[int](desc = some("")), desc = "a new number").hidesHelp
+      check not validators.check(proc (x: int): bool = true).hidesHelp
+
   suite "styledHelp":
     proc roles(t: StyledText): seq[(StyleRole, string)] =
       for span in t.spans: result.add (span.role, span.text)
@@ -654,6 +670,14 @@ when isMainModule:
       check unique[int](desc = some("")).failure(2, [2]) == "got 2 but expected a unique value"
       check all(range(0..4), desc = some("")).failure(5) == "got 5 but expected a value in 0..4"
       check any(range(0..4), desc = some("")).failure(5) == "5 did not meet condition: range: 0..4"
+
+    test "a hidden child drops out of its parent's joined help":
+      let anyOf = any(range(0..4), checkIt[int](it > 10, some("")))
+      check anyOf.help() == "range: 0..4"
+      check anyOf.failure(7) == "7 did not meet condition: range: 0..4"
+      check all(range(0..4), unique[int](desc = some(""))).help() == "range: 0..4"
+      check all(unique[int](desc = some("")), range(0..4)).help() == "range: 0..4"
+      check all(range(0..4), any(unique[int](desc = some("")))).help() == "range: 0..4"
 
     test "a custom desc is what every kind's failure expected":
       let described = validators.check(proc (x: int): bool = false, desc = "a good number")

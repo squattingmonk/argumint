@@ -361,6 +361,7 @@ suite "`Spec` is an opaque handle":
     check not declared(plainMarkup)
     check not declared(styledHelp)
     check not declared(seesHistory)
+    check not declared(hidesHelp)
     check not declared(heading)
     check not declared(styledOption)
     check not declared(firstParagraph)

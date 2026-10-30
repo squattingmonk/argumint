@@ -28,7 +28,7 @@ export errors except newPlainError
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
-export validators except styledHelp, seesHistory
+export validators except styledHelp, seesHistory, hidesHelp
 export flagclamp except styledHelp
 export annotationtext.AnnotationText, annotationtext.toAnnotationText
 export configsource

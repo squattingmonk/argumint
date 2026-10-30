@@ -268,10 +268,10 @@ suite "Optional args":
     )
     var caught = ""
     try:
-      spec.parse(usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
     except ValidationError as e:
       caught = e.msg
-    check "got 7 but expected an even number" in caught
+    check caught.splitLines[0] == "  - for --num, got 7 but expected an even number"
 
   test "unique() end-to-end rejects a value repeated across two matches of the same multi-value option":
     let spec = (

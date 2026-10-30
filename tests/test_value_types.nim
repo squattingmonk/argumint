@@ -150,6 +150,19 @@ suite "an enum's automatic list beside a validator":
     check "[choices: red, green, dark-blue;" in spec.helpOf
     check spec.wire("--color", "") == @["green\t", "dark-blue\t", ":"]
 
+  test "a hidden one hides it too":
+    let spec = (color: opt("--color=<color>", default = green, help = "Colour",
+                           validator = checkIt[Color](it != red, some(""))),
+                help: help())
+    check "  --color=<color>  Colour [default: green]\n" in spec.helpOf
+    check spec.wire("--color", "") == @["green\t", "dark-blue\t", ":"]
+
+  test "so does an all or any whose children are all hidden":
+    let spec = (color: opt("--color=<color>", default = green, help = "Colour",
+                           validator = all(checkIt[Color](it != red, some("")))),
+                help: help())
+    check "  --color=<color>  Colour [default: green]\n" in spec.helpOf
+
 suite "an enum with its own converter":
   test "accepts what its converter does":
     let spec = (shape: opt("--shape=<shape>", default = square),)

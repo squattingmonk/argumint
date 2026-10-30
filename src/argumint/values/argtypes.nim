@@ -341,11 +341,12 @@ proc describedBy[T](validator: Validator[T]): Validator[T] =
 proc describedBy[T](self: AnyValueArg[T]): Validator[T] = self.validator.describedBy
 
 proc helpDescribedBy[T](self: AnyValueArg[T]): Validator[T] =
-  ## `describedBy` for help: the enum's values alone when `self`'s Validator
-  ## has nothing to say, rather than `all`'s dangling " and ".
+  ## `describedBy` for help: nothing when `self`'s Validator hides its help,
+  ## and otherwise the enum's values alone when it has nothing to say.
   when parsesByName(T):
-    if not self.validator.isNil and self.validator.styledHelp.len == 0:
-      return choice(enumValues[T]())
+    if not self.validator.isNil:
+      if self.validator.hidesHelp: return self.validator
+      if self.validator.styledHelp.len == 0: return choice(enumValues[T]())
   self.describedBy
 
 proc converted[T](text, subject: string, validator: Validator[T], hint = ""): T =
