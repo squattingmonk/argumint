@@ -1,8 +1,10 @@
 # Public names stay in `argumint.nim`; private-field machinery lives in a withheld submodule
 
 > **Note (2026-10-30):** withheld names no longer get a `not compiles`
-> test; private fields still do. See CODING_STANDARDS.md, "`not compiles`
-> pins a designed constraint".
+> test; private fields still do, each mirrored by a `privateAccess` positive
+> in the same test rather than in a suite that imports internals, and
+> `tests/test_public_api.nim` is now `tests/api/test_argumint.nim` (#364).
+> See CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
 
 > **Note (#213):** `defineValueArg` and the one-argument `defineArg` are
 > gone. `ValueArgBase` and the `initValueArg`/`initValuesArg` constructors
@@ -69,7 +71,7 @@ deliberate; it is not an oversight to be tidied up later.
 **"Withheld" means exported from its own module, absent from the facade.**
 This is an established shape here, not a new category: the variant-format
 PEGs are exported from `backend` and deliberately unreachable from a bare
-`import argumint`, and `tests/api/test_argumint.nim` polices exactly that.
+`import argumint`, and `tests/test_public_api.nim` polices exactly that.
 Every withheld name gets a `not compiles` assertion there, mirrored by a
 positive in the suite that imports internals -- neither half means much
 alone.
