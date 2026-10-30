@@ -169,7 +169,9 @@ against later ones, apart from the exceptions below.
 
 These are covered, and changing them needs a new major version:
 
-- Every name exported by the modules meant to be imported: `argumint`,
+- Every name listed in
+  [`tests/api/surface.txt`](tests/api/surface.txt) without a leading `!`.
+  It records what the modules meant to be imported export: `argumint`,
   `argumint/customarg`, `argumint/help`, `argumint/configsource`,
   `argumint/configsource/ini` and `argumint/configsource/json`.
 - What you write a Custom Arg, Config Source or Help Formatter against: the
@@ -189,6 +191,9 @@ These may change in a minor release:
 - The wording, layout and colours of help text and error messages.
 - The contents of generated shell completion scripts. Regenerate them when
   you upgrade.
+- The signature and behaviour of a name marked `!` in
+  `tests/api/surface.txt`. A public module exports it by accident. It stays
+  importable through 1.x, and 2.0 withholds it.
 
 ## Examples
 
