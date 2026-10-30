@@ -39,6 +39,13 @@ state machine that drives parsing.
   to `main` until the 2.0 cut.
 - At the 2.0 cut, a `1.x` branch is made from the last 1.x tag for
   backports, and `next` merges into `main`.
+- Every ADR lands on `main`, a 2.0 one included, so `main` alone hands out
+  ADR numbers and `next` gets each one through the `main` merge. Never add
+  an ADR on `next`: the next 1.x ADR would reuse its number. A 2.0 ADR
+  says in its opening paragraph that it ships in 2.0; its feature then
+  branches from `next` once `main` has been merged in. Pick the number
+  against the latest `main` just before shipping, since a parallel PR may
+  have taken it.
 
 ## Where things live
 
