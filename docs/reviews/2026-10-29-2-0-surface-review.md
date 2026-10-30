@@ -23,7 +23,7 @@ Line numbers are as of the review date.
 
 | | Candidate | Strength | Status |
 |---|---|---|---|
-| [AC](#ac--a-validators-desc-does-two-jobs) | A Validator's `desc` does two jobs | Strong | Revised: #357, all 1.x ([ADR 0089](../adr/0089-annotation-text-overrides-a-help-annotation.md)) |
+| [AC](#ac--a-validators-desc-does-two-jobs) | A Validator's `desc` does two jobs | Strong | Shipped: #357, PR #360, `55bdbd2`; ADR 0089 |
 | [AD](#ad--dottuple-quits) | `dot(tuple)` quits | Strong | Open |
 | [AE](#ae--a-commands-values-cant-be-read-off-the-parsed-tuple) | A command's values can't be read off the parsed tuple | Worth exploring | Open |
 | [AF](#af--the-custom-arg-contract-is-wider-than-customarg-says) | The Custom Arg contract is wider than `customarg` says | Worth exploring | Open |
@@ -104,6 +104,10 @@ All of it ships in 1.x, so AC has no 2.0 part. The Solution's separate
 modifiers were prototyped and work, but are turned down for now: they'd be
 argumint's only chained API and need 2.0 to drop `desc`. Whether 2.0 adopts
 chaining is a separate question. See ADR 0089.
+
+**Shipped** as revised, in 1.x, with two additions. A hidden child drops
+out of `all`/`any`'s joined help instead of leaving a dangling `and`/`or`,
+and a hidden Validator on an enum Arg hides the enum's list of values too.
 
 ### AD — `dot(tuple)` quits
 
