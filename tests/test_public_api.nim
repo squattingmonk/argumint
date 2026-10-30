@@ -189,6 +189,13 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(quoted("x"))
     check not compiles(showValue(1))
 
+  test "`AnnotationText`'s borrowed reads stay out of the facade":
+    # Exported from `annotationtext` for `validators`/`flagclamp` only.
+    # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
+    let text: AnnotationText = "x"
+    check not compiles(text.isSome)
+    check not compiles(text.get)
+
   test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
     # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
     # field into `argumint/values/argtypes`, keeping every public name here.

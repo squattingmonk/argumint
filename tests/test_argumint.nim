@@ -8,6 +8,7 @@ import argumint/walk/precedence
 import argumint/configsource/ini
 import argumint/configsource/json
 import argumint/values/display
+import argumint/values/annotationtext
 
 privateAccess(ValueArgBase)      ## White-box assertions on the arg
 privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
@@ -1686,6 +1687,14 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   test "the value-display helpers exist":
     check quoted("x") == "\"x\""
     check showValue(1) == "1"
+
+  test "`AnnotationText`'s borrowed reads exist":
+    let custom: AnnotationText = "x"
+    let hidden: AnnotationText = some("")
+    let generated: AnnotationText = ""
+    check (custom.isSome, custom.get) == (true, "x")
+    check (hidden.isSome, hidden.get) == (true, "")
+    check not generated.isSome
 
   test "the FSM plumbing types exist":
     var
