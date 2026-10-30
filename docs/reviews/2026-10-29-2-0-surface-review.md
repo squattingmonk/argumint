@@ -23,7 +23,7 @@ Line numbers are as of the review date.
 
 | | Candidate | Strength | Status |
 |---|---|---|---|
-| [AC](#ac--a-validators-desc-does-two-jobs) | A Validator's `desc` does two jobs | Strong | Open |
+| [AC](#ac--a-validators-desc-does-two-jobs) | A Validator's `desc` does two jobs | Strong | Revised: #357, all 1.x ([ADR 0089](../adr/0089-annotation-text-overrides-a-help-annotation.md)) |
 | [AD](#ad--dottuple-quits) | `dot(tuple)` quits | Strong | Open |
 | [AE](#ae--a-commands-values-cant-be-read-off-the-parsed-tuple) | A command's values can't be read off the parsed tuple | Worth exploring | Open |
 | [AF](#af--the-custom-arg-contract-is-wider-than-customarg-says) | The Custom Arg contract is wider than `customarg` says | Worth exploring | Open |
@@ -32,7 +32,8 @@ Line numbers are as of the review date.
 | [F](#f-revisited--the-graph-types-move-to-fsmgraph) | F, revisited: the graph types move to `fsmgraph` | Strong | Open; 2.0 requires Nim 2.4 |
 
 **Recommendation:** AC and AD first. Both are small, both plainly need a
-major release, and AC's additive half can ship in 1.x now. AE is the one
+major release, and AC's additive half can ship in 1.x now (AC was since
+revised: it needs no major release). AE is the one
 worth a grilling session: it changes the most user code, and it would give
 users the most, since `parsed` would return every command's values, not
 just the root's. AF and AG both come down to listing the frozen surface by
@@ -82,6 +83,27 @@ exists.
 **Wins.** Help and failure text can each be written well. An author can
 hide one Validator's annotation, which ADR 0088's filter can only do from a
 formatter. Validators and Flag Clamps say "hide this" the same way.
+
+**Revised (#357).** The premise above is wrong: one text can do both
+jobs. A good `desc` names what's accepted (`a positive even number`). It
+reads well in help, and reads badly in a failure only because a custom
+`desc` goes after `<value> did not meet condition: `, a frame written for
+a predicate like `must be even`. `choice` and `range` already generate
+`got … but expected …` around a noun phrase. So the problems are that
+frame and a Validator's annotation that can't be hidden, and the fix keeps
+one text:
+
+- `desc` becomes `AnnotationText`, a distinct `Option[string]` on every
+  Validator constructor and on `clamp`/`adjust`. Its converters keep every
+  call compiling: `""` is generated, and `some("")` hides, as a Flag
+  Clamp's already does.
+- A custom failure reads `got <value> but expected <desc>`.
+
+All of it ships in 1.x, so AC has no 2.0 part. The Solution's separate
+`help` and `failure` fall with the premise. Chained `withHelp`/`withFailure`
+modifiers were prototyped and work, but are turned down for now: they'd be
+argumint's only chained API and need 2.0 to drop `desc`. Whether 2.0 adopts
+chaining is a separate question. See ADR 0089.
 
 ### AD — `dot(tuple)` quits
 
