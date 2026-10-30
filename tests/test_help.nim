@@ -139,6 +139,7 @@ suite "a custom `HelpFormatter` can be written with only `argumint/help`":
     check row.variants is StyledText
     check row.text is Prose
     check ctx.render(row.text.wrap(80)) == "Who to greet"
+    # `Prose` is laid out before it renders, so it has no `plain` either.
     check not compiles(ctx.render(row.text))
     check not compiles(row.text.plain)
 

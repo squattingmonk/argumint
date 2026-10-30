@@ -1,5 +1,9 @@
 # `ValueArg` and `FlagArg` are exported; their state stays private
 
+> **Note (2026-10-30):** the two-file convention below now covers private
+> fields only; withheld names no longer get a `not compiles` test. See
+> CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
+
 > **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the base
 > methods listed below now read `envName`/`envDelim`/`configKey`/`parse`/
 > `clear`/`action`. `setFromEnv`/`setFromConfig` are gone — every tier

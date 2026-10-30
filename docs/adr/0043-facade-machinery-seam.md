@@ -1,9 +1,8 @@
 # Public names stay in `argumint.nim`; private-field machinery lives in a withheld submodule
 
-> **Note (2026-10-30):** a withheld name no longer gets a `not compiles`
-> test. Such a test only catches a name someone already listed, never the
-> next one to leak. Private fields are still pinned unreachable. See
-> CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
+> **Note (2026-10-30):** withheld names no longer get a `not compiles`
+> test; private fields still do. See CODING_STANDARDS.md, "`not compiles`
+> pins a designed constraint".
 
 > **Note (#213):** `defineValueArg` and the one-argument `defineArg` are
 > gone. `ValueArgBase` and the `initValueArg`/`initValuesArg` constructors

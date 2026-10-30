@@ -111,8 +111,7 @@ export backend.parse, backend.clear
 # `argumint/values/argtypes`. Only their names travel back here: the private
 # fields, the untyped bases, and the `init*`/`raw*` bookends
 # the public names below are written against all stay withheld -- see
-# `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
-# which holds that line.
+# `docs/adr/0043-facade-machinery-seam.md`.
 export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOp
 
 # Enough to pick a built-in Help Formatter or declare Long-Form Help Text;

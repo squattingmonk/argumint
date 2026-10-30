@@ -9,7 +9,7 @@
 # withheld. The negatives below pin private fields and designed constraints.
 # A `not compiles(...)` also passes for a field that no longer exists at all,
 # so each private field is mirrored by a positive in a suite that imports the
-# internals: `test_argumint.nim`'s "Library-internal names ... unreachable"
+# internals: `test_argumint.nim`'s "Private fields ... unreachable"
 # suite or `tests/test_help.nim`. Neither half means much alone; add to both
 # together.
 
@@ -152,11 +152,11 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
-    # Mirrored by `tests/test_argumint.nim`'s "Library-internal names ..."
+    # Mirrored by `tests/test_argumint.nim`'s "Private fields ..."
     # suite.
 
   test "a custom Arg can build `StyledText` for `validatorHelp`":
-    # See ADR 0051's note (#209); `Span` stays out, above.
+    # See ADR 0051's note (#209).
     check nameable(StyledText)
     check compiles(styled("a") & styled(srLiteral, "b"))
 

@@ -1671,12 +1671,12 @@ suite "Messages":
     check s.commands["ship"].spec.settings.width == 40
     check s.commands["ship"].spec.commands["move"].spec.settings.width == 40
 
-suite "Library-internal names `tests/test_public_api.nim` asserts are unreachable":
-  # That file checks `not compiles(...)` for each private field here from a
-  # bare `import argumint`, which would also pass if the field simply
-  # stopped existing (a rename, a deletion). These positives are its other
-  # half: together they mean "exists, but not exported". Keep the two lists
-  # in sync -- see docs/adr/0030-core-types-exported-spec-opaque.md.
+suite "Private fields `tests/test_public_api.nim` asserts are unreachable":
+  # That file checks `not compiles(...)` for each field here from a bare
+  # `import argumint`, which would also pass if the field simply stopped
+  # existing (a rename, a deletion). These positives are its other half:
+  # together they mean "exists, but private". Keep the two lists in sync --
+  # see docs/adr/0030-core-types-exported-spec-opaque.md.
   test "`SpecSettings`'s private `theme` field exists":
     privateAccess(SpecSettings)
     var theme = defaultTheme
@@ -1719,6 +1719,13 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check s.groups.len > 0
     check not s.fsm.isNil
 
+  test "`Offer`'s private fields exist":
+    privateAccess(Offer)
+    let o = offer([("x", "An x")], paths = Files)
+    check o.values.len == 1
+    check o.paths == Files
+
+suite "Arg constructors":
   test "a `ValueArg`/`ValuesArg` constructor sets every hook on its base":
     # A hook left unset compiles, then crashes the first time a base method
     # calls it.

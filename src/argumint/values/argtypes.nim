@@ -932,15 +932,13 @@ when isMainModule:
     gapOne = 1, gapFive = 5
 
   suite "string conversion":
-    test "`fromString` exists but is private to this module":
+    test "`fromString` trims and converts by name":
       # `acceptImpl` and `parseFlagOpsString` are its only callers.
       check fromString[int](" 5 ") == 5
       check fromString[Rank]("rMid") == rMid
       check fromString[Grade]("gFair") == gFair
 
-    test "the string-to-scalar conversions exist but are private to this module":
-      # `tests/test_public_api.nim` asserts a bare `import argumint` leaves
-      # `let n: int = "5"` failing to compile.
+    test "the string-to-scalar conversions trim, and reject a malformed value":
       check toNumber[int](" 5 ") == 5
       check toNumber[float](" 2.5 ") == 2.5
       check toBool("yes")
