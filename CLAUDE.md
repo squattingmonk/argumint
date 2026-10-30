@@ -8,12 +8,13 @@ state machine that drives parsing.
 ## Commands
 
 - `nimble test` runs every `.nim` file under `src/` (its `when isMainModule`
-  suite, or a bare compile-check) plus every `tests/test_*.nim`. Add a test
-  as a `when isMainModule` block in the module under test, or as a new
-  `tests/test_*.nim` for cross-module or fixture-heavy cases; neither needs
-  wiring. A helper module a test imports goes in `tests/fixtures/`.
-  `tests/config.nims` and `examples/config.nims` put `src` on the path. See
-  `tools/runtests.nim`.
+  suite, or a bare compile-check) plus every `.nim` file under `tests/`,
+  subdirectories included. Add a test as a `when isMainModule` block in the
+  module under test, or as a new `tests/test_*.nim` for cross-module or
+  fixture-heavy cases; neither needs wiring. A helper module a test imports
+  goes in `tests/fixtures/`, which the runner skips. `tests/config.nims` and
+  `examples/config.nims` put `src` on the path, and the tests' config keeps
+  an installed argumint out. See `tools/runtests.nim`.
 - `nimble docscheck` lints the guide's Markdown and compiles its examples;
   `nimble docs` builds the API docs and fails on any doc-comment error.
 - `markdownlint-cli2 "**/*.md"` checks every Markdown file's line width (an

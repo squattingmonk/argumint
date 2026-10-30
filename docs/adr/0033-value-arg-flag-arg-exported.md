@@ -1,7 +1,9 @@
 # `ValueArg` and `FlagArg` are exported; their state stays private
 
-> **Note (2026-10-30):** the two-file convention below now covers private
-> fields only; withheld names no longer get a `not compiles` test. See
+> **Note (2026-10-30):** the two-file convention below is gone. Withheld
+> names no longer get a `not compiles` test, and a private field's negative
+> and its `privateAccess` positive now share one test, in
+> `tests/api/test_argumint.nim` (#364). See
 > CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
 
 > **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the base

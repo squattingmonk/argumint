@@ -595,6 +595,11 @@ suite "What converts to a Completer (#215)":
     ]:
       check spec.wire("") == @[expected & "\t", ":"]
 
+  test "`$` names a Completer's kind":
+    check $arg("<a>").Arg.complete == "Completer(default)"
+    check $arg("<a>", complete = Files).Arg.complete == "Completer(fixed)"
+    check $arg("<a>", complete = namedCompleter).Arg.complete == "Completer(proc)"
+
   test "a proc of another shape doesn't convert":
     check not compiles(arg("<a>", complete = proc (word: string): seq[string] = @[]))
 

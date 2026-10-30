@@ -6,9 +6,9 @@
 ##
 ## Targets are every `.nim` file under `src/` (sanity-compiling modules with no
 ## `when isMainModule` block, and running the embedded tests of those with
-## one) plus every `tests/*.nim`. Build output goes to `nimcache/test/`. If
-## any compile fails, every failure is named and no tests run; otherwise the
-## run stops at the first failing test.
+## one) plus every `.nim` file under `tests/` but `tests/fixtures/`. Build
+## output goes to `nimcache/test/`. If any compile fails, every failure is
+## named and no tests run; otherwise the run stops at the first failing test.
 
 import std/[algorithm, os, osproc, sequtils, strutils]
 
@@ -37,7 +37,10 @@ proc nimFiles(dir: string, recurse: bool): seq[string] =
     result.add nimFiles(sub, recurse)
 
 proc findTargets(): seq[Target] =
-  for source in nimFiles("src", recurse = true) & nimFiles("tests", recurse = false):
+  ## `tests/fixtures/` holds helper modules the tests import, not tests.
+  let tests = nimFiles("tests", recurse = true).filterIt(
+    not it.startsWith("tests" / "fixtures" / ""))
+  for source in nimFiles("src", recurse = true) & tests:
     let key = source.changeFileExt("").multiReplace(("/", "_"), ("\\", "_"))
     result.add Target(source: source, key: key)
 

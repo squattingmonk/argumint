@@ -58,7 +58,9 @@ not a violation.
   rule, a private field. Flag one that only proves a name isn't exported, or
   that a parameter the signature never declared is rejected; nothing a test
   lists can catch the next name that leaks, and the compiler already
-  guarantees the second.
+  guarantees the second. A private field's negative sits beside a
+  `privateAccess` positive in the same test, since it also passes for a
+  field that no longer exists; see `tests/api/README.md`.
 - **Uncoloured output.** A test that renders help or a parse error through
   default settings passes `newSpecSettings(style = nil)`; otherwise it
   colours its output when run in a terminal. `FORCE_COLOR=1 nimble test`

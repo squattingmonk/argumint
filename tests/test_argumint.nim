@@ -1671,60 +1671,6 @@ suite "Messages":
     check s.commands["ship"].spec.settings.width == 40
     check s.commands["ship"].spec.commands["move"].spec.settings.width == 40
 
-suite "Private fields `tests/test_public_api.nim` asserts are unreachable":
-  # That file checks `not compiles(...)` for each field here from a bare
-  # `import argumint`, which would also pass if the field simply stopped
-  # existing (a rename, a deletion). These positives are its other half:
-  # together they mean "exists, but private". Keep the two lists in sync --
-  # see docs/adr/0030-core-types-exported-spec-opaque.md.
-  test "`SpecSettings`'s private `theme` field exists":
-    privateAccess(SpecSettings)
-    var theme = defaultTheme
-    theme[srEnv] = TextStyle(fg: fgRed)
-    check newSpecSettings(theme = theme).theme == theme
-
-  test "`ValueArg`/`FlagArg`'s private fields exist":
-    # Reached here only via the `privateAccess` calls at the top of this
-    # file; `tests/test_public_api.nim` asserts the same names are
-    # unreachable from a plain `import argumint`.
-    let
-      name = opt("-n, --name=<s>", default = "x", help = "")
-      tags = opts("--tag=<t>", default = @["a"], help = "")
-      verbose = flag("-v, --verbose", help = "")
-    check name.default == "x"
-    check name.value.isNone
-    check name.validator.isNil
-    check seq[string](name.cfgKey).len == 0
-    check tags.default == @["a"]
-    check tags.value.isNone
-    check not verbose.value
-    check verbose.ops.len == 2      # one per variant
-    check verbose.aliases("-v", "--verbose")
-    check verbose.clamp.isNil
-
-  test "`Spec`'s private bookkeeping fields exist":
-    let s = newSpec((
-      ship: command("ship", (x: arg("<x>", help = "")), help = "Ship"),
-      name: arg("<name>", help = ""),
-      verbose: flag("-v", help = ""),
-      help: help()),
-      prolog = "front", epilog = "back")
-    check s.prolog == "front"
-    check s.epilog == "back"
-    check s.usage.len > 0
-    check s.args.len > 0
-    check "ship" in s.commands
-    check "<name>" in s.arguments
-    check "-v" in s.options
-    check s.groups.len > 0
-    check not s.fsm.isNil
-
-  test "`Offer`'s private fields exist":
-    privateAccess(Offer)
-    let o = offer([("x", "An x")], paths = Files)
-    check o.values.len == 1
-    check o.paths == Files
-
 suite "Arg constructors":
   test "a `ValueArg`/`ValuesArg` constructor sets every hook on its base":
     # A hook left unset compiles, then crashes the first time a base method

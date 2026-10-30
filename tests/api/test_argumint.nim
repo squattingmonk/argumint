@@ -1,19 +1,13 @@
-# Locks down what `import argumint` alone does and doesn't put in scope --
-# see docs/adr/0030-core-types-exported-spec-opaque.md.
-#
-# This file must import *only* `argumint`. Adding `import argumint/core/backend`
-# (or any other submodule) would make every negative assertion below pass
-# vacuously, which is exactly the workaround the ADR exists to remove.
+# What `import argumint` alone puts in scope -- see README.md here and
+# docs/adr/0030-core-types-exported-spec-opaque.md.
 #
 # It asserts what is public, not what isn't: no test checks that a name is
 # withheld. The negatives below pin private fields and designed constraints.
 # A `not compiles(...)` also passes for a field that no longer exists at all,
-# so each private field is mirrored by a positive in a suite that imports the
-# internals: `test_argumint.nim`'s "Private fields ... unreachable"
-# suite or `tests/test_help.nim`. Neither half means much alone; add to both
-# together.
+# so each private field's negative sits beside a `privateAccess` positive in
+# the same test. Neither half means much alone.
 
-import std/[os, sequtils, unittest]
+import std/[importutils, macros, os, sequtils, unittest]
 {.push warning[UnusedImport]: off.}
 import std/[dirs, files, options]
   # Only to show `PathCompletion`'s values don't collide with them (#200).
@@ -26,6 +20,15 @@ template nameable(T: untyped): bool =
   compiles(block:
     var x: T
     discard x)
+
+macro privateAccessBase(T: typedesc) =
+  ## `privateAccess` for the type `T` inherits from, which `import argumint`
+  ## may not let this file name (e.g. `ValueArgBase`).
+  var impl = getTypeInst(T)[1].getTypeImpl
+  if impl.kind == nnkRefTy:
+    impl = impl[0].getTypeImpl
+  result = newCall(bindSym"privateAccess",
+    nnkBracketExpr.newTree(ident"typedesc", impl[1][0]))
 
 suite "Types nameable after a bare `import argumint`":
   test "the core vocabulary types are exported":
@@ -137,6 +140,10 @@ suite "Completers (#215)":
     let o = offer(["x"])
     check not compiles(o.values)
     check not compiles(o.paths)
+    block:
+      privateAccess(Offer)
+      check compiles(o.values)
+      check compiles(o.paths)
 
 suite "`Spec` is an opaque handle":
   setup:
@@ -152,8 +159,17 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
-    # Mirrored by `tests/test_argumint.nim`'s "Private fields ..."
-    # suite.
+    block:
+      privateAccess(Spec)
+      check compiles(spec.fsm)
+      check compiles(spec.usage)
+      check compiles(spec.args)
+      check compiles(spec.commands)
+      check compiles(spec.arguments)
+      check compiles(spec.options)
+      check compiles(spec.groups)
+      check compiles(spec.prolog)
+      check compiles(spec.epilog)
 
   test "a custom Arg can build `StyledText` for `validatorHelp`":
     # See ADR 0051's note (#209).
@@ -169,6 +185,11 @@ suite "`Spec` is an opaque handle":
     check not compiles(proc (ctx: HelpContext): string = ctx.command)
     check not compiles(proc (ctx: HelpContext): int = ctx.width)
     check not compiles(proc (ctx: HelpContext): Spec = ctx.spec)
+    block:
+      privateAccess(HelpContext)
+      check compiles(proc (ctx: HelpContext): string = ctx.command)
+      check compiles(proc (ctx: HelpContext): int = ctx.width)
+      check compiles(proc (ctx: HelpContext): Spec = ctx.spec)
     check compiles(block:
       let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
 
@@ -182,8 +203,10 @@ suite "`Spec` is an opaque handle":
     check not settings.style.isNil
     check compiles(newSpecSettings(style = autoStyler))
     check compiles(newSpecSettings(theme = theme))
-    # A private field, mirrored by `tests/test_argumint.nim`.
     check not compiles(newSpecSettings().theme)
+    block:
+      privateAccess(SpecSettings)
+      check compiles(newSpecSettings().theme)
     # The colour rule is public so a custom `Styler` can follow it (#195).
     check wantsColor() is bool
     check compiles(block:
@@ -222,8 +245,22 @@ suite "`ValueArg`/`FlagArg` are opaque handles too":
     check not compiles(tags.value)
     check not compiles(verbose.value)
     check not compiles(verbose.ops)
-    check not compiles(verbose.aliases)
     check not compiles(verbose.clamp)
+    block:
+      privateAccess(ValueArg[string])
+      privateAccess(ValuesArg[string])
+      privateAccess(FlagArg[bool])
+      # `cfgKey` and `ops` are declared on the unexported bases.
+      privateAccessBase(ValueArg[string])
+      privateAccessBase(FlagArg[bool])
+      check compiles(name.value)
+      check compiles(name.default)
+      check compiles(name.validator)
+      check compiles(name.cfgKey)
+      check compiles(tags.value)
+      check compiles(verbose.value)
+      check compiles(verbose.ops)
+      check compiles(verbose.clamp)
 
   test "the inherited `Arg` surface still works through them":
     # Exporting the subtypes must not shadow what ADR 0030 already opened

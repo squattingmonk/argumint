@@ -88,7 +88,7 @@ So:
 - `ValueArg`/`ValuesArg`/`FlagArg` state is private to `argtypes`, which
   exports the constructors (`initValueArg`, `initValuesArg`,
   `initFlagArg`) and readers (`rawValue`, `rawDefault`) the facade wraps.
-  `tests/test_public_api.nim` checks that the state isn't reachable from
+  `tests/api/test_argumint.nim` checks that the state isn't reachable from
   `import argumint`; the facade's by-name exports keep the rest out.
 - The facade carries `{.experimental: "openSym".}`, as do `argtypes` and
   `validators`.
