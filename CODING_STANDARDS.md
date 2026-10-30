@@ -39,9 +39,6 @@ not a violation.
   code in a public one.
 - **Reads through accessors, writes through `init*`.** An exported mutator on
   an Arg is a finding; the asymmetry with readers is deliberate.
-- **Withheld means tested.** Each newly withheld name needs a `not compiles`
-  case in `tests/test_public_api.nim` and a positive mirror in a suite that
-  imports the internals.
 - **Deep imports stay undocumented.** User-facing docs never show
   `import argumint/<internal>`. The promised modules are the ones ADR 0080
   lists.
@@ -58,9 +55,10 @@ not a violation.
   from the helpers the code under test uses. `x == x` computed two ways
   proves nothing.
 - **`not compiles` pins a designed constraint**: a generic bound, an overload
-  rule, a withheld name. Flag one that only proves a parameter the signature
-  never declared is rejected, or that a stdlib name isn't re-exported; the
-  compiler and the default already guarantee both.
+  rule, a private field. Flag one that only proves a name isn't exported, or
+  that a parameter the signature never declared is rejected; nothing a test
+  lists can catch the next name that leaks, and the compiler already
+  guarantees the second.
 - **Uncoloured output.** A test that renders help or a parse error through
   default settings passes `newSpecSettings(style = nil)`; otherwise it
   colours its output when run in a terminal. `FORCE_COLOR=1 nimble test`

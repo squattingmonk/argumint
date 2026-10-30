@@ -1,5 +1,11 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
+> **Note (2026-10-30):** `tests/test_public_api.nim` no longer asserts
+> any plumbing type or withheld name unreachable. Such a test only catches a
+> name someone already listed, never the next one to leak. The
+> private-field assertions and their mirrors stay. See CODING_STANDARDS.md,
+> "`not compiles` pins a designed constraint".
+
 > **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
 > `kind`, `variants`, `CommandArg.spec` and `seenBy` are no longer public
 > fields. Each is read through a getter, and a Custom Arg sets the first

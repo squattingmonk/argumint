@@ -5,27 +5,13 @@
 # (or any other submodule) would make every negative assertion below pass
 # vacuously, which is exactly the workaround the ADR exists to remove.
 #
-# A `not compiles(...)` also passes for a name that no longer exists at all,
-# so every negative below is mirrored by a positive in `test_argumint.nim`'s
-# "Library-internal names ... unreachable" suite, which does import the
-# internals. Neither half means much alone; add to both together.
-#
-# One exception: `BoundOp` is private to `src/argumint/values/argtypes.nim`
-# itself, not merely withheld from this facade, so no importer can name it. Its
-# mirror lives in that file's own embedded "the export boundary drawn in issue
-# #27" suite instead.
-#
-# A second: `genHelp` isn't private at all -- it's exported from
-# `argumint/help` and merely not re-exported here (see
-# `docs/adr/0042-genhelp-opt-in-via-submodule.md`). Its negative below
-# therefore pairs with `tests/test_help.nim`, which imports that submodule
-# and calls it, rather than with `test_argumint.nim`'s suite.
-#
-# A third, of exactly the `BoundOp` kind: the string-to-scalar conversions
-# (`toBool`/`toChar`, and `toNumber` behind the rest) and `fromString` are
-# private to `src/argumint/values/argtypes.nim` -- not merely withheld from this
-# facade -- so no importer can name them. Their mirrors live in that file's
-# own embedded suite alongside `BoundOp`'s.
+# It asserts what is public, not what isn't: no test checks that a name is
+# withheld. The negatives below pin private fields and designed constraints.
+# A `not compiles(...)` also passes for a field that no longer exists at all,
+# so each private field is mirrored by a positive in a suite that imports the
+# internals: `test_argumint.nim`'s "Library-internal names ... unreachable"
+# suite or `tests/test_help.nim`. Neither half means much alone; add to both
+# together.
 
 import std/[os, sequtils, unittest]
 {.push warning[UnusedImport]: off.}
@@ -63,6 +49,9 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(ValueArg[string])
     check nameable(ValuesArg[string])
     check nameable(FlagArg[bool])
+    # `FlagArg`'s ops are private, so naming `FlagArg[T]` never requires
+    # naming their element type; `FlagOp` is the public half.
+    check nameable(FlagOp[int])
 
   test "a `desc` converts from a string or an Option, but nothing else picks up the conversion":
     # `AnnotationText` is distinct so a user's own `Option[string]` parameter
@@ -73,12 +62,6 @@ suite "Types nameable after a bare `import argumint`":
     check range(0..4, desc = "a small number").help() == "a small number"
     proc wantsOpt(o: Option[string]): bool = o.isSome
     check not compiles(wantsOpt("x"))
-
-  test "the untyped bases under `ValueArg`/`ValuesArg` and `FlagArg` stay out of the facade":
-    # Exported from `argumint/values/argtypes` for the facade only. Mirrored by
-    # `test_argumint.nim`'s "Library-internal names ..." suite.
-    check not nameable(ValueArgBase)
-    check not nameable(FlagArgBase)
 
   test "`Option` itself is exported, not just `some`/`none`":
     # `opt*`/`opts*`/`flag*`'s `env` param is `Option[EnvSource]` and
@@ -99,8 +82,6 @@ suite "Types nameable after a bare `import argumint`":
 
   test "`detectWidth`, in `newSpecSettings`'s default `width`, is spellable":
     check compiles(newSpecSettings(width = min(detectWidth(), 120)))
-    # Its pure rule is a test seam, not API.
-    check not declared(chooseWidth)
 
   test "spec construction's public half survives moving out of `argumint.nim`":
     # Issue #49 split `newSpec` into `argumint/grammar/specbuild` and the three
@@ -111,22 +92,6 @@ suite "Types nameable after a bare `import argumint`":
     check compiles(env("PORT", ","))
     check compiles(toEnvSource("PORT"))
     check compiles(newSpec((verbose: flag("-v", help = ""),)))
-
-  test "a Custom Arg's surface stays in `argumint/customarg` (#269)":
-    # A CLI author reads an Arg; only a Custom Arg overrides or builds one.
-    # Mirrored by `test_customarg.nim`, which imports that module.
-    let port = opt("--port=<n>", default = 0, help = "")
-    check not compiles(port.envSource)
-    check not compiles(port.envName)
-    check not compiles(port.configKey)
-    check not compiles(port.isMessage)
-    check not compiles(Arg(nil).action(HookInfo()))
-    check not declared(Contribution)
-    check not declared(Arbitration)
-    check not declared(subject)
-    check not declared(initArg)
-    # The `configKey(...)` constructor is a different overload, and stays.
-    check compiles(configKey("server", "port"))
 
   test "what a Spec is built from is read-only (#269)":
     # Readable for `HookInfo.matched`; written only while an Arg is built.
@@ -142,109 +107,13 @@ suite "Types nameable after a bare `import argumint`":
     check not compiles(port.seenBy = byCli)
     check not compiles(cmd.spec = cmd.spec)
 
-  test "`envDelim` is gone, folded into `envSource` (#59)":
-    # The pair could disagree; one method can't. A `not compiles` also
-    # passes for a name that never existed, so this pairs with
-    # `test_customarg.nim`'s positive -- there is no internal `envDelim`
-    # left for `test_argumint.nim` to name.
-    let port = opt("--port=<n>", env = env("PORT", ","), help = "")
-    check not compiles(port.envDelim)
-
-  test "spec construction's plumbing stays out of the facade":
-    # `beginSpec`/`finishSpec`/`addArgs` are exported from `specbuild` only
-    # because generic `newSpec` instantiates in the caller's file (ADR
-    # 0030); the Variant grammar is exported from `variant` only so its
-    # siblings can reach it. Neither is public API. Mirrored by
-    # `test_argumint.nim`'s "Library-internal names ..." suite.
-    check not compiles(beginSpec("", "", ""))
-    check not compiles(finishSpec(Spec(nil), SpecSettings(nil)))
-    check not compiles(Spec(nil).addArgs((verbose: flag("-v", help = ""),)))
-    check not compiles(parseVariant("-v", VariantShape.Flag))
-    check not compiles(splitVariants("-v"))
-
-  test "the tier rule stays out of the facade (#144)":
-    # `parse` arbitrates for every write, so nothing outside the library
-    # needs to; `Arbitration` itself is public, as `accept` takes one.
-    # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
-    # The `arbitrate` template this replaced is gone altogether, and
-    # `arbitration` is private to `backend` behind `arbitrated` (#272).
-    check not declared(arbitrated)
-    check not declared(arbitrate)
-
-  test "the env tier's reading and splitting stay out of the facade (#149)":
-    # `EnvSource` and its constructors are public; how the fallback sweep
-    # reads and splits a variable isn't. Mirrored by `test_argumint.nim`'s
-    # "Library-internal names ..." suite.
-    check not compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
-    check not compiles(splitEnvValue("a:b", none(string), ":"))
-
-  test "completion's frontier stays out of the facade (#200)":
-    # `__complete`'s output is the interface -- see ADR 0066.
-    check not declared(resolveCompletion)
-    check not declared(CompletionCandidate)
-
-  test "the value-display helpers stay out of the facade":
-    # Exported from `display` for `validators`/`argtypes` only. Mirrored by
-    # `test_argumint.nim`'s "Library-internal names ..." suite.
-    check not compiles(quoted("x"))
-    check not compiles(showValue(1))
-
-  test "`AnnotationText`'s borrowed reads stay out of the facade":
-    # Exported from `annotationtext` for `validators`/`flagclamp` only.
-    # Mirrored by `test_argumint.nim`'s "Library-internal names ..." suite.
-    let text: AnnotationText = "x"
-    check not compiles(text.isSome)
-    check not compiles(text.get)
-
-  test "the `ValueArg`/`FlagArg` machinery stays out of the facade":
-    # Issue #51 moved everything that touches a `ValueArg`/`FlagArg` private
-    # field into `argumint/values/argtypes`, keeping every public name here.
-    # Those bookends are exported from that module only so this facade's generic
-    # constructors, accessors, `flagOp` and `flagOpIt` can reach them -- see
-    # `docs/adr/0043-facade-machinery-seam.md`. Mirrored by
-    # `test_argumint.nim`'s "Library-internal names ..." suite.
-    check not compiles(initValueArg[string](Optional, "-n", "x", "", "Options", false, noValidator[string]()))
-    check not compiles(initValuesArg[string](Optional, "-n", @["x"], "", "Options", false, noValidator[string]()))
-    check not compiles(initFlagArg[bool]("-v", [], false, "", "Options", false, noClamp[bool](), none(EnvSource), noConfigKey()))
-    check not compiles(opError[int]("+="))
-    check not compiles(namedOp("=", 1))
-    check not compiles(describeOp("=", 1))
-    check not compiles(initFlagOp[int]("-v", proc (value: var int) = discard, ""))
-    check not compiles(splitFlagSpellings("-v"))
-    check not compiles(parseFlagOpsString[int]("--n+=1"))
-    check not declared(requireValidatedFlagType)
-    # Fully private to `argtypes`, not merely withheld. Mirrored in that
-    # file's own embedded suite -- see the third exception in this file's
-    # header.
-    check not compiles(fromString[int]("5"))
-
-  test "the string-to-scalar conversions stay private to `argumint/values/argtypes`":
-    # `fromString` calls them by name, and nothing else does. Exporting them
-    # as converters would put `let n: int = "5"` in scope for everyone who
-    # imports argumint.
-    # Mirrored in `argtypes.nim`'s own embedded suite, not in
-    # `test_argumint.nim` -- see the third exception in this file's header.
-    check not compiles(toInt("5"))
-    check not compiles(toFloat("5.0"))
-    check not compiles(toBool("yes"))
-    check not compiles(toChar("c"))
+  test "no string-to-scalar converter comes into scope":
+    # `fromString`'s conversions are private to `argumint/values/argtypes`.
+    # Exporting them as converters would put `let n: int = "5"` in scope for
+    # everyone who imports argumint.
     check not compiles(block:
       let n: int = "5"
       discard n)
-
-  test "`BoundOp` stays unexported":
-    # `FlagArg`'s ops are private, so naming `FlagArg[T]` never requires
-    # naming their element type. `FlagOp` is the public half.
-    check not nameable(BoundOp)
-    check nameable(FlagOp[int])
-
-  test "the FSM plumbing types stay unexported":
-    # Implementation, not API: their operations live in
-    # `argumint/grammar/fsmgraph`, which isn't re-exported either.
-    check not nameable(State)
-    check not nameable(Transition)
-    check not nameable(Matcher)
-    check not nameable(MatcherKind)
 
 suite "`PathCompletion` values beside std modules (#200)":
   test "Files, Dirs and None compile unqualified":
@@ -283,28 +152,8 @@ suite "`Spec` is an opaque handle":
     check not compiles(spec.groups)
     check not compiles(spec.prolog)
     check not compiles(spec.epilog)
-    # Each has a read accessor in `argumint/core/backend`, withheld from the
-    # facade -- so these pin "withheld", mirrored by `tests/test_argumint.nim`
-    # reading them. `usage`/`prolog`/`epilog` are also re-exported from
-    # `argumint/help` for custom Help Formatters; like `genHelp`, they're
-    # mirrored by `tests/test_help.nim` (ADR 0048).
-
-  test "`genHelp` is reachable only by importing `argumint/help`":
-    # Semi-public on purpose: the umbrella import stays free of it, and a
-    # caller who wants to render help themselves opts in with the submodule.
-    # Mirrored by `tests/test_help.nim`, not by `test_argumint.nim` -- see
-    # the second exception in this file's header.
-    check not compiles(spec.genHelp("prog"))
-    check not compiles(genHelp(spec, "prog"))
-
-  test "the span model is reachable only by importing `argumint/help`":
-    # Formatter-author names, like `genHelp`; mirrored by `tests/test_help.nim`.
-    check not declared(Row)
-    check not declared(Span)
-    check not declared(usageLines)
-    check not declared(proseLines)
-    check not declared(wrapProse)
-    check not declared(Prose)
+    # Mirrored by `tests/test_argumint.nim`'s "Library-internal names ..."
+    # suite.
 
   test "a custom Arg can build `StyledText` for `validatorHelp`":
     # See ADR 0051's note (#209); `Span` stays out, above.
@@ -315,21 +164,11 @@ suite "`Spec` is an opaque handle":
     # Like `HelpFormatter`, whose signature names it: a formatter can be
     # declared from here, and written with the submodule (ADR 0057).
     check declared(HelpContext)
-    check not declared(helpContext)
-    check not declared(prose)
-    check not declared(heading)
-    check not declared(groups)
+    # Its fields are private; `tests/test_help.nim` reads them through
+    # `argumint/help`'s accessors.
     check not compiles(proc (ctx: HelpContext): string = ctx.command)
     check not compiles(proc (ctx: HelpContext): int = ctx.width)
     check not compiles(proc (ctx: HelpContext): Spec = ctx.spec)
-    check not compiles(proc (ctx: HelpContext) = discard ctx.rows(Arg()))
-    check not compiles(proc (ctx: HelpContext) = discard ctx.markup("x"))
-    check not compiles(proc (ctx: HelpContext): string = ctx.render([]))
-    check not compiles(proc (ctx: HelpContext) =
-      discard ctx.filter(proc (arg: Arg): bool = true))
-    check not declared(HelpAnnotation)
-    check not declared(haConfigKey)
-    check not declared(filterAnnotations)
     check compiles(block:
       let f: HelpFormatter = proc (ctx: HelpContext): string = "help")
 
@@ -343,12 +182,10 @@ suite "`Spec` is an opaque handle":
     check not settings.style.isNil
     check compiles(newSpecSettings(style = autoStyler))
     check compiles(newSpecSettings(theme = theme))
+    # A private field, mirrored by `tests/test_argumint.nim`.
     check not compiles(newSpecSettings().theme)
     # The colour rule is public so a custom `Styler` can follow it (#195).
     check wantsColor() is bool
-    # Detection happens behind the getters; the resolvers aren't API.
-    check not declared(resolvedWidth)
-    check not declared(resolvedStyler)
     check compiles(block:
       let s = newSpecSettings()
       s.width = 0
@@ -357,28 +194,6 @@ suite "`Spec` is an opaque handle":
       discard s.style.isNil)
     check compiles(block:
       let s: Styler = proc (role: StyleRole, text: string): string = text)
-    check not declared(markup)
-    check not declared(plainMarkup)
-    check not declared(styledHelp)
-    check not declared(seesHistory)
-    check not declared(hidesHelp)
-    check not declared(heading)
-    check not declared(styledOption)
-    check not declared(firstParagraph)
-    check not declared(dedentLines)
-    check not declared(toProse)
-    check not declared(annotate)
-    check not declared(summary)
-    check not declared(splitUsage)
-    check not declared(usageBlock)
-    check not declared(metavars)
-    check not declared(displayTokens)
-    check not declared(quitMessage)
-    check not declared(outcome)
-    check not declared(Outcome)
-    check not declared(quitWith)
-    check not declared(newPlainError)
-    check not declared(failure)
 
   test "`settings` and the hooks stay public":
     # `block:` rather than a bare `spec.before = ...`, which `compiles`
@@ -409,16 +224,6 @@ suite "`ValueArg`/`FlagArg` are opaque handles too":
     check not compiles(verbose.ops)
     check not compiles(verbose.aliases)
     check not compiles(verbose.clamp)
-
-  test "the read accessors behind `get` stay unreachable too":
-    # `get*`/`toT*`/`toSeqT*` are written against `rawValue`/`rawDefault`
-    # (`argumint/values/argtypes`), which reach the private fields above on
-    # their behalf. Exporting them would reopen those fields under another name.
-    check not compiles(name.rawValue)
-    check not compiles(name.rawDefault)
-    check not compiles(tags.rawValue)
-    check not compiles(tags.rawDefault)
-    check not compiles(verbose.rawValue)
 
   test "the inherited `Arg` surface still works through them":
     # Exporting the subtypes must not shadow what ADR 0030 already opened

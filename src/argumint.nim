@@ -85,7 +85,7 @@ export backend.DefaultWidth, backend.DefaultMaxVariantsWidth,
 # `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
 # is reachable by bare name from a generated `parse` method (ADR 0017). The
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
-# PEGs) stays out; `tests/test_public_api.nim` holds that line.
+# PEGs) stays out, since only the names below are exported.
 export backend.newSpecSettings, envvar.env, envvar.toEnvSource, backend.appName,
   backend.detectWidth, backend.width, backend.`width=`, backend.style,
   backend.`style=`

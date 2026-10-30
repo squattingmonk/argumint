@@ -1,7 +1,7 @@
-# Locks `genHelp`'s semi-public status -- see
-# `docs/adr/0042-genhelp-opt-in-via-submodule.md`.
-# `tests/test_public_api.nim` holds the other half (a bare `import argumint`
-# can't reach it); neither half means much alone.
+# What `argumint/help` adds to `import argumint`: `genHelp` (see
+# `docs/adr/0042-genhelp-opt-in-via-submodule.md`) and the Help Formatter
+# toolkit. Also the positive half of `tests/test_public_api.nim`'s
+# `HelpContext` private-field assertions.
 
 import std/[strutils, sugar, unittest]
 
@@ -55,45 +55,15 @@ suite "`genHelp` is callable by importing `argumint/help` directly":
     let e = greeter().helpRaised("greet")
     check e.styledMsg == e.msg
 
-  test "a formatter reaches rows and prose only through the Help Context":
-    # Raw builders skip the tick decision; see docs/adr/0057-help-context.md.
-    let a = arg("<name>", help = "Who")
-    check not compiles(a.rows)
-    check not compiles("Some `-x`.".markup)
-    check not declared(proseLines)
-    check not declared(annotations)
-    check not declared(variantsByDesc)
-    check not declared(helpGroups)
+  test "the Help Formatter toolkit is reachable":
     check declared(helpContext)
-    check not declared(wrapProse)
-    check not declared(toProse)
-    check not declared(annotate)
-    check not declared(summary)
-    check not declared(splitUsage)
-    check not declared(usageBlock)
     check declared(Prose)
     check declared(joinSections)
     check declared(longOrShort)
-
-  test "the toolkit has no pass-throughs for what the context hands out":
-    # See docs/adr/0075-help-formatters-build-on-the-help-frame.md.
-    check not declared(usageLines)
-    check not compiles(greeter().helpContext("p").heading("Options"))
-    check not compiles(greeter().usage)
-    check not declared(Span)
-    check not compiles([styled("a")].render)
-    check not compiles(styled("a").plain)
-    check not compiles(styled("a").withoutTicks)
     check declared(frame)
     check declared(RowRenderer)
     check declared(HelpTextForm)
     check MinWidth == 20
-
-  test "style.nim's shared plain-text and option helpers stay withheld":
-    check not declared(firstParagraph)
-    check not declared(dedentLines)
-    check not declared(styledOption)
-    check not compiles([styled("a")].join(styled(", ")))
 
 suite "a custom `HelpFormatter` can be written with only `argumint/help`":
   # Regression for the formatter seam being unusable outside the library --

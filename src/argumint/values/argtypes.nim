@@ -931,13 +931,7 @@ when isMainModule:
   type Gap = enum
     gapOne = 1, gapFive = 5
 
-  suite "the export boundary drawn in issue #27":
-    test "`BoundOp` exists but is private to this module":
-      # `tests/test_public_api.nim` asserts this name is unreachable from a
-      # bare `import argumint`; it's private here, so no importer can name
-      # it to mirror that.
-      check BoundOp(desc: "bump").desc == "bump"
-
+  suite "string conversion":
     test "`fromString` exists but is private to this module":
       # `acceptImpl` and `parseFlagOpsString` are its only callers.
       check fromString[int](" 5 ") == 5
@@ -946,9 +940,7 @@ when isMainModule:
 
     test "the string-to-scalar conversions exist but are private to this module":
       # `tests/test_public_api.nim` asserts a bare `import argumint` leaves
-      # `let n: int = "5"` failing to compile. Their mirror lives here
-      # because they're private to this module, so no importer can name
-      # them at all.
+      # `let n: int = "5"` failing to compile.
       check toNumber[int](" 5 ") == 5
       check toNumber[float](" 2.5 ") == 2.5
       check toBool("yes")

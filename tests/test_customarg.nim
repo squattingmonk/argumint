@@ -1,7 +1,5 @@
 # What `argumint/customarg` adds to `import argumint` for a Custom Arg
-# (#269): `initArg`, and the methods and types a Custom Arg overrides. The
-# positive half of `test_public_api.nim`'s "a Custom Arg's surface stays in
-# `argumint/customarg`" suite, which asserts the facade alone lacks them.
+# (#269): `initArg`, and the methods and types a Custom Arg overrides.
 
 import std/[options, unittest]
 
