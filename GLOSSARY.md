@@ -172,15 +172,16 @@ Flag Operation). Deliberately not a Validator: a Validator raises on failure
 and checks only the values a Flag receives as text, never a Flag Operation's
 result (see Validator); a Flag Clamp instead adjusts the value in place and
 never raises, and applies after a Validator's accepted value too. Built via
-`clamp(bounds: Slice[T], desc = "")` (requires `T` to support `<`;
+`clamp(bounds: Slice[T], desc: AnnotationText = "")` (requires `T` to support `<`;
 auto-generates help text, e.g. `clamp: 0..10`; not named `range` because
 that name collides with Validator's own `range` constructor when both are
 imported together -- confirmed by scratch compile, not assumed; `clamp`
 itself doesn't collide with `system.clamp`/`std/math.clamp`, which take a
 bare value as their first, required arg rather than this proc's `Slice[T]`)
-or `adjust(proc: proc(v: T): T, desc = "")` (any `T`, including one with no
-natural total order, e.g. `set[E]`; shows `desc` in help if given, nothing
-otherwise). A Flag's coded
+or `adjust(proc: proc(v: T): T, desc: AnnotationText = "")` (any `T`,
+including one with no natural total order, e.g. `set[E]`; shows `desc` in
+help if given, nothing otherwise). `desc = some("")` hides `clamp`'s
+generated annotation (see Annotation Text). A Flag's coded
 default is checked once at spec-construction time -- if applying the Clamp
 changes it, spec construction raises `SpecDefect`, since a default that
 doesn't already satisfy the author's own Clamp is a developer mistake, not
@@ -291,7 +292,18 @@ Text, generated from how the Arg was declared rather than written by its
 author: its Validator's or Flag Clamp's help, its default, its env
 variable, its Config Key, or a divergent Flag Operation's action. An Arg's
 Help Annotations are the whole bracket; they repeat on each of its rows.
+A Validator's or Flag Clamp's entry can be replaced or hidden by its
+`desc`, an Annotation Text; hiding one in some help messages but not
+others is a Help Formatter's `filterAnnotations` instead.
 _Avoid_: note, tag, bracket entry
+
+**Annotation Text**:
+The `AnnotationText` a Validator's or Flag Clamp's `desc` takes: generated
+(`""`, the default), custom (any other string), or hidden (`some("")`). A
+custom one is a noun phrase for what's accepted (`a positive even
+number`), shown as the Help Annotation and used as the Validator Failure
+Message's reason. See `docs/adr/0089-annotation-text-overrides-a-help-annotation.md`.
+_Avoid_: description, desc (the parameter's name, not the concept)
 
 **Help Formatter**:
 The pluggable renderer that produces a Spec's whole Help message — its
@@ -594,8 +606,8 @@ programmatic write via `put(v, validate = false)` (see Seen Arg), which
 stores `v` without running the Validator at all -- so a stored value
 having satisfied the Validator is the common case, not a guarantee (see
 `docs/adr/0044-put-typed-write-accessor.md`). Every kind takes the same
-optional trailing `desc` param, shown instead of that kind's auto-generated
-help/failure text when non-empty -- see Validator Failure Message.
+optional trailing `desc` param, an Annotation Text that replaces or hides
+that kind's generated help -- see Validator Failure Message.
 _Avoid_: Constraint, check (ambiguous with the Check kind specifically)
 
 **Seen Values**:
@@ -680,23 +692,26 @@ with OR semantics -- at least one must pass. May itself contain another
 Any or All as a child, with the same no-auto-flatten rule as All. In
 generated help text, a child that is itself a composite (All or Any) is
 parenthesized to disambiguate nested AND/OR grouping, e.g. `(choices: 1, 2
-or range: 0..5) and must be even`. See All for the AND counterpart, and
+or range: 0..5) and an even number`. See All for the AND counterpart, and
 Validator Failure Message for how All and Any report failure differently.
 _Avoid_: OR, combinator (ambiguous with All)
 
 **Validator Failure Message**:
 The text of the `ValidationError` a failing Validator raises. Every
 Validator kind accepts the same optional trailing `desc` param (named to
-avoid colliding with the `help()` proc), used identically when given: it's
-shown directly as the failure reason. For Choice, Range, Check, and the
-history-aware Check built via `checkSeen`, there's exactly one check to
-fail, so `desc` simply replaces that kind's auto-generated wording (e.g.
-Choice's `got "x" but expected one of "a", "b"`). All and Any, which compose
-several child Validators, differ only when `desc` is *absent*: All passes
-the first failing child's own message through verbatim (already the most
-specific reason, since All short-circuits), while Any -- which has no
-single dispositive failing child, since none of them passed -- falls back
-to joining each child's own help text with "or".
+avoid colliding with the `help()` proc), an Annotation Text. A custom
+`desc` is the reason, in the same frame Choice and Range generate:
+`got 3 but expected a positive even number` (cf. Choice's
+`got "x" but expected one of "a", "b"`). A generated or hidden `desc`
+leaves the generated message: `unique`'s `got 3 but expected a unique
+value`; a `checkIt`/`checkSeenIt` predicate's source text after
+`3 did not meet condition: `; a plain Check's bare `3 did not meet
+condition`. All and Any, which compose several child Validators, differ
+only when `desc` isn't custom: All passes the first failing child's own
+message through verbatim (already the most specific reason, since All
+short-circuits), while Any -- which has no single dispositive failing
+child, since none of them passed -- falls back to joining each child's
+own help text with "or", after `did not meet condition: `.
 _Avoid_: error message (ambiguous with `ConversionError`'s message, a
 separate failure point -- see Validator)
 

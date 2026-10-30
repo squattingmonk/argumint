@@ -413,7 +413,8 @@ Options:
 ```
 
 `--down --down` takes the volume to 0, not -1, so `--up` then gives 3. Pass
-`desc` to replace the clamp's text in help, or `desc = some("")` to hide it.
+`desc` to replace the clamp's text in help, as in `desc = "a volume level"`,
+or `desc = some("")` to hide it.
 
 The default has to be in the range too. If it isn't, building the spec raises
 a `SpecDefect`.

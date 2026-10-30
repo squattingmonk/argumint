@@ -8,25 +8,32 @@
 ## user/env/config -- see
 ## `docs/adr/0008-validators-dont-run-against-defaults.md`.
 
-import std/[sequtils, strformat, strutils, sugar]
+import std/[options, sequtils, strformat, strutils, sugar]
 
-import ./display, ../core/errors, ../text/style
+import ./annotationtext, ./display, ../core/errors, ../text/style
 export ValidationError ## Defined in `errors.nim` with the rest of the
   ## taxonomy; re-exported so importing this module alone still names what
   ## its validators raise.
+export annotationtext
 
 type
   ValidatorKind = enum
     vkChoice, vkRange, vkCheck, vkCheckSeen, vkAll, vkAny
 
   Validator*[T] = ref object
-    desc: string
-      ## Optional override shown instead of the per-kind auto-generated
-      ## help/failure text below; "" means no override. Declared outside the
-      ## `case` so every kind shares one field -- a field name can't be
-      ## redeclared across separate `of` branches, even with an identical type
-      ## in each, but a field declared before the `case` discriminator is
-      ## implicitly shared by all of them.
+    desc: AnnotationText
+      ## Replaces or hides the per-kind generated help below, and a custom
+      ## one is the failure's reason. Declared outside the `case` so every
+      ## kind shares one field -- a field name can't be redeclared across
+      ## separate `of` branches, even with an identical type in each, but a
+      ## field declared before the `case` discriminator is implicitly shared
+      ## by all of them.
+    condition: string
+      ## A `checkIt`/`checkSeenIt` predicate's source: the generated help,
+      ## and the failure's text after `did not meet condition: `.
+    expected: string
+      ## `unique`'s generated noun phrase: the help, and the failure's text
+      ## after `but expected `.
     case kind: ValidatorKind
     of vkChoice:
       choices: seq[T]
@@ -44,72 +51,84 @@ proc noValidator*[T](): Validator[T] = nil
   ## resolvable without a bracket -- a bare `nil` literal default doesn't
   ## work there. See `docs/gotchas.md`.
 
-proc choice*[T](choices: openArray[T], desc = ""): Validator[T] =
-  ## Returns a `Validator` that checks if a value is in `choices`. `desc`,
-  ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. `choices: "foo", "bar"` / `got "x" but expected one of "foo",
-  ## "bar"`). String and char choices are always shown quoted.
+proc choice*[T](choices: openArray[T], desc: AnnotationText = ""): Validator[T] =
+  ## Returns a `Validator` that checks if a value is in `choices`. String
+  ## and char choices are always shown quoted. `desc` describes what's
+  ## accepted, as a noun phrase (`a NATO letter`), in place of the
+  ## generated help and failure text (`choices: "foo", "bar"` / `got "x"
+  ## but expected one of "foo", "bar"`); `some("")` hides the help.
   Validator[T](kind: vkChoice, choices: @choices, desc: desc)
 
-proc range*[T](range: Slice[T], desc = ""): Validator[T] =
-  ## Returns a `Validator` that checks if a value is in `range`. `desc`,
-  ## if given, is shown instead of the auto-generated help/failure text
-  ## (e.g. "range: a..b" / "got X but expected a value in a..b"). `T`
-  ## must have `<=`.
+proc range*[T](range: Slice[T], desc: AnnotationText = ""): Validator[T] =
+  ## Returns a `Validator` that checks if a value is in `range`. `T` must
+  ## have `<=`. `desc` describes what's accepted, as a noun phrase (`a
+  ## port number`), in place of the generated help and failure text
+  ## (`range: a..b` / `got X but expected a value in a..b`); `some("")`
+  ## hides the help.
   when not compiles(range.a <= range.b):
     {.error: "range() needs a type with <=".}
   Validator[T](kind: vkRange, range: range, desc: desc)
 
-proc check*[T](checker: proc (x: T): bool, desc = ""): Validator[T] =
+proc check*[T](checker: proc (x: T): bool, desc: AnnotationText = ""): Validator[T] =
   ## Returns a `Validator` that checks if a proc called on the value returns
-  ## true. `desc` may be shown to the user to explain the condition the value
-  ## must meet to pass the check.
+  ## true. `desc` describes what's accepted, as a noun phrase (`an even
+  ## number`), shown in help and as the failure's reason; with none, help
+  ## shows nothing and a failure says only that the value `did not meet
+  ## condition`.
   Validator[T](kind: vkCheck, checker: checker, desc: desc)
 
-template checkIt*[T](pred: untyped, desc = ""): Validator[T] =
+proc withCondition[T](self: Validator[T], condition: string): Validator[T] =
+  ## `self`, with `condition` as its generated text. For `checkIt` and
+  ## `checkSeenIt`, which can't name the private field from the caller's
+  ## module.
+  self.condition = condition
+  self
+
+template checkIt*[T](pred: untyped, desc: AnnotationText = ""): Validator[T] =
   ## Convenience template to allow anonymous functions to be used with `check`.
   ## The variable to be checked is declared as `it`. Since the type of `it`
-  ## cannot be inferred, the type `T` must be explicitly specified. `desc` may
-  ## be shown to the user to explain the condition the value must meet to pass
-  ## the check; if not supplied, the string form of `pred` will be used.
-  check[T](it => pred, if desc.len > 0: desc else: astToStr(pred))
+  ## cannot be inferred, the type `T` must be explicitly specified. `desc`
+  ## describes what's accepted, as `check`'s does; with none, help shows the
+  ## source of `pred`, and a failure reads `3 did not meet condition: it mod
+  ## 2 == 0`.
+  withCondition(check[T](it => pred, desc), astToStr(pred))
 
-proc checkSeen*[T](checker: proc (value: T, seen: openArray[T]): bool, desc = ""): Validator[T] =
+proc checkSeen*[T](checker: proc (value: T, seen: openArray[T]): bool, desc: AnnotationText = ""): Validator[T] =
   ## Returns a `Validator` whose check depends on both the candidate
   ## `value` and `seen`, the values already accumulated for the same Arg so
   ## far (in encounter order, not including `value` itself). `seen` reflects
   ## everything matched across every `parse` call ever made on the Arg's
   ## spec tuple, not just the current call -- wrap spec construction in a
   ## proc and call it fresh if you want `seen` scoped to just one `parse`
-  ## call. `desc` may be shown to the user to explain the condition. See
+  ## call. `desc` describes what's accepted, as `check`'s does. See
   ## `unique` for the most common use case.
   Validator[T](kind: vkCheckSeen, seenChecker: checker, desc: desc)
 
-template checkSeenIt*[T](pred: untyped, desc = ""): Validator[T] =
+template checkSeenIt*[T](pred: untyped, desc: AnnotationText = ""): Validator[T] =
   ## Convenience template mirroring `checkIt`: the candidate value is `it`
   ## and the previously-accumulated values are `seen`. Since neither type
-  ## can be inferred, `T` must be given explicitly. `desc` falls back to the
-  ## string form of `pred` if not supplied.
-  checkSeen[T]((it, seen) => pred, if desc.len > 0: desc else: astToStr(pred))
+  ## can be inferred, `T` must be given explicitly. With no `desc`, help and
+  ## failures use the source of `pred`, as `checkIt`'s do.
+  withCondition(checkSeen[T]((it, seen) => pred, desc), astToStr(pred))
 
-proc unique*[T](desc = ""): Validator[T] =
+proc unique*[T](desc: AnnotationText = ""): Validator[T] =
   ## Returns a `Validator` that rejects a value already present among the
   ## values previously matched for the same multi-value Arg. Only requires
   ## `==` on `T` (a linear scan), not `hash()`. See `checkSeen`'s doc
-  ## comment for what `seen` reflects across repeated `parse` calls.
-  checkSeen[T](proc (value: T, seen: openArray[T]): bool = value notin seen,
-    if desc.len > 0: desc else: "must be unique")
+  ## comment for what `seen` reflects across repeated `parse` calls. Its
+  ## generated text is `a unique value`, which `desc` can replace or hide.
+  result = checkSeen[T](proc (value: T, seen: openArray[T]): bool = value notin seen, desc)
+  result.expected = "a unique value"
 
-proc all*[T](validators: varargs[Validator[T]], desc: string): Validator[T] =
+proc all*[T](validators: varargs[Validator[T]], desc: AnnotationText): Validator[T] =
   ## Returns a `Validator` that passes only if every one of `validators`
   ## passes (AND semantics), short-circuiting on the first failure. May
   ## itself contain another `all`/`any` `Validator` as a child, forming an
   ## arbitrary AND/OR tree -- children are never flattened into `self`.
-  ## `desc`, if given, is shown directly as both the failure reason and the
-  ## `help` text; otherwise the failure reason falls back to the failing
-  ## child's own message verbatim, and the `help` text falls back to each
-  ## child's own `help` joined with "and". Raises `SpecDefect` if
-  ## `validators` is empty.
+  ## `desc` describes what's accepted, as a noun phrase, shown as the help
+  ## and as the failure's reason; otherwise the failure is the failing
+  ## child's own message verbatim, and the help is each child's own `help`
+  ## joined with "and". Raises `SpecDefect` if `validators` is empty.
   ##
   ## `desc` has no default here -- see docs/gotchas.md for why a bare
   ## `all(a, b)` needs the separate `varargs`-only overload below instead.
@@ -122,15 +141,15 @@ proc all*[T](validators: varargs[Validator[T]]): Validator[T] =
   ## this can't just be a default parameter value.
   all[T](validators, "")
 
-proc any*[T](validators: varargs[Validator[T]], desc: string): Validator[T] =
+proc any*[T](validators: varargs[Validator[T]], desc: AnnotationText): Validator[T] =
   ## Returns a `Validator` that passes if at least one of `validators`
   ## passes (OR semantics). May itself contain another `all`/`any`
   ## `Validator` as a child, forming an arbitrary AND/OR tree -- children
-  ## are never flattened into `self`. `desc`, if given, is shown directly
-  ## as both the failure reason and the `help` text; otherwise both fall
-  ## back to each child's own `help` joined with "or" (there being no
-  ## single failing child to blame when none of them pass). Raises
-  ## `SpecDefect` if `validators` is empty.
+  ## are never flattened into `self`. `desc` describes what's accepted, as
+  ## a noun phrase, shown as the help and as the failure's reason;
+  ## otherwise both use each child's own `help` joined with "or" (there
+  ## being no single failing child to blame when none of them pass).
+  ## Raises `SpecDefect` if `validators` is empty.
   ##
   ## `desc` has no default here for the same reason as `all`'s overload
   ## above -- see there.
@@ -147,11 +166,10 @@ proc showRange[T](range: Slice[T]): string =
   ## `range` as help and errors show it, e.g. `0..100` or `"a".."f"`.
   range.a.showValue & ".." & range.b.showValue
 
-proc styledHelp*[T](self: Validator[T]): StyledText =
-  ## `help` as Styled Text: key labels are `srAnnotation`, values
-  ## `srLiteral`, and a `desc` gets Help Markup.
-  if self.desc.len > 0:
-    return markup(self.desc)
+proc styledHelp*[T](self: Validator[T]): StyledText
+
+proc generatedHelp[T](self: Validator[T]): StyledText =
+  ## `styledHelp` as if `self` had no `desc`.
   case self.kind
   of vkChoice:
     result = styled(srAnnotation, "choices: ")
@@ -162,19 +180,29 @@ proc styledHelp*[T](self: Validator[T]): StyledText =
     result = styled(srAnnotation, "range: ") &
       styled(srLiteral, self.range.showRange)
   of vkCheck, vkCheckSeen:
-    discard # desc is required to say anything meaningful; already checked above
+    result = markup(self.condition & self.expected)
   of vkAll, vkAny:
     for i, v in self.validators:
       if i > 0: result.add styled(if self.kind == vkAll: " and " else: " or ")
       let h = v.styledHelp
       result.add(if v.kind in {vkAll, vkAny}: styled("(") & h & styled(")") else: h)
 
+proc styledHelp*[T](self: Validator[T]): StyledText =
+  ## `help` as Styled Text: key labels are `srAnnotation`, values
+  ## `srLiteral`, and a `desc` gets Help Markup.
+  let desc = Option[string](self.desc)
+  if desc.isSome: markup(desc.get) else: self.generatedHelp
+
 proc help*[T](self: Validator[T]): string =
   ## Returns a short description of what values `self` accepts, suitable for
   ## display in help text (e.g. `choices: "foo", "bar"`), or "" if there's
-  ## nothing meaningful to show. Every kind shows `self.desc` directly
-  ## instead, when it's non-empty.
+  ## nothing meaningful to show. A custom `desc` is shown instead, and a
+  ## hidden one shows "".
   self.styledHelp.plain
+
+proc custom(desc: AnnotationText): string =
+  ## `desc`'s custom text, or "" if it's generated or hidden.
+  Option[string](desc).get("")
 
 proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
@@ -182,46 +210,29 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
   ## same Arg so far (not including `value`), consulted only by
   ## `vkCheckSeen`-kind validators (see `checkSeen`) -- every other kind
   ## ignores it.
-  let
-    tmpVal = value.showValue
-    desc = plainMarkup(self.desc)
+  var passed = true
   case self.kind
   of vkChoice:
-    if value notin self.choices:
-      if self.desc.len > 0:
-        raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
-      else:
-        let choices = self.choices.mapIt(it.showValue).join(", ")
-        raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {choices}")
+    passed = value in self.choices
   of vkRange:
     # Only `range` builds one, and it needs `<=`: a type without stays
     # registrable (#206).
     when compiles(value <= value):
-      if value notin self.range:
-        if self.desc.len > 0:
-          raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
-        else:
-          let bounds = self.range.showRange
-          raise newPlainError(ValidationError, fmt"got {tmpVal} but expected a value in {bounds}")
+      passed = value in self.range
   of vkCheck:
-    if not self.checker(value):
-      let suffix = if desc.len > 0: fmt": {desc}" else: ""
-      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
+    passed = self.checker(value)
   of vkCheckSeen:
-    if not self.seenChecker(value, seen):
-      let suffix = if desc.len > 0: fmt": {desc}" else: ""
-      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
+    passed = self.seenChecker(value, seen)
   of vkAll:
     for v in self.validators:
       try:
         v.validate(value, seen)
       except ValidationError:
-        if self.desc.len > 0:
-          raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {desc}")
-        else:
-          raise
+        if self.desc.custom.len == 0: raise
+        passed = false
+        break
   of vkAny:
-    var passed = false
+    passed = false
     for v in self.validators:
       try:
         v.validate(value, seen)
@@ -229,9 +240,34 @@ proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
         break
       except ValidationError:
         discard
-    if not passed:
-      let help = self.help() # Outside `fmt`: see docs/gotchas.md, openSym.
-      raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {help}")
+  if passed: return
+
+  # Locals outside `fmt`: see docs/gotchas.md, openSym.
+  let
+    tmpVal = value.showValue
+    custom = plainMarkup(self.desc.custom)
+  if custom.len > 0:
+    raise newPlainError(ValidationError, fmt"got {tmpVal} but expected {custom}")
+  case self.kind
+  of vkChoice:
+    let choices = self.choices.mapIt(it.showValue).join(", ")
+    raise newPlainError(ValidationError, fmt"got {tmpVal} but expected one of {choices}")
+  of vkRange:
+    let bounds = self.range.showRange
+    raise newPlainError(ValidationError, fmt"got {tmpVal} but expected a value in {bounds}")
+  of vkCheck, vkCheckSeen:
+    let
+      expected = self.expected
+      condition = plainMarkup(self.condition)
+    if expected.len > 0:
+      raise newPlainError(ValidationError, fmt"got {tmpVal} but expected {expected}")
+    let suffix = if condition.len > 0: fmt": {condition}" else: ""
+    raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition{suffix}")
+  of vkAny:
+    let help = self.generatedHelp.plain
+    raise newPlainError(ValidationError, fmt"{tmpVal} did not meet condition: {help}")
+  of vkAll:
+    discard # a failing child re-raised above
 
 proc seesHistory*[T](self: Validator[T]): bool =
   ## Whether `self` is, or contains, a `checkSeen` (`checkSeenIt`, `unique`).
@@ -316,24 +352,24 @@ when isMainModule:
       expect ValidationError:
         validator.validate(5)
 
-    test "Choice/Range desc override replaces both the auto-generated help and failure text":
-      let c = choice(["foo", "bar"], desc = "must be foo or bar")
-      check c.help() == "must be foo or bar"
+    test "a custom Choice/Range desc replaces the generated help, and is what a failure expected":
+      let c = choice(["foo", "bar"], desc = "foo or bar")
+      check c.help() == "foo or bar"
       var caught = ""
       try:
         c.validate("qux")
       except ValidationError as e:
         caught = e.msg
-      check caught == "\"qux\" did not meet condition: must be foo or bar"
+      check caught == "got \"qux\" but expected foo or bar"
 
-      let r = range(0..4, desc = "must be 0-4")
-      check r.help() == "must be 0-4"
+      let r = range(0..4, desc = "a small number")
+      check r.help() == "a small number"
       caught = ""
       try:
         r.validate(5)
       except ValidationError as e:
         caught = e.msg
-      check caught == "5 did not meet condition: must be 0-4"
+      check caught == "got 5 but expected a small number"
 
       # no desc given -- falls back to the auto-generated text, as before
       check choice(["foo", "bar"]).help() == "choices: \"foo\", \"bar\""
@@ -342,7 +378,7 @@ when isMainModule:
     test "Conditions":
       let
         a = checkIt[string](it.startsWith("f"))
-        b = checkIt[int](it mod 2 == 0, "must be even")
+        b = checkIt[int](it mod 2 == 0, "an even number")
       a.validate("foo")
       b.validate 2
       expect ValidationError:
@@ -388,7 +424,7 @@ when isMainModule:
       check caught == """got "z" but expected a value in "a".."f""""
 
     test "All short-circuits and passes the failing child's message through verbatim":
-      let validator = all(range(0..100), checkIt[int](it mod 2 == 0, "must be even"))
+      let validator = all(range(0..100), checkIt[int](it mod 2 == 0, "an even number"))
       validator.validate(50)
 
       var caught = ""
@@ -403,29 +439,29 @@ when isMainModule:
         validator.validate(3)
       except ValidationError as e:
         caught = e.msg
-      check caught == "3 did not meet condition: must be even"
+      check caught == "got 3 but expected an even number"
 
-    test "All with a desc override reports it directly regardless of which child failed":
+    test "All with a custom desc expects it regardless of which child failed":
       let validator = all(
-        range(0..100), checkIt[int](it mod 2 == 0, "must be even"),
-        desc = "must be an even number 0-100",
+        range(0..100), checkIt[int](it mod 2 == 0, "an even number"),
+        desc = "an even number from 0 to 100",
       )
       var caught = ""
       try:
         validator.validate(101)
       except ValidationError as e:
         caught = e.msg
-      check caught == "101 did not meet condition: must be an even number 0-100"
+      check caught == "got 101 but expected an even number from 0 to 100"
 
     test "All help text joins children with 'and', or shows the desc override":
-      let validator = all(range(0..100), checkIt[int](it mod 2 == 0, "must be even"))
-      check validator.help() == "range: 0..100 and must be even"
+      let validator = all(range(0..100), checkIt[int](it mod 2 == 0, "an even number"))
+      check validator.help() == "range: 0..100 and an even number"
 
       let overridden = all(
-        range(0..100), checkIt[int](it mod 2 == 0, "must be even"),
-        desc = "must be an even number 0-100",
+        range(0..100), checkIt[int](it mod 2 == 0, "an even number"),
+        desc = "an even number from 0 to 100",
       )
-      check overridden.help() == "must be an even number 0-100"
+      check overridden.help() == "an even number from 0 to 100"
 
     test "Any passes if at least one child passes":
       let validator = any(choice([1, 3, 5]), range(10..20))
@@ -439,19 +475,19 @@ when isMainModule:
         caught = e.msg
       check caught == "7 did not meet condition: choices: 1, 3, 5 or range: 10..20"
 
-    test "Any with a desc override reports it directly instead of the joined children":
-      let validator = any(choice([1, 3, 5]), range(10..20), desc = "must be 1, 3, 5, or 10-20")
+    test "Any with a custom desc expects it instead of the joined children":
+      let validator = any(choice([1, 3, 5]), range(10..20), desc = "1, 3, 5, or a number from 10 to 20")
       var caught = ""
       try:
         validator.validate(7)
       except ValidationError as e:
         caught = e.msg
-      check caught == "7 did not meet condition: must be 1, 3, 5, or 10-20"
+      check caught == "got 7 but expected 1, 3, 5, or a number from 10 to 20"
 
     test "All and Any nest without flattening, and parenthesize composite children in help":
       let validator = all(
         range(0..100),
-        any(choice([1, 3, 5]), checkIt[int](it mod 2 == 0, "must be even")),
+        any(choice([1, 3, 5]), checkIt[int](it mod 2 == 0, "an even number")),
       )
       validator.validate(4) # in range; fails choice but passes even check
       validator.validate(3) # in range; passes choice
@@ -468,12 +504,12 @@ when isMainModule:
         validator.validate(7)
       except ValidationError as e:
         caught = e.msg
-      check caught == "7 did not meet condition: choices: 1, 3, 5 or must be even"
+      check caught == "7 did not meet condition: choices: 1, 3, 5 or an even number"
 
-      check validator.help() == "range: 0..100 and (choices: 1, 3, 5 or must be even)"
+      check validator.help() == "range: 0..100 and (choices: 1, 3, 5 or an even number)"
 
     test "checkSeenIt passes it and seen through to the predicate":
-      let validator = checkSeenIt[int](it notin seen, "must not repeat")
+      let validator = checkSeenIt[int](it notin seen, "a new number")
       validator.validate(1, seen = @[])
       validator.validate(3, seen = @[1, 2])
 
@@ -482,7 +518,7 @@ when isMainModule:
         validator.validate(2, seen = @[1, 2])
       except ValidationError as e:
         caught = e.msg
-      check caught == "2 did not meet condition: must not repeat"
+      check caught == "got 2 but expected a new number"
 
     test "unique rejects a value already in seen, using == only":
       let intValidator = unique[int]()
@@ -493,7 +529,8 @@ when isMainModule:
         intValidator.validate(2, seen = @[1, 2])
       except ValidationError as e:
         caught = e.msg
-      check caught == "2 did not meet condition: must be unique"
+      check caught == "got 2 but expected a unique value"
+      check intValidator.help() == "a unique value"
 
       # only requires `==`, not `hash()` -- a type with no `hash` still works
       let strValidator = unique[string]()
@@ -501,14 +538,14 @@ when isMainModule:
       expect ValidationError:
         strValidator.validate("b", seen = @["a", "b"])
 
-    test "unique with a desc override reports it directly":
-      let validator = unique[int](desc = "no repeated tags")
+    test "unique with a custom desc expects it":
+      let validator = unique[int](desc = "a new tag")
       var caught = ""
       try:
         validator.validate(2, seen = @[1, 2])
       except ValidationError as e:
         caught = e.msg
-      check caught == "2 did not meet condition: no repeated tags"
+      check caught == "got 2 but expected a new tag"
 
     test "unique defaults to an empty seen when none is given":
       let validator = unique[int]()
@@ -523,7 +560,7 @@ when isMainModule:
         validator.validate(2, seen = @[1, 2])
       except ValidationError as e:
         caught = e.msg
-      check caught == "2 did not meet condition: must be unique"
+      check caught == "got 2 but expected a unique value"
 
       let anyValidator = any(choice([1, 3, 5]), unique[int]())
       anyValidator.validate(7, seen = @[1, 2]) # fails choice, but unique still passes
@@ -593,6 +630,49 @@ when isMainModule:
     test "help is the plain text, ticks kept":
       check checkIt[int](it > 0, "not `-x`").help() == "not `-x`"
 
+  suite "Annotation Text":
+    test "a hidden desc hides every kind's help":
+      check choice([1, 2], desc = some("")).help() == ""
+      check range(0..4, desc = some("")).help() == ""
+      let hiddenCheck = validators.check(proc (x: int): bool = true, desc = some(""))
+      check hiddenCheck.help() == ""
+      check checkIt[int](it > 0, some("")).help() == ""
+      check checkSeen(proc (x: int, seen: openArray[int]): bool = true, desc = some("")).help() == ""
+      check checkSeenIt[int](it notin seen, some("")).help() == ""
+      check unique[int](desc = some("")).help() == ""
+      check all(range(0..4), desc = some("")).help() == ""
+      check any(range(0..4), desc = some("")).help() == ""
+
+    proc failure[T](v: Validator[T], value: T, seen: openArray[T] = []): string =
+      try:
+        v.validate(value, seen)
+      except ValidationError as e:
+        result = e.msg
+
+    test "a hidden desc leaves the generated failure":
+      check range(0..4, desc = some("")).failure(5) == "got 5 but expected a value in 0..4"
+      check choice([1, 2], desc = some("")).failure(3) == "got 3 but expected one of 1, 2"
+      check checkIt[int](it mod 2 == 0, some("")).failure(3) == "3 did not meet condition: it mod 2 == 0"
+      check unique[int](desc = some("")).failure(2, [2]) == "got 2 but expected a unique value"
+      check all(range(0..4), desc = some("")).failure(5) == "got 5 but expected a value in 0..4"
+      check any(range(0..4), desc = some("")).failure(5) == "5 did not meet condition: range: 0..4"
+
+    test "a custom desc is what every kind's failure expected":
+      let described = validators.check(proc (x: int): bool = false, desc = "a good number")
+      check described.failure(3) == "got 3 but expected a good number"
+      check checkSeen(proc (x: int, seen: openArray[int]): bool = false, desc = "a new number").failure(3) ==
+        "got 3 but expected a new number"
+      check checkIt[int](it mod 2 == 0, "a positive even number").failure(3) ==
+        "got 3 but expected a positive even number"
+
+    test "generated text keeps a frame that fits it":
+      check checkIt[int](it mod 2 == 0).failure(3) == "3 did not meet condition: it mod 2 == 0"
+      check checkIt[int](it mod 2 == 0).help() == "it mod 2 == 0"
+      check checkSeenIt[int](it notin seen).failure(2, [2]) == "2 did not meet condition: it notin seen"
+      let plain = validators.check(proc (x: int): bool = false)
+      check plain.failure(3) == "3 did not meet condition"
+      check plain.help() == ""
+
   suite "desc in failure messages":
     test "reads as it would with no styler: ticks kept, escapes collapsed":
       for v in [choice([1], desc = "one of ``1``"), checkIt[int](it > 1, "one of ``1``")]:
@@ -600,5 +680,5 @@ when isMainModule:
           v.validate(0)
           fail()
         except ValidationError as e:
-          check e.msg == "0 did not meet condition: one of `1`"
+          check e.msg == "got 0 but expected one of `1`"
 

@@ -1,5 +1,11 @@
 # A Help Context can filter Help Annotations
 
+> **Note (#357):** A Validator or Flag Clamp can now hide its own
+> annotation with `desc = some("")`, an `AnnotationText` (ADR 0089).
+> `desc` stays one text for help and failure, and the converters keep it
+> source compatible, so the first rejected option below is half adopted.
+> Hiding in one help message but not another is still `filterAnnotations`.
+
 Amends [ADR 0082](0082-help-context-filter.md). This is an addition to the
 toolkit [ADR 0080](0080-1x-freezes-the-public-modules-and-the-usage-grammar.md)
 freezes, so a minor release can ship it.

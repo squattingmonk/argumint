@@ -263,14 +263,14 @@ suite "Optional args":
 
   test "all() rejects a value failing either composed validator, end-to-end through parse()":
     let spec = (
-      num: opt("--num=<num>", default = 0, validator = all(range(0..10), checkIt[int](it mod 2 == 0, "must be even")), help = ""),
+      num: opt("--num=<num>", default = 0, validator = all(range(0..10), checkIt[int](it mod 2 == 0, "an even number")), help = ""),
     )
     var caught = ""
     try:
       spec.parse(usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
     except ValidationError as e:
       caught = e.msg
-    check "must be even" in caught
+    check "got 7 but expected an even number" in caught
 
   test "unique() end-to-end rejects a value repeated across two matches of the same multi-value option":
     let spec = (
@@ -1530,7 +1530,7 @@ suite "Messages":
   test "help text shows a check validator's description alone, with no label":
     let spec = (
       amount: opt("--amount=<amount>", default = 0,
-        validator = checkIt[int](it mod 2 == 0, "must be even"), help = ""),
+        validator = checkIt[int](it mod 2 == 0, "an even number"), help = ""),
       help: help(),
     )
     var helpText = ""
@@ -1538,7 +1538,7 @@ suite "Messages":
       spec.parse(settings = newSpecSettings(style = nil), usage = "[--amount=<amount>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "  --amount=<amount>  [must be even]" in helpText
+    check "  --amount=<amount>  [an even number]" in helpText
 
   test "an explicit width overrides terminal detection":
     let longHelp = "How fast the ship should move across the open water, measured in knots"

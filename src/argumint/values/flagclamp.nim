@@ -6,18 +6,19 @@
 import std/math
 import std/options
 
-import ../text/style
+import ./annotationtext, ../text/style
+export annotationtext
 
 type
   FlagClampKind = enum
     fckRange, fckAdjust
 
   FlagClamp*[T] = ref object
-    desc: Option[string]
-      ## `none` (the default) shows the auto-generated help text below
-      ## (`fckRange` only -- `fckAdjust` has no auto-generated text);
-      ## `some("...")` overrides it; `some("")` suppresses help output entirely,
-      ## regardless of auto-generation.
+    desc: AnnotationText
+      ## Generated (the default) shows the auto-generated help text below
+      ## (`fckRange` only -- `fckAdjust` has no auto-generated text); custom
+      ## text overrides it; hidden (`some("")`) suppresses help output
+      ## entirely, regardless of auto-generation.
     case kind: FlagClampKind
     of fckRange:
       bounds: Slice[T]
@@ -29,33 +30,34 @@ proc noClamp*[T](): FlagClamp[T] = nil
   ## resolvable without a bracket -- a bare `nil` literal default doesn't
   ## work there. See `docs/gotchas.md`.
 
-proc clamp*[T](bounds: Slice[T], desc = none(string)): FlagClamp[T] =
+proc clamp*[T](bounds: Slice[T], desc: AnnotationText = ""): FlagClamp[T] =
   ## Returns a `FlagClamp` that pins a Flag's value to `bounds` after every
   ## Flag Operation, silently -- never raises. Requires `T` to support `<`,
   ## checked here, so a flag of a type without it works unclamped (see
   ## `docs/adr/0070-flag-operations-are-closures.md`). Not named `range` --
   ## that name
   ## collides ambiguously with `argumint/values/validators`' `range` the moment
-  ## both modules are imported together (identical `(Slice[T], desc = "")`
+  ## both modules are imported together (identical `(Slice[T], desc)`
   ## shape). `clamp` itself doesn't collide with `system.clamp`/
   ## `std/math.clamp` (both take a value as their first, required arg, a
   ## different shape from this proc's `Slice[T]` first arg) -- confirmed via
   ## scratch compile, not assumed. See `docs/adr/0016-flag-clamp.md`. `desc`
-  ## is `some("")` to suppress help output entirely, or `some("...")` to
-  ## override the auto-generated text -- see `help*` below and issue #12.
+  ## describes the clamped value, as a noun phrase (`a verbosity level`), in
+  ## place of the auto-generated text, or is `some("")` to hide it -- see
+  ## `help*` below.
   when not compiles(bounds.a < bounds.b):
     {.error: "`clamp` needs `<` for " & $T & "; use `adjust` instead".}
   FlagClamp[T](kind: fckRange, bounds: bounds, desc: desc)
 
-proc adjust*[T](adjustProc: proc (v: T): T, desc = none(string)): FlagClamp[T] =
+proc adjust*[T](adjustProc: proc (v: T): T, desc: AnnotationText = ""): FlagClamp[T] =
   ## Returns a `FlagClamp` that runs `adjustProc` on a Flag's value after
   ## every Flag Operation, silently -- never raises. Works for any `T`,
   ## including one with no natural total order (e.g. `set[E]`, where
   ## `clamp`'s `<`/`>` semantics would be meaningless). `desc`, if
-  ## `some("...")`, is shown in help text; otherwise nothing is shown,
-  ## since an arbitrary proc has no auto-generated description. `some("")`
-  ## is a no-op here (there's nothing to suppress by default), kept only
-  ## for symmetry with `clamp`.
+  ## given, is shown in help text; otherwise nothing is shown, since an
+  ## arbitrary proc has no auto-generated description. `some("")` is a
+  ## no-op here (there's nothing to suppress by default), kept only for
+  ## symmetry with `clamp`.
   FlagClamp[T](kind: fckAdjust, adjustProc: adjustProc, desc: desc)
 
 proc apply*[T](self: FlagClamp[T], value: T): T =
@@ -71,8 +73,9 @@ proc apply*[T](self: FlagClamp[T], value: T): T =
 proc styledHelp*[T](self: FlagClamp[T]): StyledText =
   ## `help` as Styled Text: the `clamp:` label is `srAnnotation`, its bounds
   ## `srLiteral`, and a `desc` gets Help Markup.
-  if self.desc.isSome:
-    return markup(self.desc.get)
+  let desc = Option[string](self.desc)
+  if desc.isSome:
+    return markup(desc.get)
   case self.kind
   of fckRange:
     styled(srAnnotation, "clamp: ") &
@@ -82,8 +85,8 @@ proc styledHelp*[T](self: FlagClamp[T]): StyledText =
 proc help*[T](self: FlagClamp[T]): string =
   ## Returns a short description of `self`'s constraint, suitable for
   ## display in help text (e.g. "clamp: 0..10"), or "" if there's nothing
-  ## meaningful to show. `self.desc`, if `some("...")`, is shown instead of
-  ## the auto-generated text; if `some("")`, suppresses help output
+  ## meaningful to show. A custom `self.desc` is shown instead of the
+  ## auto-generated text; a hidden one (`some("")`) suppresses help output
   ## entirely (see issue #12) regardless of what auto-generation would
   ## otherwise produce. Same name as `argumint/values/validators`'
   ## `Validator[T].help` -- unlike `range` above, this doesn't collide: the
@@ -132,6 +135,11 @@ when isMainModule:
     test "desc = some(\"\") suppresses help output entirely, overriding auto-generation":
       check clamp(0..10, desc = some("")).help() == ""
       check adjust(proc (v: int): int = v, desc = some("")).help() == ""
+
+    test "a plain string desc replaces the help, and \"\" keeps it generated":
+      check clamp(0..10, desc = "a verbosity level").help() == "a verbosity level"
+      check clamp(0..10, desc = "").help() == "clamp: 0..10"
+      check adjust(proc (v: int): int = v, desc = "a multiple of 5").help() == "a multiple of 5"
 
     test "clamp works for any T supporting <, e.g. char":
       let c = clamp('a'..'z')

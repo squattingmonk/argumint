@@ -58,10 +58,21 @@ suite "Types nameable after a bare `import argumint`":
     check nameable(PathCompletion)
     check nameable(Validator[int])
     check nameable(FlagClamp[int])
+    check nameable(AnnotationText)
     # The return types of all five spec constructors -- see issue #27.
     check nameable(ValueArg[string])
     check nameable(ValuesArg[string])
     check nameable(FlagArg[bool])
+
+  test "a `desc` converts from a string or an Option, but nothing else picks up the conversion":
+    # `AnnotationText` is distinct so a user's own `Option[string]` parameter
+    # doesn't accept a string -- see ADR 0029.
+    check Option[string](toAnnotationText("x")) == some("x")
+    check Option[string](toAnnotationText(some(""))) == some("")
+    check choice([1, 2], desc = some("")).help() == ""
+    check range(0..4, desc = "a small number").help() == "a small number"
+    proc wantsOpt(o: Option[string]): bool = o.isSome
+    check not compiles(wantsOpt("x"))
 
   test "the untyped bases under `ValueArg`/`ValuesArg` and `FlagArg` stay out of the facade":
     # Exported from `argumint/values/argtypes` for the facade only. Mirrored by
