@@ -69,20 +69,24 @@ proc docExec(command: string) =
   if code != 0 or ") Error: " in output:
     quit "docs build failed", QuitFailure
 
+task surface, "Rewrite tests/api/surface.txt from htmldocs/ and check its Pins":
+  # Run `nimble docs` first. See tests/api/README.md.
+  exec "nim c -r --hints:off tools/surface.nim"
+
 task docs, "Generate HTML API docs into htmldocs/ (open htmldocs/index.html)":
   let
     outDir = "htmldocs"
     docRoot = thisDir() & "/src"
     gitFlags = "--git.url:https://github.com/squattingmonk/argumint --git.commit:main --git.devel:main"
   rmDir(outDir)
-  # One `--project` pass per entry point -- `argumint/configsource/ini`/`json`
-  # aren't reachable from `argumint.nim`'s own import graph (they're opt-in
-  # config-file backends users import directly), so they need their own
-  # pass to get their own pages. Sharing `docRoot`/`outDir` keeps both passes'
+  # One `--project` pass per entry point -- `argumint/customarg` and
+  # `argumint/configsource/ini`/`json` aren't reachable from `argumint.nim`'s
+  # own import graph (users import them directly), so they need their own
+  # pass to get their own pages. Sharing `docRoot`/`outDir` keeps every pass's
   # relative links (and the combined `theindex.html`) resolving correctly.
-  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint.nim"
-  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/ini.nim"
-  docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/argumint/configsource/json.nim"
+  for entry in ["argumint", "argumint/customarg", "argumint/configsource/ini",
+      "argumint/configsource/json"]:
+    docExec "nim doc --project --index:on --docRoot:" & docRoot & " --outdir:" & outDir & " " & gitFlags & " src/" & entry & ".nim"
   # The user guide: plain Markdown that reads on GitHub too, so its links
   # between pages say `.md` -- md2html leaves them alone, so point them at
   # the rendered `.html` here. md2html also titles a page with its file

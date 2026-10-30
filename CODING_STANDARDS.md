@@ -6,7 +6,8 @@ can skip them: doc-comment width and field doc-comment placement
 (`tests/test_doc_comments.nim`), Markdown line width (markdownlint, configured
 in `.markdownlint-cli2.yaml`), what md2html renders differently in the guide
 (`tools/guidelint.nim`, run by `nimble docscheck`), and Conventional Commits PR
-titles (`.github/workflows/pr-title.yml`).
+titles (`.github/workflows/pr-title.yml`), and whether every Public Surface
+name has a Pin (`tools/surface.nim`, run by `nimble surface`).
 
 Use the domain vocabulary in `GLOSSARY.md` when naming a finding, and check
 `docs/adr/` before flagging a design choice: a deliberate decision there is
@@ -42,6 +43,18 @@ not a violation.
 - **Deep imports stay undocumented.** User-facing docs never show
   `import argumint/<internal>`. The promised modules are the ones ADR 0080
   lists.
+- **A Pin reaches what it tags** (ADR 0090). A `# pins:` tag sits on code
+  in `tests/api/` that reaches the overload its line names, through its
+  line's module: a test's statement, or a top-level declaration a test
+  relies on (see `tests/api/README.md`).
+  `nimble surface` checks that every supported line has a tag and every
+  tag a line, not that the test exercises it. Flag a tag on a test that
+  never reaches its name, or one that reaches a different overload. Prefer a
+  call to `declared(name)`, which can't tell overloads apart.
+- **A new line is a decision.** A diff that adds a `surface.txt` line adds
+  a supported name, or with a `!` marks a leak. Flag one the PR doesn't
+  explain, and a `!` on a name a guide page or doc comment tells users to
+  call.
 - **1.x is frozen** (ADRs 0080 and 0090). Flag as needing a major release
   any change to: a supported name (one a Pin backs; a `!` name may change
   but stays reachable), the signature of a method a Custom
