@@ -7,7 +7,6 @@ import std/math
 import std/options
 
 import ./annotationtext, ../text/style
-export annotationtext
 
 type
   FlagClampKind = enum
@@ -73,9 +72,8 @@ proc apply*[T](self: FlagClamp[T], value: T): T =
 proc styledHelp*[T](self: FlagClamp[T]): StyledText =
   ## `help` as Styled Text: the `clamp:` label is `srAnnotation`, its bounds
   ## `srLiteral`, and a `desc` gets Help Markup.
-  let desc = Option[string](self.desc)
-  if desc.isSome:
-    return markup(desc.get)
+  if self.desc.isSome:
+    return markup(self.desc.get)
   case self.kind
   of fckRange:
     styled(srAnnotation, "clamp: ") &

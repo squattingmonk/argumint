@@ -30,7 +30,7 @@ export errors except newPlainError
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
 export validators except styledHelp, seesHistory
 export flagclamp except styledHelp
-export annotationtext
+export annotationtext.AnnotationText, annotationtext.toAnnotationText
 export configsource
 export backend.name
 

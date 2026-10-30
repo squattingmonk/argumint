@@ -1,6 +1,8 @@
 ## `AnnotationText`, the `desc` a Validator or Flag Clamp takes to replace
 ## or hide its generated Help Annotation. See
-## `docs/adr/0089-annotation-text-overrides-a-help-annotation.md`.
+## `docs/adr/0089-annotation-text-overrides-a-help-annotation.md`. The facade
+## exports the type and its converters; the borrowed `Option` reads are
+## withheld.
 
 import std/options
 
@@ -23,6 +25,12 @@ converter toAnnotationText*(text: Option[string]): AnnotationText =
   ## annotation, other `some` text replaces it, and `none` keeps it
   ## generated.
   AnnotationText(text)
+
+proc isSome*(self: AnnotationText): bool {.borrow.}
+  ## Whether `self` is custom or hidden, not generated.
+
+proc get*(self: AnnotationText): lent string {.borrow.}
+  ## `self`'s custom text, or "" if it's hidden.
 
 when isMainModule:
   import std/unittest

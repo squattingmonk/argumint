@@ -8,13 +8,12 @@
 ## user/env/config -- see
 ## `docs/adr/0008-validators-dont-run-against-defaults.md`.
 
-import std/[options, sequtils, strformat, strutils, sugar]
+import std/[sequtils, strformat, strutils, sugar]
 
 import ./annotationtext, ./display, ../core/errors, ../text/style
 export ValidationError ## Defined in `errors.nim` with the rest of the
   ## taxonomy; re-exported so importing this module alone still names what
   ## its validators raise.
-export annotationtext
 
 type
   ValidatorKind = enum
@@ -190,8 +189,7 @@ proc generatedHelp[T](self: Validator[T]): StyledText =
 proc styledHelp*[T](self: Validator[T]): StyledText =
   ## `help` as Styled Text: key labels are `srAnnotation`, values
   ## `srLiteral`, and a `desc` gets Help Markup.
-  let desc = Option[string](self.desc)
-  if desc.isSome: markup(desc.get) else: self.generatedHelp
+  if self.desc.isSome: markup(self.desc.get) else: self.generatedHelp
 
 proc help*[T](self: Validator[T]): string =
   ## Returns a short description of what values `self` accepts, suitable for
@@ -202,7 +200,7 @@ proc help*[T](self: Validator[T]): string =
 
 proc custom(desc: AnnotationText): string =
   ## `desc`'s custom text, or "" if it's generated or hidden.
-  Option[string](desc).get("")
+  if desc.isSome: desc.get else: ""
 
 proc validate*[T](self: Validator[T], value: T, seen: openArray[T] = []) =
   ## Checks if `value` satisfies `validator`. If it does not, raises a
@@ -332,7 +330,7 @@ proc completions*[T](self: Validator[T]): seq[string] =
   self.candidateValues().mapIt($it)
 
 when isMainModule:
-  import std/[unittest]
+  import std/[options, unittest]
 
   suite "Validators":
     test "Choices":
