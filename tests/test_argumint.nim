@@ -8,6 +8,7 @@ import argumint/walk/precedence
 import argumint/configsource/ini
 import argumint/configsource/json
 import argumint/values/display
+import argumint/values/annotationtext
 
 privateAccess(ValueArgBase)      ## White-box assertions on the arg
 privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
@@ -263,14 +264,14 @@ suite "Optional args":
 
   test "all() rejects a value failing either composed validator, end-to-end through parse()":
     let spec = (
-      num: opt("--num=<num>", default = 0, validator = all(range(0..10), checkIt[int](it mod 2 == 0, "must be even")), help = ""),
+      num: opt("--num=<num>", default = 0, validator = all(range(0..10), checkIt[int](it mod 2 == 0, "an even number")), help = ""),
     )
     var caught = ""
     try:
-      spec.parse(usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
+      spec.parse(settings = newSpecSettings(style = nil), usage = "[--num=<num>]", args = @["--num=7"], command = "prog")
     except ValidationError as e:
       caught = e.msg
-    check "must be even" in caught
+    check caught.splitLines[0] == "  - for --num, got 7 but expected an even number"
 
   test "unique() end-to-end rejects a value repeated across two matches of the same multi-value option":
     let spec = (
@@ -1530,7 +1531,7 @@ suite "Messages":
   test "help text shows a check validator's description alone, with no label":
     let spec = (
       amount: opt("--amount=<amount>", default = 0,
-        validator = checkIt[int](it mod 2 == 0, "must be even"), help = ""),
+        validator = checkIt[int](it mod 2 == 0, "an even number"), help = ""),
       help: help(),
     )
     var helpText = ""
@@ -1538,7 +1539,7 @@ suite "Messages":
       spec.parse(settings = newSpecSettings(style = nil), usage = "[--amount=<amount>]\n--help", args = @["--help"], command = "prog")
     except HelpError as e:
       helpText = e.msg
-    check "  --amount=<amount>  [must be even]" in helpText
+    check "  --amount=<amount>  [an even number]" in helpText
 
   test "an explicit width overrides terminal detection":
     let longHelp = "How fast the ship should move across the open water, measured in knots"
@@ -1686,6 +1687,14 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
   test "the value-display helpers exist":
     check quoted("x") == "\"x\""
     check showValue(1) == "1"
+
+  test "`AnnotationText`'s borrowed reads exist":
+    let custom: AnnotationText = "x"
+    let hidden: AnnotationText = some("")
+    let generated: AnnotationText = ""
+    check (custom.isSome, custom.get) == (true, "x")
+    check (hidden.isSome, hidden.get) == (true, "")
+    check not generated.isSome
 
   test "the FSM plumbing types exist":
     var

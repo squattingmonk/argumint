@@ -1,5 +1,9 @@
 # Flag Clamp is a new mechanism, not a Validator extension
 
+> **Note (#357):** `desc` is now an `AnnotationText` (ADR 0089). `clamp`
+> and `adjust` took `desc = ""` here; #12 made it an `Option[string]`,
+> where `some("")` hides the annotation. Both spellings still compile.
+
 > **Note (#332):** A Flag can now take a `validator`, which checks only a
 > value it receives as text (env or config), never a Flag Operation's
 > result. The clamp still applies afterward (ADR 0086).

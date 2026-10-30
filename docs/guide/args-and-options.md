@@ -203,7 +203,7 @@ let spec = (
   env: opt("-e, --env=<name>", default = "dev", help = "Settings to load",
     validator = choice(["dev", "staging", "prod"])),
   workers: opt("-w, --workers=<n>", default = 2, help = "Worker processes",
-    validator = checkIt[int](it mod 2 == 0, "must be even")),
+    validator = checkIt[int](it mod 2 == 0, "an even number")),
   tags: opts("-t, --tag=<tag>", help = "Tag the server",
     validator = unique[string]()),
   help: help(),
@@ -224,8 +224,8 @@ Options:
   -p, --port=<n>     Port to listen on [range: 1..65535; default: 8080]
   -e, --env=<name>   Settings to load [choices: "dev", "staging", "prod";
                      default: "dev"]
-  -w, --workers=<n>  Worker processes [must be even; default: 2]
-  -t, --tag=<tag>    Tag the server [must be unique]
+  -w, --workers=<n>  Worker processes [an even number; default: 2]
+  -t, --tag=<tag>    Tag the server [a unique value]
   -h, --help         Display this help message
 ```
 
@@ -241,7 +241,7 @@ Usage:
   serve (-h | --help)
 $ ./serve -t web -t web
 Validation error:
-  - for -t, "web" did not meet condition: must be unique
+  - for -t, got "web" but expected a unique value
 
 Usage:
   serve [options]
@@ -276,7 +276,9 @@ nothing, or a proc to list values when the user presses Tab (see
 ### Writing Your Own Checks
 
 Give `check` a proc that takes the value and returns whether it's good. The
-last argument describes the rule for help and errors:
+last argument describes the values it accepts, for help and errors. Write it
+as what's expected, like "a prime number", since an error reads "got 8 but
+expected a prime number":
 
 ```nim
 import argumint
@@ -289,9 +291,9 @@ proc isPrime(n: int): bool =
 
 let spec = (
   seed: opt("--seed=<n>", default = 7, help = "Random seed",
-    validator = check(isPrime, "must be prime")),
+    validator = check(isPrime, "a prime number")),
   steps: opts("--step=<n>", help = "Steps, each larger than the last",
-    validator = checkSeenIt[int](seen.len == 0 or it > seen[^1], "must increase")),
+    validator = checkSeenIt[int](seen.len == 0 or it > seen[^1], "a larger step")),
 )
 
 spec.parseOrQuit()
@@ -300,20 +302,21 @@ spec.parseOrQuit()
 ```console
 $ ./seeds --seed 8
 Validation error:
-  - for --seed, 8 did not meet condition: must be prime
+  - for --seed, got 8 but expected a prime number
 
 Usage:
   seeds [options]
 $ ./seeds --step 3 --step 2
 Validation error:
-  - for --step, 2 did not meet condition: must increase
+  - for --step, got 2 but expected a larger step
 
 Usage:
   seeds [options]
 ```
 
 Without a description, `checkIt` and `checkSeenIt` show the expression
-itself.
+itself, and an error reads "8 did not meet condition: " and then the
+expression.
 
 ### Combining Validators
 
@@ -350,7 +353,7 @@ Options:
   -h, --help           Display this help message
 $ ./blocks -s 6
 Validation error:
-  - for -s, 6 did not meet condition: a multiple of 4
+  - for -s, got 6 but expected a multiple of 4
 
 Usage:
   blocks [options]
@@ -360,3 +363,5 @@ Usage:
 `all` reports the first validator that fails. Without a description, `any`
 lists all of its validators, joined with "or". Every validator takes an
 optional `desc` to replace its text in help and errors, as `any` does above.
+Pass `desc = some("")` to hide a validator's text in help and keep its usual
+error.

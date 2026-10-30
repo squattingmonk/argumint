@@ -19,7 +19,7 @@ import ./argumint/[configsource, help]
 import ./argumint/core/[backend, envvar, errors, outcome, variant]
 import ./argumint/text/[console, style]
 import ./argumint/grammar/[dot, specbuild]
-import ./argumint/values/[argtypes, flagclamp, validators]
+import ./argumint/values/[annotationtext, argtypes, flagclamp, validators]
 import ./argumint/walk/[completion, fsm]
 
 # Re-exported so `import argumint` alone is enough to catch everything
@@ -28,16 +28,18 @@ export errors except newPlainError
 
 # Ergonomics, and fixes an openSym resolution bug for custom Arg types --
 # see docs/gotchas.md and docs/adr/0017-argumint-reexports-for-custom-arg-types.md.
-export validators except styledHelp, seesHistory
+export validators except styledHelp, seesHistory, hidesHelp
 export flagclamp except styledHelp
+export annotationtext.AnnotationText, annotationtext.toAnnotationText
 export configsource
 export backend.name
 
-# `clamp`/`adjust`'s `desc: Option[string]` param (argumint/values/flagclamp,
-# see issue #12) makes `Option`-construction part of the public API surface --
-# re-exported narrowly (not wholesale `std/options`, which would flood the
-# namespace with `map`/`filter`/`flatMap`/... unrelated to spec construction),
-# so `import argumint` alone is enough to write `desc = some("...")`.
+# A `desc`'s `some("")` hides a Help Annotation (`AnnotationText`, see
+# issue #12 and ADR 0089), which makes `Option`-construction part of the
+# public API surface -- re-exported narrowly (not wholesale `std/options`,
+# which would flood the namespace with `map`/`filter`/`flatMap`/... unrelated
+# to spec construction), so `import argumint` alone is enough to write
+# `desc = some("")`.
 #
 # The three accessors joined them in #59, when `envSource*` became the first
 # exported signature to *return* an `Option` -- reading one back needs them,

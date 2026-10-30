@@ -107,7 +107,7 @@ value:
 ```nim
 let spec = (
   dates: opts[DateTime]("--date=<date>",
-    validator = checkIt[DateTime](it.year >= 2000, "in 2000 or later"),
+    validator = checkIt[DateTime](it.year >= 2000, "a date in 2000 or later"),
     help = "Dates to show"),
   help: help(),
 )
@@ -116,7 +116,7 @@ let spec = (
 ```console
 $ ./history --date 1999-12-31
 Validation error:
-  - for --date, 1999-12-31T00:00:00-06:00 did not meet condition: in 2000 or later
+  - for --date, got 1999-12-31T00:00:00-06:00 but expected a date in 2000 or later
 
 Usage:
   history [options]

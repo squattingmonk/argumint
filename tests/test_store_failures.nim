@@ -81,8 +81,8 @@ suite "the exception covers every failure":
       fail()
     except ValidationError as e:
       check e.msg.complaints == @[
-        "for --tag, \"a\" did not meet condition: must be unique",
-        "for --tag, \"b\" did not meet condition: must be unique"]
+        "for --tag, got \"a\" but expected a unique value",
+        "for --tag, got \"b\" but expected a unique value"]
 
   test "a Validator sees only what was stored":
     let s = spec()
@@ -114,7 +114,7 @@ suite "the exception covers every failure":
     except ParseError as e:
       check e.name == "ParseError"
       check e.msg.complaints == @[
-        "for --tag, \"a\" did not meet condition: must be unique",
+        "for --tag, got \"a\" but expected a unique value",
         "unexpected option: --name (env: ARGUMINT_TEST_NAMES)"]
 
 suite "a failed value closes the weaker tiers":
