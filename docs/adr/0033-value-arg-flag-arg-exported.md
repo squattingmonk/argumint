@@ -1,7 +1,8 @@
 # `ValueArg` and `FlagArg` are exported; their state stays private
 
-> **Note (2026-10-30):** the two-file convention below now covers private
-> fields only; withheld names no longer get a `not compiles` test. See
+> **Note (2026-10-30):** the two-file convention below is gone. Withheld
+> names no longer get a `not compiles` test, and a private field's negative
+> and its `privateAccess` positive now share one test (#364). See
 > CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
 
 > **Amended by [ADR 0041](0041-parse-is-the-write-surface.md)**: the base
@@ -100,12 +101,12 @@ deliberately froze and which #22 is settling separately.
   today reports `argumint.ValueArg`, a type the user could not look up;
   exporting doesn't fix that inference problem, but it does make the name in
   the error findable.
-- `tests/test_public_api.nim` gains both halves of the boundary: the two
+- `tests/api/test_argumint.nim` gains both halves of the boundary: the two
   types are nameable, and their fields are not. It previously asserted
   nothing about either type in either direction, which ADR 0030 made that
   file's job.
 - One wrinkle in the two-file convention that file documents. Every negative
-  in `test_public_api.nim` is supposed to be mirrored by a positive in
+  in `tests/api/test_argumint.nim` is supposed to be mirrored by a positive in
   `tests/test_argumint.nim`, so that a negative can't pass merely because a
   name was deleted. `FlagOp` can't be mirrored there: it is private to
   `src/argumint.nim` itself rather than to a submodule that file can import,

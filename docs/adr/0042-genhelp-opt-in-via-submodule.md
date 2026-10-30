@@ -1,6 +1,6 @@
 # `genHelp` is opt-in via `argumint/help`, not re-exported
 
-> **Note (2026-10-30):** `tests/test_public_api.nim` no longer asserts
+> **Note (2026-10-30):** `tests/api/test_argumint.nim` no longer asserts
 > `genHelp` is unreachable; withheld names no longer get a `not compiles`
 > test. See CODING_STANDARDS.md, "`not compiles` pins a designed
 > constraint".
@@ -27,7 +27,7 @@ spec-construction vocabulary; a rendering entry point most CLIs never call
 doesn't need to widen it. Semi-public also leaves room to revise the
 signature with less ceremony than a name promised by the 1.0 umbrella API.
 
-`tests/test_public_api.nim` asserts a bare `import argumint` can't reach
+`tests/api/test_argumint.nim` asserts a bare `import argumint` can't reach
 it; `tests/test_help.nim` imports the submodule and calls it. That pairing
 is a third category alongside the two
 `docs/adr/0030-core-types-exported-spec-opaque.md` describes -- not

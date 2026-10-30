@@ -1,8 +1,9 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
 > **Note (2026-10-30):** withheld names no longer get a `not compiles`
-> test; private fields still do. See CODING_STANDARDS.md, "`not compiles`
-> pins a designed constraint".
+> test; private fields still do, each mirrored by a `privateAccess` positive
+> in the same test rather than in `tests/test_argumint.nim` (#364). See
+> CODING_STANDARDS.md, "`not compiles` pins a designed constraint".
 
 > **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
 > `kind`, `variants`, `CommandArg.spec` and `seenBy` are no longer public
@@ -196,7 +197,7 @@ private field from a caller-instantiated body.
 
   **Update (issue #84):** no longer -- those assertions go through the read
   accessors that `import argumint/backend` already brings in.
-- `tests/test_public_api.nim` locks the boundary in both directions — every
+- `tests/api/test_argumint.nim` locks the boundary in both directions — every
   exported type nameable, every plumbing type not, every private `Spec` field
   unreachable — and must never import an `argumint/*` submodule, or its
   negative assertions pass vacuously. A `not compiles(...)` is also satisfied

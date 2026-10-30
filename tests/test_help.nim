@@ -1,7 +1,6 @@
 # What `argumint/help` adds to `import argumint`: `genHelp` (see
 # `docs/adr/0042-genhelp-opt-in-via-submodule.md`) and the Help Formatter
-# toolkit. Also the positive half of `tests/test_public_api.nim`'s
-# `HelpContext` private-field assertions.
+# toolkit, including the accessors that read `HelpContext`'s private fields.
 
 import std/[strutils, sugar, unittest]
 

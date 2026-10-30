@@ -69,7 +69,7 @@ deliberate; it is not an oversight to be tidied up later.
 **"Withheld" means exported from its own module, absent from the facade.**
 This is an established shape here, not a new category: the variant-format
 PEGs are exported from `backend` and deliberately unreachable from a bare
-`import argumint`, and `tests/test_public_api.nim` polices exactly that.
+`import argumint`, and `tests/api/test_argumint.nim` polices exactly that.
 Every withheld name gets a `not compiles` assertion there, mirrored by a
 positive in the suite that imports internals -- neither half means much
 alone.

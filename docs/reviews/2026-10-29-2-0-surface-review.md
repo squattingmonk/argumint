@@ -209,7 +209,7 @@ wording to the list.
 ### AG — The facade exports whole modules
 
 **Worth exploring.** Files: `src/argumint.nim:27–33`,
-`tests/test_public_api.nim`.
+`tests/api/test_argumint.nim`.
 
 **Problem.** `argumint.nim` re-exports `errors`, `validators`, `flagclamp`
 and `configsource` whole, minus a few names. Every exported name in those
