@@ -1,5 +1,10 @@
 # `genHelp` is opt-in via `argumint/help`, not re-exported
 
+> **Note (2026-10-30):** `tests/test_public_api.nim` no longer asserts
+> `genHelp` is unreachable; withheld names no longer get a `not compiles`
+> test. See CODING_STANDARDS.md, "`not compiles` pins a designed
+> constraint".
+
 `genHelp` is exported from `argumint/help` and deliberately absent from
 `import argumint`. A caller who wants to render a Spec's help text
 themselves -- to print it at another moment, page it, or embed it in a

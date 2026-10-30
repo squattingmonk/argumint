@@ -85,7 +85,7 @@ export backend.DefaultWidth, backend.DefaultMaxVariantsWidth,
 # `newSpecSettings`, `env = "PORT"` needs `env`/`toEnvSource`, and `subject`
 # is reachable by bare name from a generated `parse` method (ADR 0017). The
 # plumbing beside them (`beginSpec`/`finishSpec`/`addArgs`, the variant-format
-# PEGs) stays out; `tests/test_public_api.nim` holds that line.
+# PEGs) stays out, since only the names below are exported.
 export backend.newSpecSettings, envvar.env, envvar.toEnvSource, backend.appName,
   backend.detectWidth, backend.width, backend.`width=`, backend.style,
   backend.`style=`
@@ -111,8 +111,7 @@ export backend.parse, backend.clear
 # `argumint/values/argtypes`. Only their names travel back here: the private
 # fields, the untyped bases, and the `init*`/`raw*` bookends
 # the public names below are written against all stay withheld -- see
-# `docs/adr/0043-facade-machinery-seam.md`, and `tests/test_public_api.nim`,
-# which holds that line.
+# `docs/adr/0043-facade-machinery-seam.md`.
 export argtypes.ValueArg, argtypes.ValuesArg, argtypes.FlagArg, argtypes.FlagOp
 
 # Enough to pick a built-in Help Formatter or declare Long-Form Help Text;

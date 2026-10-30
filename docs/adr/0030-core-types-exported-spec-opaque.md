@@ -1,5 +1,9 @@
 # Core types are exported; `Spec` becomes an opaque handle
 
+> **Note (2026-10-30):** withheld names no longer get a `not compiles`
+> test; private fields still do. See CODING_STANDARDS.md, "`not compiles`
+> pins a designed constraint".
+
 > **Amended by [ADR 0076](0076-custom-args-build-through-customarg.md)**:
 > `kind`, `variants`, `CommandArg.spec` and `seenBy` are no longer public
 > fields. Each is read through a getter, and a Custom Arg sets the first

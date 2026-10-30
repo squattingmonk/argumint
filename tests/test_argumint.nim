@@ -1,14 +1,11 @@
 import std/[importutils, json, options, os, pegs, sequtils, strutils, tables, terminal, unittest]
 
 import argumint
-import argumint/core/[backend, variant]
-import argumint/grammar/specbuild
+import argumint/core/backend
 import argumint/values/argtypes
 import argumint/walk/precedence
 import argumint/configsource/ini
 import argumint/configsource/json
-import argumint/values/display
-import argumint/values/annotationtext
 
 privateAccess(ValueArgBase)      ## White-box assertions on the arg
 privateAccess(ValueArg[string])  ## types exported by issue #27 -- type
@@ -1674,50 +1671,12 @@ suite "Messages":
     check s.commands["ship"].spec.settings.width == 40
     check s.commands["ship"].spec.commands["move"].spec.settings.width == 40
 
-suite "Library-internal names `tests/test_public_api.nim` asserts are unreachable":
-  # That file checks `not compiles(...)` for each of these from a bare
-  # `import argumint`, which would also pass if the name simply stopped
-  # existing (a rename, a deleted field). These positives are its other
-  # half: together they mean "exists, but not exported". Keep the two lists
-  # in sync -- see docs/adr/0030-core-types-exported-spec-opaque.md.
-  test "a validated flag's type guard exists":
-    check compiles(requireValidatedFlagType(int))
-    check not compiles(requireValidatedFlagType(string))
-
-  test "the value-display helpers exist":
-    check quoted("x") == "\"x\""
-    check showValue(1) == "1"
-
-  test "`AnnotationText`'s borrowed reads exist":
-    let custom: AnnotationText = "x"
-    let hidden: AnnotationText = some("")
-    let generated: AnnotationText = ""
-    check (custom.isSome, custom.get) == (true, "x")
-    check (hidden.isSome, hidden.get) == (true, "")
-    check not generated.isSome
-
-  test "the FSM plumbing types exist":
-    var
-      state: State
-      transition: Transition
-      matcher: Matcher
-      matcherKind: MatcherKind
-    check (state.isNil, transition.isNil, matcher.isNil) == (true, true, true)
-    check matcherKind == MatcherKind.mkOption # first declared value
-
-  test "`Spec`'s read accessors exist":
-    let spec = newSpec((name: arg("<name>", help = ""), go: command("go", (x: flag("-x", help = ""))),
-      verbose: flag("-v", help = "")), prolog = "pro", epilog = "epi")
-    check not spec.fsm.isNil
-    check spec.usage.len > 0
-    check spec.args.len == 3
-    check "go" in spec.commands
-    check "<name>" in spec.arguments
-    check "-v" in spec.options
-    check spec.groups.len > 0
-    check spec.prolog == "pro"
-    check spec.epilog == "epi"
-
+suite "Private fields `tests/test_public_api.nim` asserts are unreachable":
+  # That file checks `not compiles(...)` for each field here from a bare
+  # `import argumint`, which would also pass if the field simply stopped
+  # existing (a rename, a deletion). These positives are its other half:
+  # together they mean "exists, but private". Keep the two lists in sync --
+  # see docs/adr/0030-core-types-exported-spec-opaque.md.
   test "`SpecSettings`'s private `theme` field exists":
     privateAccess(SpecSettings)
     var theme = defaultTheme
@@ -1760,66 +1719,13 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
     check s.groups.len > 0
     check not s.fsm.isNil
 
-  test "spec construction's plumbing exists in `argumint/grammar/specbuild`":
-    # Exported from `specbuild` only so generic `newSpec` can instantiate in
-    # the caller's file (ADR 0030), never re-exported by the facade -- see
-    # issue #49.
-    let s = beginSpec("<name>", "front", "back")
-    s.addArgs((name: arg("<name>", help = ""),))
-    s.finishSpec(newSpecSettings(width = 80))
-    check "<name>" in s.arguments
-    check not s.fsm.isNil
-    check s.settings.width == 80
+  test "`Offer`'s private fields exist":
+    privateAccess(Offer)
+    let o = offer([("x", "An x")], paths = Files)
+    check o.values.len == 1
+    check o.paths == Files
 
-  test "the Variant grammar exists in `argumint/core/variant`":
-    check parseVariant("<name>", VariantShape.Positional).isSome
-    check parseVariant("--name=<s>", VariantShape.Option).get.metavar == "s"
-    check splitVariants("-v, --verbose") == @["-v", "--verbose"]
-
-  test "the tier rule exists in `argumint/core/backend`":
-    let arg = Arg()
-    arg.initBase(Optional, @["--port"])
-    var replaced = false
-    arg.arbitrated(some(byCli)):
-      replaced = how == arReplace
-    check replaced
-    check arg.seenBy == byCli
-    check not compiles(arg.arbitration(some(byCli)))
-
-  test "the env tier's reading and splitting exist in `argumint/core/envvar`":
-    check compiles(lookupEnv(EnvSource(name: "PORT"), ":"))
-    check splitEnvValue("a:b", none(string), ":") == @["a", "b"]
-
-  test "the `ValueArg`/`FlagArg` machinery exists in `argumint/values/argtypes`":
-    # Exported from `argtypes` only so the facade's generic constructors,
-    # accessors, `flagOp` and `flagOpIt` can reach it; never re-exported --
-    # see issue #51 and the ADR on the facade/machinery seam.
-    check opError[int]("+=") == ""
-    check opError[bool]("*=") == "`*=` needs `*` for bool"
-    expect SpecDefect:
-      discard namedOp("*=", true)
-    check describeOp("+=", 5) == "Increase by 5"
-    check initFlagOp[int]("-v", proc (value: var int) = discard, "").spellings == @["-v"]
-    check splitFlagSpellings("-v, --verbose") == @["-v", "--verbose"]
-    let boost = parseFlagOpsString[int]("--boost+=5")
-    check boost.len == 1
-    check boost[0].spellings == @["--boost"]
-    check boost[0].desc == "Increase by 5"
-    let name = initValueArg[string](Optional, "-n, --name=<s>", "x", "", "Options", false, noValidator[string]())
-    check name.variants == @["-n", "--name=<s>"]
-    let tags = initValuesArg[string](Optional, "--tag=<t>", @["x"], "", "Options", false, noValidator[string]())
-    check tags.variants == @["--tag=<t>"]
-    let verbose = initFlagArg[bool]("-v, --verbose", [], false, "", "Options", false,
-      noClamp[bool](), none(EnvSource), noConfigKey())
-    check verbose.ops.len == 2
-
-  test "the untyped base under `ValueArg`/`ValuesArg` exists in `argumint/values/argtypes`":
-    let base: ValueArgBase = opt("--num=<n>", default = 1)
-    check not base.multi
-    check ValueArgBase(opts[int]("--num=<n>")).multi
-    let flagBase: FlagArgBase = flag[int]("-v")
-    check flagBase.ops.len == 1
-
+suite "Arg constructors":
   test "a `ValueArg`/`ValuesArg` constructor sets every hook on its base":
     # A hook left unset compiles, then crashes the first time a base method
     # calls it.
@@ -1838,17 +1744,6 @@ suite "Library-internal names `tests/test_public_api.nim` asserts are unreachabl
         checkpoint name
         check not field.isNil
     check FlagArgBase(flag[int]("-v"))[].assign.isNil
-
-  test "the read accessors behind `get` exist in `argumint/values/argtypes`":
-    let
-      name = opt("-n, --name=<s>", default = "x", help = "")
-      tags = opts("--tag=<t>", default = @["a"], help = "")
-      verbose = flag("-v", help = "")
-    check name.rawValue.isNone
-    check name.rawDefault == "x"
-    check tags.rawValue.isNone
-    check tags.rawDefault == @["a"]
-    check not verbose.rawValue
 
   test "a flag-op entry's grammar lives beside `parseFlagOpsString`":
     check parseFlagOpsString[int]("--boost+=5")[0].spellings == @["--boost"]

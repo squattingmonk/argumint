@@ -221,12 +221,11 @@ frozen, without anyone deciding it. The facade also re-exports
 `std/options` (`Option`, `some`, `none`, `isSome`, `isNone` and `get`), so
 their shape is part of argumint's.
 
-The rest of the facade names each export with a comment saying why, and
-`test_public_api.nim` pins what it withholds. These four lines are the
-exception.
+The rest of the facade names each export with a comment saying why. These
+four lines are the exception.
 
 **Solution.** Export the user-facing names one by one, and withhold the
-machinery, with a `not compiles` test for each. Decide each `std`
+machinery. Decide each `std`
 re-export: keep `Option` and its constructors, which `env` and `clamp`'s
 parameters need, and check whether anything needs `terminal.Style`
 directly.
@@ -234,6 +233,10 @@ directly.
 **2.0 part.** Withholding a name that's exported now. Listing the rest by
 name changes nothing for users, so it can happen on `main` first, and then
 each withheld name is a small `next` change.
+
+> **Note (2026-10-30):** withheld names no longer get a `not compiles` test
+> (CODING_STANDARDS.md, "`not compiles` pins a designed constraint"), so
+> this candidate's Solution no longer asks for one.
 
 ### AH — A message is named an error
 
