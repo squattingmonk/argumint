@@ -1,5 +1,9 @@
 # 1.x freezes the public modules and the usage grammar
 
+> **Refined by [ADR 0090](0090-a-pin-backs-every-supported-name.md)**:
+> a public module's name is supported only if a Pin backs it, and a
+> `!` name in the Public Surface may change in a minor release.
+
 argumint 1.0 follows Semantic Versioning, which needs a line drawn around
 its public interface. Nim can't hide a submodule from a program that
 imports it by path, so the line has to be stated rather than enforced. The

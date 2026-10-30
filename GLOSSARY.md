@@ -1005,3 +1005,18 @@ Path Completion converts to one offering just those paths. The default
 offers the Arg's enumerable values, otherwise files. See
 `docs/adr/0071-runtime-completers.md`.
 _Avoid_: Completion function, completion callback
+
+**Public Surface**:
+Every name argumint's public modules reach, as recorded in the checked-in
+snapshot `tests/api/surface.txt`: the supported names, each backed by a
+Pin, and the leaked ones marked `!`, reachable but unsupported. See
+`docs/adr/0080-1x-freezes-the-public-modules-and-the-usage-grammar.md` and
+`docs/adr/0090-a-pin-backs-every-supported-name.md`.
+_Avoid_: Public API, export list (both suggest every name is supported)
+
+**Pin**:
+The test that makes a Public Surface name supported: it imports one public
+module and no other argumint module, reaches the name through it, and is
+tagged with the name's Public Surface line. A name without one is
+unsupported, even if a public module exports it. See `docs/adr/0090-a-pin-backs-every-supported-name.md`.
+_Avoid_: API test (any test in `tests/api/`), export test
