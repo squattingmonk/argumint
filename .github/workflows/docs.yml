@@ -48,6 +48,9 @@ jobs:
         with:
           nim-version: ${{ steps.nim.outputs.version }}
       - run: nimble docs
+      # Fails on an uncommitted Public Surface change; see tests/api/README.md.
+      - run: nimble surface
+      - run: git diff --exit-code tests/api/surface.txt
       - run: nimble docscheck
       - if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3

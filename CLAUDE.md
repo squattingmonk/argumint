@@ -17,6 +17,9 @@ state machine that drives parsing.
   an installed argumint out. See `tools/runtests.nim`.
 - `nimble docscheck` lints the guide's Markdown and compiles its examples;
   `nimble docs` builds the API docs and fails on any doc-comment error.
+- `nimble surface` (after `nimble docs`) rewrites `tests/api/surface.txt`,
+  the Public Surface, and fails on a line without a Pin. CI fails if the
+  rewrite changed the file. See `tests/api/README.md`.
 - `markdownlint-cli2 "**/*.md"` checks every Markdown file's line width (an
   80-column wrap; code blocks, tables and headings exempt). It is installed
   separately (e.g. `npm i -g markdownlint-cli2`) and runs in the Docs
