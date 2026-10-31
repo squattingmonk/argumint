@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/squattingmonk/argumint/compare/1.3.1...1.4.0) (2026-10-31)
+
+
+### Features
+
+* let a Validator's desc hide its Help Annotation and read as what's expected ([#360](https://github.com/squattingmonk/argumint/issues/360)) ([55bdbd2](https://github.com/squattingmonk/argumint/commit/55bdbd2a88a8f6b9ac302dae38f7f024b9940966))
+
 ## [1.3.1](https://github.com/squattingmonk/argumint/compare/1.3.0...1.3.1) (2026-10-27)
 
 
